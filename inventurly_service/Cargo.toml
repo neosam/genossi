@@ -1,0 +1,11 @@
+[package]
+name = "inventurly_service"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+inventurly_dao = { path = "../inventurly_dao" }
+async-trait = { workspace = true }
+mockall = { workspace = true }
+time = { workspace = true }
+uuid = { workspace = true }

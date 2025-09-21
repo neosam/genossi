@@ -1,0 +1,12 @@
+[package]
+name = "inventurly_service_impl"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+inventurly_dao = { path = "../inventurly_dao" }
+inventurly_service = { path = "../inventurly_service" }
+async-trait = { workspace = true }
+time = { workspace = true }
+uuid = { workspace = true }
+tracing = { workspace = true }

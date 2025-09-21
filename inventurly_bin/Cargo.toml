@@ -1,0 +1,34 @@
+[package]
+name = "inventurly_bin"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "inventurly"
+path = "src/main.rs"
+
+[dependencies]
+inventurly_dao = { path = "../inventurly_dao" }
+inventurly_dao_impl_sqlite = { path = "../inventurly_dao_impl_sqlite" }
+inventurly_service = { path = "../inventurly_service" }
+inventurly_service_impl = { path = "../inventurly_service_impl" }
+inventurly_rest = { path = "../inventurly_rest" }
+inventurly_rest_types = { path = "../inventurly_rest_types" }
+async-trait = { workspace = true }
+axum = { workspace = true }
+dotenv = { workspace = true }
+sqlx = { workspace = true }
+tokio = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+utoipa = { workspace = true }
+utoipa-swagger-ui = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+uuid = { workspace = true }
+time = { workspace = true }
+reqwest = { version = "0.11", features = ["json"] }
+futures = "0.3"

@@ -1,0 +1,25 @@
+[package]
+name = "inventurly_rest"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+axum = { workspace = true }
+inventurly_dao = { path = "../inventurly_dao" }
+inventurly_service = { path = "../inventurly_service" }
+inventurly_rest_types = { path = "../inventurly_rest_types" }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+utoipa = { workspace = true }
+utoipa-swagger-ui = { workspace = true }
+
+[dev-dependencies]
+tower = { workspace = true }
+tower-http = { workspace = true }
+time = { workspace = true }

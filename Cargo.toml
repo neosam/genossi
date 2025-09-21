@@ -1,0 +1,35 @@
+[workspace]
+members = [
+    "inventurly_dao",
+    "inventurly_dao_impl_sqlite",
+    "inventurly_service",
+    "inventurly_service_impl",
+    "inventurly_rest",
+    "inventurly_rest_types",
+    "inventurly_bin",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Your Name <your.email@example.com>"]
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+async-trait = "0.1"
+axum = "0.8.3"
+mockall = "0.13"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "time"] }
+time = { version = "0.3", features = ["serde", "formatting", "parsing"] }
+tokio = { version = "1.35", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1.6", features = ["v4", "serde"] }
+utoipa = { version = "5.0", features = ["axum_extras", "time", "uuid"] }
+utoipa-swagger-ui = { version = "9.0", features = ["axum"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors"] }
+dotenv = "0.15"
