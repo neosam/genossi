@@ -9,3 +9,8 @@ async-trait = { workspace = true }
 mockall = { workspace = true }
 time = { workspace = true }
 uuid = { workspace = true }
+serde = { workspace = true }
+utoipa = { workspace = true, optional = true }
+
+[features]
+utoipa = ["dep:utoipa"]

@@ -1,5 +1,6 @@
 pub mod person;
 pub mod product;
+pub mod csv_import;
 pub mod test_server;
 
 use async_trait::async_trait;
@@ -83,16 +84,22 @@ pub trait RestStateDef: Clone + Send + Sync + 'static {
         + Send
         + Sync
         + 'static;
+    type CsvImportService: inventurly_service::csv_import::CsvImportService<Context = MockContext>
+        + Send
+        + Sync
+        + 'static;
 
     fn person_service(&self) -> Arc<Self::PersonService>;
     fn product_service(&self) -> Arc<Self::ProductService>;
+    fn csv_import_service(&self) -> Arc<Self::CsvImportService>;
 }
 
 #[derive(OpenApi)]
 #[openapi(
     nest(
         (path = "/persons", api = person::ApiDoc),
-        (path = "/products", api = product::ApiDoc)
+        (path = "/products", api = product::ApiDoc),
+        (path = "/csv-import", api = csv_import::CsvImportApiDoc)
     )
 )]
 pub struct ApiDoc;
@@ -125,6 +132,7 @@ pub fn create_app<RestState: RestStateDef>(rest_state: RestState) -> Router {
         .merge(swagger_router)
         .nest("/persons", person::generate_route())
         .nest("/products", product::generate_route())
+        .nest("/csv-import", csv_import::generate_route())
         .with_state(rest_state.clone())
         .layer(middleware::from_fn(add_context::<RestState>))
         .layer(CorsLayer::permissive())

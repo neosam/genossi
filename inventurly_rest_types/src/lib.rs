@@ -110,6 +110,10 @@ impl Price {
     pub fn from_cents(cents: i64) -> Self {
         Self { cents }
     }
+    
+    pub fn to_cents(&self) -> i64 {
+        self.cents
+    }
 }
 
 impl Serialize for Price {

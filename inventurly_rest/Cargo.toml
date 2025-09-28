@@ -6,7 +6,7 @@ edition.workspace = true
 [dependencies]
 axum = { workspace = true }
 inventurly_dao = { path = "../inventurly_dao" }
-inventurly_service = { path = "../inventurly_service" }
+inventurly_service = { path = "../inventurly_service", features = ["utoipa"] }
 inventurly_rest_types = { path = "../inventurly_rest_types" }
 async-trait = { workspace = true }
 serde = { workspace = true }

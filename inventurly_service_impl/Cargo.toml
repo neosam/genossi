@@ -7,6 +7,7 @@ edition.workspace = true
 inventurly_dao = { path = "../inventurly_dao" }
 inventurly_service = { path = "../inventurly_service" }
 async-trait = { workspace = true }
+csv = { workspace = true }
 time = { workspace = true }
 uuid = { workspace = true }
 tracing = { workspace = true }

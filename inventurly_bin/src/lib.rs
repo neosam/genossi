@@ -7,6 +7,7 @@ use inventurly_service_impl::{
     permission::PermissionServiceDeps,
     person::{PersonServiceDeps, PersonServiceImpl},
     product::{ProductServiceDeps, ProductServiceImpl},
+    csv_import::{CsvImportServiceDeps, CsvImportServiceImpl},
 };
 use sqlx::SqlitePool;
 
@@ -68,11 +69,27 @@ impl ProductServiceDeps for ProductServiceDependencies {
 
 type ProductService = inventurly_service_impl::product::ProductServiceImpl<ProductServiceDependencies>;
 
+pub struct CsvImportServiceDependencies;
+
+unsafe impl Send for CsvImportServiceDependencies {}
+unsafe impl Sync for CsvImportServiceDependencies {}
+
+impl CsvImportServiceDeps for CsvImportServiceDependencies {
+    type Context = Context;
+    type Transaction = Transaction;
+    type ProductService = ProductService;
+    type PermissionService = PermissionService;
+    type TransactionDao = TransactionDao;
+}
+
+type CsvImportService = inventurly_service_impl::csv_import::CsvImportServiceImpl<CsvImportServiceDependencies>;
+
 // RestStateImpl with all services
 #[derive(Clone)]
 pub struct RestStateImpl {
     person_service: Arc<PersonService>,
     product_service: Arc<ProductService>,
+    csv_import_service: Arc<CsvImportService>,
 }
 
 impl RestStateImpl {
@@ -104,14 +121,22 @@ impl RestStateImpl {
         // Create ProductService using struct literal syntax
         let product_service = Arc::new(ProductServiceImpl {
             product_dao: product_dao,
-            permission_service: permission_service,
+            permission_service: permission_service.clone(),
             uuid_service: uuid_service,
+            transaction_dao: transaction_dao.clone(),
+        });
+        
+        // Create CsvImportService using struct literal syntax
+        let csv_import_service = Arc::new(CsvImportServiceImpl {
+            product_service: product_service.clone(),
+            permission_service: permission_service,
             transaction_dao: transaction_dao,
         });
         
         Self {
             person_service,
             product_service,
+            csv_import_service,
         }
     }
 }
@@ -119,6 +144,7 @@ impl RestStateImpl {
 impl inventurly_rest::RestStateDef for RestStateImpl {
     type PersonService = PersonService;
     type ProductService = ProductService;
+    type CsvImportService = CsvImportService;
 
     fn person_service(&self) -> Arc<Self::PersonService> {
         self.person_service.clone()
@@ -126,5 +152,9 @@ impl inventurly_rest::RestStateDef for RestStateImpl {
     
     fn product_service(&self) -> Arc<Self::ProductService> {
         self.product_service.clone()
+    }
+    
+    fn csv_import_service(&self) -> Arc<Self::CsvImportService> {
+        self.csv_import_service.clone()
     }
 }

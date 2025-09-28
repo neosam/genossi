@@ -30,5 +30,5 @@ utoipa-swagger-ui = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
 time = { workspace = true }
-reqwest = { version = "0.11", features = ["json"] }
+reqwest = { version = "0.11", features = ["json", "multipart"] }
 futures = "0.3"

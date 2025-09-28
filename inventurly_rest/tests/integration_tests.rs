@@ -5,6 +5,7 @@ use inventurly_rest_types::PersonTO;
 use inventurly_service::permission::{Authentication, MockContext};
 use inventurly_service::person::{Person, PersonService};
 use inventurly_service::product::{Product, ProductService};
+use inventurly_service::csv_import::{CsvImportService, CsvImportResult, CsvProductRow, ImportAction};
 use serde_json::json;
 use std::sync::Arc;
 use tower::ServiceExt;
@@ -14,11 +15,13 @@ use uuid::Uuid;
 struct TestRestState {
     person_service: Arc<MockPersonService>,
     product_service: Arc<MockProductService>,
+    csv_import_service: Arc<MockCsvImportService>,
 }
 
 impl RestStateDef for TestRestState {
     type PersonService = MockPersonService;
     type ProductService = MockProductService;
+    type CsvImportService = MockCsvImportService;
 
     fn person_service(&self) -> Arc<Self::PersonService> {
         self.person_service.clone()
@@ -26,6 +29,10 @@ impl RestStateDef for TestRestState {
     
     fn product_service(&self) -> Arc<Self::ProductService> {
         self.product_service.clone()
+    }
+    
+    fn csv_import_service(&self) -> Arc<Self::CsvImportService> {
+        self.csv_import_service.clone()
     }
 }
 
@@ -194,10 +201,43 @@ impl ProductService for MockProductService {
     }
 }
 
+#[derive(Clone)]
+struct MockCsvImportService;
+
+#[async_trait::async_trait]
+impl CsvImportService for MockCsvImportService {
+    type Context = MockContext;
+    type Transaction = inventurly_dao::MockTransaction;
+
+    async fn import_products_csv(
+        &self,
+        _csv_content: &str,
+        _auth: Authentication<Self::Context>,
+        _transaction: Option<Self::Transaction>,
+    ) -> Result<CsvImportResult, inventurly_service::ServiceError> {
+        Ok(CsvImportResult {
+            total_rows: 0,
+            created: 0,
+            updated: 0,
+            errors: vec![],
+        })
+    }
+
+    async fn import_product_row(
+        &self,
+        _row: CsvProductRow,
+        _auth: Authentication<Self::Context>,
+        _transaction: Option<Self::Transaction>,
+    ) -> Result<ImportAction, inventurly_service::ServiceError> {
+        Ok(ImportAction::Created)
+    }
+}
+
 fn create_test_app() -> axum::Router {
     let rest_state = TestRestState {
         person_service: Arc::new(MockPersonService),
         product_service: Arc::new(MockProductService),
+        csv_import_service: Arc::new(MockCsvImportService),
     };
 
     axum::Router::new()
