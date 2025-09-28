@@ -1,4 +1,5 @@
 pub mod person;
+pub mod product;
 pub mod permission;
 
 use std::sync::Arc;

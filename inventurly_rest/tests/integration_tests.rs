@@ -4,6 +4,7 @@ use inventurly_rest::RestStateDef;
 use inventurly_rest_types::PersonTO;
 use inventurly_service::permission::{Authentication, MockContext};
 use inventurly_service::person::{Person, PersonService};
+use inventurly_service::product::{Product, ProductService};
 use serde_json::json;
 use std::sync::Arc;
 use tower::ServiceExt;
@@ -12,13 +13,19 @@ use uuid::Uuid;
 #[derive(Clone)]
 struct TestRestState {
     person_service: Arc<MockPersonService>,
+    product_service: Arc<MockProductService>,
 }
 
 impl RestStateDef for TestRestState {
     type PersonService = MockPersonService;
+    type ProductService = MockProductService;
 
     fn person_service(&self) -> Arc<Self::PersonService> {
         self.person_service.clone()
+    }
+    
+    fn product_service(&self) -> Arc<Self::ProductService> {
+        self.product_service.clone()
     }
 }
 
@@ -125,9 +132,72 @@ impl PersonService for MockPersonService {
     }
 }
 
+#[derive(Clone)]
+struct MockProductService;
+
+#[async_trait::async_trait]
+impl ProductService for MockProductService {
+    type Context = MockContext;
+    type Transaction = inventurly_dao::MockTransaction;
+
+    async fn get_all(
+        &self,
+        _auth: Authentication<Self::Context>,
+        _transaction: Option<Self::Transaction>,
+    ) -> Result<Arc<[Product]>, inventurly_service::ServiceError> {
+        Ok(Arc::from([]))
+    }
+
+    async fn get_by_ean(
+        &self,
+        _ean: &str,
+        _auth: Authentication<Self::Context>,
+        _transaction: Option<Self::Transaction>,
+    ) -> Result<Product, inventurly_service::ServiceError> {
+        Err(inventurly_service::ServiceError::EntityNotFound(Uuid::nil()))
+    }
+
+    async fn get_by_id(
+        &self,
+        id: Uuid,
+        _auth: Authentication<Self::Context>,
+        _transaction: Option<Self::Transaction>,
+    ) -> Result<Product, inventurly_service::ServiceError> {
+        Err(inventurly_service::ServiceError::EntityNotFound(id))
+    }
+
+    async fn create(
+        &self,
+        _product: &Product,
+        _auth: Authentication<Self::Context>,
+        _transaction: Option<Self::Transaction>,
+    ) -> Result<Product, inventurly_service::ServiceError> {
+        Err(inventurly_service::ServiceError::InternalError(Arc::from("Not implemented")))
+    }
+
+    async fn update(
+        &self,
+        _product: &Product,
+        _auth: Authentication<Self::Context>,
+        _transaction: Option<Self::Transaction>,
+    ) -> Result<Product, inventurly_service::ServiceError> {
+        Err(inventurly_service::ServiceError::InternalError(Arc::from("Not implemented")))
+    }
+
+    async fn delete(
+        &self,
+        id: Uuid,
+        _auth: Authentication<Self::Context>,
+        _transaction: Option<Self::Transaction>,
+    ) -> Result<(), inventurly_service::ServiceError> {
+        Err(inventurly_service::ServiceError::EntityNotFound(id))
+    }
+}
+
 fn create_test_app() -> axum::Router {
     let rest_state = TestRestState {
         person_service: Arc::new(MockPersonService),
+        product_service: Arc::new(MockProductService),
     };
 
     axum::Router::new()
