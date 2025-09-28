@@ -34,3 +34,4 @@ utoipa-swagger-ui = { version = "9.0", features = ["axum"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors"] }
 dotenv = "0.15"
+strsim = "0.10"

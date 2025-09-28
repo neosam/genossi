@@ -6,6 +6,7 @@ use inventurly_service::permission::{Authentication, MockContext};
 use inventurly_service::person::{Person, PersonService};
 use inventurly_service::product::{Product, ProductService};
 use inventurly_service::csv_import::{CsvImportService, CsvImportResult, CsvProductRow, ImportAction};
+use inventurly_service::duplicate_detection::{DuplicateDetectionService, DuplicateDetectionConfig, DuplicateDetectionResult, DuplicateMatch};
 use serde_json::json;
 use std::sync::Arc;
 use tower::ServiceExt;
@@ -16,12 +17,14 @@ struct TestRestState {
     person_service: Arc<MockPersonService>,
     product_service: Arc<MockProductService>,
     csv_import_service: Arc<MockCsvImportService>,
+    duplicate_detection_service: Arc<MockDuplicateDetectionService>,
 }
 
 impl RestStateDef for TestRestState {
     type PersonService = MockPersonService;
     type ProductService = MockProductService;
     type CsvImportService = MockCsvImportService;
+    type DuplicateDetectionService = MockDuplicateDetectionService;
 
     fn person_service(&self) -> Arc<Self::PersonService> {
         self.person_service.clone()
@@ -33,6 +36,10 @@ impl RestStateDef for TestRestState {
     
     fn csv_import_service(&self) -> Arc<Self::CsvImportService> {
         self.csv_import_service.clone()
+    }
+    
+    fn duplicate_detection_service(&self) -> Arc<Self::DuplicateDetectionService> {
+        self.duplicate_detection_service.clone()
     }
 }
 
@@ -233,11 +240,52 @@ impl CsvImportService for MockCsvImportService {
     }
 }
 
+#[derive(Clone)]
+struct MockDuplicateDetectionService;
+
+#[async_trait::async_trait]
+impl DuplicateDetectionService for MockDuplicateDetectionService {
+    type Context = MockContext;
+    type Transaction = inventurly_dao::MockTransaction;
+
+    async fn find_duplicates(
+        &self,
+        _product: &Product,
+        _config: Option<DuplicateDetectionConfig>,
+        _context: Authentication<Self::Context>,
+        _tx: Option<Self::Transaction>,
+    ) -> Result<DuplicateDetectionResult, inventurly_service::ServiceError> {
+        Err(inventurly_service::ServiceError::InternalError(Arc::from("Not implemented")))
+    }
+
+    async fn find_all_duplicates(
+        &self,
+        _config: Option<DuplicateDetectionConfig>,
+        _context: Authentication<Self::Context>,
+        _tx: Option<Self::Transaction>,
+    ) -> Result<Vec<DuplicateDetectionResult>, inventurly_service::ServiceError> {
+        Ok(vec![])
+    }
+
+    async fn check_potential_duplicate(
+        &self,
+        _name: &str,
+        _sales_unit: &str,
+        _requires_weighing: bool,
+        _config: Option<DuplicateDetectionConfig>,
+        _context: Authentication<Self::Context>,
+        _tx: Option<Self::Transaction>,
+    ) -> Result<Vec<DuplicateMatch>, inventurly_service::ServiceError> {
+        Ok(vec![])
+    }
+}
+
 fn create_test_app() -> axum::Router {
     let rest_state = TestRestState {
         person_service: Arc::new(MockPersonService),
         product_service: Arc::new(MockProductService),
         csv_import_service: Arc::new(MockCsvImportService),
+        duplicate_detection_service: Arc::new(MockDuplicateDetectionService),
     };
 
     axum::Router::new()

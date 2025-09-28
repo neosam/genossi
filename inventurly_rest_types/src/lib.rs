@@ -220,3 +220,170 @@ impl From<&ProductTO> for inventurly_service::product::Product {
         }
     }
 }
+
+// Duplicate Detection API Types
+
+/// Configuration for duplicate detection algorithms
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct DuplicateDetectionConfigTO {
+    /// Minimum similarity threshold for considering products as duplicates (0.0 to 1.0). Default: 0.55
+    #[schema(example = 0.55)]
+    pub similarity_threshold: f64,
+    /// Weight for case-insensitive exact match (0.0 to 1.0). Reduced because exact matches are rare
+    #[schema(example = 0.3)]
+    pub exact_match_weight: f64,
+    /// Weight for word order variations (0.0 to 1.0). Important for German text
+    #[schema(example = 0.4)]
+    pub word_order_weight: f64,
+    /// Weight for Levenshtein distance similarity (0.0 to 1.0). Good for typos
+    #[schema(example = 0.2)]
+    pub levenshtein_weight: f64,
+    /// Weight for Jaro-Winkler similarity (0.0 to 1.0). Supplementary algorithm
+    #[schema(example = 0.1)]
+    pub jaro_winkler_weight: f64,
+    /// Enable category-aware matching (consider sales_unit, etc.)
+    #[schema(example = true)]
+    pub category_aware: bool,
+}
+
+impl From<inventurly_service::duplicate_detection::DuplicateDetectionConfig> for DuplicateDetectionConfigTO {
+    fn from(config: inventurly_service::duplicate_detection::DuplicateDetectionConfig) -> Self {
+        Self {
+            similarity_threshold: config.similarity_threshold,
+            exact_match_weight: config.exact_match_weight,
+            word_order_weight: config.word_order_weight,
+            levenshtein_weight: config.levenshtein_weight,
+            jaro_winkler_weight: config.jaro_winkler_weight,
+            category_aware: config.category_aware,
+        }
+    }
+}
+
+impl From<DuplicateDetectionConfigTO> for inventurly_service::duplicate_detection::DuplicateDetectionConfig {
+    fn from(to: DuplicateDetectionConfigTO) -> Self {
+        Self {
+            similarity_threshold: to.similarity_threshold,
+            exact_match_weight: to.exact_match_weight,
+            word_order_weight: to.word_order_weight,
+            levenshtein_weight: to.levenshtein_weight,
+            jaro_winkler_weight: to.jaro_winkler_weight,
+            category_aware: to.category_aware,
+        }
+    }
+}
+
+/// Detailed scores from individual similarity algorithms
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct AlgorithmScoresTO {
+    /// Case-insensitive exact match score (0.0 or 1.0). Usually 0.0 for real-world data
+    #[schema(example = 0.0)]
+    pub exact_match: f64,
+    /// Word order variation score (0.0 to 1.0). High for German word reordering
+    #[schema(example = 1.0)]
+    pub word_order: f64,
+    /// Levenshtein distance similarity (0.0 to 1.0). Good for typo detection
+    #[schema(example = 0.65)]
+    pub levenshtein: f64,
+    /// Jaro-Winkler similarity (0.0 to 1.0). Supplementary algorithm
+    #[schema(example = 0.72)]
+    pub jaro_winkler: f64,
+    /// Category compatibility score (0.0 to 1.0). 1.0 for same category
+    #[schema(example = 1.0)]
+    pub category_score: f64,
+}
+
+impl From<inventurly_service::duplicate_detection::AlgorithmScores> for AlgorithmScoresTO {
+    fn from(scores: inventurly_service::duplicate_detection::AlgorithmScores) -> Self {
+        Self {
+            exact_match: scores.exact_match,
+            word_order: scores.word_order,
+            levenshtein: scores.levenshtein,
+            jaro_winkler: scores.jaro_winkler,
+            category_score: scores.category_score,
+        }
+    }
+}
+
+/// Confidence level of duplicate match
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub enum MatchConfidenceTO {
+    /// Very high confidence (>= 0.95)
+    VeryHigh,
+    /// High confidence (>= 0.85)
+    High,
+    /// Medium confidence (>= 0.7)
+    Medium,
+    /// Low confidence (>= threshold)
+    Low,
+}
+
+impl From<inventurly_service::duplicate_detection::MatchConfidence> for MatchConfidenceTO {
+    fn from(confidence: inventurly_service::duplicate_detection::MatchConfidence) -> Self {
+        match confidence {
+            inventurly_service::duplicate_detection::MatchConfidence::VeryHigh => Self::VeryHigh,
+            inventurly_service::duplicate_detection::MatchConfidence::High => Self::High,
+            inventurly_service::duplicate_detection::MatchConfidence::Medium => Self::Medium,
+            inventurly_service::duplicate_detection::MatchConfidence::Low => Self::Low,
+        }
+    }
+}
+
+/// Result of duplicate detection for a single product
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct DuplicateMatchTO {
+    /// The potentially duplicate product
+    pub product: ProductTO,
+    /// Overall similarity score (0.0 to 1.0). Typical range: 0.55-0.75 for good duplicates
+    #[schema(example = 0.62)]
+    pub similarity_score: f64,
+    /// Breakdown of individual algorithm scores
+    pub algorithm_scores: AlgorithmScoresTO,
+    /// Confidence level of the match
+    pub confidence: MatchConfidenceTO,
+}
+
+impl From<inventurly_service::duplicate_detection::DuplicateMatch> for DuplicateMatchTO {
+    fn from(duplicate_match: inventurly_service::duplicate_detection::DuplicateMatch) -> Self {
+        Self {
+            product: ProductTO::from(&duplicate_match.product),
+            similarity_score: duplicate_match.similarity_score,
+            algorithm_scores: AlgorithmScoresTO::from(duplicate_match.algorithm_scores),
+            confidence: MatchConfidenceTO::from(duplicate_match.confidence),
+        }
+    }
+}
+
+/// Result of duplicate detection operation
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct DuplicateDetectionResultTO {
+    /// Input product that was checked
+    pub checked_product: ProductTO,
+    /// List of potential duplicate matches
+    pub matches: Vec<DuplicateMatchTO>,
+    /// Configuration used for detection
+    pub config: DuplicateDetectionConfigTO,
+}
+
+impl From<inventurly_service::duplicate_detection::DuplicateDetectionResult> for DuplicateDetectionResultTO {
+    fn from(result: inventurly_service::duplicate_detection::DuplicateDetectionResult) -> Self {
+        Self {
+            checked_product: ProductTO::from(&result.checked_product),
+            matches: result.matches.into_iter().map(DuplicateMatchTO::from).collect(),
+            config: DuplicateDetectionConfigTO::from(result.config),
+        }
+    }
+}
+
+/// Request body for checking potential duplicates
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct CheckDuplicateRequestTO {
+    /// Product name to check for duplicates
+    #[schema(example = "Macadamia süß salzig")]
+    pub name: String,
+    /// Sales unit (e.g., "130g", "1kg")
+    #[schema(example = "130g")]
+    pub sales_unit: String,
+    /// Whether this product requires weighing
+    #[schema(example = false)]
+    pub requires_weighing: bool,
+}

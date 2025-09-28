@@ -8,6 +8,7 @@ use inventurly_service_impl::{
     person::{PersonServiceDeps, PersonServiceImpl},
     product::{ProductServiceDeps, ProductServiceImpl},
     csv_import::{CsvImportServiceDeps, CsvImportServiceImpl},
+    duplicate_detection::{DuplicateDetectionServiceDeps, DuplicateDetectionServiceImpl},
 };
 use sqlx::SqlitePool;
 
@@ -69,6 +70,21 @@ impl ProductServiceDeps for ProductServiceDependencies {
 
 type ProductService = inventurly_service_impl::product::ProductServiceImpl<ProductServiceDependencies>;
 
+pub struct DuplicateDetectionServiceDependencies;
+
+unsafe impl Send for DuplicateDetectionServiceDependencies {}
+unsafe impl Sync for DuplicateDetectionServiceDependencies {}
+
+impl DuplicateDetectionServiceDeps for DuplicateDetectionServiceDependencies {
+    type Context = Context;
+    type Transaction = Transaction;
+    type ProductService = ProductService;
+    type PermissionService = PermissionService;
+    type TransactionDao = TransactionDao;
+}
+
+type DuplicateDetectionService = inventurly_service_impl::duplicate_detection::DuplicateDetectionServiceImpl<DuplicateDetectionServiceDependencies>;
+
 pub struct CsvImportServiceDependencies;
 
 unsafe impl Send for CsvImportServiceDependencies {}
@@ -90,6 +106,7 @@ pub struct RestStateImpl {
     person_service: Arc<PersonService>,
     product_service: Arc<ProductService>,
     csv_import_service: Arc<CsvImportService>,
+    duplicate_detection_service: Arc<DuplicateDetectionService>,
 }
 
 impl RestStateImpl {
@@ -126,6 +143,13 @@ impl RestStateImpl {
             transaction_dao: transaction_dao.clone(),
         });
         
+        // Create DuplicateDetectionService using struct literal syntax
+        let duplicate_detection_service = Arc::new(DuplicateDetectionServiceImpl {
+            product_service: product_service.clone(),
+            permission_service: permission_service.clone(),
+            transaction_dao: transaction_dao.clone(),
+        });
+        
         // Create CsvImportService using struct literal syntax
         let csv_import_service = Arc::new(CsvImportServiceImpl {
             product_service: product_service.clone(),
@@ -137,6 +161,7 @@ impl RestStateImpl {
             person_service,
             product_service,
             csv_import_service,
+            duplicate_detection_service,
         }
     }
 }
@@ -145,6 +170,7 @@ impl inventurly_rest::RestStateDef for RestStateImpl {
     type PersonService = PersonService;
     type ProductService = ProductService;
     type CsvImportService = CsvImportService;
+    type DuplicateDetectionService = DuplicateDetectionService;
 
     fn person_service(&self) -> Arc<Self::PersonService> {
         self.person_service.clone()
@@ -156,5 +182,9 @@ impl inventurly_rest::RestStateDef for RestStateImpl {
     
     fn csv_import_service(&self) -> Arc<Self::CsvImportService> {
         self.csv_import_service.clone()
+    }
+    
+    fn duplicate_detection_service(&self) -> Arc<Self::DuplicateDetectionService> {
+        self.duplicate_detection_service.clone()
     }
 }
