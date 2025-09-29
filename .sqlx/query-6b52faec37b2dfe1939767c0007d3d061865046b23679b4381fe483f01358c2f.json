@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT COUNT(*) > 0 as has_privilege\n            FROM user u\n            INNER JOIN user_role ur ON u.name = ur.user_name\n            INNER JOIN role_privilege rp ON ur.role_name = rp.role_name\n            INNER JOIN privilege p ON rp.privilege_name = p.name\n            WHERE u.name = ? AND p.name = ?\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "has_privilege",
+        "ordinal": 0,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "6b52faec37b2dfe1939767c0007d3d061865046b23679b4381fe483f01358c2f"
+}

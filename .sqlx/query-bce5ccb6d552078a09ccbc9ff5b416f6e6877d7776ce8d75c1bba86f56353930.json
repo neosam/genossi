@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT name, update_timestamp, update_process FROM role WHERE name = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "name",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "update_timestamp",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "update_process",
+        "ordinal": 2,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "bce5ccb6d552078a09ccbc9ff5b416f6e6877d7776ce8d75c1bba86f56353930"
+}

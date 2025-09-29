@@ -30,7 +30,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1.6", features = ["v4", "serde"] }
 utoipa = { version = "5.0", features = ["axum_extras", "time", "uuid"] }
-utoipa-swagger-ui = { version = "9.0", features = ["axum"] }
+utoipa-swagger-ui = { version = "9.0", features = ["axum", "vendored"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors"] }
 dotenv = "0.15"

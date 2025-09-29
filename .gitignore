@@ -2,4 +2,6 @@ target/
 *.db
 *.db-shm
 *.db-wal
-.env.local
+.env.localinventurly-test.qcow2
+inventurly.db
+result

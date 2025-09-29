@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT DISTINCT p.name, p.update_timestamp, p.update_process\n            FROM privilege p\n            INNER JOIN role_privilege rp ON p.name = rp.privilege_name\n            INNER JOIN user_role ur ON rp.role_name = ur.role_name\n            WHERE ur.user_name = ?\n            ORDER BY p.name\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "name",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "update_timestamp",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "update_process",
+        "ordinal": 2,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "9d3549bfb9164e6dc9ecf27ec36cc9011135030a23c72b68c44e95692c719ac1"
+}

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO user (name, update_timestamp, update_process) VALUES (?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "cacd90be37eefa9f25029daf702f376ee6ccf358b1dc2fc1d9870c6439c4a068"
+}

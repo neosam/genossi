@@ -1,0 +1,32 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT p.name, p.update_timestamp, p.update_process\n            FROM privilege p\n            INNER JOIN role_privilege rp ON p.name = rp.privilege_name\n            WHERE rp.role_name = ?\n            ORDER BY p.name\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "name",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "update_timestamp",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "update_process",
+        "ordinal": 2,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "d7e444108e97082fc0c05079941aac0cad1e406d6a66d0806cbbc0d80de0a9c8"
+}
