@@ -14,4 +14,7 @@ strsim = { workspace = true }
 utoipa = { workspace = true, optional = true }
 
 [features]
+default = ["mock_auth"]
+mock_auth = []
+oidc = []
 utoipa = ["dep:utoipa"]

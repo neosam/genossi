@@ -7,6 +7,8 @@ use inventurly_service::person::{Person, PersonService};
 use inventurly_service::product::{Product, ProductService};
 use inventurly_service::csv_import::{CsvImportService, CsvImportResult, CsvProductRow, ImportAction};
 use inventurly_service::duplicate_detection::{DuplicateDetectionService, DuplicateDetectionConfig, DuplicateDetectionResult, DuplicateMatch};
+use inventurly_service::permission::PermissionService;
+use inventurly_service::session::SessionService;
 use serde_json::json;
 use std::sync::Arc;
 use tower::ServiceExt;
@@ -18,6 +20,8 @@ struct TestRestState {
     product_service: Arc<MockProductService>,
     csv_import_service: Arc<MockCsvImportService>,
     duplicate_detection_service: Arc<MockDuplicateDetectionService>,
+    permission_service: Arc<MockPermissionService>,
+    session_service: Arc<MockSessionService>,
 }
 
 impl RestStateDef for TestRestState {
@@ -25,6 +29,8 @@ impl RestStateDef for TestRestState {
     type ProductService = MockProductService;
     type CsvImportService = MockCsvImportService;
     type DuplicateDetectionService = MockDuplicateDetectionService;
+    type PermissionService = MockPermissionService;
+    type SessionService = MockSessionService;
 
     fn person_service(&self) -> Arc<Self::PersonService> {
         self.person_service.clone()
@@ -40,6 +46,14 @@ impl RestStateDef for TestRestState {
     
     fn duplicate_detection_service(&self) -> Arc<Self::DuplicateDetectionService> {
         self.duplicate_detection_service.clone()
+    }
+    
+    fn permission_service(&self) -> Arc<Self::PermissionService> {
+        self.permission_service.clone()
+    }
+    
+    fn session_service(&self) -> Arc<Self::SessionService> {
+        self.session_service.clone()
     }
 }
 
@@ -280,12 +294,215 @@ impl DuplicateDetectionService for MockDuplicateDetectionService {
     }
 }
 
+#[derive(Clone)]
+struct MockPermissionService;
+
+#[async_trait::async_trait]
+impl PermissionService for MockPermissionService {
+    type Context = MockContext;
+    
+    async fn check_permission(
+        &self,
+        _privilege: &str,
+        _context: Authentication<Self::Context>,
+    ) -> Result<(), inventurly_service::ServiceError> {
+        Ok(()) // Always allow in tests
+    }
+    
+    async fn get_all_users(
+        &self,
+        _context: Authentication<Self::Context>,
+    ) -> Result<Arc<[inventurly_service::auth_types::UserResponseTO]>, inventurly_service::ServiceError> {
+        Ok(Arc::new([]))
+    }
+    
+    async fn create_user(
+        &self,
+        _user: inventurly_service::auth_types::UserTO,
+        _context: Authentication<Self::Context>,
+    ) -> Result<(), inventurly_service::ServiceError> {
+        Ok(())
+    }
+    
+    async fn delete_user(
+        &self,
+        _username: String,
+        _context: Authentication<Self::Context>,
+    ) -> Result<(), inventurly_service::ServiceError> {
+        Ok(())
+    }
+    
+    async fn get_all_roles(
+        &self,
+        _context: Authentication<Self::Context>,
+    ) -> Result<Arc<[inventurly_service::auth_types::RoleResponseTO]>, inventurly_service::ServiceError> {
+        Ok(Arc::new([]))
+    }
+    
+    async fn create_role(
+        &self,
+        _role: inventurly_service::auth_types::RoleTO,
+        _context: Authentication<Self::Context>,
+    ) -> Result<(), inventurly_service::ServiceError> {
+        Ok(())
+    }
+    
+    async fn delete_role(
+        &self,
+        _role_name: String,
+        _context: Authentication<Self::Context>,
+    ) -> Result<(), inventurly_service::ServiceError> {
+        Ok(())
+    }
+    
+    async fn get_all_privileges(
+        &self,
+        _context: Authentication<Self::Context>,
+    ) -> Result<Arc<[inventurly_service::auth_types::PrivilegeResponseTO]>, inventurly_service::ServiceError> {
+        Ok(Arc::new([]))
+    }
+    
+    async fn create_privilege(
+        &self,
+        _privilege: inventurly_service::auth_types::PrivilegeTO,
+        _context: Authentication<Self::Context>,
+    ) -> Result<(), inventurly_service::ServiceError> {
+        Ok(())
+    }
+    
+    async fn delete_privilege(
+        &self,
+        _privilege_name: String,
+        _context: Authentication<Self::Context>,
+    ) -> Result<(), inventurly_service::ServiceError> {
+        Ok(())
+    }
+    
+    async fn assign_user_role(
+        &self,
+        _user_role: inventurly_service::auth_types::UserRole,
+        _context: Authentication<Self::Context>,
+    ) -> Result<(), inventurly_service::ServiceError> {
+        Ok(())
+    }
+    
+    async fn remove_user_role(
+        &self,
+        _user_role: inventurly_service::auth_types::UserRole,
+        _context: Authentication<Self::Context>,
+    ) -> Result<(), inventurly_service::ServiceError> {
+        Ok(())
+    }
+    
+    async fn get_user_roles(
+        &self,
+        _username: String,
+        _context: Authentication<Self::Context>,
+    ) -> Result<Arc<[inventurly_service::auth_types::RoleResponseTO]>, inventurly_service::ServiceError> {
+        Ok(Arc::new([]))
+    }
+    
+    async fn assign_role_privilege(
+        &self,
+        _role_privilege: inventurly_service::auth_types::RolePrivilege,
+        _context: Authentication<Self::Context>,
+    ) -> Result<(), inventurly_service::ServiceError> {
+        Ok(())
+    }
+    
+    async fn remove_role_privilege(
+        &self,
+        _role_privilege: inventurly_service::auth_types::RolePrivilege,
+        _context: Authentication<Self::Context>,
+    ) -> Result<(), inventurly_service::ServiceError> {
+        Ok(())
+    }
+    
+    async fn get_role_privileges(
+        &self,
+        _role_name: String,
+        _context: Authentication<Self::Context>,
+    ) -> Result<Arc<[inventurly_service::auth_types::PrivilegeResponseTO]>, inventurly_service::ServiceError> {
+        Ok(Arc::new([]))
+    }
+    
+    async fn get_user_privileges(
+        &self,
+        _username: String,
+        _context: Authentication<Self::Context>,
+    ) -> Result<Arc<[inventurly_service::auth_types::PrivilegeResponseTO]>, inventurly_service::ServiceError> {
+        Ok(Arc::new([]))
+    }
+    
+    async fn current_user_id(
+        &self,
+        _context: Authentication<Self::Context>,
+    ) -> Result<Option<String>, inventurly_service::ServiceError> {
+        Ok(Some("testuser".to_string()))
+    }
+}
+
+#[derive(Clone)]
+struct MockSessionService;
+
+#[async_trait::async_trait]
+impl SessionService for MockSessionService {
+    async fn extract_auth_context(
+        &self,
+        _session_id: Option<String>,
+    ) -> Result<Option<inventurly_service::auth_types::AuthContext>, inventurly_service::ServiceError> {
+        Ok(Some(inventurly_service::auth_types::AuthContext::Mock(
+            inventurly_service::auth_types::MockContext::default()
+        )))
+    }
+    
+    async fn create_session(
+        &self,
+        _user_id: &str,
+        _expires_at: i64,
+    ) -> Result<inventurly_service::auth_types::UserSession, inventurly_service::ServiceError> {
+        Ok(inventurly_service::auth_types::UserSession {
+            session_id: "test-session".into(),
+            user_id: "testuser".into(),
+            expires_at: 9999999999,
+            created_at: 1000000000,
+        })
+    }
+    
+    async fn verify_user_session(
+        &self,
+        _session_id: &str,
+    ) -> Result<Option<inventurly_service::auth_types::UserSession>, inventurly_service::ServiceError> {
+        Ok(Some(inventurly_service::auth_types::UserSession {
+            session_id: "test-session".into(),
+            user_id: "testuser".into(),
+            expires_at: 9999999999,
+            created_at: 1000000000,
+        }))
+    }
+    
+    async fn invalidate_session(
+        &self,
+        _session_id: &str,
+    ) -> Result<(), inventurly_service::ServiceError> {
+        Ok(())
+    }
+    
+    async fn cleanup_expired_sessions(
+        &self,
+    ) -> Result<u64, inventurly_service::ServiceError> {
+        Ok(0)
+    }
+}
+
 fn create_test_app() -> axum::Router {
     let rest_state = TestRestState {
         person_service: Arc::new(MockPersonService),
         product_service: Arc::new(MockProductService),
         csv_import_service: Arc::new(MockCsvImportService),
         duplicate_detection_service: Arc::new(MockDuplicateDetectionService),
+        permission_service: Arc::new(MockPermissionService),
+        session_service: Arc::new(MockSessionService),
     };
 
     axum::Router::new()

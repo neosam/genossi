@@ -19,6 +19,11 @@ uuid = { workspace = true }
 utoipa = { workspace = true }
 utoipa-swagger-ui = { workspace = true }
 
+[features]
+default = ["mock_auth"]
+mock_auth = []
+oidc = []
+
 [dev-dependencies]
 tower = { workspace = true }
 tower-http = { workspace = true }

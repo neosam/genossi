@@ -3,6 +3,11 @@ name = "inventurly_bin"
 version.workspace = true
 edition.workspace = true
 
+[features]
+default = ["mock_auth"]
+mock_auth = ["inventurly_service/mock_auth", "inventurly_rest/mock_auth"]
+oidc = ["inventurly_service/oidc", "inventurly_rest/oidc"]
+
 [[bin]]
 name = "inventurly"
 path = "src/main.rs"

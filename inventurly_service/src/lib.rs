@@ -5,6 +5,8 @@ pub mod duplicate_detection;
 pub mod permission;
 pub mod uuid_service;
 pub mod user_service;
+pub mod auth_types;
+pub mod session;
 
 use std::sync::Arc;
 
@@ -15,6 +17,9 @@ pub enum ServiceError {
     ValidationError(Vec<ValidationFailureItem>),
     PermissionDenied,
     InternalError(Arc<str>),
+    Unauthorized,
+    SessionExpired,
+    AuthenticationFailed,
 }
 
 #[derive(Debug, Clone)]

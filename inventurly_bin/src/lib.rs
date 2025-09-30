@@ -18,7 +18,11 @@ type Transaction = TransactionImpl;
 type TransactionDao = TransactionDaoImpl;
 type PersonDao = PersonDaoImpl;
 type ProductDao = ProductDaoImpl;
+#[cfg(feature = "mock_auth")]
 type PermissionDao = inventurly_dao::permission::MockPermissionDao;
+
+#[cfg(feature = "oidc")]  
+type PermissionDao = inventurly_dao_impl_sqlite::permission::PermissionDaoImpl;
 type UuidService = inventurly_service_impl::uuid_service::UuidServiceImpl;
 type UserService = MockUserService;
 
@@ -37,6 +41,28 @@ impl PermissionServiceDeps for PermissionServiceDependencies {
 
 type PermissionService =
     inventurly_service_impl::permission::PermissionServiceImpl<PermissionServiceDependencies>;
+
+#[cfg(feature = "mock_auth")]
+type SessionService = inventurly_service_impl::session::MockSessionServiceImpl;
+
+#[cfg(feature = "oidc")]
+type SessionService = inventurly_service_impl::session::SessionServiceImpl<SessionServiceDependencies>;
+
+#[cfg(feature = "oidc")]
+pub struct SessionServiceDependencies;
+
+#[cfg(feature = "oidc")]
+unsafe impl Send for SessionServiceDependencies {}
+
+#[cfg(feature = "oidc")]
+unsafe impl Sync for SessionServiceDependencies {}
+
+#[cfg(feature = "oidc")]
+impl inventurly_service_impl::session::SessionServiceDeps for SessionServiceDependencies {
+    type Context = Context;
+    type Transaction = Transaction;
+    type PermissionDao = PermissionDao;
+}
 
 pub struct PersonServiceDependencies;
 
@@ -107,6 +133,8 @@ pub struct RestStateImpl {
     product_service: Arc<ProductService>,
     csv_import_service: Arc<CsvImportService>,
     duplicate_detection_service: Arc<DuplicateDetectionService>,
+    permission_service: Arc<PermissionService>,
+    session_service: Arc<SessionService>,
 }
 
 impl RestStateImpl {
@@ -115,7 +143,11 @@ impl RestStateImpl {
         let transaction_dao = Arc::new(TransactionDao::new(pool.clone()));
         let person_dao = Arc::new(PersonDao::new(pool.clone()));
         let product_dao = Arc::new(ProductDao::new(pool.clone()));
+        #[cfg(feature = "mock_auth")]
         let permission_dao = Arc::new(inventurly_dao::permission::MockPermissionDao);
+        
+        #[cfg(feature = "oidc")]
+        let permission_dao = Arc::new(inventurly_dao_impl_sqlite::permission::PermissionDaoImpl::new(pool.clone()));
         
         // Create services
         let user_service = Arc::new(inventurly_service::user_service::MockUserService);
@@ -123,7 +155,7 @@ impl RestStateImpl {
         
         // Create PermissionService using struct literal syntax
         let permission_service = Arc::new(inventurly_service_impl::permission::PermissionServiceImpl {
-            permission_dao: permission_dao,
+            permission_dao: permission_dao.clone(),
             user_service: user_service,
         });
         
@@ -153,8 +185,17 @@ impl RestStateImpl {
         // Create CsvImportService using struct literal syntax
         let csv_import_service = Arc::new(CsvImportServiceImpl {
             product_service: product_service.clone(),
-            permission_service: permission_service,
+            permission_service: permission_service.clone(),
             transaction_dao: transaction_dao,
+        });
+        
+        // Create SessionService
+        #[cfg(feature = "mock_auth")]
+        let session_service = Arc::new(inventurly_service_impl::session::MockSessionServiceImpl);
+        
+        #[cfg(feature = "oidc")]
+        let session_service = Arc::new(inventurly_service_impl::session::SessionServiceImpl {
+            permission_dao: permission_dao.clone(),
         });
         
         Self {
@@ -162,6 +203,8 @@ impl RestStateImpl {
             product_service,
             csv_import_service,
             duplicate_detection_service,
+            permission_service,
+            session_service,
         }
     }
 }
@@ -171,6 +214,8 @@ impl inventurly_rest::RestStateDef for RestStateImpl {
     type ProductService = ProductService;
     type CsvImportService = CsvImportService;
     type DuplicateDetectionService = DuplicateDetectionService;
+    type PermissionService = PermissionService;
+    type SessionService = SessionService;
 
     fn person_service(&self) -> Arc<Self::PersonService> {
         self.person_service.clone()
@@ -186,5 +231,13 @@ impl inventurly_rest::RestStateDef for RestStateImpl {
     
     fn duplicate_detection_service(&self) -> Arc<Self::DuplicateDetectionService> {
         self.duplicate_detection_service.clone()
+    }
+    
+    fn permission_service(&self) -> Arc<Self::PermissionService> {
+        self.permission_service.clone()
+    }
+    
+    fn session_service(&self) -> Arc<Self::SessionService> {
+        self.session_service.clone()
     }
 }
