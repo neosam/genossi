@@ -1,47 +1,26 @@
-# Simple test configuration - just testing Inventurly without the module
+# Test configuration for the Inventurly NixOS module
 # Run: nixos-rebuild build-vm -I nixos-config=./test-simple-config.nix
+# Or use: ./run-vm.sh
 
 { config, pkgs, ... }:
 
-let
-  # Build Inventurly package
-  inventurly = import ./default.nix { features = ["mock_auth"]; };
-in
 {
+  # Import the actual module to test it!
+  imports = [ ./module.nix ];
+
   # Basic system
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;
 
-  # Simple service without the complex module
-  systemd.services.inventurly-simple = {
-    description = "Inventurly Service (Simple Test)";
-    wantedBy = [ "multi-user.target" ];
-    after = [ "network.target" ];
-    
-    environment = {
-      DATABASE_URL = "sqlite:/tmp/inventurly.db";
-      SERVER_ADDRESS = "0.0.0.0:3000";
-      RUST_LOG = "debug";
-    };
-    
-    serviceConfig = {
-      Type = "simple";
-      ExecStart = "${inventurly}/bin/inventurly";
-      WorkingDirectory = "/tmp";
-      Restart = "on-failure";
-    };
-    
-    preStart = ''
-      # Create database
-      ${pkgs.sqlite}/bin/sqlite3 /tmp/inventurly.db "VACUUM;" || true
-      
-      # Copy migrations if they exist
-      if [ -d ${inventurly}/migrations ]; then
-        cp -r ${inventurly}/migrations /tmp/ || true
-        cd /tmp
-        ${pkgs.sqlx-cli}/bin/sqlx database setup --source ./migrations/sqlite || true
-      fi
-    '';
+  # Test the module with a simple instance
+  services.inventurly.test = {
+    enable = true;
+    port = 3000;
+    host = "127.0.0.1";
+    package = import ./default.nix { features = ["mock_auth"]; };
+    logLevel = "debug";
+    domain = "inventurly-test.local";
+    enableSSL = false; # Disable SSL for local testing
   };
 
   # Networking
