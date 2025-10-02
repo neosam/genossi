@@ -1,0 +1,34 @@
+[package]
+name = "rest-types"
+version = "1.0.5-dev"
+edition = "2021"
+resolver = "2"
+
+[features]
+#default = ["service-impl"]
+default = []
+service-impl = ["dep:service", "dep:shifty-utils"]
+
+[dependencies.service]
+path = "../service"
+optional = true
+
+[dependencies.shifty-utils]
+path = "../shifty-utils"
+optional = true
+
+[dependencies.serde]
+version = "1.0.198"
+features = ["derive", "std", "alloc", "rc"]
+
+[dependencies.uuid]
+version = "1.8.0"
+features = ["v4", "serde"]
+
+[dependencies.time]
+version = "0.3.36"
+features = ["serde-human-readable"]
+
+[dependencies.utoipa]
+version = "5"
+features = ["time", "rc_schema", "uuid"]

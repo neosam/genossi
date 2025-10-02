@@ -1,16 +1,17 @@
-pub mod person;
-pub mod product;
+pub mod auth;
+pub mod auth_middleware;
 pub mod csv_import;
 pub mod duplicate_detection;
-pub mod test_server;
-pub mod auth_middleware;
 pub mod permission;
+pub mod person;
+pub mod product;
+pub mod test_server;
 
 use async_trait::async_trait;
 use axum::{body::Body, middleware, response::Response, Router};
 use inventurly_service::{
-    permission::{Authentication, MockContext},
     auth_types::AuthContext,
+    permission::{Authentication, MockContext},
 };
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
@@ -28,7 +29,9 @@ impl Default for Context {
     fn default() -> Self {
         Self {
             auth: Authentication::Context(MockContext),
-            auth_context: Some(AuthContext::Mock(inventurly_service::auth_types::MockContext::default())),
+            auth_context: Some(AuthContext::Mock(
+                inventurly_service::auth_types::MockContext::default(),
+            )),
         }
     }
 }
@@ -104,10 +107,7 @@ pub trait RestStateDef: Clone + Send + Sync + 'static {
         + Send
         + Sync
         + 'static;
-    type SessionService: inventurly_service::session::SessionService
-        + Send
-        + Sync
-        + 'static;
+    type SessionService: inventurly_service::session::SessionService + Send + Sync + 'static;
 
     fn person_service(&self) -> Arc<Self::PersonService>;
     fn product_service(&self) -> Arc<Self::ProductService>;
@@ -120,11 +120,12 @@ pub trait RestStateDef: Clone + Send + Sync + 'static {
 #[derive(OpenApi)]
 #[openapi(
     nest(
+        (path = "/auth", api = auth::ApiDoc),
         (path = "/persons", api = person::ApiDoc),
         (path = "/products", api = product::ApiDoc),
         (path = "/csv-import", api = csv_import::CsvImportApiDoc),
         (path = "/duplicate-detection", api = duplicate_detection::DuplicateDetectionApiDoc),
-        (path = "/api/permission", api = permission::ApiDoc)
+        (path = "/permission", api = permission::ApiDoc)
     )
 )]
 pub struct ApiDoc;
@@ -144,27 +145,28 @@ async fn context_extractor<RestState: RestStateDef>(
 ) -> axum::response::Response {
     // Extract headers for authentication
     let headers = request.headers().clone();
-    
+
     // Try to extract auth context from headers
-    let auth_context = match extract_context_from_headers(&headers, rest_state.session_service().as_ref()).await {
-        Ok(Some(ctx)) => Some(ctx),
-        Ok(None) => None,
-        Err(_) => None,
-    };
-    
+    let auth_context =
+        match extract_context_from_headers(&headers, rest_state.session_service().as_ref()).await {
+            Ok(Some(ctx)) => Some(ctx),
+            Ok(None) => None,
+            Err(_) => None,
+        };
+
     let context = Context {
         auth: if auth_context.is_some() {
             inventurly_service::permission::Authentication::Context(
-                inventurly_service::permission::MockContext
+                inventurly_service::permission::MockContext,
             )
         } else {
             inventurly_service::permission::Authentication::Context(
-                inventurly_service::permission::MockContext
+                inventurly_service::permission::MockContext,
             )
         },
         auth_context,
     };
-    
+
     request.extensions_mut().insert(context);
     next.run(request).await
 }
@@ -179,9 +181,11 @@ async fn context_extractor<RestState: RestStateDef>(
     next.run(request).await
 }
 
-// Helper function for extracting context from headers 
+// Helper function for extracting context from headers
 #[cfg(feature = "oidc")]
-async fn extract_context_from_headers<SessionService: inventurly_service::session::SessionService>(
+async fn extract_context_from_headers<
+    SessionService: inventurly_service::session::SessionService,
+>(
     headers: &axum::http::HeaderMap,
     session_service: &SessionService,
 ) -> Result<Option<inventurly_service::auth_types::AuthContext>, inventurly_service::ServiceError> {
@@ -189,13 +193,16 @@ async fn extract_context_from_headers<SessionService: inventurly_service::sessio
     if let Some(cookie_header) = headers.get("cookie") {
         if let Ok(cookie_str) = cookie_header.to_str() {
             if let Some(session_id) = extract_session_from_cookie(cookie_str) {
-                if let Some(context) = session_service.extract_auth_context(Some(session_id)).await? {
+                if let Some(context) = session_service
+                    .extract_auth_context(Some(session_id))
+                    .await?
+                {
                     return Ok(Some(context));
                 }
             }
         }
     }
-    
+
     // Try Authorization Bearer token (for API access)
     if let Some(auth_header) = headers.get("authorization") {
         if let Ok(auth_str) = auth_header.to_str() {
@@ -207,7 +214,7 @@ async fn extract_context_from_headers<SessionService: inventurly_service::sessio
             }
         }
     }
-    
+
     Ok(None)
 }
 
@@ -245,13 +252,20 @@ pub fn create_app<RestState: RestStateDef>(rest_state: RestState) -> Router {
 
     Router::new()
         .merge(swagger_router)
+        .nest("/auth", auth::generate_route())
         .nest("/persons", person::generate_route())
         .nest("/products", product::generate_route())
         .nest("/csv-import", csv_import::generate_route())
-        .nest("/duplicate-detection", duplicate_detection::generate_route())
-        .nest("/api/permission", permission::generate_route())
+        .nest(
+            "/duplicate-detection",
+            duplicate_detection::generate_route(),
+        )
+        .nest("/permission", permission::generate_route())
         .with_state(rest_state.clone())
-        .layer(middleware::from_fn_with_state(rest_state.clone(), context_extractor::<RestState>))
+        .layer(middleware::from_fn_with_state(
+            rest_state.clone(),
+            context_extractor::<RestState>,
+        ))
         .layer(CorsLayer::permissive())
 }
 
@@ -263,7 +277,7 @@ pub async fn serve_app(app: Router, listener: tokio::net::TcpListener) {
 
 pub async fn start_server<RestState: RestStateDef>(rest_state: RestState) {
     let app = create_app(rest_state);
-    
+
     info!("Running server at {}", bind_address());
 
     let listener = tokio::net::TcpListener::bind(bind_address().as_ref())

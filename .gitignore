@@ -5,3 +5,4 @@ target/
 .env.localinventurly-test.qcow2
 inventurly.db
 result
+inventurly-test.qcow2

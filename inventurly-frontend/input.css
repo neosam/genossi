@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer utilities {
+    .no-scrollbar::-webkit-scrollbar {
+        display: none;
+    }
+
+    .no-scrollbar {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+    }
+
+    .scale-down-50 {
+        zoom: 0.5;
+    }
+
+    .scale-down-75 {
+        zoom: 0.75;
+    }
+
+    .scale-down-100 {
+        zoom: 1.0;
+    }
+}

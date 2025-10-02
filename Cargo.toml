@@ -9,6 +9,7 @@ members = [
     "inventurly_bin",
 ]
 resolver = "2"
+exclude = ["inventurly-frontend"]
 
 [workspace.package]
 version = "0.1.0"
