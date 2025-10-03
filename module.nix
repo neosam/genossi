@@ -116,7 +116,7 @@ in
         lib.nameValuePair "inventurly-${name}/config.json" {
           text = lib.mkIf instanceCfg.enable ''
             {
-              "backend": "http://localhost:${toString instanceCfg.port}/api"
+              "backend": "https://${instanceCfg.domain}/api"
             }
           '';
         }) cfg;
@@ -141,12 +141,17 @@ in
               priority = 100;
             };
 
-            locations."= /api-docs" = {
+            locations."/swagger-ui/" = {
               proxyPass = "http://127.0.0.1:${toString instanceCfg.port}";
               priority = 100;
             };
 
-            locations."= /api/" = {
+            locations."/api-docs/" = {
+              proxyPass = "http://127.0.0.1:${toString instanceCfg.port}";
+              priority = 100;
+            };
+
+            locations."/api/" = {
               proxyPass = "http://127.0.0.1:${toString instanceCfg.port}";
               priority = 100;
               extraConfig = ''
