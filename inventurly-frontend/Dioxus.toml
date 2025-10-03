@@ -18,6 +18,14 @@ asset_dir = "assets"
 # HTML title tag content
 title = "Inventurly"
 
+# Disable wasm-opt optimization to avoid parsing errors
+base_path = ""
+
+[web.wasm-opt]
+# Disable wasm-opt optimization
+optimizations = false
+skip = true
+
 [web.watcher]
 
 # when watcher trigger, regenerate the `index.html`
