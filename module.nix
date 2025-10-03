@@ -17,6 +17,7 @@ in
         package = lib.mkOption {
           type = lib.types.package;
           description = "Inventurly package to use";
+          default = pkgs.callPackage (./default.nix) { inherit pkgs; features = ["oidc"]; };
         };
         
         frontendPackage = lib.mkOption {

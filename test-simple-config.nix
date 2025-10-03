@@ -17,7 +17,7 @@
     enable = true;
     port = 3000;
     host = "127.0.0.1";
-    package = import ./default.nix { features = ["mock_auth"]; };
+    #package = import ./default.nix { features = ["mock_auth"]; };
     logLevel = "debug";
     domain = "inventurly-test.local";
     enableSSL = false; # Disable SSL for local testing

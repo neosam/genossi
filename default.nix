@@ -1,4 +1,4 @@
-{ features ? [] }:
+{ features ? [], ... }:
 let
   specificPkgs = import (builtins.fetchTarball {
     url = "https://github.com/NixOS/nixpkgs/archive/b024ced1aac25639f8ca8fdfc2f8c4fbd66c48ef.tar.gz";
