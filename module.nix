@@ -19,6 +19,12 @@ in
           description = "Inventurly package to use";
         };
         
+        frontendPackage = lib.mkOption {
+          type = lib.types.package;
+          description = "Inventurly frontend package to use";
+          default = pkgs.callPackage (./inventurly-frontend/default.nix) { inherit pkgs; };
+        };
+        
         port = lib.mkOption {
           type = lib.types.port;
           default = 3000;
@@ -100,8 +106,21 @@ in
           '';
         })
       ) cfg;
+
     }
-    
+
+    {
+      # Create etc directories
+      environment.etc = lib.mapAttrs' (name: instanceCfg: 
+        lib.nameValuePair "inventurly-${name}/config.json" {
+          text = lib.mkIf instanceCfg.enable ''
+            {
+              "backend": "http://localhost:${toString instanceCfg.port}/api"
+            }
+          '';
+        }) cfg;
+    }
+
     # Nginx configuration for instances with domains
     (lib.mkIf (lib.any (instanceCfg: instanceCfg.enable && instanceCfg.domain != null) (lib.attrValues cfg)) {
       services.nginx = {
@@ -115,16 +134,38 @@ in
           lib.nameValuePair instanceCfg.domain {
             forceSSL = instanceCfg.enableSSL;
             enableACME = instanceCfg.enableSSL;
-            
-            locations."/" = {
-              proxyPass = "http://${instanceCfg.host}:${toString instanceCfg.port}";
-              proxyWebsockets = true;
+
+            locations."= /authenticate" = {
+              proxyPass = "http://127.0.0.1:${toString instanceCfg.port}";
+              priority = 100;
+            };
+
+            locations."= /api-docs" = {
+              proxyPass = "http://127.0.0.1:${toString instanceCfg.port}";
+              priority = 100;
+            };
+
+            locations."= /api/" = {
+              proxyPass = "http://127.0.0.1:${toString instanceCfg.port}";
+              priority = 100;
               extraConfig = ''
-                proxy_set_header Host $host;
-                proxy_set_header X-Real-IP $remote_addr;
-                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                proxy_set_header X-Forwarded-Proto $scheme;
+                rewrite ^/api/(.*)$ /$1 break;
               '';
+            };
+            locations."= /config.json" = {
+              alias = "/etc/inventurly-${name}/config.json";
+              extraConfig = "add_header ContentType application/json;";
+              priority = 200;
+            };
+            locations."= /assets/config.json" = {
+              alias = "/etc/inventurly-${name}/config.json";
+              extraConfig = "add_header ContentType application/json;";
+              priority = 200;
+            };
+            locations."/" = {
+              root = instanceCfg.frontendPackage;
+              priority = 300;
+              tryFiles = "$uri /index.html =200";
             };
           }
         ) (lib.filterAttrs (_: instanceCfg: instanceCfg.enable && instanceCfg.domain != null) cfg);
@@ -135,7 +176,7 @@ in
     (lib.mkIf (lib.any (instanceCfg: instanceCfg.enable && instanceCfg.domain != null && instanceCfg.enableSSL) (lib.attrValues cfg)) {
       security.acme = {
         acceptTerms = lib.mkDefault true;
-        defaults.email = lib.mkDefault "admin@example.com"; # Users should override this
+        #defaults.email = lib.mkDefault "admin@example.com"; # Users should override this
       };
     })
   ];

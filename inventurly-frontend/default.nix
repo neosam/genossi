@@ -1,11 +1,9 @@
-{ pkgs ? import <nixpkgs> {
-    overlays = [
-      (import (builtins.fetchTarball "https://github.com/oxalica/rust-overlay/archive/master.tar.gz"))
-    ];
-  }
-}:
-
-pkgs.rustPlatform.buildRustPackage rec {
+{ pkgs ? import <nixpkgs> }:
+let
+  rust_overlay = import (builtins.fetchTarball "https://github.com/oxalica/rust-overlay/archive/master.tar.gz");
+  pkgs = import <nixpkgs> { overlays = [ rust_overlay ]; };
+  rustPlatform = pkgs.rust-bin.stable."1.90.0";
+in pkgs.rustPlatform.buildRustPackage rec {
   pname = "inventurly-frontend";
   version = "0.1.0";
   
@@ -17,7 +15,7 @@ pkgs.rustPlatform.buildRustPackage rec {
 
   nativeBuildInputs = with pkgs; [
     # Rust with WebAssembly support
-    (rust-bin.stable.latest.default.override {
+    (rustPlatform.default.override {
       extensions = [ "rust-src" ];
       targets = [ "wasm32-unknown-unknown" ];
     })
