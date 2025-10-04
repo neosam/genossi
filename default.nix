@@ -28,5 +28,7 @@ in
   chmod a+x $out/bin/start.sh
   '';
 
-    cargoHash = "sha256-EBb5gbo9S5KB+93IpCWTuOXFy7jcEm1NZLsRvxEY0gg=";
+    cargoLock = {
+      lockFile = ./Cargo.lock;
+    };
   }

@@ -1,10 +1,13 @@
-use inventurly_bin::RestStateImpl;
-use inventurly_rest::test_server::test_support::{start_test_server, TestServer};
-use inventurly_rest_types::{ProductTO, Price};
-use reqwest::Client;
-use serde_json::json;
-use sqlx::SqlitePool;
-use std::sync::Arc;
+// Skip all tests when OIDC feature is enabled since they require a real OIDC server
+#[cfg(not(feature = "oidc"))]
+mod tests {
+    use inventurly_bin::RestStateImpl;
+    use inventurly_rest::test_server::test_support::{start_test_server, TestServer};
+    use inventurly_rest_types::{ProductTO, Price};
+    use reqwest::Client;
+    use serde_json::json;
+    use sqlx::SqlitePool;
+    use std::sync::Arc;
 
 struct TestContext {
     client: Client,
@@ -284,3 +287,5 @@ async fn test_e2e_duplicate_ean() {
     let body = response.text().await.unwrap();
     assert!(body.contains("EAN already exists"));
 }
+
+} // End of #[cfg(not(feature = "oidc"))] mod tests

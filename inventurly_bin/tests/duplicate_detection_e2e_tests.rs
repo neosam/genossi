@@ -1,8 +1,11 @@
-use std::sync::Arc;
-use inventurly_bin::RestStateImpl;
-use inventurly_rest::create_app;
-use serde_json::json;
-use sqlx::SqlitePool;
+// Skip all tests when OIDC feature is enabled since they require a real OIDC server
+#[cfg(not(feature = "oidc"))]
+mod tests {
+    use std::sync::Arc;
+    use inventurly_bin::RestStateImpl;
+    use inventurly_rest::create_app;
+    use serde_json::json;
+    use sqlx::SqlitePool;
 
 type TestClient = reqwest::Client;
 
@@ -26,7 +29,7 @@ impl TestApp {
 
         let pool = Arc::new(pool);
         let rest_state = RestStateImpl::new(pool.clone());
-        let app = create_app(rest_state);
+        let app = create_app(rest_state).await;
 
         // Start server on random port
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -345,3 +348,5 @@ async fn test_duplicate_detection_error_cases() {
 
     assert_eq!(response.status(), 400, "Should return 400 for invalid JSON");
 }
+
+} // End of #[cfg(not(feature = "oidc"))] mod tests

@@ -1,17 +1,20 @@
-use inventurly_bin::RestStateImpl;
-use inventurly_rest::test_server::test_support::{start_test_server, TestServer};
-use inventurly_rest_types::ProductTO;
-use inventurly_service::csv_import::CsvImportResult;
-use reqwest::{multipart, Client, StatusCode};
-use sqlx::SqlitePool;
-use std::{collections::HashMap, sync::Arc};
+// Skip all tests when OIDC feature is enabled since they require a real OIDC server
+#[cfg(not(feature = "oidc"))]
+mod tests {
+    use inventurly_bin::RestStateImpl;
+    use inventurly_rest::test_server::test_support::{start_test_server, TestServer};
+    use inventurly_rest_types::ProductTO;
+    use inventurly_service::csv_import::CsvImportResult;
+    use reqwest::{multipart, Client, StatusCode};
+    use sqlx::SqlitePool;
+    use std::{collections::HashMap, sync::Arc};
 
-struct TestContext {
-    client: Client,
-    server: TestServer,
-}
+    struct TestContext {
+        client: Client,
+        server: TestServer,
+    }
 
-impl TestContext {
+    impl TestContext {
     async fn new() -> Self {
         // Create in-memory database
         let pool = Arc::new(
@@ -289,3 +292,5 @@ async fn test_csv_upload_skip_empty_ean_rows() {
     assert!(eans.contains(&"4260474470041"));
     assert!(eans.contains(&"4260474470042"));
 }
+
+} // End of #[cfg(not(feature = "oidc"))] mod tests

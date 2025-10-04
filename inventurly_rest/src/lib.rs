@@ -157,11 +157,24 @@ pub fn oidc_config() -> OidcConfig {
     let issuer = std::env::var("ISSUER").expect("ISSUER env variable");
     let client_id = std::env::var("CLIENT_ID").expect("CLIENT_ID env variable");
     let client_secret = std::env::var("CLIENT_SECRET").ok();
+    
+    // Debug logging for OIDC configuration
+    tracing::info!("OIDC Configuration:");
+    tracing::info!("  APP_URL: {}", app_url);
+    tracing::info!("  ISSUER: {}", issuer);
+    tracing::info!("  CLIENT_ID: {}", client_id);
+    tracing::info!("  CLIENT_SECRET: {}", if client_secret.is_some() { "***PROVIDED***" } else { "NOT_SET" });
+    
+    let filtered_secret = client_secret.filter(|s| !s.is_empty());
+    if filtered_secret.is_none() {
+        tracing::warn!("CLIENT_SECRET is empty or not set - this may cause authentication failures");
+    }
+    
     OidcConfig {
         app_url,
         issuer,
         client_id,
-        client_secret: client_secret.filter(|s| !s.is_empty()),
+        client_secret: filtered_secret,
     }
 }
 
@@ -263,25 +276,42 @@ pub async fn create_app<RestState: RestStateDef>(rest_state: RestState) -> Route
 
         let oidc_login_service = ServiceBuilder::new()
             .layer(HandleErrorLayer::new(|e: MiddlewareError| async {
+                tracing::error!("OIDC Login error: {:?}", e);
                 e.into_response()
             }))
             .layer(OidcLoginLayer::<EmptyAdditionalClaims>::new());
 
+        tracing::info!("Attempting OIDC client discovery...");
+        let oidc_auth_layer_result = OidcAuthLayer::<EmptyAdditionalClaims>::discover_client(
+            Uri::from_maybe_shared(oidc_config.app_url.clone()).expect("valid APP_URL"),
+            oidc_config.issuer.clone(),
+            oidc_config.client_id.clone(),
+            oidc_config.client_secret.clone(),
+            vec![],
+        )
+        .await;
+
+        let oidc_auth_layer = match oidc_auth_layer_result {
+            Ok(layer) => {
+                tracing::info!("OIDC client discovery successful");
+                layer
+            },
+            Err(e) => {
+                tracing::error!("OIDC client discovery failed: {:?}", e);
+                tracing::error!("Check your OIDC configuration:");
+                tracing::error!("  - Issuer URL is accessible: {}", oidc_config.issuer);
+                tracing::error!("  - Client ID is correct: {}", oidc_config.client_id);
+                tracing::error!("  - App URL is correct: {}", oidc_config.app_url);
+                panic!("Failed to discover OIDC client: {:?}", e);
+            }
+        };
+
         let oidc_auth_service = ServiceBuilder::new()
             .layer(HandleErrorLayer::new(|e: MiddlewareError| async {
+                tracing::error!("OIDC Auth error: {:?}", e);
                 e.into_response()
             }))
-            .layer(
-                OidcAuthLayer::<EmptyAdditionalClaims>::discover_client(
-                    Uri::from_maybe_shared(oidc_config.app_url).expect("valid APP_URL"),
-                    oidc_config.issuer,
-                    oidc_config.client_id,
-                    oidc_config.client_secret,
-                    vec![],
-                )
-                .await
-                .expect("Failed to discover OIDC client"),
-            );
+            .layer(oidc_auth_layer);
 
         // Add logout route with OIDC support
         app

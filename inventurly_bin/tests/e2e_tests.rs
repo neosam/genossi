@@ -1,11 +1,14 @@
-use inventurly_bin::RestStateImpl;
-use inventurly_rest::test_server::test_support::{start_test_server, TestServer};
-use inventurly_rest_types::PersonTO;
-use reqwest::Client;
-use serde_json::json;
-use sqlx::SqlitePool;
-use std::sync::Arc;
-use uuid::Uuid;
+// Skip all tests when OIDC feature is enabled since they require a real OIDC server
+#[cfg(not(feature = "oidc"))]
+mod tests {
+    use inventurly_bin::RestStateImpl;
+    use inventurly_rest::test_server::test_support::{start_test_server, TestServer};
+    use inventurly_rest_types::PersonTO;
+    use reqwest::Client;
+    use serde_json::json;
+    use sqlx::SqlitePool;
+    use std::sync::Arc;
+    use uuid::Uuid;
 
 struct TestContext {
     client: Client,
@@ -310,3 +313,5 @@ async fn test_e2e_concurrent_operations() {
     let all = ctx.get_all_persons().await;
     assert_eq!(all.len(), 3);
 }
+
+} // End of #[cfg(not(feature = "oidc"))] mod tests

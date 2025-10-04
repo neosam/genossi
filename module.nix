@@ -15,9 +15,9 @@ in
         };
         
         package = lib.mkOption {
-          type = lib.types.package;
-          description = "Inventurly package to use";
-          default = pkgs.callPackage (./default.nix) { inherit pkgs; features = ["oidc"]; };
+          type = lib.types.nullOr lib.types.package;
+          default = null;
+          description = "Inventurly package to use. If null, will be auto-selected based on oidc.enable";
         };
         
         frontendPackage = lib.mkOption {
@@ -61,6 +61,40 @@ in
           default = {};
           description = "Additional environment variables";
         };
+        
+        oidc = {
+          enable = lib.mkOption {
+            type = lib.types.bool;
+            default = false;
+            description = "Enable OIDC authentication (disables mock authentication)";
+          };
+          
+          issuer = lib.mkOption {
+            type = lib.types.str;
+            default = "";
+            example = "https://accounts.google.com";
+            description = "OIDC provider issuer URL";
+          };
+          
+          clientId = lib.mkOption {
+            type = lib.types.str;
+            default = "";
+            description = "OAuth client ID from your OIDC provider";
+          };
+          
+          clientSecretFile = lib.mkOption {
+            type = lib.types.nullOr lib.types.path;
+            default = null;
+            description = "Path to file containing OAuth client secret";
+          };
+          
+          appUrl = lib.mkOption {
+            type = lib.types.nullOr lib.types.str;
+            default = null;
+            example = "https://inventurly.example.com";
+            description = "Application URL for OIDC callbacks. Defaults to https://[domain] if domain is set";
+          };
+        };
       };
     });
     default = {};
@@ -68,23 +102,71 @@ in
   };
   
   config = lib.mkMerge [
+    # Assertions for OIDC configuration
+    {
+      assertions = lib.flatten (lib.mapAttrsToList (name: instanceCfg: [
+        {
+          assertion = !instanceCfg.enable || !instanceCfg.oidc.enable || instanceCfg.oidc.issuer != "";
+          message = "services.inventurly.${name}: oidc.issuer must be set when OIDC is enabled";
+        }
+        {
+          assertion = !instanceCfg.enable || !instanceCfg.oidc.enable || instanceCfg.oidc.clientId != "";
+          message = "services.inventurly.${name}: oidc.clientId must be set when OIDC is enabled";
+        }
+        {
+          assertion = !instanceCfg.enable || !instanceCfg.oidc.enable || instanceCfg.domain != null || instanceCfg.oidc.appUrl != null;
+          message = "services.inventurly.${name}: either domain or oidc.appUrl must be set when OIDC is enabled";
+        }
+      ]) cfg);
+    }
+
     # Systemd services
     {
       systemd.services = lib.mapAttrs' (name: instanceCfg:
+        let
+          # Determine package based on OIDC configuration
+          actualPackage = if instanceCfg.package != null
+            then instanceCfg.package
+            else pkgs.callPackage (./default.nix) { 
+              inherit pkgs; 
+              features = if instanceCfg.oidc.enable then ["oidc"] else ["mock_auth"]; 
+            };
+            
+          # Auto-derive APP_URL if not specified
+          appUrl = if instanceCfg.oidc.appUrl != null
+            then instanceCfg.oidc.appUrl
+            else if instanceCfg.domain != null
+              then "https://${instanceCfg.domain}"
+              else "http://${instanceCfg.host}:${toString instanceCfg.port}";
+              
+          # Base environment variables
+          baseEnv = {
+            DATABASE_URL = "sqlite:/var/lib/inventurly-${name}/inventurly.db";
+            SERVER_ADDRESS = "${instanceCfg.host}:${toString instanceCfg.port}";
+            RUST_LOG = instanceCfg.logLevel;
+          };
+          
+          # OIDC environment variables
+          oidcEnv = lib.optionalAttrs instanceCfg.oidc.enable {
+            APP_URL = appUrl;
+            BASE_PATH = "${appUrl}/";
+            ISSUER = instanceCfg.oidc.issuer;
+            CLIENT_ID = instanceCfg.oidc.clientId;
+          };
+        in
         lib.nameValuePair "inventurly-${name}" (lib.mkIf instanceCfg.enable {
           description = "Inventurly Service (${name})";
           wantedBy = [ "multi-user.target" ];
           after = [ "network.target" ];
           
-          environment = {
-            DATABASE_URL = "sqlite:/var/lib/inventurly-${name}/inventurly.db";
-            SERVER_ADDRESS = "${instanceCfg.host}:${toString instanceCfg.port}";
-            RUST_LOG = instanceCfg.logLevel;
-          } // instanceCfg.extraEnvironment;
+          environment = baseEnv // oidcEnv // instanceCfg.extraEnvironment // 
+            lib.optionalAttrs (instanceCfg.oidc.enable && instanceCfg.oidc.clientSecretFile != null) {
+              CLIENT_SECRET = lib.fileContents instanceCfg.oidc.clientSecretFile;
+            };
           
           serviceConfig = {
             Type = "simple";
-            ExecStart = "${instanceCfg.package}/bin/inventurly";
+            ExecStart = "${actualPackage}/bin/inventurly";
             StateDirectory = "inventurly-${name}";
             WorkingDirectory = "/var/lib/inventurly-${name}";
             Restart = "on-failure";
@@ -98,7 +180,7 @@ in
             
             # Copy and run migrations
             if [ ! -d /var/lib/inventurly-${name}/migrations ]; then
-              cp -r ${instanceCfg.package}/migrations /var/lib/inventurly-${name}/
+              cp -r ${actualPackage}/migrations /var/lib/inventurly-${name}/
             fi
             
             # Run migrations
@@ -137,6 +219,11 @@ in
             enableACME = instanceCfg.enableSSL;
 
             locations."= /authenticate" = {
+              proxyPass = "http://127.0.0.1:${toString instanceCfg.port}";
+              priority = 100;
+            };
+
+            locations."= /logout" = {
               proxyPass = "http://127.0.0.1:${toString instanceCfg.port}";
               priority = 100;
             };
