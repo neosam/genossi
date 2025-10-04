@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use rest_types::{
-    ProductTO, UserTO,
+    ProductTO, RackTO, UserTO,
     DuplicateDetectionResultTO, CheckDuplicateRequestTO,
 };
 use tracing::info;
@@ -179,4 +179,57 @@ pub async fn import_csv(
     let res = response.json().await?;
     info!("CSV import completed");
     Ok(res)
+}
+
+// Rack API
+pub async fn get_racks(config: &Config) -> Result<Vec<RackTO>, reqwest::Error> {
+    info!("Fetching racks");
+    let url = format!("{}/racks", config.backend);
+    let response = reqwest::get(url).await?;
+    response.error_for_status_ref()?;
+    let res = response.json().await?;
+    info!("Racks fetched");
+    Ok(res)
+}
+
+pub async fn get_rack(config: &Config, id: Uuid) -> Result<RackTO, reqwest::Error> {
+    info!("Fetching rack {id}");
+    let url = format!("{}/racks/{}", config.backend, id);
+    let response = reqwest::get(url).await?;
+    response.error_for_status_ref()?;
+    let res = response.json().await?;
+    info!("Rack fetched");
+    Ok(res)
+}
+
+pub async fn create_rack(config: &Config, rack: RackTO) -> Result<RackTO, reqwest::Error> {
+    info!("Creating rack");
+    let url = format!("{}/racks", config.backend);
+    let client = reqwest::Client::new();
+    let response = client.post(url).json(&rack).send().await?;
+    response.error_for_status_ref()?;
+    let res = response.json().await?;
+    info!("Rack created");
+    Ok(res)
+}
+
+pub async fn update_rack(config: &Config, rack: RackTO) -> Result<RackTO, reqwest::Error> {
+    info!("Updating rack {:?}", rack.id);
+    let url = format!("{}/racks/{}", config.backend, rack.id.unwrap());
+    let client = reqwest::Client::new();
+    let response = client.put(url).json(&rack).send().await?;
+    response.error_for_status_ref()?;
+    let res = response.json().await?;
+    info!("Rack updated");
+    Ok(res)
+}
+
+pub async fn delete_rack(config: &Config, id: Uuid) -> Result<(), reqwest::Error> {
+    info!("Deleting rack {id}");
+    let url = format!("{}/racks/{}", config.backend, id);
+    let client = reqwest::Client::new();
+    let response = client.delete(url).send().await?;
+    response.error_for_status_ref()?;
+    info!("Rack deleted");
+    Ok(())
 }

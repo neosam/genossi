@@ -23,7 +23,7 @@ pub fn generate_route<RestState: RestStateDef>() -> Router<RestState> {
 }
 
 #[derive(Debug, Deserialize)]
-struct DuplicateQueryParams {
+pub struct DuplicateQueryParams {
     similarity_threshold: Option<f64>,
     exact_match_weight: Option<f64>,
     word_order_weight: Option<f64>,

@@ -4,3 +4,4 @@ pub mod dropdown;
 pub mod error;
 pub mod i18n;
 pub mod product;
+pub mod rack;

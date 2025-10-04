@@ -3,7 +3,7 @@ use dioxus::prelude::*;
 
 use super::{
     config::CONFIG,
-    error::{ErrorStore, ERROR_STORE},
+    error::ERROR_STORE,
 };
 
 pub async fn load_auth_info() {

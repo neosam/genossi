@@ -13,6 +13,7 @@ pub fn App() -> Element {
     use_coroutine(service::dropdown::dropdown_service);
     use_coroutine(service::i18n::i18n_service);
     service::product::product_service();
+    service::rack::rack_service();
     let config = CONFIG.read();
     if !config.backend.is_empty() {
         let title = config.application_title.clone();
@@ -29,7 +30,7 @@ pub fn App() -> Element {
         });
 
         rsx! {
-            document::Stylesheet { href: asset!("./assets/tailwind.css") }
+            document::Stylesheet { href: "/assets/tailwind.css" }
             div { class: "flex flex-col",
                 DropdownBase {}
                 Auth {

@@ -42,6 +42,7 @@ pub enum Key {
     // Navigation
     Home,
     Products,
+    Racks,
     Persons,
     Permissions,
     
@@ -54,6 +55,12 @@ pub enum Key {
     ProductRequiresWeighing,
     ProductCreated,
     ProductDeleted,
+    
+    // Rack fields
+    RackName,
+    RackDescription,
+    RackCreated,
+    RackDeleted,
     
     // Person fields
     PersonName,

@@ -21,8 +21,8 @@ pub fn ProductForm(product_id: Option<Uuid>) -> Element {
         version: None,
     });
     
-    let mut loading = use_signal(|| false);
-    let mut error = use_signal(|| None::<String>);
+    let loading = use_signal(|| false);
+    let error = use_signal(|| None::<String>);
     
     let save_product = move |_| {
         // For now, just navigate back - actual save will be implemented later

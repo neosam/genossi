@@ -209,3 +209,26 @@ pub struct CheckDuplicateRequestTO {
     pub sales_unit: String,
     pub requires_weighing: bool,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RackTO {
+    pub id: Option<Uuid>,
+    pub name: String,
+    pub description: String,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    pub created: Option<PrimitiveDateTime>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    pub deleted: Option<PrimitiveDateTime>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<Uuid>,
+}

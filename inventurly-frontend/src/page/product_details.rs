@@ -1,11 +1,11 @@
 use dioxus::prelude::*;
 use uuid::Uuid;
 use crate::component::{TopBar, ProductForm};
-use crate::i18n::{use_i18n, Key};
+use crate::i18n::use_i18n;
 
 #[component]
 pub fn ProductDetails(id: String) -> Element {
-    let i18n = use_i18n();
+    let _i18n = use_i18n();
     let product_id = id.parse::<Uuid>().ok();
     
     rsx! {

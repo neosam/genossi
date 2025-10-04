@@ -6,8 +6,11 @@ pub mod overlay;
 pub mod top_bar;
 pub mod product_list;
 pub mod product_form;
+pub mod rack_list;
+pub mod rack_form;
 
-pub use modal::Modal;
 pub use top_bar::TopBar;
 pub use product_list::ProductList;
 pub use product_form::ProductForm;
+pub use rack_list::RackList;
+pub use rack_form::RackForm;

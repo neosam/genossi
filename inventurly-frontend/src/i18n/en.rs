@@ -29,6 +29,7 @@ pub fn translate(key: Key) -> Rc<str> {
         // Navigation
         Key::Home => "Home",
         Key::Products => "Products",
+        Key::Racks => "Racks",
         Key::Persons => "Persons",
         Key::Permissions => "Permissions",
         
@@ -41,6 +42,12 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::ProductRequiresWeighing => "Requires Weighing",
         Key::ProductCreated => "Created",
         Key::ProductDeleted => "Deleted",
+        
+        // Rack fields
+        Key::RackName => "Name",
+        Key::RackDescription => "Description",
+        Key::RackCreated => "Created",
+        Key::RackDeleted => "Deleted",
         
         // Person fields
         Key::PersonName => "Name",

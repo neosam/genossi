@@ -3,7 +3,7 @@ use futures_util::StreamExt;
 
 use crate::{
     api,
-    service::error::{ErrorStore, ERROR_STORE},
+    service::error::ERROR_STORE,
     state::Config,
 };
 

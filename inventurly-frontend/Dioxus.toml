@@ -61,4 +61,6 @@ backend = "http://localhost:3000/csv-import"
 [[web.proxy]]
 backend = "http://localhost:3000/permission"
 [[web.proxy]]
+backend = "http://localhost:3000/racks"
+[[web.proxy]]
 backend = "http://localhost:3000/swagger-ui"

@@ -42,6 +42,9 @@ pub fn TopBar() -> Element {
                         li {
                             Link { to: Route::Products {}, {i18n.t(Key::Products)} }
                         }
+                        li {
+                            Link { to: Route::Racks {}, {i18n.t(Key::Racks)} }
+                        }
                     }
                     if auth_info.is_some() {
                         div { class: "mb-6 md:mb-0" }

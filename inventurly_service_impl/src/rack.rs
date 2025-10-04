@@ -122,21 +122,19 @@ impl<Deps: RackServiceDeps> RackService for RackServiceImpl<Deps> {
             return Err(ServiceError::EntityNotFound(rack.id));
         }
 
-        // Update rack with new version
-        let updated_rack = Rack {
-            id: rack.id,
-            name: rack.name.clone(),
-            description: rack.description.clone(),
-            created: rack.created,
-            deleted: rack.deleted,
-            version: self.uuid_service.new_v4().await,
-        };
-
-        let entity = inventurly_dao::rack::RackEntity::from(&updated_rack);
+        // Update rack (preserve version for optimistic locking)
+        let entity = inventurly_dao::rack::RackEntity::from(rack);
         self.rack_dao.update(&entity, RACK_SERVICE_PROCESS, tx.clone()).await?;
 
+        // Fetch the updated rack to get the new version
+        let updated = self.rack_dao
+            .find_by_id(rack.id, tx.clone())
+            .await?
+            .map(|e| Rack::from(&e))
+            .ok_or(ServiceError::EntityNotFound(rack.id))?;
+
         self.transaction_dao.commit(tx).await?;
-        Ok(updated_rack)
+        Ok(updated)
     }
 
     async fn delete(
@@ -153,17 +151,12 @@ impl<Deps: RackServiceDeps> RackService for RackServiceImpl<Deps> {
 
         // Check if rack exists
         let existing = self.rack_dao.find_by_id(id, tx.clone()).await?;
-        if let Some(rack) = existing {
-            // Perform soft delete
+        if let Some(mut rack) = existing {
+            // Perform soft delete by modifying the existing rack (preserve version for optimistic locking)
             let now = time::OffsetDateTime::now_utc();
-            let deleted_rack = Rack {
-                id: rack.id,
-                name: rack.name,
-                description: rack.description,
-                created: rack.created,
-                deleted: Some(time::PrimitiveDateTime::new(now.date(), now.time())),
-                version: self.uuid_service.new_v4().await,
-            };
+            let rack_entity = Rack::from(&rack);
+            let mut deleted_rack = rack_entity;
+            deleted_rack.deleted = Some(time::PrimitiveDateTime::new(now.date(), now.time()));
 
             let entity = inventurly_dao::rack::RackEntity::from(&deleted_rack);
             self.rack_dao.update(&entity, RACK_SERVICE_PROCESS, tx.clone()).await?;
