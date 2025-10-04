@@ -1,10 +1,11 @@
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
 use inventurly_rest::RestStateDef;
-use inventurly_rest_types::PersonTO;
+use inventurly_rest_types::{PersonTO, RackTO};
 use inventurly_service::permission::{Authentication, MockContext};
 use inventurly_service::person::{Person, PersonService};
 use inventurly_service::product::{Product, ProductService};
+use inventurly_service::rack::{Rack, RackService};
 use inventurly_service::csv_import::{CsvImportService, CsvImportResult, CsvProductRow, ImportAction};
 use inventurly_service::duplicate_detection::{DuplicateDetectionService, DuplicateDetectionConfig, DuplicateDetectionResult, DuplicateMatch};
 use inventurly_service::permission::PermissionService;
@@ -18,6 +19,7 @@ use uuid::Uuid;
 struct TestRestState {
     person_service: Arc<MockPersonService>,
     product_service: Arc<MockProductService>,
+    rack_service: Arc<MockRackService>,
     csv_import_service: Arc<MockCsvImportService>,
     duplicate_detection_service: Arc<MockDuplicateDetectionService>,
     permission_service: Arc<MockPermissionService>,
@@ -27,6 +29,7 @@ struct TestRestState {
 impl RestStateDef for TestRestState {
     type PersonService = MockPersonService;
     type ProductService = MockProductService;
+    type RackService = MockRackService;
     type CsvImportService = MockCsvImportService;
     type DuplicateDetectionService = MockDuplicateDetectionService;
     type PermissionService = MockPermissionService;
@@ -38,6 +41,10 @@ impl RestStateDef for TestRestState {
     
     fn product_service(&self) -> Arc<Self::ProductService> {
         self.product_service.clone()
+    }
+    
+    fn rack_service(&self) -> Arc<Self::RackService> {
+        self.rack_service.clone()
     }
     
     fn csv_import_service(&self) -> Arc<Self::CsvImportService> {
@@ -219,6 +226,109 @@ impl ProductService for MockProductService {
         _transaction: Option<Self::Transaction>,
     ) -> Result<(), inventurly_service::ServiceError> {
         Err(inventurly_service::ServiceError::EntityNotFound(id))
+    }
+}
+
+#[derive(Clone)]
+struct MockRackService;
+
+#[async_trait::async_trait]
+impl RackService for MockRackService {
+    type Context = MockContext;
+    type Transaction = inventurly_dao::MockTransaction;
+
+    async fn get_all(
+        &self,
+        _auth: Authentication<Self::Context>,
+        _transaction: Option<Self::Transaction>,
+    ) -> Result<Arc<[Rack]>, inventurly_service::ServiceError> {
+        let rack = Rack {
+            id: Uuid::parse_str("a1b2c3d4-e5f6-7890-abcd-ef1234567890").unwrap(),
+            name: Arc::from("Storage Rack A"),
+            description: Arc::from("Primary storage rack for inventory"),
+            created: time::PrimitiveDateTime::new(
+                time::Date::from_calendar_date(2024, time::Month::January, 1).unwrap(),
+                time::Time::from_hms(0, 0, 0).unwrap(),
+            ),
+            deleted: None,
+            version: Uuid::parse_str("b2c3d4e5-f6a7-8901-bcde-f23456789012").unwrap(),
+        };
+        Ok(Arc::from([rack]))
+    }
+
+    async fn get_by_id(
+        &self,
+        id: Uuid,
+        _auth: Authentication<Self::Context>,
+        _transaction: Option<Self::Transaction>,
+    ) -> Result<Option<Rack>, inventurly_service::ServiceError> {
+        if id == Uuid::parse_str("a1b2c3d4-e5f6-7890-abcd-ef1234567890").unwrap() {
+            Ok(Some(Rack {
+                id,
+                name: Arc::from("Storage Rack A"),
+                description: Arc::from("Primary storage rack for inventory"),
+                created: time::PrimitiveDateTime::new(
+                    time::Date::from_calendar_date(2024, time::Month::January, 1).unwrap(),
+                    time::Time::from_hms(0, 0, 0).unwrap(),
+                ),
+                deleted: None,
+                version: Uuid::parse_str("b2c3d4e5-f6a7-8901-bcde-f23456789012").unwrap(),
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn create(
+        &self,
+        rack: &Rack,
+        _auth: Authentication<Self::Context>,
+        _transaction: Option<Self::Transaction>,
+    ) -> Result<Rack, inventurly_service::ServiceError> {
+        Ok(Rack {
+            id: Uuid::new_v4(),
+            name: rack.name.clone(),
+            description: rack.description.clone(),
+            created: time::PrimitiveDateTime::new(
+                time::Date::from_calendar_date(2024, time::Month::January, 1).unwrap(),
+                time::Time::from_hms(0, 0, 0).unwrap(),
+            ),
+            deleted: None,
+            version: Uuid::new_v4(),
+        })
+    }
+
+    async fn update(
+        &self,
+        rack: &Rack,
+        _auth: Authentication<Self::Context>,
+        _transaction: Option<Self::Transaction>,
+    ) -> Result<Rack, inventurly_service::ServiceError> {
+        if rack.id == Uuid::parse_str("a1b2c3d4-e5f6-7890-abcd-ef1234567890").unwrap() {
+            Ok(Rack {
+                id: rack.id,
+                name: rack.name.clone(),
+                description: rack.description.clone(),
+                created: rack.created,
+                deleted: rack.deleted,
+                version: Uuid::new_v4(),
+            })
+        } else {
+            Err(inventurly_service::ServiceError::EntityNotFound(rack.id))
+        }
+    }
+
+    async fn delete(
+        &self,
+        id: Uuid,
+        _auth: Authentication<Self::Context>,
+        _transaction: Option<Self::Transaction>,
+    ) -> Result<(), inventurly_service::ServiceError> {
+        if id == Uuid::parse_str("a1b2c3d4-e5f6-7890-abcd-ef1234567890").unwrap() {
+            Ok(())
+        } else {
+            Err(inventurly_service::ServiceError::EntityNotFound(id))
+        }
     }
 }
 
@@ -499,6 +609,7 @@ fn create_test_app() -> axum::Router {
     let rest_state = TestRestState {
         person_service: Arc::new(MockPersonService),
         product_service: Arc::new(MockProductService),
+        rack_service: Arc::new(MockRackService),
         csv_import_service: Arc::new(MockCsvImportService),
         duplicate_detection_service: Arc::new(MockDuplicateDetectionService),
         permission_service: Arc::new(MockPermissionService),
@@ -507,6 +618,7 @@ fn create_test_app() -> axum::Router {
 
     axum::Router::new()
         .nest("/persons", inventurly_rest::person::generate_route())
+        .nest("/racks", inventurly_rest::rack::generate_route())
         .with_state(rest_state)
         .layer(axum::middleware::from_fn(|mut req: Request<Body>, next: axum::middleware::Next| async move {
             req.extensions_mut().insert(inventurly_rest::Context::default());
@@ -703,6 +815,205 @@ async fn test_delete_person_not_found() {
             Request::builder()
                 .method(Method::DELETE)
                 .uri("/persons/00000000-0000-0000-0000-000000000000")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+// Rack tests
+#[tokio::test]
+async fn test_get_all_racks() {
+    let app = create_test_app();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/racks")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let racks: Vec<RackTO> = serde_json::from_slice(&body).unwrap();
+    
+    assert_eq!(racks.len(), 1);
+    assert_eq!(racks[0].name, "Storage Rack A");
+    assert_eq!(racks[0].description, "Primary storage rack for inventory");
+}
+
+#[tokio::test]
+async fn test_get_rack_by_id() {
+    let app = create_test_app();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/racks/a1b2c3d4-e5f6-7890-abcd-ef1234567890")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let rack: RackTO = serde_json::from_slice(&body).unwrap();
+    
+    assert_eq!(rack.name, "Storage Rack A");
+    assert_eq!(rack.description, "Primary storage rack for inventory");
+    assert_eq!(rack.id, Some(Uuid::parse_str("a1b2c3d4-e5f6-7890-abcd-ef1234567890").unwrap()));
+}
+
+#[tokio::test]
+async fn test_get_rack_not_found() {
+    let app = create_test_app();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/racks/00000000-0000-0000-0000-000000000000")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_create_rack() {
+    let app = create_test_app();
+
+    let new_rack = json!({
+        "name": "Storage Rack B",
+        "description": "Secondary storage rack"
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/racks")
+                .header("Content-Type", "application/json")
+                .body(Body::from(new_rack.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let rack: RackTO = serde_json::from_slice(&body).unwrap();
+    
+    assert_eq!(rack.name, "Storage Rack B");
+    assert_eq!(rack.description, "Secondary storage rack");
+    assert!(rack.id.is_some());
+}
+
+#[tokio::test]
+async fn test_update_rack() {
+    let app = create_test_app();
+
+    let updated_rack = json!({
+        "name": "Updated Rack A",
+        "description": "Updated description for rack A"
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::PUT)
+                .uri("/racks/a1b2c3d4-e5f6-7890-abcd-ef1234567890")
+                .header("Content-Type", "application/json")
+                .body(Body::from(updated_rack.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let rack: RackTO = serde_json::from_slice(&body).unwrap();
+    
+    assert_eq!(rack.name, "Updated Rack A");
+    assert_eq!(rack.description, "Updated description for rack A");
+    assert_eq!(rack.id, Some(Uuid::parse_str("a1b2c3d4-e5f6-7890-abcd-ef1234567890").unwrap()));
+}
+
+#[tokio::test]
+async fn test_update_rack_not_found() {
+    let app = create_test_app();
+
+    let updated_rack = json!({
+        "name": "NonExistent",
+        "description": "This rack does not exist"
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::PUT)
+                .uri("/racks/00000000-0000-0000-0000-000000000000")
+                .header("Content-Type", "application/json")
+                .body(Body::from(updated_rack.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_delete_rack() {
+    let app = create_test_app();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::DELETE)
+                .uri("/racks/a1b2c3d4-e5f6-7890-abcd-ef1234567890")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+}
+
+#[tokio::test]
+async fn test_delete_rack_not_found() {
+    let app = create_test_app();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::DELETE)
+                .uri("/racks/00000000-0000-0000-0000-000000000000")
                 .body(Body::empty())
                 .unwrap(),
         )

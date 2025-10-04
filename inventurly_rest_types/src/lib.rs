@@ -200,6 +200,64 @@ impl From<&inventurly_service::product::Product> for ProductTO {
     }
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct RackTO {
+    #[schema(example = "123e4567-e89b-12d3-a456-426614174000")]
+    pub id: Option<Uuid>,
+    #[schema(example = "Rack A")]
+    pub name: String,
+    #[schema(example = "Storage rack for products")]
+    pub description: String,
+    #[serde(
+        skip_serializing_if = "Option::is_none", 
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    #[schema(example = "2024-01-15T10:30:00Z")]
+    pub created: Option<time::PrimitiveDateTime>,
+    #[serde(
+        skip_serializing_if = "Option::is_none", 
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    #[schema(example = "2024-01-15T12:45:00Z")]
+    pub deleted: Option<time::PrimitiveDateTime>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<Uuid>,
+}
+
+impl From<&inventurly_service::rack::Rack> for RackTO {
+    fn from(rack: &inventurly_service::rack::Rack) -> Self {
+        Self {
+            id: Some(rack.id),
+            name: rack.name.to_string(),
+            description: rack.description.to_string(),
+            created: Some(rack.created),
+            deleted: rack.deleted,
+            version: Some(rack.version),
+        }
+    }
+}
+
+impl From<&RackTO> for inventurly_service::rack::Rack {
+    fn from(to: &RackTO) -> Self {
+        use std::sync::Arc;
+        Self {
+            id: to.id.unwrap_or_else(Uuid::nil),
+            name: Arc::from(to.name.as_str()),
+            description: Arc::from(to.description.as_str()),
+            created: to.created.unwrap_or_else(|| {
+                let now = time::OffsetDateTime::now_utc();
+                time::PrimitiveDateTime::new(now.date(), now.time())
+            }),
+            deleted: to.deleted,
+            version: to.version.unwrap_or_else(Uuid::nil),
+        }
+    }
+}
+
 impl From<&ProductTO> for inventurly_service::product::Product {
     fn from(to: &ProductTO) -> Self {
         use std::sync::Arc;

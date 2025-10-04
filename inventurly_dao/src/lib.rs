@@ -1,5 +1,6 @@
 pub mod person;
 pub mod product;
+pub mod rack;
 pub mod permission;
 
 use std::sync::Arc;

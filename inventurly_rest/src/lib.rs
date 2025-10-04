@@ -5,6 +5,7 @@ pub mod duplicate_detection;
 pub mod permission;
 pub mod person;
 pub mod product;
+pub mod rack;
 pub mod session;
 pub mod test_server;
 
@@ -114,10 +115,15 @@ pub trait RestStateDef: Clone + Send + Sync + 'static {
         + Send
         + Sync
         + 'static;
+    type RackService: inventurly_service::rack::RackService<Context = MockContext>
+        + Send
+        + Sync
+        + 'static;
     type SessionService: inventurly_service::session::SessionService + Send + Sync + 'static;
 
     fn person_service(&self) -> Arc<Self::PersonService>;
     fn product_service(&self) -> Arc<Self::ProductService>;
+    fn rack_service(&self) -> Arc<Self::RackService>;
     fn csv_import_service(&self) -> Arc<Self::CsvImportService>;
     fn duplicate_detection_service(&self) -> Arc<Self::DuplicateDetectionService>;
     fn permission_service(&self) -> Arc<Self::PermissionService>;
@@ -130,6 +136,7 @@ pub trait RestStateDef: Clone + Send + Sync + 'static {
         (path = "/auth", api = auth::ApiDoc),
         (path = "/persons", api = person::ApiDoc),
         (path = "/products", api = product::ApiDoc),
+        (path = "/racks", api = rack::ApiDoc),
         (path = "/csv-import", api = csv_import::CsvImportApiDoc),
         (path = "/duplicate-detection", api = duplicate_detection::DuplicateDetectionApiDoc),
         (path = "/permission", api = permission::ApiDoc)
@@ -239,6 +246,7 @@ pub async fn create_app<RestState: RestStateDef>(rest_state: RestState) -> Route
         .nest("/auth", auth::generate_route())
         .nest("/persons", person::generate_route())
         .nest("/products", product::generate_route())
+        .nest("/racks", rack::generate_route())
         .nest("/csv-import", csv_import::generate_route())
         .nest(
             "/duplicate-detection",
