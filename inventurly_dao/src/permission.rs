@@ -17,6 +17,28 @@ pub trait PermissionDao: Send + Sync {
     async fn create_user(&self, user: &UserEntity, process: &str) -> Result<(), DaoError>;
     async fn delete_user(&self, username: &str) -> Result<(), DaoError>;
     
+    /// Ensures a user exists in the database, creating it if necessary
+    /// Used for auto-registration of OIDC users
+    /// Returns true if user was created, false if already existed
+    async fn ensure_user_exists(&self, username: &str, process: &str) -> Result<bool, DaoError> {
+        // Default implementation - try to create, ignore if exists
+        if self.get_user(username).await?.is_some() {
+            return Ok(false);
+        }
+        
+        let user_entity = UserEntity {
+            name: username.into(),
+            update_timestamp: None,
+            update_process: process.into(),
+        };
+        
+        match self.create_user(&user_entity, process).await {
+            Ok(()) => Ok(true),
+            Err(DaoError::DatabaseError(msg)) if msg.contains("UNIQUE") => Ok(false),
+            Err(e) => Err(e),
+        }
+    }
+    
     // Role management
     async fn all_roles(&self) -> Result<Arc<[RoleEntity]>, DaoError>;
     async fn get_role(&self, name: &str) -> Result<Option<RoleEntity>, DaoError>;

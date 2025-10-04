@@ -34,6 +34,18 @@ pub trait SessionService: Send + Sync {
         &self, 
         session_id: Option<String>
     ) -> Result<Option<AuthContext>, ServiceError>;
+    
+    /// Ensures a user exists and then creates a session for them
+    /// Used for OIDC auto-registration flow
+    async fn ensure_user_and_create_session(
+        &self, 
+        user_id: &str, 
+        expires_in_seconds: i64
+    ) -> Result<UserSession, ServiceError> {
+        // Default implementation just calls create_session
+        // Implementations that need auto-registration should override this
+        self.create_session(user_id, expires_in_seconds).await
+    }
 }
 
 /// Development session service implementation

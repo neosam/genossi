@@ -2,7 +2,9 @@
 
 This guide helps troubleshoot common OIDC authentication issues in Inventurly.
 
-## Common Error: "invalid_client"
+## Common Errors
+
+### "invalid_client" Error
 
 ### Symptoms
 ```
@@ -167,6 +169,35 @@ Enable debug logging to troubleshoot OIDC issues:
 - Set "Client Secret" in "Certificates & secrets"
 - Configure "Redirect URIs" in "Authentication"
 - Ensure "Access tokens" and "ID tokens" are enabled
+
+### "FOREIGN KEY constraint failed" Error
+
+**Symptoms:**
+```
+panicked at inventurly_rest/src/session.rs:43:14:
+an `Err` value: DataAccess("DatabaseError(\"error returned from database: (code: 787) FOREIGN KEY constraint failed\")")
+```
+
+**Root Cause:**
+This error occurs when a user logs in via OIDC for the first time. The session table has a foreign key constraint to the user table, but the user doesn't exist in the database yet.
+
+**Solution:**
+This has been fixed in the current version by implementing auto-registration for OIDC users. The system now:
+1. Automatically creates a user record when someone logs in via OIDC for the first time
+2. Uses the username from the OIDC `preferred_username` claim
+3. Creates the user with process = "oidc-auto-register"
+
+**Verification:**
+- Check that users are being created in the database after OIDC login
+- Verify no more foreign key constraint errors in the logs
+- New OIDC users should be able to log in successfully
+
+**Manual Fix (if needed):**
+If you encounter this error on an older version, you can manually create users:
+```sql
+INSERT INTO user (name, update_timestamp, update_process) 
+VALUES ('username', NULL, 'manual-oidc-setup');
+```
 
 ## Still Having Issues?
 

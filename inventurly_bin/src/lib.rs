@@ -18,7 +18,7 @@ type Transaction = TransactionImpl;
 type TransactionDao = TransactionDaoImpl;
 type PersonDao = PersonDaoImpl;
 type ProductDao = ProductDaoImpl;
-#[cfg(feature = "mock_auth")]
+#[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
 type PermissionDao = inventurly_dao::permission::MockPermissionDao;
 
 #[cfg(feature = "oidc")]  
@@ -42,7 +42,7 @@ impl PermissionServiceDeps for PermissionServiceDependencies {
 type PermissionService =
     inventurly_service_impl::permission::PermissionServiceImpl<PermissionServiceDependencies>;
 
-#[cfg(feature = "mock_auth")]
+#[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
 type SessionService = inventurly_service_impl::session::MockSessionServiceImpl;
 
 #[cfg(feature = "oidc")]

@@ -36,11 +36,13 @@ pub async fn register_session<RestState: RestStateDef>(
             .preferred_username()
             .map(|s| s.as_str().to_string())
             .unwrap_or_else(|| "NoUsername".to_string());
+        
+        // Use the new method that ensures user exists before creating session
         let session = rest_state
             .session_service()
-            .create_session(&username, 365 * 24 * 60 * 60) // 365 days in seconds
+            .ensure_user_and_create_session(&username, 365 * 24 * 60 * 60) // 365 days in seconds
             .await
-            .unwrap();
+            .expect("Failed to create session for OIDC user");
         let session_id = session.session_id.to_string();
         let now = OffsetDateTime::now_utc();
         let expires = now + time::Duration::days(365);

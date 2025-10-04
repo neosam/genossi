@@ -106,6 +106,18 @@ impl<Deps: SessionServiceDeps> SessionService for SessionServiceImpl<Deps> {
             None => Ok(None),
         }
     }
+    
+    async fn ensure_user_and_create_session(
+        &self, 
+        user_id: &str, 
+        expires_in_seconds: i64
+    ) -> Result<UserSession, ServiceError> {
+        // Ensure user exists for OIDC auto-registration
+        self.permission_dao.ensure_user_exists(user_id, "oidc-auto-register").await?;
+        
+        // Now create the session
+        self.create_session(user_id, expires_in_seconds).await
+    }
 }
 
 // Mock implementation for development/testing
