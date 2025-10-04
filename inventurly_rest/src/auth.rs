@@ -56,10 +56,21 @@ async fn get_auth_info_impl(context: Context) -> Result<Response, RestError> {
     match context.auth_context {
         Some(auth_context) => {
             // Extract user information from auth context
-            // For now, using mock data - this should be replaced with actual auth context data
+            let username = match auth_context {
+                #[cfg(feature = "mock_auth")]
+                inventurly_service::auth_types::AuthContext::Mock(ref mock_ctx) => {
+                    mock_ctx.user_id.to_string()
+                }
+                #[cfg(feature = "oidc")]
+                inventurly_service::auth_types::AuthContext::Oidc(ref user_id) => {
+                    user_id.to_string()
+                }
+            };
+            
+            // TODO: Get actual roles from permission service
             let response = AuthInfoResponse {
-                username: "test_user".to_string(), // TODO: Extract from auth_context
-                roles: vec!["admin".to_string(), "user".to_string()], // TODO: Extract from auth_context
+                username,
+                roles: vec!["user".to_string()],
             };
             
             Ok(Json(response).into_response())

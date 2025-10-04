@@ -5,8 +5,8 @@ edition.workspace = true
 
 [features]
 default = ["mock_auth"]
-mock_auth = ["inventurly_service/mock_auth", "inventurly_rest/mock_auth"]
-oidc = ["inventurly_service/oidc", "inventurly_rest/oidc"]
+mock_auth = ["inventurly_service/mock_auth", "inventurly_service_impl/mock_auth", "inventurly_rest/mock_auth"]
+oidc = ["inventurly_service/oidc", "inventurly_service_impl/oidc", "inventurly_rest/oidc"]
 
 [[bin]]
 name = "inventurly"

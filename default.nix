@@ -1,4 +1,4 @@
-{ features ? [], ... }:
+{ features ? ["mock_auth"], ... }:
 let
   specificPkgs = import (builtins.fetchTarball {
     url = "https://github.com/NixOS/nixpkgs/archive/b024ced1aac25639f8ca8fdfc2f8c4fbd66c48ef.tar.gz";
@@ -28,5 +28,5 @@ in
   chmod a+x $out/bin/start.sh
   '';
 
-    cargoHash = "sha256-HD8zvbAEqDkeIuWgkWheSOW5UyXxU/qZWSCae5jOFfk=";
+    cargoHash = "sha256-EBb5gbo9S5KB+93IpCWTuOXFy7jcEm1NZLsRvxEY0gg=";
   }

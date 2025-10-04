@@ -3,6 +3,11 @@ name = "inventurly_service_impl"
 version.workspace = true
 edition.workspace = true
 
+[features]
+default = ["mock_auth"]
+mock_auth = ["inventurly_service/mock_auth"]
+oidc = ["inventurly_service/oidc"]
+
 [dependencies]
 inventurly_dao = { path = "../inventurly_dao" }
 inventurly_service = { path = "../inventurly_service" }

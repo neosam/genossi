@@ -25,7 +25,7 @@ pub mod test_support {
         
         let addr = listener.local_addr().expect("Could not get local address");
         
-        let app = create_app(rest_state);
+        let app = create_app(rest_state).await;
         
         // Spawn the server in a background task
         let handle = tokio::spawn(async move {

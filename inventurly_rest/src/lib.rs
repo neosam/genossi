@@ -5,6 +5,7 @@ pub mod duplicate_detection;
 pub mod permission;
 pub mod person;
 pub mod product;
+pub mod session;
 pub mod test_server;
 
 use async_trait::async_trait;
@@ -14,10 +15,16 @@ use inventurly_service::{
     permission::{Authentication, MockContext},
 };
 use std::sync::Arc;
+use tower_cookies::CookieManagerLayer;
 use tower_http::cors::CorsLayer;
 use tracing::info;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
+
+#[cfg(feature = "oidc")]
+use axum::response::{IntoResponse, Redirect};
+#[cfg(feature = "oidc")]
+use axum::routing::get;
 
 #[derive(Clone, Debug)]
 pub struct Context {
@@ -136,111 +143,68 @@ pub fn bind_address() -> Arc<str> {
         .into()
 }
 
+#[cfg(feature = "oidc")]
+pub struct OidcConfig {
+    pub app_url: String,
+    pub issuer: String,
+    pub client_id: String,
+    pub client_secret: Option<String>,
+}
+
+#[cfg(feature = "oidc")]
+pub fn oidc_config() -> OidcConfig {
+    let app_url = std::env::var("APP_URL").expect("APP_URL env variable");
+    let issuer = std::env::var("ISSUER").expect("ISSUER env variable");
+    let client_id = std::env::var("CLIENT_ID").expect("CLIENT_ID env variable");
+    let client_secret = std::env::var("CLIENT_SECRET").ok();
+    OidcConfig {
+        app_url,
+        issuer,
+        client_id,
+        client_secret: client_secret.filter(|s| !s.is_empty()),
+    }
+}
+
+#[cfg(feature = "oidc")]
+pub async fn login() -> Redirect {
+    Redirect::to("/")
+}
+
+#[cfg(feature = "oidc")]
+use axum_oidc::OidcRpInitiatedLogout;
+#[cfg(feature = "oidc")]
+use http::StatusCode;
+
+#[cfg(feature = "oidc")]
+pub async fn logout(logout_extractor: OidcRpInitiatedLogout) -> Result<Redirect, StatusCode> {
+    if let Ok(logout_uri) = logout_extractor.uri() {
+        Ok(Redirect::to(&format!("{}", logout_uri)))
+    } else {
+        Err(StatusCode::BAD_REQUEST)
+    }
+}
+
 // OIDC takes priority over mock_auth when both are enabled
 #[cfg(feature = "oidc")]
 async fn context_extractor<RestState: RestStateDef>(
     rest_state: axum::extract::State<RestState>,
-    mut request: axum::http::Request<axum::body::Body>,
+    request: axum::http::Request<axum::body::Body>,
     next: middleware::Next,
 ) -> axum::response::Response {
-    // Extract headers for authentication
-    let headers = request.headers().clone();
-
-    // Try to extract auth context from headers
-    let auth_context =
-        match extract_context_from_headers(&headers, rest_state.session_service().as_ref()).await {
-            Ok(Some(ctx)) => Some(ctx),
-            Ok(None) => None,
-            Err(_) => None,
-        };
-
-    let context = Context {
-        auth: if auth_context.is_some() {
-            inventurly_service::permission::Authentication::Context(
-                inventurly_service::permission::MockContext,
-            )
-        } else {
-            inventurly_service::permission::Authentication::Context(
-                inventurly_service::permission::MockContext,
-            )
-        },
-        auth_context,
-    };
-
-    request.extensions_mut().insert(context);
-    next.run(request).await
+    session::context_extractor(rest_state, request, next).await
 }
 
-#[cfg(all(not(feature = "oidc"), feature = "mock_auth"))]
+#[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
 async fn context_extractor<RestState: RestStateDef>(
-    mut request: axum::http::Request<axum::body::Body>,
+    rest_state: axum::extract::State<RestState>,
+    request: axum::http::Request<axum::body::Body>,
     next: middleware::Next,
 ) -> axum::response::Response {
-    let context = auth_middleware::mock_auth_context();
-    request.extensions_mut().insert(context);
-    next.run(request).await
+    session::context_extractor(rest_state, request, next).await
 }
 
-// Helper function for extracting context from headers
-#[cfg(feature = "oidc")]
-async fn extract_context_from_headers<
-    SessionService: inventurly_service::session::SessionService,
->(
-    headers: &axum::http::HeaderMap,
-    session_service: &SessionService,
-) -> Result<Option<inventurly_service::auth_types::AuthContext>, inventurly_service::ServiceError> {
-    // Try session cookie first
-    if let Some(cookie_header) = headers.get("cookie") {
-        if let Ok(cookie_str) = cookie_header.to_str() {
-            if let Some(session_id) = extract_session_from_cookie(cookie_str) {
-                if let Some(context) = session_service
-                    .extract_auth_context(Some(session_id))
-                    .await?
-                {
-                    return Ok(Some(context));
-                }
-            }
-        }
-    }
 
-    // Try Authorization Bearer token (for API access)
-    if let Some(auth_header) = headers.get("authorization") {
-        if let Ok(auth_str) = auth_header.to_str() {
-            if let Some(token) = extract_bearer_token(auth_str) {
-                // Treat bearer token as session ID for now
-                if let Some(context) = session_service.extract_auth_context(Some(token)).await? {
-                    return Ok(Some(context));
-                }
-            }
-        }
-    }
-
-    Ok(None)
-}
-
-#[cfg(feature = "oidc")]
-fn extract_session_from_cookie(cookie_str: &str) -> Option<String> {
-    for cookie in cookie_str.split(';') {
-        let cookie = cookie.trim();
-        if let Some((name, value)) = cookie.split_once('=') {
-            if name.trim() == "app_session" {
-                return Some(value.trim().to_string());
-            }
-        }
-    }
-    None
-}
-
-#[cfg(feature = "oidc")]
-fn extract_bearer_token(auth_str: &str) -> Option<String> {
-    if auth_str.starts_with("Bearer ") {
-        Some(auth_str[7..].to_string())
-    } else {
-        None
-    }
-}
-
-pub fn create_app<RestState: RestStateDef>(rest_state: RestState) -> Router {
+pub async fn create_app<RestState: RestStateDef>(rest_state: RestState) -> Router {
     let mut api_doc = ApiDoc::openapi();
     let base = std::env::var("BASE_PATH").unwrap_or("http://localhost:3000/".into());
     api_doc.servers = Some(vec![utoipa::openapi::ServerBuilder::new()
@@ -250,8 +214,15 @@ pub fn create_app<RestState: RestStateDef>(rest_state: RestState) -> Router {
 
     let swagger_router = SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", api_doc);
 
-    Router::new()
-        .merge(swagger_router)
+    let mut app = Router::new()
+        .merge(swagger_router);
+
+    #[cfg(feature = "oidc")]
+    {
+        app = app.route("/authenticate", get(login));
+    }
+
+    let app = app
         .nest("/auth", auth::generate_route())
         .nest("/persons", person::generate_route())
         .nest("/products", product::generate_route())
@@ -264,9 +235,71 @@ pub fn create_app<RestState: RestStateDef>(rest_state: RestState) -> Router {
         .with_state(rest_state.clone())
         .layer(middleware::from_fn_with_state(
             rest_state.clone(),
+            session::forbid_unauthenticated::<RestState>,
+        ))
+        .layer(middleware::from_fn_with_state(
+            rest_state.clone(),
             context_extractor::<RestState>,
         ))
-        .layer(CorsLayer::permissive())
+        .layer(CorsLayer::permissive());
+
+    #[cfg(feature = "oidc")]
+    let app = {
+        use axum::error_handling::HandleErrorLayer;
+        use axum_oidc::error::MiddlewareError;
+        use axum_oidc::{EmptyAdditionalClaims, OidcAuthLayer, OidcLoginLayer};
+        use http::Uri;
+        use time::Duration;
+        use tower::ServiceBuilder;
+        use tower_sessions::cookie::SameSite;
+        use tower_sessions::{Expiry, MemoryStore, SessionManagerLayer};
+
+        let oidc_config = oidc_config();
+        let session_store = MemoryStore::default();
+        let session_layer = SessionManagerLayer::new(session_store)
+            .with_secure(true)
+            .with_same_site(SameSite::Strict)
+            .with_expiry(Expiry::OnInactivity(Duration::minutes(50)));
+
+        let oidc_login_service = ServiceBuilder::new()
+            .layer(HandleErrorLayer::new(|e: MiddlewareError| async {
+                e.into_response()
+            }))
+            .layer(OidcLoginLayer::<EmptyAdditionalClaims>::new());
+
+        let oidc_auth_service = ServiceBuilder::new()
+            .layer(HandleErrorLayer::new(|e: MiddlewareError| async {
+                e.into_response()
+            }))
+            .layer(
+                OidcAuthLayer::<EmptyAdditionalClaims>::discover_client(
+                    Uri::from_maybe_shared(oidc_config.app_url).expect("valid APP_URL"),
+                    oidc_config.issuer,
+                    oidc_config.client_id,
+                    oidc_config.client_secret,
+                    vec![],
+                )
+                .await
+                .expect("Failed to discover OIDC client"),
+            );
+
+        // Add logout route with OIDC support
+        app
+            .route("/logout", get(logout))
+            .layer(middleware::from_fn_with_state(
+                rest_state.clone(),
+                session::register_session::<RestState>,
+            ))
+            .layer(oidc_login_service)
+            .layer(oidc_auth_service)
+            .layer(session_layer)
+            .layer(CookieManagerLayer::new())
+    };
+
+    #[cfg(not(feature = "oidc"))]
+    let app = app.layer(CookieManagerLayer::new());
+
+    app
 }
 
 pub async fn serve_app(app: Router, listener: tokio::net::TcpListener) {
@@ -276,7 +309,7 @@ pub async fn serve_app(app: Router, listener: tokio::net::TcpListener) {
 }
 
 pub async fn start_server<RestState: RestStateDef>(rest_state: RestState) {
-    let app = create_app(rest_state);
+    let app = create_app(rest_state).await;
 
     info!("Running server at {}", bind_address());
 

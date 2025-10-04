@@ -18,11 +18,16 @@ tracing = { workspace = true }
 uuid = { workspace = true }
 utoipa = { workspace = true }
 utoipa-swagger-ui = { workspace = true }
+time = { workspace = true }
+tower-cookies = { workspace = true }
+tower-sessions = { workspace = true }
+axum-oidc = { workspace = true, optional = true }
+http = { workspace = true }
 
 [features]
 default = ["mock_auth"]
 mock_auth = []
-oidc = []
+oidc = ["dep:axum-oidc"]
 
 [dev-dependencies]
 tower = { workspace = true }
