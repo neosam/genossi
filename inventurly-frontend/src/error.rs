@@ -2,6 +2,7 @@ use reqwest::StatusCode;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
+#[allow(dead_code)]
 pub enum InventurlyError {
     #[error("reqwest error: {0}")]
     Reqwest(#[from] reqwest::Error),
@@ -10,6 +11,7 @@ pub enum InventurlyError {
     TimeComponentRange(#[from] time::error::ComponentRange),
 }
 
+#[allow(dead_code)]
 pub fn error_handler(e: InventurlyError) {
     match e {
         InventurlyError::Reqwest(e) => {
@@ -24,6 +26,7 @@ pub fn error_handler(e: InventurlyError) {
     }
 }
 
+#[allow(dead_code)]
 pub fn result_handler<T>(res: Result<T, InventurlyError>) -> Option<T> {
     match res {
         Ok(t) => Some(t),

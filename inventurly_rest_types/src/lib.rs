@@ -445,3 +445,65 @@ pub struct CheckDuplicateRequestTO {
     #[schema(example = false)]
     pub requires_weighing: bool,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct ProductRackTO {
+    #[schema(example = "123e4567-e89b-12d3-a456-426614174000")]
+    pub product_id: Uuid,
+    #[schema(example = "456e7890-e89b-12d3-a456-426614174000")]
+    pub rack_id: Uuid,
+    #[serde(
+        skip_serializing_if = "Option::is_none", 
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    #[schema(example = "2024-01-15T10:30:00Z")]
+    pub created: Option<time::PrimitiveDateTime>,
+    #[serde(
+        skip_serializing_if = "Option::is_none", 
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    #[schema(example = "2024-01-15T12:45:00Z")]
+    pub deleted: Option<time::PrimitiveDateTime>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<Uuid>,
+}
+
+impl From<&inventurly_service::product_rack::ProductRack> for ProductRackTO {
+    fn from(product_rack: &inventurly_service::product_rack::ProductRack) -> Self {
+        Self {
+            product_id: product_rack.product_id,
+            rack_id: product_rack.rack_id,
+            created: Some(product_rack.created),
+            deleted: product_rack.deleted,
+            version: Some(product_rack.version),
+        }
+    }
+}
+
+impl From<&ProductRackTO> for inventurly_service::product_rack::ProductRack {
+    fn from(to: &ProductRackTO) -> Self {
+        Self {
+            product_id: to.product_id,
+            rack_id: to.rack_id,
+            created: to.created.unwrap_or_else(|| {
+                let now = time::OffsetDateTime::now_utc();
+                time::PrimitiveDateTime::new(now.date(), now.time())
+            }),
+            deleted: to.deleted,
+            version: to.version.unwrap_or_else(uuid::Uuid::nil),
+        }
+    }
+}
+
+/// Request body for adding a product to a rack
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct AddProductToRackRequestTO {
+    #[schema(example = "123e4567-e89b-12d3-a456-426614174000")]
+    pub product_id: Uuid,
+    #[schema(example = "456e7890-e89b-12d3-a456-426614174000")]
+    pub rack_id: Uuid,
+}

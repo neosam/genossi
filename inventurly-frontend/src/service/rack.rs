@@ -8,6 +8,7 @@ use crate::state::Rack;
 pub static RACKS: GlobalSignal<Rack> = GlobalSignal::new(Rack::default);
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum RackService {
     LoadRacks,
     GetRack(Uuid),

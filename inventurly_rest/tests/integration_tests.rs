@@ -1,11 +1,12 @@
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
 use inventurly_rest::RestStateDef;
-use inventurly_rest_types::{PersonTO, RackTO};
+use inventurly_rest_types::{PersonTO, RackTO, ProductRackTO};
 use inventurly_service::permission::{Authentication, MockContext};
 use inventurly_service::person::{Person, PersonService};
 use inventurly_service::product::{Product, ProductService};
 use inventurly_service::rack::{Rack, RackService};
+use inventurly_service::product_rack::{ProductRack, ProductRackService};
 use inventurly_service::csv_import::{CsvImportService, CsvImportResult, CsvProductRow, ImportAction};
 use inventurly_service::duplicate_detection::{DuplicateDetectionService, DuplicateDetectionConfig, DuplicateDetectionResult, DuplicateMatch};
 use inventurly_service::permission::PermissionService;
@@ -20,6 +21,7 @@ struct TestRestState {
     person_service: Arc<MockPersonService>,
     product_service: Arc<MockProductService>,
     rack_service: Arc<MockRackService>,
+    product_rack_service: Arc<MockProductRackService>,
     csv_import_service: Arc<MockCsvImportService>,
     duplicate_detection_service: Arc<MockDuplicateDetectionService>,
     permission_service: Arc<MockPermissionService>,
@@ -30,6 +32,7 @@ impl RestStateDef for TestRestState {
     type PersonService = MockPersonService;
     type ProductService = MockProductService;
     type RackService = MockRackService;
+    type ProductRackService = MockProductRackService;
     type CsvImportService = MockCsvImportService;
     type DuplicateDetectionService = MockDuplicateDetectionService;
     type PermissionService = MockPermissionService;
@@ -45,6 +48,10 @@ impl RestStateDef for TestRestState {
     
     fn rack_service(&self) -> Arc<Self::RackService> {
         self.rack_service.clone()
+    }
+    
+    fn product_rack_service(&self) -> Arc<Self::ProductRackService> {
+        self.product_rack_service.clone()
     }
     
     fn csv_import_service(&self) -> Arc<Self::CsvImportService> {
@@ -227,6 +234,16 @@ impl ProductService for MockProductService {
     ) -> Result<(), inventurly_service::ServiceError> {
         Err(inventurly_service::ServiceError::EntityNotFound(id))
     }
+
+    async fn search(
+        &self,
+        _query: &str,
+        _limit: Option<usize>,
+        _auth: Authentication<Self::Context>,
+        _transaction: Option<Self::Transaction>,
+    ) -> Result<Arc<[Product]>, inventurly_service::ServiceError> {
+        Ok(Arc::from([]))
+    }
 }
 
 #[derive(Clone)]
@@ -329,6 +346,81 @@ impl RackService for MockRackService {
         } else {
             Err(inventurly_service::ServiceError::EntityNotFound(id))
         }
+    }
+}
+
+#[derive(Clone)]
+struct MockProductRackService;
+
+#[async_trait::async_trait]
+impl ProductRackService for MockProductRackService {
+    type Context = MockContext;
+    type Transaction = inventurly_dao::MockTransaction;
+
+    async fn add_product_to_rack(
+        &self,
+        product_id: Uuid,
+        rack_id: Uuid,
+        _auth: Authentication<Self::Context>,
+        _transaction: Option<Self::Transaction>,
+    ) -> Result<ProductRack, inventurly_service::ServiceError> {
+        Ok(ProductRack {
+            product_id,
+            rack_id,
+            created: time::PrimitiveDateTime::new(
+                time::Date::from_calendar_date(2024, time::Month::January, 1).unwrap(),
+                time::Time::from_hms(0, 0, 0).unwrap(),
+            ),
+            deleted: None,
+            version: Uuid::new_v4(),
+        })
+    }
+
+    async fn remove_product_from_rack(
+        &self,
+        _product_id: Uuid,
+        _rack_id: Uuid,
+        _auth: Authentication<Self::Context>,
+        _transaction: Option<Self::Transaction>,
+    ) -> Result<(), inventurly_service::ServiceError> {
+        Ok(())
+    }
+
+
+    async fn get_racks_for_product(
+        &self,
+        _product_id: Uuid,
+        _auth: Authentication<Self::Context>,
+        _transaction: Option<Self::Transaction>,
+    ) -> Result<Arc<[ProductRack]>, inventurly_service::ServiceError> {
+        Ok(Arc::from([]))
+    }
+
+    async fn get_products_in_rack(
+        &self,
+        _rack_id: Uuid,
+        _auth: Authentication<Self::Context>,
+        _transaction: Option<Self::Transaction>,
+    ) -> Result<Arc<[ProductRack]>, inventurly_service::ServiceError> {
+        Ok(Arc::from([]))
+    }
+
+    async fn get_product_rack_relationship(
+        &self,
+        _product_id: Uuid,
+        _rack_id: Uuid,
+        _auth: Authentication<Self::Context>,
+        _transaction: Option<Self::Transaction>,
+    ) -> Result<Option<ProductRack>, inventurly_service::ServiceError> {
+        Ok(None)
+    }
+
+    async fn get_all_relationships(
+        &self,
+        _auth: Authentication<Self::Context>,
+        _transaction: Option<Self::Transaction>,
+    ) -> Result<Arc<[ProductRack]>, inventurly_service::ServiceError> {
+        Ok(Arc::from([]))
     }
 }
 
@@ -610,6 +702,7 @@ fn create_test_app() -> axum::Router {
         person_service: Arc::new(MockPersonService),
         product_service: Arc::new(MockProductService),
         rack_service: Arc::new(MockRackService),
+        product_rack_service: Arc::new(MockProductRackService),
         csv_import_service: Arc::new(MockCsvImportService),
         duplicate_detection_service: Arc::new(MockDuplicateDetectionService),
         permission_service: Arc::new(MockPermissionService),
@@ -619,6 +712,7 @@ fn create_test_app() -> axum::Router {
     axum::Router::new()
         .nest("/persons", inventurly_rest::person::generate_route())
         .nest("/racks", inventurly_rest::rack::generate_route())
+        .nest("/product-racks", inventurly_rest::product_rack::generate_route())
         .with_state(rest_state)
         .layer(axum::middleware::from_fn(|mut req: Request<Body>, next: axum::middleware::Next| async move {
             req.extensions_mut().insert(inventurly_rest::Context::default());
@@ -1021,4 +1115,153 @@ async fn test_delete_rack_not_found() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+// Product-Rack tests
+#[tokio::test]
+async fn test_add_product_to_rack() {
+    let app = create_test_app();
+
+    let request_body = json!({
+        "product_id": "123e4567-e89b-12d3-a456-426614174000",
+        "rack_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/product-racks")
+                .header("Content-Type", "application/json")
+                .body(Body::from(request_body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let product_rack: ProductRackTO = serde_json::from_slice(&body).unwrap();
+    
+    assert_eq!(product_rack.product_id, Uuid::parse_str("123e4567-e89b-12d3-a456-426614174000").unwrap());
+    assert_eq!(product_rack.rack_id, Uuid::parse_str("a1b2c3d4-e5f6-7890-abcd-ef1234567890").unwrap());
+}
+
+#[tokio::test]
+async fn test_remove_product_from_rack() {
+    let app = create_test_app();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::DELETE)
+                .uri("/product-racks/123e4567-e89b-12d3-a456-426614174000/a1b2c3d4-e5f6-7890-abcd-ef1234567890")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+}
+
+
+#[tokio::test]
+async fn test_get_product_rack_relationship() {
+    let app = create_test_app();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/product-racks/123e4567-e89b-12d3-a456-426614174000/a1b2c3d4-e5f6-7890-abcd-ef1234567890")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    // Mock service returns None, so we expect 404
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_get_racks_for_product() {
+    let app = create_test_app();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/product-racks/product/123e4567-e89b-12d3-a456-426614174000")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let product_racks: Vec<ProductRackTO> = serde_json::from_slice(&body).unwrap();
+    
+    // Mock service returns empty array
+    assert_eq!(product_racks.len(), 0);
+}
+
+#[tokio::test]
+async fn test_get_products_in_rack() {
+    let app = create_test_app();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/product-racks/rack/a1b2c3d4-e5f6-7890-abcd-ef1234567890")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let product_racks: Vec<ProductRackTO> = serde_json::from_slice(&body).unwrap();
+    
+    // Mock service returns empty array
+    assert_eq!(product_racks.len(), 0);
+}
+
+#[tokio::test]
+async fn test_get_all_product_rack_relationships() {
+    let app = create_test_app();
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/product-racks/all")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let product_racks: Vec<ProductRackTO> = serde_json::from_slice(&body).unwrap();
+    
+    // Mock service returns empty array
+    assert_eq!(product_racks.len(), 0);
 }

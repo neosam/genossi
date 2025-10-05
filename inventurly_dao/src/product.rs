@@ -75,6 +75,58 @@ pub trait ProductDao: Send + Sync {
             .find(|e| e.deleted.is_none() && e.id == id)
             .cloned())
     }
+    
+    // Default implementation that searches by name and EAN from dump_all results
+    async fn search(
+        &self,
+        query: &str,
+        limit: Option<usize>,
+        tx: Self::Transaction,
+    ) -> Result<Arc<[ProductEntity]>, DaoError> {
+        let all_entities = self.dump_all(tx).await?;
+        let query_lower = query.to_lowercase();
+        
+        let mut matching_entities: Vec<ProductEntity> = all_entities
+            .iter()
+            .filter(|e| {
+                e.deleted.is_none() && (
+                    e.name.to_lowercase().contains(&query_lower) ||
+                    e.ean.to_lowercase().contains(&query_lower) ||
+                    e.short_name.to_lowercase().contains(&query_lower)
+                )
+            })
+            .cloned()
+            .collect();
+            
+        // Sort by relevance: exact matches first, then starts with, then contains
+        matching_entities.sort_by(|a, b| {
+            let a_exact = a.name.to_lowercase() == query_lower || a.ean.to_lowercase() == query_lower;
+            let b_exact = b.name.to_lowercase() == query_lower || b.ean.to_lowercase() == query_lower;
+            
+            if a_exact && !b_exact {
+                std::cmp::Ordering::Less
+            } else if !a_exact && b_exact {
+                std::cmp::Ordering::Greater
+            } else {
+                let a_starts = a.name.to_lowercase().starts_with(&query_lower) || a.ean.to_lowercase().starts_with(&query_lower);
+                let b_starts = b.name.to_lowercase().starts_with(&query_lower) || b.ean.to_lowercase().starts_with(&query_lower);
+                
+                if a_starts && !b_starts {
+                    std::cmp::Ordering::Less
+                } else if !a_starts && b_starts {
+                    std::cmp::Ordering::Greater
+                } else {
+                    a.name.cmp(&b.name)
+                }
+            }
+        });
+        
+        if let Some(limit) = limit {
+            matching_entities.truncate(limit);
+        }
+        
+        Ok(matching_entities.into())
+    }
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 use uuid::Uuid;
-use crate::component::{TopBar, RackForm};
+use crate::component::{TopBar, RackForm, RackProducts};
 use crate::i18n::{use_i18n, Key};
 
 #[component]
@@ -27,6 +27,13 @@ pub fn RackDetails(id: String) -> Element {
                     {i18n.t(Key::Racks)}
                 }
                 RackForm { rack_id }
+                
+                // Show product management for existing racks
+                if let Some(id) = rack_id {
+                    div { class: "mt-8",
+                        RackProducts { rack_id: id }
+                    }
+                }
             }
         }
     }

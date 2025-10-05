@@ -318,4 +318,24 @@ impl<Deps: ProductServiceDeps> ProductService for ProductServiceImpl<Deps> {
             None => Err(ServiceError::EntityNotFound(id))
         }
     }
+    
+    async fn search(
+        &self,
+        query: &str,
+        limit: Option<usize>,
+        context: Authentication<Self::Context>,
+        tx: Option<Self::Transaction>,
+    ) -> Result<Arc<[Product]>, ServiceError> {
+        let tx = self.transaction_dao.use_transaction(tx).await?;
+        
+        self.permission_service
+            .check_permission(ADMIN_PRIVILEGE, context)
+            .await?;
+
+        let entities = self.product_dao.search(query, limit, tx.clone()).await?;
+        let products: Vec<Product> = entities.iter().map(Product::from).collect();
+        
+        self.transaction_dao.commit(tx).await?;
+        Ok(products.into())
+    }
 }

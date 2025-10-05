@@ -1,5 +1,6 @@
 pub mod person;
 pub mod product;
+pub mod product_rack;
 pub mod rack;
 pub mod permission;
 pub mod transaction;

@@ -3,6 +3,7 @@ use std::rc::Rc;
 use rest_types::{
     ProductTO, RackTO, UserTO,
     DuplicateDetectionResultTO, CheckDuplicateRequestTO,
+    ProductRackTO, AddProductToRackRequestTO,
 };
 use tracing::info;
 use uuid::Uuid;
@@ -26,6 +27,7 @@ pub async fn fetch_auth_info(backend_url: Rc<str>) -> Result<Option<AuthInfo>, r
     Ok(Some(auth_info))
 }
 
+#[allow(dead_code)]
 pub async fn login(
     backend_url: Rc<str>,
     username: &str,
@@ -45,6 +47,7 @@ pub async fn login(
     Ok(response.status() == 200)
 }
 
+#[allow(dead_code)]
 pub async fn logout(backend_url: Rc<str>) -> Result<(), reqwest::Error> {
     info!("Logging out");
     let client = reqwest::Client::new();
@@ -89,6 +92,7 @@ pub async fn get_products(config: &Config) -> Result<Vec<ProductTO>, reqwest::Er
     Ok(res)
 }
 
+#[allow(dead_code)]
 pub async fn get_product(config: &Config, id: Uuid) -> Result<ProductTO, reqwest::Error> {
     info!("Fetching product {id}");
     let url = format!("{}/products/{}", config.backend, id);
@@ -99,6 +103,7 @@ pub async fn get_product(config: &Config, id: Uuid) -> Result<ProductTO, reqwest
     Ok(res)
 }
 
+#[allow(dead_code)]
 pub async fn create_product(config: &Config, product: ProductTO) -> Result<ProductTO, reqwest::Error> {
     info!("Creating product");
     let url = format!("{}/products", config.backend);
@@ -110,6 +115,7 @@ pub async fn create_product(config: &Config, product: ProductTO) -> Result<Produ
     Ok(res)
 }
 
+#[allow(dead_code)]
 pub async fn update_product(config: &Config, product: ProductTO) -> Result<ProductTO, reqwest::Error> {
     info!("Updating product {:?}", product.id);
     let url = format!("{}/products/{}", config.backend, product.id.unwrap());
@@ -121,6 +127,7 @@ pub async fn update_product(config: &Config, product: ProductTO) -> Result<Produ
     Ok(res)
 }
 
+#[allow(dead_code)]
 pub async fn delete_product(config: &Config, id: Uuid) -> Result<(), reqwest::Error> {
     info!("Deleting product {id}");
     let url = format!("{}/products/{}", config.backend, id);
@@ -146,6 +153,7 @@ pub async fn search_products(
 }
 
 // Duplicate detection
+#[allow(dead_code)]
 pub async fn check_duplicates(
     config: &Config,
     request: CheckDuplicateRequestTO,
@@ -162,6 +170,7 @@ pub async fn check_duplicates(
 
 
 // CSV Import
+#[allow(dead_code)]
 pub async fn import_csv(
     config: &Config,
     csv_data: String,
@@ -232,4 +241,95 @@ pub async fn delete_rack(config: &Config, id: Uuid) -> Result<(), reqwest::Error
     response.error_for_status_ref()?;
     info!("Rack deleted");
     Ok(())
+}
+
+// Product-Rack API
+pub async fn add_product_to_rack(
+    config: &Config,
+    product_id: Uuid,
+    rack_id: Uuid,
+) -> Result<ProductRackTO, reqwest::Error> {
+    info!("Adding product {product_id} to rack {rack_id}");
+    let url = format!("{}/product-racks", config.backend);
+    let request = AddProductToRackRequestTO {
+        product_id,
+        rack_id,
+    };
+    let client = reqwest::Client::new();
+    let response = client.post(url).json(&request).send().await?;
+    response.error_for_status_ref()?;
+    let res = response.json().await?;
+    info!("Product added to rack");
+    Ok(res)
+}
+
+pub async fn remove_product_from_rack(
+    config: &Config,
+    product_id: Uuid,
+    rack_id: Uuid,
+) -> Result<(), reqwest::Error> {
+    info!("Removing product {product_id} from rack {rack_id}");
+    let url = format!("{}/product-racks/{}/{}", config.backend, product_id, rack_id);
+    let client = reqwest::Client::new();
+    let response = client.delete(url).send().await?;
+    response.error_for_status_ref()?;
+    info!("Product removed from rack");
+    Ok(())
+}
+
+
+pub async fn get_product_rack_relationship(
+    config: &Config,
+    product_id: Uuid,
+    rack_id: Uuid,
+) -> Result<Option<ProductRackTO>, reqwest::Error> {
+    info!("Fetching product-rack relationship {product_id}-{rack_id}");
+    let url = format!("{}/product-racks/{}/{}", config.backend, product_id, rack_id);
+    let response = reqwest::get(url).await?;
+    if response.status() == 404 {
+        return Ok(None);
+    }
+    response.error_for_status_ref()?;
+    let res = response.json().await?;
+    info!("Product-rack relationship fetched");
+    Ok(Some(res))
+}
+
+pub async fn get_racks_for_product(
+    config: &Config,
+    product_id: Uuid,
+) -> Result<Vec<ProductRackTO>, reqwest::Error> {
+    info!("Fetching racks for product {product_id}");
+    let url = format!("{}/product-racks/product/{}", config.backend, product_id);
+    let response = reqwest::get(url).await?;
+    response.error_for_status_ref()?;
+    let res = response.json().await?;
+    info!("Racks for product fetched");
+    Ok(res)
+}
+
+pub async fn get_products_in_rack(
+    config: &Config,
+    rack_id: Uuid,
+) -> Result<Vec<ProductRackTO>, reqwest::Error> {
+    info!("Fetching products in rack {rack_id}");
+    let url = format!("{}/product-racks/rack/{}", config.backend, rack_id);
+    let response = reqwest::get(url).await?;
+    response.error_for_status_ref()?;
+    let res = response.json().await?;
+    info!("Products in rack fetched");
+    Ok(res)
+}
+
+#[allow(dead_code)]
+pub async fn get_all_product_rack_relationships(
+    config: &Config,
+) -> Result<Vec<ProductRackTO>, reqwest::Error> {
+    info!("Fetching all product-rack relationships");
+    let url = format!("{}/product-racks/all", config.backend);
+    let response = reqwest::get(url).await?;
+    response.error_for_status_ref()?;
+    let res = response.json().await?;
+    info!("All product-rack relationships fetched");
+    Ok(res)
 }

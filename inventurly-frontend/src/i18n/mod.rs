@@ -62,6 +62,18 @@ pub enum Key {
     RackCreated,
     RackDeleted,
     
+    // Product-Rack fields
+    ProductRackQuantity,
+    ProductRackRelationship,
+    AddProductToRack,
+    RemoveProductFromRack,
+    UpdateQuantity,
+    SelectProduct,
+    SelectRack,
+    Quantity,
+    RacksForProduct,
+    ProductsInRack,
+    
     // Person fields
     PersonName,
     PersonAge,
@@ -111,6 +123,7 @@ impl I18n {
         }
     }
     
+    #[allow(dead_code)]
     pub fn format_date(&self, date: time::Date) -> String {
         match self.locale {
             Locale::En => {

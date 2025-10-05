@@ -1,15 +1,18 @@
 use js_sys::{wasm_bindgen::JsValue, Date};
 use wasm_bindgen::prelude::*;
 
+#[allow(dead_code)]
 pub fn get_current_year() -> u32 {
     current_datetime().to_iso_week_date().0 as u32
 }
 
 // Function to get the current week number based on ISO 8601
+#[allow(dead_code)]
 pub fn get_current_week() -> u8 {
     current_datetime().iso_week()
 }
 
+#[allow(dead_code)]
 pub fn js_date_to_primitive_date_time(date: &Date) -> time::PrimitiveDateTime {
     time::PrimitiveDateTime::new(
         time::Date::from_calendar_date(
@@ -27,11 +30,13 @@ pub fn js_date_to_primitive_date_time(date: &Date) -> time::PrimitiveDateTime {
     )
 }
 
+#[allow(dead_code)]
 pub fn current_datetime() -> time::PrimitiveDateTime {
     let date = Date::new_0();
     js_date_to_primitive_date_time(&date)
 }
 
+#[allow(dead_code)]
 pub fn date_time_str_to_primitive_date_time(date_time_str: &str) -> time::PrimitiveDateTime {
     let date = Date::new(&JsValue::from_str(date_time_str));
     js_date_to_primitive_date_time(&date)
@@ -49,6 +54,7 @@ extern "C" {
     fn write_text(this: &Clipboard, text: &str) -> Result<js_sys::Promise, JsValue>;
 }
 
+#[allow(dead_code)]
 pub async fn copy_to_clipboard(text: &str) -> Result<(), JsValue> {
     // Try modern clipboard API first
     match get_clipboard() {
@@ -71,6 +77,7 @@ pub async fn copy_to_clipboard(text: &str) -> Result<(), JsValue> {
     }
 }
 
+#[allow(dead_code)]
 fn copy_with_exec_command(text: &str) -> Result<(), JsValue> {
     use wasm_bindgen::JsCast;
     use js_sys::Reflect;

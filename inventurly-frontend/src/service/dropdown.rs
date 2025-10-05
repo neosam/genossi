@@ -7,8 +7,10 @@ use crate::state::dropdown::{Dropdown, DropdownEntry};
 
 pub static DROPDOWN: GlobalSignal<Option<Dropdown>> = Signal::global(|| None);
 
+#[allow(dead_code)]
 pub enum DropdownAction {
     CloseDropdown,
+    #[allow(dead_code)]
     ToggleDropdown(f64, f64, Rc<[DropdownEntry]>, Option<Rc<str>>),
 }
 

@@ -1,5 +1,6 @@
 pub mod person;
 pub mod product;
+pub mod product_rack;
 pub mod rack;
 pub mod csv_import;
 pub mod duplicate_detection;

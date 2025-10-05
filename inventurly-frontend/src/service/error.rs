@@ -14,6 +14,7 @@ impl ErrorStore {
         self.message = Some(message);
     }
 
+    #[allow(dead_code)]
     pub fn clear_error(&mut self) {
         self.message = None;
     }

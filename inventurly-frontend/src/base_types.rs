@@ -12,10 +12,12 @@ pub struct ImStr {
 }
 
 impl ImStr {
+    #[allow(dead_code)]
     pub fn as_str(&self) -> &str {
         &self.inner
     }
 
+    #[allow(dead_code)]
     pub fn as_rc(&self) -> Rc<str> {
         self.inner.clone()
     }

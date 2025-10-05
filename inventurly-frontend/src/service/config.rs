@@ -7,7 +7,7 @@ use crate::{
     state::Config,
 };
 
-use super::auth;
+use super::{auth, product::ProductService};
 
 pub async fn load_config() {
     let config = api::load_config().await;
@@ -31,11 +31,17 @@ pub enum ConfigAction {
 }
 pub async fn config_service(mut rx: UnboundedReceiver<ConfigAction>) {
     load_config().await;
+    
+    // Send LoadProducts event after config is loaded
+    let product_service = use_coroutine_handle::<ProductService>();
+    product_service.send(ProductService::LoadProducts);
 
     while let Some(action) = rx.next().await {
         match action {
             ConfigAction::LoadConfig => {
                 load_config().await;
+                // Send LoadProducts event after reloading config too
+                product_service.send(ProductService::LoadProducts);
             }
         }
     }

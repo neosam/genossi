@@ -196,4 +196,55 @@ impl ProductDao for ProductDaoImpl {
 
         Ok(())
     }
+    
+    // Optimized search implementation using SQL LIKE queries
+    async fn search(
+        &self,
+        query: &str,
+        limit: Option<usize>,
+        tx: Self::Transaction,
+    ) -> Result<Arc<[ProductEntity]>, DaoError> {
+        let search_pattern = format!("%{}%", query.to_lowercase());
+        let limit_clause = match limit {
+            Some(l) => format!(" LIMIT {}", l),
+            None => String::new(),
+        };
+        
+        let sql = format!(
+            "SELECT id, ean, name, short_name, sales_unit, requires_weighing, price, created, deleted, version 
+             FROM product 
+             WHERE deleted IS NULL 
+               AND (LOWER(name) LIKE ? OR LOWER(ean) LIKE ? OR LOWER(short_name) LIKE ?)
+             ORDER BY 
+               CASE 
+                 WHEN LOWER(name) = LOWER(?) OR LOWER(ean) = LOWER(?) THEN 1
+                 WHEN LOWER(name) LIKE LOWER(?) OR LOWER(ean) LIKE LOWER(?) THEN 2
+                 ELSE 3
+               END,
+               name ASC{}",
+            limit_clause
+        );
+        
+        let query_lower = query.to_lowercase();
+        let starts_with_pattern = format!("{}%", query_lower);
+        
+        let rows: Vec<ProductDb> = sqlx::query_as(&sql)
+            .bind(&search_pattern)  // For LIKE %query%
+            .bind(&search_pattern)  // For LIKE %query%
+            .bind(&search_pattern)  // For LIKE %query%
+            .bind(&query_lower)     // For exact match comparison
+            .bind(&query_lower)     // For exact match comparison
+            .bind(&starts_with_pattern)  // For starts with comparison
+            .bind(&starts_with_pattern)  // For starts with comparison
+            .fetch_all(tx.tx.lock().await.as_mut())
+            .await
+            .map_err(|e| DaoError::DatabaseError(Arc::from(e.to_string())))?;
+
+        let entities: Result<Vec<ProductEntity>, DaoError> = rows
+            .iter()
+            .map(ProductEntity::try_from)
+            .collect();
+
+        Ok(entities?.into())
+    }
 }

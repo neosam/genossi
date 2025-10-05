@@ -21,6 +21,7 @@ impl Default for AuthInfo {
 }
 
 impl AuthInfo {
+    #[allow(dead_code)]
     pub fn has_privilege(&self, privilege: &str) -> bool {
         self.privileges.iter().any(|p| p.as_ref() == privilege)
     }

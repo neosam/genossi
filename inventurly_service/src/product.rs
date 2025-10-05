@@ -150,6 +150,14 @@ pub trait ProductService: Send + Sync {
         context: Authentication<Self::Context>,
         tx: Option<Self::Transaction>,
     ) -> Result<(), ServiceError>;
+    
+    async fn search(
+        &self,
+        query: &str,
+        limit: Option<usize>,
+        context: Authentication<Self::Context>,
+        tx: Option<Self::Transaction>,
+    ) -> Result<Arc<[Product]>, ServiceError>;
 }
 
 mockall::mock! {

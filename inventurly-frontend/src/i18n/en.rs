@@ -49,6 +49,18 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::RackCreated => "Created",
         Key::RackDeleted => "Deleted",
         
+        // Product-Rack fields
+        Key::ProductRackQuantity => "Quantity",
+        Key::ProductRackRelationship => "Product-Rack Relationship",
+        Key::AddProductToRack => "Add Product to Rack",
+        Key::RemoveProductFromRack => "Remove Product from Rack",
+        Key::UpdateQuantity => "Update Quantity",
+        Key::SelectProduct => "Select Product",
+        Key::SelectRack => "Select Rack",
+        Key::Quantity => "Quantity",
+        Key::RacksForProduct => "Racks for Product",
+        Key::ProductsInRack => "Products in Rack",
+        
         // Person fields
         Key::PersonName => "Name",
         Key::PersonAge => "Age",

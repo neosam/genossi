@@ -19,8 +19,8 @@ pub fn RackForm(rack_id: Option<Uuid>) -> Element {
         version: None,
     });
     
-    let mut loading = use_signal(|| false);
-    let mut error = use_signal(|| None::<String>);
+    let loading = use_signal(|| false);
+    let error = use_signal(|| None::<String>);
     
     // Load existing rack data if editing
     use_effect(move || {

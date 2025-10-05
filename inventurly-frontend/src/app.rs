@@ -12,7 +12,7 @@ pub fn App() -> Element {
     use_coroutine(service::config::config_service);
     use_coroutine(service::dropdown::dropdown_service);
     use_coroutine(service::i18n::i18n_service);
-    service::product::product_service();
+    use_coroutine(service::product::product_service);
     service::rack::rack_service();
     let config = CONFIG.read();
     if !config.backend.is_empty() {
