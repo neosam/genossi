@@ -144,12 +144,12 @@ in
             DATABASE_URL = "sqlite:/var/lib/inventurly-${name}/inventurly.db";
             SERVER_ADDRESS = "${instanceCfg.host}:${toString instanceCfg.port}";
             RUST_LOG = instanceCfg.logLevel;
+            BASE_PATH = "${appUrl}/api";
           };
           
           # OIDC environment variables
           oidcEnv = lib.optionalAttrs instanceCfg.oidc.enable {
             APP_URL = appUrl;
-            BASE_PATH = "${appUrl}/";
             ISSUER = instanceCfg.oidc.issuer;
             CLIENT_ID = instanceCfg.oidc.clientId;
           };
