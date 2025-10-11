@@ -7,7 +7,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-dioxus = { version = "0.6.1", features = ["web", "router"] }
+dioxus = { version = "0.6.3", features = ["web", "router"] }
 
 # Debug
 tracing = "0.1.41"
@@ -29,14 +29,23 @@ gloo-timers = { version = "0.3.0", features = ["futures"] }
 path = "rest-types"
 
 [dependencies.uuid]
-version = "1.17"
+version = "1.18"
 features = ["v4", "js"]
 [dependencies.time]
-version = "0.3.41"
+version = "0.3"
 features = ["macros"]
 [dependencies.web-sys]
-version = "0.3.77"
-features = ["Window", "Navigator", "Document", "Element", "HtmlElement", "HtmlTextAreaElement", "CssStyleDeclaration", "Node"]
+version = "0.3"
+features = [
+    "Window",
+    "Navigator",
+    "Document",
+    "Element",
+    "HtmlElement",
+    "HtmlTextAreaElement",
+    "CssStyleDeclaration",
+    "Node",
+]
 
 [profile]
 
@@ -54,3 +63,17 @@ inherits = "dev"
 wasm-bindgen-test = "0.3"
 tokio-test = "0.4"
 mockito = "1.2"
+
+#[profile.release]
+#opt-level = "z"
+#lto = true
+#codegen-units = 1
+#panic = "abort"
+#strip = true
+#[target.wasm32-unknown-unknown]
+#rustflags = ["-C", "target-feature=-bulk-memory"]
+
+#[profile.release]
+#opt-level = "z"
+#lto = true
+#codegen-units = 1

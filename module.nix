@@ -16,14 +16,14 @@ in
         
         package = lib.mkOption {
           type = lib.types.nullOr lib.types.package;
-          default = null;
           description = "Inventurly package to use. If null, will be auto-selected based on oidc.enable";
+          default = (builtins.getFlake "path:${toString ./.}").packages.${pkgs.system}.backend-oidc;
         };
         
         frontendPackage = lib.mkOption {
           type = lib.types.package;
           description = "Inventurly frontend package to use";
-          default = pkgs.callPackage (./inventurly-frontend/default.nix) { inherit pkgs; };
+          default = (builtins.getFlake "path:${toString ./.}").packages.${pkgs.system}.frontend;
         };
         
         port = lib.mkOption {
@@ -125,12 +125,12 @@ in
       systemd.services = lib.mapAttrs' (name: instanceCfg:
         let
           # Determine package based on OIDC configuration
-          actualPackage = if instanceCfg.package != null
-            then instanceCfg.package
-            else pkgs.callPackage (./default.nix) { 
-              inherit pkgs; 
-              features = if instanceCfg.oidc.enable then ["oidc"] else ["mock_auth"]; 
-            };
+          actualPackage = instanceCfg.package;
+
+            #else pkgs.callPackage (./default.nix) { 
+            #  inherit pkgs; 
+            #  features = if instanceCfg.oidc.enable then ["oidc"] else ["mock_auth"]; 
+            #};
             
           # Auto-derive APP_URL if not specified
           appUrl = if instanceCfg.oidc.appUrl != null

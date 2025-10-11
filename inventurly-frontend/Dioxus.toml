@@ -21,7 +21,7 @@ title = "Inventurly"
 # Disable wasm-opt optimization to avoid parsing errors
 base_path = ""
 
-[web.wasm-opt]
+[web.wasm-opt.debug]
 # Disable wasm-opt optimization
 optimizations = false
 skip = true

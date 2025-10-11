@@ -19,9 +19,16 @@
           extensions = [ "rust-src" "rust-analyzer" ];
           targets = [ "wasm32-unknown-unknown" ];
         };
-      in
-      {
-        packages.default = pkgs.rustPlatform.buildRustPackage rec {
+        wasm-bindgen-cli-internal = pkgs.wasm-bindgen-cli.override {
+          rustPlatform = pkgs.rustPlatform;
+        };
+        dioxus-cli-internal = pkgs.dioxus-cli.override {
+          rustPlatform = pkgs.rustPlatform;
+        };
+        wasm-pack = pkgs.wasm-pack.override {
+          rustPlatform = pkgs.rustPlatform;
+        };
+        frontend-build = pkgs.rustPlatform.buildRustPackage rec {
           pname = "inventurly-frontend";
           version = "0.1.0";
           
@@ -34,12 +41,15 @@
           nativeBuildInputs = with pkgs; [
             rustToolchain
             wasm-pack
-            wasm-bindgen-cli
-            dioxus-cli
+            wasm-bindgen-cli_0_2_104
             nodejs
             nodePackages.npm
             tailwindcss
             pkg-config
+            dioxus-cli
+            binaryen
+            hexdump
+            removeReferencesTo
           ];
 
           buildInputs = with pkgs; [
@@ -76,6 +86,30 @@
               
               # Generate JS bindings with wasm-bindgen
               wasm-bindgen --out-dir dist --target web target/wasm32-unknown-unknown/release/inventurly-frontend.wasm
+
+              echo "Stripping debug symbols and optimizing WASM..."
+
+              #find dist -name "*.wasm" -type f | while read wasm_file; do
+              #  wasm-opt -Oz \
+              #    --strip-debug \
+              #    --strip-dwarf \
+              #    --strip-producers \
+              #    "$wasm_file" -o "$wasm_file.tmp"
+              find dist -name "*.wasm" -type f | while read wasm_file; do
+                echo "Optimizing $wasm_file with wasm-opt..."
+                ls -lh "$wasm_file"
+                ${pkgs.hexdump}/bin/hexdump -C "$wasm_file" | head -n 10 || echo "(failed to hexdump)"
+                wasm-opt \
+                  -Oz \
+                  --enable-bulk-memory \
+                  --enable-mutable-globals \
+                  --strip-debug \
+                  --strip-dwarf \
+                  --strip-producers \
+                  "$wasm_file" -o "$wasm_file.tmp"
+                mv "$wasm_file.tmp" "$wasm_file"
+                remove-references-to -t ${rustToolchain} "$wasm_file"
+              done
               
               # Create index.html
               cat > dist/index.html << 'EOF'
@@ -115,6 +149,9 @@ EOF
             mkdir -p $out
             if [ -d "dist" ]; then
               cp -r dist/* $out/
+
+              find $out -type f \( -name "*.wasm" -o -name "*.js" \) -exec \
+                remove-references-to -t ${rustToolchain} {} \;
             else
               echo "Warning: dist directory not found"
               mkdir -p $out
@@ -133,12 +170,19 @@ EOF
             platforms = platforms.all;
           };
         };
+        in {
+          packages.default = pkgs.runCommand "inventurly-frontend" {
+            allowReferences = [ ];
+          } ''
+            mkdir -p $out
+            cp -r ${frontend-build}/* $out/
+          '';
 
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [
             rustToolchain
             wasm-pack
-            wasm-bindgen-cli
+            wasm-bindgen-cli_0_2_104
             wasmtime
             dioxus-cli
             nodejs
@@ -147,6 +191,8 @@ EOF
             pkg-config
             openssl
             cargo-watch
+            lld
+            binaryen
           ];
 
           RUST_TARGET = "wasm32-unknown-unknown";
