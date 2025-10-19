@@ -3,6 +3,7 @@ use uuid::Uuid;
 use rest_types::{ProductTO, Price};
 use crate::i18n::{use_i18n, Key};
 use crate::router::Route;
+use crate::component::{BarcodeScanner, ScanResult};
 
 #[component]
 pub fn ProductForm(product_id: Option<Uuid>) -> Element {
@@ -23,6 +24,7 @@ pub fn ProductForm(product_id: Option<Uuid>) -> Element {
     
     let loading = use_signal(|| false);
     let error = use_signal(|| None::<String>);
+    let mut show_scanner = use_signal(|| false);
     
     let save_product = move |_| {
         // For now, just navigate back - actual save will be implemented later
@@ -54,12 +56,20 @@ pub fn ProductForm(product_id: Option<Uuid>) -> Element {
                     label { class: "block text-sm font-medium text-gray-700 mb-2",
                         {i18n.t(Key::ProductEan)}
                     }
-                    input {
-                        class: "w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500",
-                        r#type: "text",
-                        value: "{product.read().ean}",
-                        oninput: move |e| product.write().ean = e.value(),
-                        required: true,
+                    div { class: "flex gap-2",
+                        input {
+                            class: "flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500",
+                            r#type: "text",
+                            value: "{product.read().ean}",
+                            oninput: move |e| product.write().ean = e.value(),
+                            required: true,
+                        }
+                        button {
+                            class: "px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700",
+                            r#type: "button",
+                            onclick: move |_| show_scanner.set(true),
+                            "📷 Scan"
+                        }
                     }
                 }
                 
@@ -143,6 +153,18 @@ pub fn ProductForm(product_id: Option<Uuid>) -> Element {
                         r#type: "button",
                         onclick: move |_| { nav.push(Route::Products {}); },
                         {i18n.t(Key::Cancel)}
+                    }
+                }
+            }
+            
+            if *show_scanner.read() {
+                BarcodeScanner {
+                    on_scan: move |result: ScanResult| {
+                        product.write().ean = result.barcode;
+                        show_scanner.set(false);
+                    },
+                    on_close: move |_| {
+                        show_scanner.set(false);
                     }
                 }
             }

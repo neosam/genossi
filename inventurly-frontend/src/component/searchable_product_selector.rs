@@ -3,6 +3,7 @@ use uuid::Uuid;
 use rest_types::ProductTO;
 use crate::i18n::{use_i18n, Key};
 use crate::service::product::{PRODUCTS, ProductService};
+use wasm_bindgen::JsValue;
 
 #[component]
 pub fn SearchableProductSelector(
@@ -24,19 +25,32 @@ pub fn SearchableProductSelector(
     let search_loading = products_state.search_loading;
     let error = &products_state.error;
 
-    // Load the selected product on mount if provided
-    use_effect({
-        let selected_product_id = selected_product_id;
-        move || {
-            if let Some(product_id) = selected_product_id {
-                // Find the product in the loaded products
-                let products_state = PRODUCTS.read();
-                if let Some(product) = products_state.items.iter().find(|p| p.id == Some(product_id)) {
-                    selected_product.set(Some(product.clone()));
-                }
+    // Load the selected product when selected_product_id changes
+    use_effect(use_reactive!(|selected_product_id| {
+        web_sys::console::log_1(&JsValue::from_str(&format!("SearchableProductSelector: selected_product_id changed to {:?}", selected_product_id)));
+        
+        if let Some(product_id) = selected_product_id {
+            // Find the product in the loaded products
+            let products_state = PRODUCTS.read();
+            web_sys::console::log_1(&JsValue::from_str(&format!("SearchableProductSelector: Looking for product ID {} in {} products", product_id, products_state.items.len())));
+            
+            if let Some(product) = products_state.items.iter().find(|p| p.id == Some(product_id)) {
+                web_sys::console::log_1(&JsValue::from_str(&format!("SearchableProductSelector: Found product: {} ({})", product.name, product.ean)));
+                selected_product.set(Some(product.clone()));
+                search_query.set(format!("{} ({})", product.name, product.ean));
+            } else {
+                // Product not found in global state, clear the selection
+                web_sys::console::log_1(&JsValue::from_str("SearchableProductSelector: Product not found in global state, clearing selection"));
+                selected_product.set(None);
+                search_query.set(String::new());
             }
+        } else {
+            // No product ID provided, clear the selection
+            web_sys::console::log_1(&JsValue::from_str("SearchableProductSelector: No product ID provided, clearing selection"));
+            selected_product.set(None);
+            search_query.set(String::new());
         }
-    });
+    }));
 
 
     let mut handle_input_change = move |value: String| {
@@ -75,7 +89,7 @@ pub fn SearchableProductSelector(
         on_product_selected.call(product.id);
     };
 
-    let mut handle_clear = move |_| {
+    let handle_clear = move |_| {
         search_query.set(String::new());
         selected_product.set(None);
         show_results.set(false);

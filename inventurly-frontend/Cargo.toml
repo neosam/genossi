@@ -14,12 +14,13 @@ tracing = "0.1.41"
 dioxus-logger = "0.6.2"
 reqwest = { version = "0.12.15", features = ["json"] }
 serde = { version = "1.0.219", features = ["rc"] }
-serde_json = "1.0.140"
+serde_json = { version = "1.0.140", features = ["raw_value"] }
 async-recursion = "1.1.1"
 futures = "0.3.30"
 thiserror = "2.0.12"
 futures-util = "0.3.30"
 js-sys = "0.3.77"
+futures-channel = "0.3"
 manganis = "0.6.2"
 wasm-bindgen = "0.2.97"
 wasm-bindgen-futures = "0.4.47"
@@ -43,8 +44,19 @@ features = [
     "Element",
     "HtmlElement",
     "HtmlTextAreaElement",
+    "HtmlVideoElement",
+    "HtmlCanvasElement",
+    "HtmlSelectElement",
+    "HtmlScriptElement",
+    "CanvasRenderingContext2d",
+    "MediaStream",
+    "MediaDevices",
+    "MediaStreamConstraints",
+    "MediaTrackConstraints",
+    "MediaStreamTrack",
     "CssStyleDeclaration",
     "Node",
+    "ImageData",
 ]
 
 [profile]

@@ -12,6 +12,7 @@ pub mod rack_list;
 pub mod rack_form;
 pub mod rack_products;
 pub mod searchable_product_selector;
+pub mod barcode_scanner;
 
 pub use top_bar::TopBar;
 pub use product_list::ProductList;
@@ -22,3 +23,4 @@ pub use rack_list::RackList;
 pub use rack_form::RackForm;
 pub use rack_products::RackProducts;
 pub use searchable_product_selector::SearchableProductSelector;
+pub use barcode_scanner::{BarcodeScanner, ScanResult};

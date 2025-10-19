@@ -1336,6 +1336,7 @@ dependencies = [
  "dioxus",
  "dioxus-logger",
  "futures",
+ "futures-channel",
  "futures-util",
  "gloo-timers",
  "js-sys",
