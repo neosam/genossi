@@ -1,11 +1,10 @@
 use dioxus::prelude::*;
 
-use crate::i18n::Key as K;
-use crate::service::i18n::I18N;
+use crate::i18n::{Key as K, use_i18n};
 
 #[component]
 pub fn NotAuthenticated() -> Element {
-    let i18n = I18N.read().clone();
+    let i18n = use_i18n();
     let title_str = i18n.t(K::WelcomeTitle);
     let login_str = i18n.t(K::PleaseLogin);
 

@@ -1,17 +1,56 @@
 pub mod en;
+pub mod de;
 
 use std::rc::Rc;
 use dioxus::prelude::*;
+use web_sys;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Locale {
     En,
+    De,
 }
 
 impl Default for Locale {
     fn default() -> Self {
         Self::En
     }
+}
+
+fn detect_browser_locale() -> Locale {
+    // Try to detect browser language preference
+    if let Some(window) = web_sys::window() {
+        let navigator = window.navigator();
+        
+        // First try the primary language
+        if let Some(language) = navigator.language() {
+            if is_german_language(&language) {
+                return Locale::De;
+            }
+        }
+        
+        // Then try the languages array for broader preferences
+        let languages = navigator.languages();
+        for i in 0..languages.length() {
+            if let Some(lang) = languages.get(i).as_string() {
+                if is_german_language(&lang) {
+                    return Locale::De;
+                }
+            }
+        }
+    }
+    
+    // Default fallback to English
+    Locale::En
+}
+
+fn is_german_language(lang: &str) -> bool {
+    let lang_lower = lang.to_lowercase();
+    lang_lower == "de" || 
+    lang_lower.starts_with("de-") || 
+    lang_lower == "de-de" || 
+    lang_lower == "de-at" || 
+    lang_lower == "de-ch"
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -120,6 +159,7 @@ impl I18n {
     pub fn t(&self, key: Key) -> Rc<str> {
         match self.locale {
             Locale::En => en::translate(key),
+            Locale::De => de::translate(key),
         }
     }
     
@@ -128,6 +168,9 @@ impl I18n {
         match self.locale {
             Locale::En => {
                 format!("{:04}-{:02}-{:02}", date.year(), date.month() as u8, date.day())
+            }
+            Locale::De => {
+                format!("{:02}.{:02}.{:04}", date.day(), date.month() as u8, date.year())
             }
         }
     }
@@ -147,6 +190,19 @@ impl I18n {
                     time.second()
                 )
             }
+            Locale::De => {
+                let date = datetime.date();
+                let time = datetime.time();
+                format!(
+                    "{:02}.{:02}.{:04} {:02}:{:02}:{:02}",
+                    date.day(),
+                    date.month() as u8,
+                    date.year(),
+                    time.hour(),
+                    time.minute(),
+                    time.second()
+                )
+            }
         }
     }
     
@@ -154,6 +210,7 @@ impl I18n {
         let euros = cents as f64 / 100.0;
         match self.locale {
             Locale::En => format!("€{:.2}", euros),
+            Locale::De => format!("{:.2} €", euros).replace('.', ","),
         }
     }
 }
@@ -166,7 +223,7 @@ impl Clone for I18n {
     }
 }
 
-static I18N: GlobalSignal<I18n> = GlobalSignal::new(|| I18n::new(Locale::En));
+static I18N: GlobalSignal<I18n> = GlobalSignal::new(|| I18n::new(detect_browser_locale()));
 
 pub fn use_i18n() -> I18n {
     I18N.read().clone()

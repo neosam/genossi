@@ -1,14 +1,14 @@
 use dioxus::prelude::*;
 
 use crate::{
-    i18n::Key,
+    i18n::{Key, use_i18n},
     router::Route,
-    service::{auth::AUTH, config::CONFIG, i18n::I18N},
+    service::{auth::AUTH, config::CONFIG},
 };
 
 #[component]
 pub fn TopBar() -> Element {
-    let i18n = I18N.read().clone();
+    let i18n = use_i18n();
     let auth_info = AUTH.read().auth_info.clone();
     let config = CONFIG.read().clone();
     let backend_url = config.backend.clone();
