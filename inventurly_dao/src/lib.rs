@@ -1,12 +1,13 @@
+pub mod container;
+pub mod permission;
 pub mod person;
 pub mod product;
 pub mod product_rack;
 pub mod rack;
-pub mod permission;
 
-use std::sync::Arc;
 use async_trait::async_trait;
 use mockall::automock;
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub enum DaoError {
@@ -37,11 +38,11 @@ pub trait Transaction: Clone + Send + Sync + 'static {
 
 mockall::mock! {
     pub Transaction {}
-    
+
     impl Clone for Transaction {
         fn clone(&self) -> Self;
     }
-    
+
     #[async_trait]
     impl Transaction for Transaction {
         async fn begin(&mut self) -> Result<(), DaoError>;
@@ -54,8 +55,11 @@ mockall::mock! {
 #[async_trait]
 pub trait TransactionDao {
     type Transaction: Transaction;
-    
+
     async fn transaction(&self) -> Result<Self::Transaction, DaoError>;
-    async fn use_transaction(&self, tx: Option<Self::Transaction>) -> Result<Self::Transaction, DaoError>;
+    async fn use_transaction(
+        &self,
+        tx: Option<Self::Transaction>,
+    ) -> Result<Self::Transaction, DaoError>;
     async fn commit(&self, tx: Self::Transaction) -> Result<(), DaoError>;
 }

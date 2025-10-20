@@ -5,19 +5,21 @@ use uuid::Uuid;
 // Custom serialization module for ISO8601 datetime format
 mod iso8601_datetime {
     use serde::{Deserialize, Deserializer, Serializer};
-    use time::PrimitiveDateTime;
     use time::format_description::well_known::Iso8601;
+    use time::PrimitiveDateTime;
 
     pub fn serialize<S>(
-        datetime: &Option<PrimitiveDateTime>, 
-        serializer: S
+        datetime: &Option<PrimitiveDateTime>,
+        serializer: S,
     ) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
         match datetime {
             Some(dt) => {
-                let formatted = dt.assume_utc().format(&Iso8601::DEFAULT)
+                let formatted = dt
+                    .assume_utc()
+                    .format(&Iso8601::DEFAULT)
                     .map_err(serde::ser::Error::custom)?;
                 serializer.serialize_str(&formatted)
             }
@@ -31,11 +33,9 @@ mod iso8601_datetime {
     {
         let opt: Option<String> = Option::deserialize(deserializer)?;
         match opt {
-            Some(s) => {
-                PrimitiveDateTime::parse(&s, &Iso8601::DEFAULT)
-                    .map(Some)
-                    .map_err(serde::de::Error::custom)
-            }
+            Some(s) => PrimitiveDateTime::parse(&s, &Iso8601::DEFAULT)
+                .map(Some)
+                .map_err(serde::de::Error::custom),
             None => Ok(None),
         }
     }
@@ -50,7 +50,7 @@ pub struct PersonTO {
     #[schema(example = 30)]
     pub age: i32,
     #[serde(
-        skip_serializing_if = "Option::is_none", 
+        skip_serializing_if = "Option::is_none",
         serialize_with = "iso8601_datetime::serialize",
         deserialize_with = "iso8601_datetime::deserialize",
         default
@@ -58,7 +58,7 @@ pub struct PersonTO {
     #[schema(example = "2024-01-15T10:30:00Z")]
     pub created: Option<time::PrimitiveDateTime>,
     #[serde(
-        skip_serializing_if = "Option::is_none", 
+        skip_serializing_if = "Option::is_none",
         serialize_with = "iso8601_datetime::serialize",
         deserialize_with = "iso8601_datetime::deserialize",
         default
@@ -110,7 +110,7 @@ impl Price {
     pub fn from_cents(cents: i64) -> Self {
         Self { cents }
     }
-    
+
     pub fn to_cents(&self) -> i64 {
         self.cents
     }
@@ -209,7 +209,7 @@ pub struct RackTO {
     #[schema(example = "Storage rack for products")]
     pub description: String,
     #[serde(
-        skip_serializing_if = "Option::is_none", 
+        skip_serializing_if = "Option::is_none",
         serialize_with = "iso8601_datetime::serialize",
         deserialize_with = "iso8601_datetime::deserialize",
         default
@@ -217,7 +217,7 @@ pub struct RackTO {
     #[schema(example = "2024-01-15T10:30:00Z")]
     pub created: Option<time::PrimitiveDateTime>,
     #[serde(
-        skip_serializing_if = "Option::is_none", 
+        skip_serializing_if = "Option::is_none",
         serialize_with = "iso8601_datetime::serialize",
         deserialize_with = "iso8601_datetime::deserialize",
         default
@@ -304,7 +304,9 @@ pub struct DuplicateDetectionConfigTO {
     pub category_aware: bool,
 }
 
-impl From<inventurly_service::duplicate_detection::DuplicateDetectionConfig> for DuplicateDetectionConfigTO {
+impl From<inventurly_service::duplicate_detection::DuplicateDetectionConfig>
+    for DuplicateDetectionConfigTO
+{
     fn from(config: inventurly_service::duplicate_detection::DuplicateDetectionConfig) -> Self {
         Self {
             similarity_threshold: config.similarity_threshold,
@@ -317,7 +319,9 @@ impl From<inventurly_service::duplicate_detection::DuplicateDetectionConfig> for
     }
 }
 
-impl From<DuplicateDetectionConfigTO> for inventurly_service::duplicate_detection::DuplicateDetectionConfig {
+impl From<DuplicateDetectionConfigTO>
+    for inventurly_service::duplicate_detection::DuplicateDetectionConfig
+{
     fn from(to: DuplicateDetectionConfigTO) -> Self {
         Self {
             similarity_threshold: to.similarity_threshold,
@@ -422,11 +426,17 @@ pub struct DuplicateDetectionResultTO {
     pub config: DuplicateDetectionConfigTO,
 }
 
-impl From<inventurly_service::duplicate_detection::DuplicateDetectionResult> for DuplicateDetectionResultTO {
+impl From<inventurly_service::duplicate_detection::DuplicateDetectionResult>
+    for DuplicateDetectionResultTO
+{
     fn from(result: inventurly_service::duplicate_detection::DuplicateDetectionResult) -> Self {
         Self {
             checked_product: ProductTO::from(&result.checked_product),
-            matches: result.matches.into_iter().map(DuplicateMatchTO::from).collect(),
+            matches: result
+                .matches
+                .into_iter()
+                .map(DuplicateMatchTO::from)
+                .collect(),
             config: DuplicateDetectionConfigTO::from(result.config),
         }
     }
@@ -453,7 +463,7 @@ pub struct ProductRackTO {
     #[schema(example = "456e7890-e89b-12d3-a456-426614174000")]
     pub rack_id: Uuid,
     #[serde(
-        skip_serializing_if = "Option::is_none", 
+        skip_serializing_if = "Option::is_none",
         serialize_with = "iso8601_datetime::serialize",
         deserialize_with = "iso8601_datetime::deserialize",
         default
@@ -461,7 +471,7 @@ pub struct ProductRackTO {
     #[schema(example = "2024-01-15T10:30:00Z")]
     pub created: Option<time::PrimitiveDateTime>,
     #[serde(
-        skip_serializing_if = "Option::is_none", 
+        skip_serializing_if = "Option::is_none",
         serialize_with = "iso8601_datetime::serialize",
         deserialize_with = "iso8601_datetime::deserialize",
         default
@@ -495,6 +505,68 @@ impl From<&ProductRackTO> for inventurly_service::product_rack::ProductRack {
             }),
             deleted: to.deleted,
             version: to.version.unwrap_or_else(uuid::Uuid::nil),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct ContainerTO {
+    #[schema(example = "123e4567-e89b-12d3-a456-426614174000")]
+    pub id: Option<Uuid>,
+    #[schema(example = "Storage Container A")]
+    pub name: String,
+    #[schema(example = 1500)]
+    pub weight_grams: i64,
+    #[schema(example = "Large storage container for products")]
+    pub description: String,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    #[schema(example = "2024-01-15T10:30:00Z")]
+    pub created: Option<time::PrimitiveDateTime>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    #[schema(example = "2024-01-15T12:45:00Z")]
+    pub deleted: Option<time::PrimitiveDateTime>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<Uuid>,
+}
+
+impl From<&inventurly_service::container::Container> for ContainerTO {
+    fn from(container: &inventurly_service::container::Container) -> Self {
+        Self {
+            id: Some(container.id),
+            name: container.name.to_string(),
+            weight_grams: container.weight_grams,
+            description: container.description.to_string(),
+            created: Some(container.created),
+            deleted: container.deleted,
+            version: Some(container.version),
+        }
+    }
+}
+
+impl From<&ContainerTO> for inventurly_service::container::Container {
+    fn from(to: &ContainerTO) -> Self {
+        use std::sync::Arc;
+        Self {
+            id: to.id.unwrap_or_else(Uuid::nil),
+            name: Arc::from(to.name.as_str()),
+            weight_grams: to.weight_grams,
+            description: Arc::from(to.description.as_str()),
+            created: to.created.unwrap_or_else(|| {
+                let now = time::OffsetDateTime::now_utc();
+                time::PrimitiveDateTime::new(now.date(), now.time())
+            }),
+            deleted: to.deleted,
+            version: to.version.unwrap_or_else(Uuid::nil),
         }
     }
 }

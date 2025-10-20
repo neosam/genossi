@@ -1,12 +1,9 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use inventurly_dao::{
-    product::ProductDao,
-    TransactionDao,
-};
+use inventurly_dao::{product::ProductDao, TransactionDao};
 use inventurly_service::{
-    permission::{Authentication, ADMIN_PRIVILEGE, PermissionService},
+    permission::{Authentication, PermissionService, ADMIN_PRIVILEGE},
     product::{Product, ProductService},
     uuid_service::UuidService,
     ServiceError, ValidationFailureItem,
@@ -37,11 +34,11 @@ impl<Deps: ProductServiceDeps> ProductService for ProductServiceImpl<Deps> {
         tx: Option<Self::Transaction>,
     ) -> Result<Arc<[Product]>, ServiceError> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
-        
+
         self.permission_service
             .check_permission(ADMIN_PRIVILEGE, context)
             .await?;
-        
+
         let products = self
             .product_dao
             .all(tx.clone())
@@ -49,7 +46,7 @@ impl<Deps: ProductServiceDeps> ProductService for ProductServiceImpl<Deps> {
             .iter()
             .map(Product::from)
             .collect();
-        
+
         self.transaction_dao.commit(tx).await?;
         Ok(products)
     }
@@ -61,18 +58,18 @@ impl<Deps: ProductServiceDeps> ProductService for ProductServiceImpl<Deps> {
         tx: Option<Self::Transaction>,
     ) -> Result<Product, ServiceError> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
-        
+
         self.permission_service
             .check_permission(ADMIN_PRIVILEGE, context)
             .await?;
-        
+
         let product = self
             .product_dao
             .find_by_ean(ean, tx.clone())
             .await?
             .map(|e| Product::from(&e))
             .ok_or(ServiceError::EntityNotFound(Uuid::nil()))?;
-        
+
         self.transaction_dao.commit(tx).await?;
         Ok(product)
     }
@@ -84,18 +81,18 @@ impl<Deps: ProductServiceDeps> ProductService for ProductServiceImpl<Deps> {
         tx: Option<Self::Transaction>,
     ) -> Result<Product, ServiceError> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
-        
+
         self.permission_service
             .check_permission(ADMIN_PRIVILEGE, context)
             .await?;
-        
+
         let product = self
             .product_dao
             .find_by_id(id, tx.clone())
             .await?
             .map(|e| Product::from(&e))
             .ok_or(ServiceError::EntityNotFound(id))?;
-        
+
         self.transaction_dao.commit(tx).await?;
         Ok(product)
     }
@@ -107,13 +104,13 @@ impl<Deps: ProductServiceDeps> ProductService for ProductServiceImpl<Deps> {
         tx: Option<Self::Transaction>,
     ) -> Result<Product, ServiceError> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
-        
+
         self.permission_service
             .check_permission(ADMIN_PRIVILEGE, context.clone())
             .await?;
 
         let mut validation_errors = Vec::new();
-        
+
         // Validate EAN
         if item.ean.is_empty() {
             validation_errors.push(ValidationFailureItem {
@@ -121,7 +118,7 @@ impl<Deps: ProductServiceDeps> ProductService for ProductServiceImpl<Deps> {
                 message: Arc::from("EAN cannot be empty"),
             });
         }
-        
+
         // Validate name
         if item.name.is_empty() {
             validation_errors.push(ValidationFailureItem {
@@ -129,7 +126,7 @@ impl<Deps: ProductServiceDeps> ProductService for ProductServiceImpl<Deps> {
                 message: Arc::from("Name cannot be empty"),
             });
         }
-        
+
         // Validate short_name
         if item.short_name.is_empty() {
             validation_errors.push(ValidationFailureItem {
@@ -137,7 +134,7 @@ impl<Deps: ProductServiceDeps> ProductService for ProductServiceImpl<Deps> {
                 message: Arc::from("Short name cannot be empty"),
             });
         }
-        
+
         // Validate sales_unit
         if item.sales_unit.is_empty() {
             validation_errors.push(ValidationFailureItem {
@@ -145,7 +142,7 @@ impl<Deps: ProductServiceDeps> ProductService for ProductServiceImpl<Deps> {
                 message: Arc::from("Sales unit cannot be empty"),
             });
         }
-        
+
         // Validate price
         if item.price.to_cents() < 0 {
             validation_errors.push(ValidationFailureItem {
@@ -153,7 +150,7 @@ impl<Deps: ProductServiceDeps> ProductService for ProductServiceImpl<Deps> {
                 message: Arc::from("Price cannot be negative"),
             });
         }
-        
+
         if !validation_errors.is_empty() {
             return Err(ServiceError::ValidationError(validation_errors));
         }
@@ -184,7 +181,7 @@ impl<Deps: ProductServiceDeps> ProductService for ProductServiceImpl<Deps> {
         self.product_dao
             .create(&(&new_product).into(), PRODUCT_SERVICE_PROCESS, tx.clone())
             .await?;
-        
+
         self.transaction_dao.commit(tx).await?;
         Ok(new_product)
     }
@@ -196,23 +193,20 @@ impl<Deps: ProductServiceDeps> ProductService for ProductServiceImpl<Deps> {
         tx: Option<Self::Transaction>,
     ) -> Result<Product, ServiceError> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
-        
+
         self.permission_service
             .check_permission(ADMIN_PRIVILEGE, context.clone())
             .await?;
 
         // First check if the product exists
-        let existing = self
-            .product_dao
-            .find_by_id(item.id, tx.clone())
-            .await?;
-        
+        let existing = self.product_dao.find_by_id(item.id, tx.clone()).await?;
+
         if existing.is_none() {
             return Err(ServiceError::EntityNotFound(item.id));
         }
 
         let mut validation_errors = Vec::new();
-        
+
         // Validate EAN
         if item.ean.is_empty() {
             validation_errors.push(ValidationFailureItem {
@@ -220,7 +214,7 @@ impl<Deps: ProductServiceDeps> ProductService for ProductServiceImpl<Deps> {
                 message: Arc::from("EAN cannot be empty"),
             });
         }
-        
+
         // Validate name
         if item.name.is_empty() {
             validation_errors.push(ValidationFailureItem {
@@ -228,7 +222,7 @@ impl<Deps: ProductServiceDeps> ProductService for ProductServiceImpl<Deps> {
                 message: Arc::from("Name cannot be empty"),
             });
         }
-        
+
         // Validate short_name
         if item.short_name.is_empty() {
             validation_errors.push(ValidationFailureItem {
@@ -236,7 +230,7 @@ impl<Deps: ProductServiceDeps> ProductService for ProductServiceImpl<Deps> {
                 message: Arc::from("Short name cannot be empty"),
             });
         }
-        
+
         // Validate sales_unit
         if item.sales_unit.is_empty() {
             validation_errors.push(ValidationFailureItem {
@@ -244,7 +238,7 @@ impl<Deps: ProductServiceDeps> ProductService for ProductServiceImpl<Deps> {
                 message: Arc::from("Sales unit cannot be empty"),
             });
         }
-        
+
         // Validate price
         if item.price.to_cents() < 0 {
             validation_errors.push(ValidationFailureItem {
@@ -252,7 +246,7 @@ impl<Deps: ProductServiceDeps> ProductService for ProductServiceImpl<Deps> {
                 message: Arc::from("Price cannot be negative"),
             });
         }
-        
+
         if !validation_errors.is_empty() {
             return Err(ServiceError::ValidationError(validation_errors));
         }
@@ -271,14 +265,14 @@ impl<Deps: ProductServiceDeps> ProductService for ProductServiceImpl<Deps> {
         self.product_dao
             .update(&item.into(), PRODUCT_SERVICE_PROCESS, tx.clone())
             .await?;
-        
+
         let updated = self
             .product_dao
             .find_by_id(item.id, tx.clone())
             .await?
             .map(|e| Product::from(&e))
             .ok_or(ServiceError::EntityNotFound(item.id))?;
-        
+
         self.transaction_dao.commit(tx).await?;
         Ok(updated)
     }
@@ -290,35 +284,32 @@ impl<Deps: ProductServiceDeps> ProductService for ProductServiceImpl<Deps> {
         tx: Option<Self::Transaction>,
     ) -> Result<(), ServiceError> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
-        
+
         self.permission_service
             .check_permission(ADMIN_PRIVILEGE, context)
             .await?;
-        
+
         // Fetch the existing entity
-        let existing = self
-            .product_dao
-            .find_by_id(id, tx.clone())
-            .await?;
-        
+        let existing = self.product_dao.find_by_id(id, tx.clone()).await?;
+
         match existing {
             Some(mut entity) => {
                 // Set deleted timestamp
                 let now = time::OffsetDateTime::now_utc();
                 entity.deleted = Some(time::PrimitiveDateTime::new(now.date(), now.time()));
-                
+
                 // Update the entity with deleted timestamp
                 self.product_dao
                     .update(&entity, PRODUCT_SERVICE_PROCESS, tx.clone())
                     .await?;
-                
+
                 self.transaction_dao.commit(tx).await?;
                 Ok(())
             }
-            None => Err(ServiceError::EntityNotFound(id))
+            None => Err(ServiceError::EntityNotFound(id)),
         }
     }
-    
+
     async fn search(
         &self,
         query: &str,
@@ -327,14 +318,14 @@ impl<Deps: ProductServiceDeps> ProductService for ProductServiceImpl<Deps> {
         tx: Option<Self::Transaction>,
     ) -> Result<Arc<[Product]>, ServiceError> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
-        
+
         self.permission_service
             .check_permission(ADMIN_PRIVILEGE, context)
             .await?;
 
         let entities = self.product_dao.search(query, limit, tx.clone()).await?;
         let products: Vec<Product> = entities.iter().map(Product::from).collect();
-        
+
         self.transaction_dao.commit(tx).await?;
         Ok(products.into())
     }

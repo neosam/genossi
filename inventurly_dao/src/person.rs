@@ -23,14 +23,14 @@ pub trait PersonDao {
 
     // Abstract methods - must be implemented by database-specific implementations
     async fn dump_all(&self, tx: Self::Transaction) -> Result<Arc<[PersonEntity]>, DaoError>;
-    
+
     async fn create(
         &self,
         entity: &PersonEntity,
         process: &str,
         tx: Self::Transaction,
     ) -> Result<(), DaoError>;
-    
+
     async fn update(
         &self,
         entity: &PersonEntity,
@@ -48,7 +48,7 @@ pub trait PersonDao {
             .collect();
         Ok(active_entities.into())
     }
-    
+
     async fn find_by_id(
         &self,
         id: Uuid,
@@ -66,12 +66,12 @@ pub trait PersonDao {
 mod tests {
     use super::*;
     use std::sync::Mutex;
-    
+
     // Test implementation that stores entities in memory
     struct TestPersonDao {
         entities: Mutex<Arc<[PersonEntity]>>,
     }
-    
+
     impl TestPersonDao {
         fn new(entities: Vec<PersonEntity>) -> Self {
             Self {
@@ -79,24 +79,34 @@ mod tests {
             }
         }
     }
-    
+
     #[async_trait]
     impl PersonDao for TestPersonDao {
         type Transaction = crate::MockTransaction;
-        
+
         async fn dump_all(&self, _tx: Self::Transaction) -> Result<Arc<[PersonEntity]>, DaoError> {
             Ok(self.entities.lock().unwrap().clone())
         }
-        
-        async fn create(&self, _entity: &PersonEntity, _process: &str, _tx: Self::Transaction) -> Result<(), DaoError> {
+
+        async fn create(
+            &self,
+            _entity: &PersonEntity,
+            _process: &str,
+            _tx: Self::Transaction,
+        ) -> Result<(), DaoError> {
             unimplemented!("Not needed for these tests")
         }
-        
-        async fn update(&self, _entity: &PersonEntity, _process: &str, _tx: Self::Transaction) -> Result<(), DaoError> {
+
+        async fn update(
+            &self,
+            _entity: &PersonEntity,
+            _process: &str,
+            _tx: Self::Transaction,
+        ) -> Result<(), DaoError> {
             unimplemented!("Not needed for these tests")
         }
     }
-    
+
     #[tokio::test]
     async fn test_all_filters_deleted_entities() {
         let entity1 = PersonEntity {
@@ -107,7 +117,7 @@ mod tests {
             deleted: None,
             version: Uuid::new_v4(),
         };
-        
+
         let entity2 = PersonEntity {
             id: Uuid::new_v4(),
             name: Arc::from("Deleted Person"),
@@ -116,7 +126,7 @@ mod tests {
             deleted: Some(time::PrimitiveDateTime::MIN),
             version: Uuid::new_v4(),
         };
-        
+
         let entity3 = PersonEntity {
             id: Uuid::new_v4(),
             name: Arc::from("Another Active"),
@@ -125,22 +135,22 @@ mod tests {
             deleted: None,
             version: Uuid::new_v4(),
         };
-        
+
         let dao = TestPersonDao::new(vec![entity1.clone(), entity2.clone(), entity3.clone()]);
         let tx = crate::MockTransaction::new();
-        
+
         let result = dao.all(tx).await.unwrap();
-        
+
         assert_eq!(result.len(), 2);
         assert!(result.iter().any(|e| e.name.as_ref() == "Active Person"));
         assert!(result.iter().any(|e| e.name.as_ref() == "Another Active"));
         assert!(!result.iter().any(|e| e.name.as_ref() == "Deleted Person"));
     }
-    
+
     #[tokio::test]
     async fn test_find_by_id_returns_active_entity() {
         let target_id = Uuid::new_v4();
-        
+
         let entity1 = PersonEntity {
             id: target_id,
             name: Arc::from("Target Person"),
@@ -149,7 +159,7 @@ mod tests {
             deleted: None,
             version: Uuid::new_v4(),
         };
-        
+
         let entity2 = PersonEntity {
             id: Uuid::new_v4(),
             name: Arc::from("Other Person"),
@@ -158,20 +168,20 @@ mod tests {
             deleted: None,
             version: Uuid::new_v4(),
         };
-        
+
         let dao = TestPersonDao::new(vec![entity1.clone(), entity2.clone()]);
         let tx = crate::MockTransaction::new();
-        
+
         let result = dao.find_by_id(target_id, tx).await.unwrap();
-        
+
         assert!(result.is_some());
         assert_eq!(result.unwrap().name.as_ref(), "Target Person");
     }
-    
+
     #[tokio::test]
     async fn test_find_by_id_ignores_deleted_entity() {
         let target_id = Uuid::new_v4();
-        
+
         let entity = PersonEntity {
             id: target_id,
             name: Arc::from("Deleted Person"),
@@ -180,20 +190,20 @@ mod tests {
             deleted: Some(time::PrimitiveDateTime::MIN),
             version: Uuid::new_v4(),
         };
-        
+
         let dao = TestPersonDao::new(vec![entity.clone()]);
         let tx = crate::MockTransaction::new();
-        
+
         let result = dao.find_by_id(target_id, tx).await.unwrap();
-        
+
         assert!(result.is_none());
     }
-    
+
     #[tokio::test]
     async fn test_find_by_id_returns_none_for_nonexistent() {
         let target_id = Uuid::new_v4();
         let different_id = Uuid::new_v4();
-        
+
         let entity = PersonEntity {
             id: different_id,
             name: Arc::from("Different Person"),
@@ -202,12 +212,12 @@ mod tests {
             deleted: None,
             version: Uuid::new_v4(),
         };
-        
+
         let dao = TestPersonDao::new(vec![entity.clone()]);
         let tx = crate::MockTransaction::new();
-        
+
         let result = dao.find_by_id(target_id, tx).await.unwrap();
-        
+
         assert!(result.is_none());
     }
 }

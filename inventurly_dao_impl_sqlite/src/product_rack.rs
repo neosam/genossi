@@ -1,11 +1,14 @@
-use std::sync::Arc;
 use async_trait::async_trait;
 use sqlx::{FromRow, SqlitePool};
-use uuid::Uuid;
+use std::sync::Arc;
 use time::PrimitiveDateTime;
+use uuid::Uuid;
 
-use inventurly_dao::{DaoError, product_rack::{ProductRackDao, ProductRackEntity}};
 use crate::TransactionImpl;
+use inventurly_dao::{
+    product_rack::{ProductRackDao, ProductRackEntity},
+    DaoError,
+};
 
 #[derive(FromRow)]
 struct ProductRackDb {
@@ -18,12 +21,22 @@ struct ProductRackDb {
 
 fn parse_datetime(s: &str) -> Result<PrimitiveDateTime, time::error::Parse> {
     // Try ISO8601 format first (used by new records)
-    if let Ok(dt) = time::OffsetDateTime::parse(s, &time::format_description::well_known::Iso8601::DEFAULT) {
-        return Ok(dt.to_offset(time::UtcOffset::UTC).date().with_time(dt.time()));
+    if let Ok(dt) =
+        time::OffsetDateTime::parse(s, &time::format_description::well_known::Iso8601::DEFAULT)
+    {
+        return Ok(dt
+            .to_offset(time::UtcOffset::UTC)
+            .date()
+            .with_time(dt.time()));
     }
-    
+
     // Try SQLite default format for backward compatibility
-    time::PrimitiveDateTime::parse(s, time::macros::format_description!("[year]-[month]-[day] [hour]:[minute]:[second].[subsecond]"))
+    time::PrimitiveDateTime::parse(
+        s,
+        time::macros::format_description!(
+            "[year]-[month]-[day] [hour]:[minute]:[second].[subsecond]"
+        ),
+    )
 }
 
 impl TryFrom<&ProductRackDb> for ProductRackEntity {
@@ -88,11 +101,14 @@ impl ProductRackDao for ProductRackDaoImpl {
         let rack_id = entity.rack_id.as_bytes().to_vec();
         let version = entity.version.as_bytes().to_vec();
         let format = &time::format_description::well_known::Iso8601::DEFAULT;
-        let created = entity.created.assume_utc().format(format)
+        let created = entity
+            .created
+            .assume_utc()
+            .format(format)
             .map_err(|e| DaoError::ParseError(Arc::from(e.to_string())))?;
 
         sqlx::query(
-            "INSERT INTO product_rack (product_id, rack_id, created, version) VALUES (?, ?, ?, ?)"
+            "INSERT INTO product_rack (product_id, rack_id, created, version) VALUES (?, ?, ?, ?)",
         )
         .bind(product_id)
         .bind(rack_id)
@@ -115,15 +131,18 @@ impl ProductRackDao for ProductRackDaoImpl {
         let rack_id = entity.rack_id.as_bytes().to_vec();
         let old_version = entity.version.as_bytes().to_vec();
         let new_version = Uuid::new_v4().as_bytes().to_vec();
-        
+
         // Format deleted timestamp if present
         let deleted = match entity.deleted {
             Some(dt) => {
                 let format = &time::format_description::well_known::Iso8601::DEFAULT;
-                Some(dt.assume_utc().format(format)
-                    .map_err(|e| DaoError::ParseError(Arc::from(e.to_string())))?)
+                Some(
+                    dt.assume_utc()
+                        .format(format)
+                        .map_err(|e| DaoError::ParseError(Arc::from(e.to_string())))?,
+                )
             }
-            None => None
+            None => None,
         };
 
         // First check if the entity exists

@@ -1,8 +1,8 @@
-use std::sync::Arc;
 use async_trait::async_trait;
 use mockall::automock;
+use std::sync::Arc;
 
-use crate::{permission::Authentication, ServiceError, product::Product};
+use crate::{permission::Authentication, product::Product, ServiceError};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
@@ -37,21 +37,25 @@ impl CsvProductRow {
         if self.vk_herst.is_empty() || self.vk_herst == "0" || self.vk_herst == "0,00" {
             return Ok(0.0);
         }
-        
+
         let normalized = self.vk_herst.replace(',', ".");
-        normalized.parse::<f64>()
+        normalized
+            .parse::<f64>()
             .map_err(|e| format!("Invalid price format '{}': {}", self.vk_herst, e))
     }
-    
+
     /// Parse weighing requirement from German format ("9" = true, "0" = false)
     pub fn parse_requires_weighing(&self) -> Result<bool, String> {
         match self.wiege_artikel.as_str() {
             "9" => Ok(true),
             "0" => Ok(false),
-            _ => Err(format!("Invalid WiegeArtikel value '{}', expected '0' or '9'", self.wiege_artikel))
+            _ => Err(format!(
+                "Invalid WiegeArtikel value '{}', expected '0' or '9'",
+                self.wiege_artikel
+            )),
         }
     }
-    
+
     /// Validate required fields
     pub fn validate(&self) -> Result<(), String> {
         if self.ean.is_empty() {
@@ -66,29 +70,29 @@ impl CsvProductRow {
         if self.vk_einheit.is_empty() {
             return Err("VKEinheit cannot be empty".to_string());
         }
-        
+
         // Validate price parsing
         self.parse_price()?;
-        
+
         // Validate weighing requirement parsing
         self.parse_requires_weighing()?;
-        
+
         Ok(())
     }
 }
 
 impl TryFrom<CsvProductRow> for Product {
     type Error = String;
-    
+
     fn try_from(row: CsvProductRow) -> Result<Self, Self::Error> {
         row.validate()?;
-        
+
         let price_euros = row.parse_price()?;
         let requires_weighing = row.parse_requires_weighing()?;
-        
+
         let now = time::OffsetDateTime::now_utc();
         let created = time::PrimitiveDateTime::new(now.date(), now.time());
-        
+
         Ok(Product {
             id: uuid::Uuid::new_v4(),
             ean: Arc::from(row.ean.as_str()),
@@ -115,7 +119,7 @@ pub enum ImportAction {
 pub trait CsvImportService: Send + Sync {
     type Context: Send + Sync;
     type Transaction: Send + Sync;
-    
+
     /// Import products from CSV content
     async fn import_products_csv(
         &self,
@@ -123,7 +127,7 @@ pub trait CsvImportService: Send + Sync {
         context: Authentication<Self::Context>,
         tx: Option<Self::Transaction>,
     ) -> Result<CsvImportResult, ServiceError>;
-    
+
     /// Import a single product row (for internal use)
     async fn import_product_row(
         &self,

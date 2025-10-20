@@ -15,10 +15,13 @@ fn create_test_app(rest_state: RestStateImpl) -> axum::Router {
     axum::Router::new()
         .nest("/persons", inventurly_rest::person::generate_route())
         .with_state(rest_state)
-        .layer(axum::middleware::from_fn(|mut req: Request<Body>, next: axum::middleware::Next| async move {
-            req.extensions_mut().insert(inventurly_rest::Context::default());
-            next.run(req).await
-        }))
+        .layer(axum::middleware::from_fn(
+            |mut req: Request<Body>, next: axum::middleware::Next| async move {
+                req.extensions_mut()
+                    .insert(inventurly_rest::Context::default());
+                next.run(req).await
+            },
+        ))
 }
 
 async fn setup_test() -> RestStateImpl {
@@ -27,7 +30,7 @@ async fn setup_test() -> RestStateImpl {
             .await
             .expect("Could not connect to database"),
     );
-    
+
     sqlx::migrate!("../migrations/sqlite")
         .run(pool.as_ref())
         .await
@@ -64,7 +67,7 @@ async fn test_simple_create_person() {
         .await
         .unwrap();
     let person: PersonTO = serde_json::from_slice(&body).unwrap();
-    
+
     assert_eq!(person.name, "Test Person");
     assert_eq!(person.age, 25);
     assert!(person.id.is_some());
@@ -92,7 +95,7 @@ async fn test_simple_get_all_empty() {
         .await
         .unwrap();
     let persons: Vec<PersonTO> = serde_json::from_slice(&body).unwrap();
-    
+
     assert_eq!(persons.len(), 0);
 }
 
@@ -125,20 +128,24 @@ async fn test_create_and_get_person_integration() {
         .await
         .unwrap();
     let created_person: PersonTO = serde_json::from_slice(&body).unwrap();
-    
+
     assert_eq!(created_person.name, "John Doe");
     assert_eq!(created_person.age, 30);
     assert!(created_person.id.is_some());
-    
+
     let person_id = created_person.id.unwrap();
 
     // Verify the person was stored in database via service layer
     let person_from_db = rest_state
         .person_service()
-        .get(person_id, Authentication::Context(inventurly_service::permission::MockContext), None)
+        .get(
+            person_id,
+            Authentication::Context(inventurly_service::permission::MockContext),
+            None,
+        )
         .await
         .unwrap();
-    
+
     assert_eq!(person_from_db.id, person_id);
     assert_eq!(person_from_db.name.as_ref(), "John Doe");
     assert_eq!(person_from_db.age, 30);
@@ -165,7 +172,7 @@ async fn test_get_nonexistent_person() {
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
 
-#[tokio::test]  
+#[tokio::test]
 async fn test_create_multiple_persons_and_get_all() {
     let rest_state = setup_test().await;
 
@@ -192,7 +199,7 @@ async fn test_create_multiple_persons_and_get_all() {
 
     // Create second person using service layer directly
     use inventurly_service::person::Person;
-    
+
     let person2 = Person {
         id: Uuid::nil(),
         name: Arc::from("Bob Johnson"),
@@ -204,10 +211,14 @@ async fn test_create_multiple_persons_and_get_all() {
         deleted: None,
         version: Uuid::nil(),
     };
-    
+
     let _created_person2 = rest_state
         .person_service()
-        .create(&person2, Authentication::Context(inventurly_service::permission::MockContext), None)
+        .create(
+            &person2,
+            Authentication::Context(inventurly_service::permission::MockContext),
+            None,
+        )
         .await
         .unwrap();
 
@@ -230,13 +241,13 @@ async fn test_create_multiple_persons_and_get_all() {
         .await
         .unwrap();
     let persons: Vec<PersonTO> = serde_json::from_slice(&body).unwrap();
-    
+
     assert_eq!(persons.len(), 2);
-    
+
     // Find persons by name (order may vary)
     let alice = persons.iter().find(|p| p.name == "Alice Smith");
     let bob = persons.iter().find(|p| p.name == "Bob Johnson");
-    
+
     assert!(alice.is_some());
     assert!(bob.is_some());
     assert_eq!(alice.unwrap().age, 25);

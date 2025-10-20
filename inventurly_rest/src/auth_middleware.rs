@@ -4,11 +4,7 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use inventurly_service::{
-    permission::PermissionService,
-    auth_types::AuthContext,
-    ServiceError,
-};
+use inventurly_service::{auth_types::AuthContext, permission::PermissionService, ServiceError};
 
 use crate::RestStateDef;
 
@@ -19,28 +15,28 @@ pub async fn extract_auth_context<S: RestStateDef>(
     mut request: Request,
     next: Next,
 ) -> Response {
-    let auth_context = match extract_context_from_headers(&headers, state.session_service().as_ref()).await {
-        Ok(ctx) => ctx,
-        Err(err) => {
-            eprintln!("Auth context extraction error: {:?}", err);
-            None
-        }
-    };
+    let auth_context =
+        match extract_context_from_headers(&headers, state.session_service().as_ref()).await {
+            Ok(ctx) => ctx,
+            Err(err) => {
+                eprintln!("Auth context extraction error: {:?}", err);
+                None
+            }
+        };
 
     // Add the auth context to request extensions
     request.extensions_mut().insert(auth_context);
-    
+
     next.run(request).await
 }
 
 /// Middleware that requires authentication - returns 401 if no valid auth context
-pub async fn require_authentication<S: RestStateDef>(
-    request: Request,
-    next: Next,
-) -> Response {
-    let auth_context = request.extensions().get::<crate::Context>()
+pub async fn require_authentication<S: RestStateDef>(request: Request, next: Next) -> Response {
+    let auth_context = request
+        .extensions()
+        .get::<crate::Context>()
         .and_then(|ctx| ctx.auth_context.as_ref());
-    
+
     match auth_context {
         Some(_) => next.run(request).await,
         None => Response::builder()
@@ -57,12 +53,12 @@ pub async fn require_admin<S: RestStateDef>(
     next: Next,
 ) -> Response {
     let context = request.extensions().get::<crate::Context>();
-    
+
     if let Some(ctx) = context {
         if let Some(auth_context) = &ctx.auth_context {
             // Check if user has admin privilege
             let permission_service = state.permission_service();
-            
+
             // Convert AuthContext to MockContext for the permission service
             let mock_context = match auth_context {
                 AuthContext::Mock(_) => inventurly_service::permission::MockContext,
@@ -70,7 +66,7 @@ pub async fn require_admin<S: RestStateDef>(
                 AuthContext::Oidc(_) => inventurly_service::permission::MockContext, // For now, treat OIDC as mock
             };
             let auth = inventurly_service::permission::Authentication::Context(mock_context);
-            
+
             match permission_service.check_permission("admin", auth).await {
                 Ok(()) => next.run(request).await,
                 Err(ServiceError::PermissionDenied) => Response::builder()
@@ -101,7 +97,9 @@ pub async fn require_admin<S: RestStateDef>(
 }
 
 /// Extract authentication context from various header sources
-async fn extract_context_from_headers<SessionService: inventurly_service::session::SessionService>(
+async fn extract_context_from_headers<
+    SessionService: inventurly_service::session::SessionService,
+>(
     headers: &HeaderMap,
     session_service: &SessionService,
 ) -> Result<Option<AuthContext>, ServiceError> {
@@ -109,13 +107,16 @@ async fn extract_context_from_headers<SessionService: inventurly_service::sessio
     if let Some(cookie_header) = headers.get("cookie") {
         if let Ok(cookie_str) = cookie_header.to_str() {
             if let Some(session_id) = extract_session_from_cookie(cookie_str) {
-                if let Some(context) = session_service.extract_auth_context(Some(session_id)).await? {
+                if let Some(context) = session_service
+                    .extract_auth_context(Some(session_id))
+                    .await?
+                {
                     return Ok(Some(context));
                 }
             }
         }
     }
-    
+
     // Try Authorization Bearer token (for API access)
     if let Some(auth_header) = headers.get("authorization") {
         if let Ok(auth_str) = auth_header.to_str() {
@@ -128,7 +129,7 @@ async fn extract_context_from_headers<SessionService: inventurly_service::sessio
             }
         }
     }
-    
+
     Ok(None)
 }
 
@@ -161,7 +162,7 @@ pub fn mock_auth_context() -> crate::Context {
     let mock_context = AuthContext::Mock(inventurly_service::auth_types::MockContext::default());
     crate::Context {
         auth: inventurly_service::permission::Authentication::Context(
-            inventurly_service::permission::MockContext
+            inventurly_service::permission::MockContext,
         ),
         auth_context: Some(mock_context),
     }
@@ -169,7 +170,8 @@ pub fn mock_auth_context() -> crate::Context {
 
 /// Helper function to get auth context from request extensions
 pub fn get_auth_context_from_request(request: &Request) -> Option<AuthContext> {
-    request.extensions()
+    request
+        .extensions()
         .get::<Option<AuthContext>>()
         .and_then(|ctx| ctx.clone())
 }
@@ -184,33 +186,27 @@ mod tests {
             extract_session_from_cookie("app_session=abc123; other=value"),
             Some("abc123".to_string())
         );
-        
+
         assert_eq!(
             extract_session_from_cookie("other=value; app_session=xyz789"),
             Some("xyz789".to_string())
         );
-        
+
         assert_eq!(
             extract_session_from_cookie("other=value; different=abc"),
             None
         );
     }
 
-    #[test] 
+    #[test]
     fn test_extract_bearer_token() {
         assert_eq!(
             extract_bearer_token("Bearer abc123token"),
             Some("abc123token".to_string())
         );
-        
-        assert_eq!(
-            extract_bearer_token("Basic abc123"),
-            None
-        );
-        
-        assert_eq!(
-            extract_bearer_token("Bearer "),
-            Some("".to_string())
-        );
+
+        assert_eq!(extract_bearer_token("Basic abc123"), None);
+
+        assert_eq!(extract_bearer_token("Bearer "), Some("".to_string()));
     }
 }

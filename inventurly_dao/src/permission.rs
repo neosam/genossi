@@ -10,13 +10,13 @@ pub trait PermissionDao: Send + Sync {
 
     // Privilege checking
     async fn has_privilege(&self, user: &str, privilege: &str) -> Result<bool, DaoError>;
-    
+
     // User management
     async fn all_users(&self) -> Result<Arc<[UserEntity]>, DaoError>;
     async fn get_user(&self, name: &str) -> Result<Option<UserEntity>, DaoError>;
     async fn create_user(&self, user: &UserEntity, process: &str) -> Result<(), DaoError>;
     async fn delete_user(&self, username: &str) -> Result<(), DaoError>;
-    
+
     /// Ensures a user exists in the database, creating it if necessary
     /// Used for auto-registration of OIDC users
     /// Returns true if user was created, false if already existed
@@ -25,43 +25,65 @@ pub trait PermissionDao: Send + Sync {
         if self.get_user(username).await?.is_some() {
             return Ok(false);
         }
-        
+
         let user_entity = UserEntity {
             name: username.into(),
             update_timestamp: None,
             update_process: process.into(),
         };
-        
+
         match self.create_user(&user_entity, process).await {
             Ok(()) => Ok(true),
             Err(DaoError::DatabaseError(msg)) if msg.contains("UNIQUE") => Ok(false),
             Err(e) => Err(e),
         }
     }
-    
+
     // Role management
     async fn all_roles(&self) -> Result<Arc<[RoleEntity]>, DaoError>;
     async fn get_role(&self, name: &str) -> Result<Option<RoleEntity>, DaoError>;
     async fn create_role(&self, role: &RoleEntity, process: &str) -> Result<(), DaoError>;
     async fn delete_role(&self, role_name: &str) -> Result<(), DaoError>;
-    
+
     // Privilege management
     async fn all_privileges(&self) -> Result<Arc<[PrivilegeEntity]>, DaoError>;
     async fn get_privilege(&self, name: &str) -> Result<Option<PrivilegeEntity>, DaoError>;
-    async fn create_privilege(&self, privilege: &PrivilegeEntity, process: &str) -> Result<(), DaoError>;
+    async fn create_privilege(
+        &self,
+        privilege: &PrivilegeEntity,
+        process: &str,
+    ) -> Result<(), DaoError>;
     async fn delete_privilege(&self, privilege_name: &str) -> Result<(), DaoError>;
-    
+
     // Role-User relationships
-    async fn add_user_role(&self, username: &str, role: &str, process: &str) -> Result<(), DaoError>;
+    async fn add_user_role(
+        &self,
+        username: &str,
+        role: &str,
+        process: &str,
+    ) -> Result<(), DaoError>;
     async fn remove_user_role(&self, username: &str, role: &str) -> Result<(), DaoError>;
     async fn get_user_roles(&self, username: &str) -> Result<Arc<[RoleEntity]>, DaoError>;
-    
-    // Role-Privilege relationships  
-    async fn add_role_privilege(&self, role_name: &str, privilege_name: &str, process: &str) -> Result<(), DaoError>;
-    async fn remove_role_privilege(&self, role_name: &str, privilege_name: &str) -> Result<(), DaoError>;
-    async fn get_role_privileges(&self, role_name: &str) -> Result<Arc<[PrivilegeEntity]>, DaoError>;
-    async fn get_user_privileges(&self, username: &str) -> Result<Arc<[PrivilegeEntity]>, DaoError>;
-    
+
+    // Role-Privilege relationships
+    async fn add_role_privilege(
+        &self,
+        role_name: &str,
+        privilege_name: &str,
+        process: &str,
+    ) -> Result<(), DaoError>;
+    async fn remove_role_privilege(
+        &self,
+        role_name: &str,
+        privilege_name: &str,
+    ) -> Result<(), DaoError>;
+    async fn get_role_privileges(
+        &self,
+        role_name: &str,
+    ) -> Result<Arc<[PrivilegeEntity]>, DaoError>;
+    async fn get_user_privileges(&self, username: &str)
+        -> Result<Arc<[PrivilegeEntity]>, DaoError>;
+
     // Session management
     async fn create_session(&self, session: &SessionEntity) -> Result<(), DaoError>;
     async fn get_session(&self, session_id: &str) -> Result<Option<SessionEntity>, DaoError>;
@@ -79,7 +101,7 @@ pub struct UserEntity {
 #[derive(Debug, Clone)]
 pub struct RoleEntity {
     pub name: Arc<str>,
-    pub update_timestamp: Option<PrimitiveDateTime>, 
+    pub update_timestamp: Option<PrimitiveDateTime>,
     pub update_process: Arc<str>,
 }
 
@@ -173,7 +195,11 @@ impl PermissionDao for MockPermissionDao {
         }))
     }
 
-    async fn create_privilege(&self, _privilege: &PrivilegeEntity, _process: &str) -> Result<(), DaoError> {
+    async fn create_privilege(
+        &self,
+        _privilege: &PrivilegeEntity,
+        _process: &str,
+    ) -> Result<(), DaoError> {
         Ok(())
     }
 
@@ -181,7 +207,12 @@ impl PermissionDao for MockPermissionDao {
         Ok(())
     }
 
-    async fn add_user_role(&self, _username: &str, _role: &str, _process: &str) -> Result<(), DaoError> {
+    async fn add_user_role(
+        &self,
+        _username: &str,
+        _role: &str,
+        _process: &str,
+    ) -> Result<(), DaoError> {
         Ok(())
     }
 
@@ -197,15 +228,27 @@ impl PermissionDao for MockPermissionDao {
         }]))
     }
 
-    async fn add_role_privilege(&self, _role_name: &str, _privilege_name: &str, _process: &str) -> Result<(), DaoError> {
+    async fn add_role_privilege(
+        &self,
+        _role_name: &str,
+        _privilege_name: &str,
+        _process: &str,
+    ) -> Result<(), DaoError> {
         Ok(())
     }
 
-    async fn remove_role_privilege(&self, _role_name: &str, _privilege_name: &str) -> Result<(), DaoError> {
+    async fn remove_role_privilege(
+        &self,
+        _role_name: &str,
+        _privilege_name: &str,
+    ) -> Result<(), DaoError> {
         Ok(())
     }
 
-    async fn get_role_privileges(&self, _role_name: &str) -> Result<Arc<[PrivilegeEntity]>, DaoError> {
+    async fn get_role_privileges(
+        &self,
+        _role_name: &str,
+    ) -> Result<Arc<[PrivilegeEntity]>, DaoError> {
         Ok(Arc::new([PrivilegeEntity {
             name: Arc::from("admin"),
             update_timestamp: None,
@@ -213,7 +256,10 @@ impl PermissionDao for MockPermissionDao {
         }]))
     }
 
-    async fn get_user_privileges(&self, _username: &str) -> Result<Arc<[PrivilegeEntity]>, DaoError> {
+    async fn get_user_privileges(
+        &self,
+        _username: &str,
+    ) -> Result<Arc<[PrivilegeEntity]>, DaoError> {
         Ok(Arc::new([PrivilegeEntity {
             name: Arc::from("admin"),
             update_timestamp: None,

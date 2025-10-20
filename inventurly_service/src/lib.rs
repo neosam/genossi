@@ -1,14 +1,15 @@
+pub mod auth_types;
+pub mod container;
+pub mod csv_import;
+pub mod duplicate_detection;
+pub mod permission;
 pub mod person;
 pub mod product;
 pub mod product_rack;
 pub mod rack;
-pub mod csv_import;
-pub mod duplicate_detection;
-pub mod permission;
-pub mod uuid_service;
-pub mod user_service;
-pub mod auth_types;
 pub mod session;
+pub mod user_service;
+pub mod uuid_service;
 
 use std::sync::Arc;
 

@@ -1,15 +1,16 @@
-use std::sync::Arc;
 use async_trait::async_trait;
+use std::sync::Arc;
 
 use inventurly_dao::TransactionDao;
 use inventurly_service::{
-    permission::{Authentication, PermissionService},
-    product::ProductService,
     duplicate_detection::{
-        DuplicateDetectionService, DuplicateDetectionConfig, DuplicateDetectionResult,
-        DuplicateMatch, SimilarityCalculator, MatchConfidence
+        DuplicateDetectionConfig, DuplicateDetectionResult, DuplicateDetectionService,
+        DuplicateMatch, MatchConfidence, SimilarityCalculator,
     },
-    ServiceError, product::Product,
+    permission::{Authentication, PermissionService},
+    product::Product,
+    product::ProductService,
+    ServiceError,
 };
 
 use crate::gen_service_impl;
@@ -23,7 +24,9 @@ gen_service_impl! {
 }
 
 #[async_trait]
-impl<Deps: DuplicateDetectionServiceDeps> DuplicateDetectionService for DuplicateDetectionServiceImpl<Deps> {
+impl<Deps: DuplicateDetectionServiceDeps> DuplicateDetectionService
+    for DuplicateDetectionServiceImpl<Deps>
+{
     type Context = Deps::Context;
     type Transaction = Deps::Transaction;
 
@@ -36,23 +39,23 @@ impl<Deps: DuplicateDetectionServiceDeps> DuplicateDetectionService for Duplicat
     ) -> Result<DuplicateDetectionResult, ServiceError> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
         let config = config.unwrap_or_default();
-        
+
         // Get all products except the one we're checking
-        let all_products = self.product_service.get_all(context, Some(tx.clone())).await?;
+        let all_products = self
+            .product_service
+            .get_all(context, Some(tx.clone()))
+            .await?;
         let mut matches = Vec::new();
-        
+
         for other_product in all_products.iter() {
             // Skip comparing with itself
             if other_product.id == product.id {
                 continue;
             }
-            
-            let (similarity_score, algorithm_scores) = SimilarityCalculator::calculate_similarity(
-                product,
-                other_product,
-                &config,
-            );
-            
+
+            let (similarity_score, algorithm_scores) =
+                SimilarityCalculator::calculate_similarity(product, other_product, &config);
+
             if similarity_score >= config.similarity_threshold {
                 let confidence = MatchConfidence::from_score(similarity_score);
                 matches.push(DuplicateMatch {
@@ -63,12 +66,12 @@ impl<Deps: DuplicateDetectionServiceDeps> DuplicateDetectionService for Duplicat
                 });
             }
         }
-        
+
         // Sort matches by similarity score (highest first)
         matches.sort_by(|a, b| b.similarity_score.partial_cmp(&a.similarity_score).unwrap());
-        
+
         self.transaction_dao.commit(tx).await?;
-        
+
         Ok(DuplicateDetectionResult {
             checked_product: product.clone(),
             matches,
@@ -84,24 +87,29 @@ impl<Deps: DuplicateDetectionServiceDeps> DuplicateDetectionService for Duplicat
     ) -> Result<Vec<DuplicateDetectionResult>, ServiceError> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
         let config = config.unwrap_or_default();
-        
-        let all_products = self.product_service.get_all(context.clone(), Some(tx.clone())).await?;
+
+        let all_products = self
+            .product_service
+            .get_all(context.clone(), Some(tx.clone()))
+            .await?;
         let mut results = Vec::new();
-        
+
         for product in all_products.iter() {
-            let result = self.find_duplicates(
-                product,
-                Some(config.clone()),
-                context.clone(),
-                Some(tx.clone()),
-            ).await?;
-            
+            let result = self
+                .find_duplicates(
+                    product,
+                    Some(config.clone()),
+                    context.clone(),
+                    Some(tx.clone()),
+                )
+                .await?;
+
             // Only include products that have potential duplicates
             if !result.matches.is_empty() {
                 results.push(result);
             }
         }
-        
+
         self.transaction_dao.commit(tx).await?;
         Ok(results)
     }
@@ -117,7 +125,7 @@ impl<Deps: DuplicateDetectionServiceDeps> DuplicateDetectionService for Duplicat
     ) -> Result<Vec<DuplicateMatch>, ServiceError> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
         let config = config.unwrap_or_default();
-        
+
         // Create a temporary product for comparison
         let temp_product = Product {
             id: uuid::Uuid::new_v4(), // Temporary ID
@@ -129,22 +137,25 @@ impl<Deps: DuplicateDetectionServiceDeps> DuplicateDetectionService for Duplicat
             price: inventurly_service::product::Price::from_cents(0),
             created: time::PrimitiveDateTime::new(
                 time::Date::from_calendar_date(2024, time::Month::January, 1).unwrap(),
-                time::Time::MIDNIGHT
+                time::Time::MIDNIGHT,
             ),
             deleted: None,
             version: uuid::Uuid::new_v4(),
         };
-        
-        let all_products = self.product_service.get_all(context, Some(tx.clone())).await?;
+
+        let all_products = self
+            .product_service
+            .get_all(context, Some(tx.clone()))
+            .await?;
         let mut matches = Vec::new();
-        
+
         for existing_product in all_products.iter() {
             let (similarity_score, algorithm_scores) = SimilarityCalculator::calculate_similarity(
                 &temp_product,
                 existing_product,
                 &config,
             );
-            
+
             if similarity_score >= config.similarity_threshold {
                 let confidence = MatchConfidence::from_score(similarity_score);
                 matches.push(DuplicateMatch {
@@ -155,10 +166,10 @@ impl<Deps: DuplicateDetectionServiceDeps> DuplicateDetectionService for Duplicat
                 });
             }
         }
-        
+
         // Sort matches by similarity score (highest first)
         matches.sort_by(|a, b| b.similarity_score.partial_cmp(&a.similarity_score).unwrap());
-        
+
         self.transaction_dao.commit(tx).await?;
         Ok(matches)
     }

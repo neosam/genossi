@@ -1,15 +1,19 @@
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
 use inventurly_rest::RestStateDef;
-use inventurly_rest_types::{PersonTO, RackTO, ProductRackTO};
+use inventurly_rest_types::{PersonTO, ProductRackTO, RackTO};
+use inventurly_service::csv_import::{
+    CsvImportResult, CsvImportService, CsvProductRow, ImportAction,
+};
+use inventurly_service::duplicate_detection::{
+    DuplicateDetectionConfig, DuplicateDetectionResult, DuplicateDetectionService, DuplicateMatch,
+};
+use inventurly_service::permission::PermissionService;
 use inventurly_service::permission::{Authentication, MockContext};
 use inventurly_service::person::{Person, PersonService};
 use inventurly_service::product::{Product, ProductService};
-use inventurly_service::rack::{Rack, RackService};
 use inventurly_service::product_rack::{ProductRack, ProductRackService};
-use inventurly_service::csv_import::{CsvImportService, CsvImportResult, CsvProductRow, ImportAction};
-use inventurly_service::duplicate_detection::{DuplicateDetectionService, DuplicateDetectionConfig, DuplicateDetectionResult, DuplicateMatch};
-use inventurly_service::permission::PermissionService;
+use inventurly_service::rack::{Rack, RackService};
 use inventurly_service::session::SessionService;
 use serde_json::json;
 use std::sync::Arc;
@@ -41,31 +45,31 @@ impl RestStateDef for TestRestState {
     fn person_service(&self) -> Arc<Self::PersonService> {
         self.person_service.clone()
     }
-    
+
     fn product_service(&self) -> Arc<Self::ProductService> {
         self.product_service.clone()
     }
-    
+
     fn rack_service(&self) -> Arc<Self::RackService> {
         self.rack_service.clone()
     }
-    
+
     fn product_rack_service(&self) -> Arc<Self::ProductRackService> {
         self.product_rack_service.clone()
     }
-    
+
     fn csv_import_service(&self) -> Arc<Self::CsvImportService> {
         self.csv_import_service.clone()
     }
-    
+
     fn duplicate_detection_service(&self) -> Arc<Self::DuplicateDetectionService> {
         self.duplicate_detection_service.clone()
     }
-    
+
     fn permission_service(&self) -> Arc<Self::PermissionService> {
         self.permission_service.clone()
     }
-    
+
     fn session_service(&self) -> Arc<Self::SessionService> {
         self.session_service.clone()
     }
@@ -214,7 +218,9 @@ impl ProductService for MockProductService {
         _auth: Authentication<Self::Context>,
         _transaction: Option<Self::Transaction>,
     ) -> Result<Product, inventurly_service::ServiceError> {
-        Err(inventurly_service::ServiceError::InternalError(Arc::from("Not implemented")))
+        Err(inventurly_service::ServiceError::InternalError(Arc::from(
+            "Not implemented",
+        )))
     }
 
     async fn update(
@@ -223,7 +229,9 @@ impl ProductService for MockProductService {
         _auth: Authentication<Self::Context>,
         _transaction: Option<Self::Transaction>,
     ) -> Result<Product, inventurly_service::ServiceError> {
-        Err(inventurly_service::ServiceError::InternalError(Arc::from("Not implemented")))
+        Err(inventurly_service::ServiceError::InternalError(Arc::from(
+            "Not implemented",
+        )))
     }
 
     async fn delete(
@@ -386,7 +394,6 @@ impl ProductRackService for MockProductRackService {
         Ok(())
     }
 
-
     async fn get_racks_for_product(
         &self,
         _product_id: Uuid,
@@ -471,7 +478,9 @@ impl DuplicateDetectionService for MockDuplicateDetectionService {
         _context: Authentication<Self::Context>,
         _tx: Option<Self::Transaction>,
     ) -> Result<DuplicateDetectionResult, inventurly_service::ServiceError> {
-        Err(inventurly_service::ServiceError::InternalError(Arc::from("Not implemented")))
+        Err(inventurly_service::ServiceError::InternalError(Arc::from(
+            "Not implemented",
+        )))
     }
 
     async fn find_all_duplicates(
@@ -502,7 +511,7 @@ struct MockPermissionService;
 #[async_trait::async_trait]
 impl PermissionService for MockPermissionService {
     type Context = MockContext;
-    
+
     async fn check_permission(
         &self,
         _privilege: &str,
@@ -510,14 +519,17 @@ impl PermissionService for MockPermissionService {
     ) -> Result<(), inventurly_service::ServiceError> {
         Ok(()) // Always allow in tests
     }
-    
+
     async fn get_all_users(
         &self,
         _context: Authentication<Self::Context>,
-    ) -> Result<Arc<[inventurly_service::auth_types::UserResponseTO]>, inventurly_service::ServiceError> {
+    ) -> Result<
+        Arc<[inventurly_service::auth_types::UserResponseTO]>,
+        inventurly_service::ServiceError,
+    > {
         Ok(Arc::new([]))
     }
-    
+
     async fn create_user(
         &self,
         _user: inventurly_service::auth_types::UserTO,
@@ -525,7 +537,7 @@ impl PermissionService for MockPermissionService {
     ) -> Result<(), inventurly_service::ServiceError> {
         Ok(())
     }
-    
+
     async fn delete_user(
         &self,
         _username: String,
@@ -533,14 +545,17 @@ impl PermissionService for MockPermissionService {
     ) -> Result<(), inventurly_service::ServiceError> {
         Ok(())
     }
-    
+
     async fn get_all_roles(
         &self,
         _context: Authentication<Self::Context>,
-    ) -> Result<Arc<[inventurly_service::auth_types::RoleResponseTO]>, inventurly_service::ServiceError> {
+    ) -> Result<
+        Arc<[inventurly_service::auth_types::RoleResponseTO]>,
+        inventurly_service::ServiceError,
+    > {
         Ok(Arc::new([]))
     }
-    
+
     async fn create_role(
         &self,
         _role: inventurly_service::auth_types::RoleTO,
@@ -548,7 +563,7 @@ impl PermissionService for MockPermissionService {
     ) -> Result<(), inventurly_service::ServiceError> {
         Ok(())
     }
-    
+
     async fn delete_role(
         &self,
         _role_name: String,
@@ -556,14 +571,17 @@ impl PermissionService for MockPermissionService {
     ) -> Result<(), inventurly_service::ServiceError> {
         Ok(())
     }
-    
+
     async fn get_all_privileges(
         &self,
         _context: Authentication<Self::Context>,
-    ) -> Result<Arc<[inventurly_service::auth_types::PrivilegeResponseTO]>, inventurly_service::ServiceError> {
+    ) -> Result<
+        Arc<[inventurly_service::auth_types::PrivilegeResponseTO]>,
+        inventurly_service::ServiceError,
+    > {
         Ok(Arc::new([]))
     }
-    
+
     async fn create_privilege(
         &self,
         _privilege: inventurly_service::auth_types::PrivilegeTO,
@@ -571,7 +589,7 @@ impl PermissionService for MockPermissionService {
     ) -> Result<(), inventurly_service::ServiceError> {
         Ok(())
     }
-    
+
     async fn delete_privilege(
         &self,
         _privilege_name: String,
@@ -579,7 +597,7 @@ impl PermissionService for MockPermissionService {
     ) -> Result<(), inventurly_service::ServiceError> {
         Ok(())
     }
-    
+
     async fn assign_user_role(
         &self,
         _user_role: inventurly_service::auth_types::UserRole,
@@ -587,7 +605,7 @@ impl PermissionService for MockPermissionService {
     ) -> Result<(), inventurly_service::ServiceError> {
         Ok(())
     }
-    
+
     async fn remove_user_role(
         &self,
         _user_role: inventurly_service::auth_types::UserRole,
@@ -595,15 +613,18 @@ impl PermissionService for MockPermissionService {
     ) -> Result<(), inventurly_service::ServiceError> {
         Ok(())
     }
-    
+
     async fn get_user_roles(
         &self,
         _username: String,
         _context: Authentication<Self::Context>,
-    ) -> Result<Arc<[inventurly_service::auth_types::RoleResponseTO]>, inventurly_service::ServiceError> {
+    ) -> Result<
+        Arc<[inventurly_service::auth_types::RoleResponseTO]>,
+        inventurly_service::ServiceError,
+    > {
         Ok(Arc::new([]))
     }
-    
+
     async fn assign_role_privilege(
         &self,
         _role_privilege: inventurly_service::auth_types::RolePrivilege,
@@ -611,7 +632,7 @@ impl PermissionService for MockPermissionService {
     ) -> Result<(), inventurly_service::ServiceError> {
         Ok(())
     }
-    
+
     async fn remove_role_privilege(
         &self,
         _role_privilege: inventurly_service::auth_types::RolePrivilege,
@@ -619,23 +640,29 @@ impl PermissionService for MockPermissionService {
     ) -> Result<(), inventurly_service::ServiceError> {
         Ok(())
     }
-    
+
     async fn get_role_privileges(
         &self,
         _role_name: String,
         _context: Authentication<Self::Context>,
-    ) -> Result<Arc<[inventurly_service::auth_types::PrivilegeResponseTO]>, inventurly_service::ServiceError> {
+    ) -> Result<
+        Arc<[inventurly_service::auth_types::PrivilegeResponseTO]>,
+        inventurly_service::ServiceError,
+    > {
         Ok(Arc::new([]))
     }
-    
+
     async fn get_user_privileges(
         &self,
         _username: String,
         _context: Authentication<Self::Context>,
-    ) -> Result<Arc<[inventurly_service::auth_types::PrivilegeResponseTO]>, inventurly_service::ServiceError> {
+    ) -> Result<
+        Arc<[inventurly_service::auth_types::PrivilegeResponseTO]>,
+        inventurly_service::ServiceError,
+    > {
         Ok(Arc::new([]))
     }
-    
+
     async fn current_user_id(
         &self,
         _context: Authentication<Self::Context>,
@@ -652,12 +679,13 @@ impl SessionService for MockSessionService {
     async fn extract_auth_context(
         &self,
         _session_id: Option<String>,
-    ) -> Result<Option<inventurly_service::auth_types::AuthContext>, inventurly_service::ServiceError> {
+    ) -> Result<Option<inventurly_service::auth_types::AuthContext>, inventurly_service::ServiceError>
+    {
         Ok(Some(inventurly_service::auth_types::AuthContext::Mock(
-            inventurly_service::auth_types::MockContext::default()
+            inventurly_service::auth_types::MockContext::default(),
         )))
     }
-    
+
     async fn create_session(
         &self,
         _user_id: &str,
@@ -670,11 +698,12 @@ impl SessionService for MockSessionService {
             created_at: 1000000000,
         })
     }
-    
+
     async fn verify_user_session(
         &self,
         _session_id: &str,
-    ) -> Result<Option<inventurly_service::auth_types::UserSession>, inventurly_service::ServiceError> {
+    ) -> Result<Option<inventurly_service::auth_types::UserSession>, inventurly_service::ServiceError>
+    {
         Ok(Some(inventurly_service::auth_types::UserSession {
             session_id: "test-session".into(),
             user_id: "testuser".into(),
@@ -682,17 +711,15 @@ impl SessionService for MockSessionService {
             created_at: 1000000000,
         }))
     }
-    
+
     async fn invalidate_session(
         &self,
         _session_id: &str,
     ) -> Result<(), inventurly_service::ServiceError> {
         Ok(())
     }
-    
-    async fn cleanup_expired_sessions(
-        &self,
-    ) -> Result<u64, inventurly_service::ServiceError> {
+
+    async fn cleanup_expired_sessions(&self) -> Result<u64, inventurly_service::ServiceError> {
         Ok(0)
     }
 }
@@ -712,12 +739,18 @@ fn create_test_app() -> axum::Router {
     axum::Router::new()
         .nest("/persons", inventurly_rest::person::generate_route())
         .nest("/racks", inventurly_rest::rack::generate_route())
-        .nest("/product-racks", inventurly_rest::product_rack::generate_route())
+        .nest(
+            "/product-racks",
+            inventurly_rest::product_rack::generate_route(),
+        )
         .with_state(rest_state)
-        .layer(axum::middleware::from_fn(|mut req: Request<Body>, next: axum::middleware::Next| async move {
-            req.extensions_mut().insert(inventurly_rest::Context::default());
-            next.run(req).await
-        }))
+        .layer(axum::middleware::from_fn(
+            |mut req: Request<Body>, next: axum::middleware::Next| async move {
+                req.extensions_mut()
+                    .insert(inventurly_rest::Context::default());
+                next.run(req).await
+            },
+        ))
 }
 
 #[tokio::test]
@@ -741,7 +774,7 @@ async fn test_get_all_persons() {
         .await
         .unwrap();
     let persons: Vec<PersonTO> = serde_json::from_slice(&body).unwrap();
-    
+
     assert_eq!(persons.len(), 1);
     assert_eq!(persons[0].name, "John Doe");
     assert_eq!(persons[0].age, 30);
@@ -768,10 +801,13 @@ async fn test_get_person_by_id() {
         .await
         .unwrap();
     let person: PersonTO = serde_json::from_slice(&body).unwrap();
-    
+
     assert_eq!(person.name, "John Doe");
     assert_eq!(person.age, 30);
-    assert_eq!(person.id, Some(Uuid::parse_str("123e4567-e89b-12d3-a456-426614174000").unwrap()));
+    assert_eq!(
+        person.id,
+        Some(Uuid::parse_str("123e4567-e89b-12d3-a456-426614174000").unwrap())
+    );
 }
 
 #[tokio::test]
@@ -819,7 +855,7 @@ async fn test_create_person() {
         .await
         .unwrap();
     let person: PersonTO = serde_json::from_slice(&body).unwrap();
-    
+
     assert_eq!(person.name, "Jane Smith");
     assert_eq!(person.age, 25);
     assert!(person.id.is_some());
@@ -852,10 +888,13 @@ async fn test_update_person() {
         .await
         .unwrap();
     let person: PersonTO = serde_json::from_slice(&body).unwrap();
-    
+
     assert_eq!(person.name, "John Updated");
     assert_eq!(person.age, 35);
-    assert_eq!(person.id, Some(Uuid::parse_str("123e4567-e89b-12d3-a456-426614174000").unwrap()));
+    assert_eq!(
+        person.id,
+        Some(Uuid::parse_str("123e4567-e89b-12d3-a456-426614174000").unwrap())
+    );
 }
 
 #[tokio::test]
@@ -940,7 +979,7 @@ async fn test_get_all_racks() {
         .await
         .unwrap();
     let racks: Vec<RackTO> = serde_json::from_slice(&body).unwrap();
-    
+
     assert_eq!(racks.len(), 1);
     assert_eq!(racks[0].name, "Storage Rack A");
     assert_eq!(racks[0].description, "Primary storage rack for inventory");
@@ -967,10 +1006,13 @@ async fn test_get_rack_by_id() {
         .await
         .unwrap();
     let rack: RackTO = serde_json::from_slice(&body).unwrap();
-    
+
     assert_eq!(rack.name, "Storage Rack A");
     assert_eq!(rack.description, "Primary storage rack for inventory");
-    assert_eq!(rack.id, Some(Uuid::parse_str("a1b2c3d4-e5f6-7890-abcd-ef1234567890").unwrap()));
+    assert_eq!(
+        rack.id,
+        Some(Uuid::parse_str("a1b2c3d4-e5f6-7890-abcd-ef1234567890").unwrap())
+    );
 }
 
 #[tokio::test]
@@ -1018,7 +1060,7 @@ async fn test_create_rack() {
         .await
         .unwrap();
     let rack: RackTO = serde_json::from_slice(&body).unwrap();
-    
+
     assert_eq!(rack.name, "Storage Rack B");
     assert_eq!(rack.description, "Secondary storage rack");
     assert!(rack.id.is_some());
@@ -1051,10 +1093,13 @@ async fn test_update_rack() {
         .await
         .unwrap();
     let rack: RackTO = serde_json::from_slice(&body).unwrap();
-    
+
     assert_eq!(rack.name, "Updated Rack A");
     assert_eq!(rack.description, "Updated description for rack A");
-    assert_eq!(rack.id, Some(Uuid::parse_str("a1b2c3d4-e5f6-7890-abcd-ef1234567890").unwrap()));
+    assert_eq!(
+        rack.id,
+        Some(Uuid::parse_str("a1b2c3d4-e5f6-7890-abcd-ef1234567890").unwrap())
+    );
 }
 
 #[tokio::test]
@@ -1145,9 +1190,15 @@ async fn test_add_product_to_rack() {
         .await
         .unwrap();
     let product_rack: ProductRackTO = serde_json::from_slice(&body).unwrap();
-    
-    assert_eq!(product_rack.product_id, Uuid::parse_str("123e4567-e89b-12d3-a456-426614174000").unwrap());
-    assert_eq!(product_rack.rack_id, Uuid::parse_str("a1b2c3d4-e5f6-7890-abcd-ef1234567890").unwrap());
+
+    assert_eq!(
+        product_rack.product_id,
+        Uuid::parse_str("123e4567-e89b-12d3-a456-426614174000").unwrap()
+    );
+    assert_eq!(
+        product_rack.rack_id,
+        Uuid::parse_str("a1b2c3d4-e5f6-7890-abcd-ef1234567890").unwrap()
+    );
 }
 
 #[tokio::test]
@@ -1167,7 +1218,6 @@ async fn test_remove_product_from_rack() {
 
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
 }
-
 
 #[tokio::test]
 async fn test_get_product_rack_relationship() {
@@ -1209,7 +1259,7 @@ async fn test_get_racks_for_product() {
         .await
         .unwrap();
     let product_racks: Vec<ProductRackTO> = serde_json::from_slice(&body).unwrap();
-    
+
     // Mock service returns empty array
     assert_eq!(product_racks.len(), 0);
 }
@@ -1235,7 +1285,7 @@ async fn test_get_products_in_rack() {
         .await
         .unwrap();
     let product_racks: Vec<ProductRackTO> = serde_json::from_slice(&body).unwrap();
-    
+
     // Mock service returns empty array
     assert_eq!(product_racks.len(), 0);
 }
@@ -1261,7 +1311,7 @@ async fn test_get_all_product_rack_relationships() {
         .await
         .unwrap();
     let product_racks: Vec<ProductRackTO> = serde_json::from_slice(&body).unwrap();
-    
+
     // Mock service returns empty array
     assert_eq!(product_racks.len(), 0);
 }

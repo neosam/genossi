@@ -6,9 +6,9 @@ use axum::extract::Query;
 use axum::routing::{delete, get, post, put};
 use axum::{extract::State, response::Response};
 use axum::{Extension, Json, Router};
-use serde::Deserialize;
 use inventurly_rest_types::ProductTO;
 use inventurly_service::product::ProductService;
+use serde::Deserialize;
 use tracing::instrument;
 use utoipa::OpenApi;
 use uuid::Uuid;
@@ -94,7 +94,9 @@ pub async fn search_products<RestState: RestStateDef>(
                 return Ok(Response::builder()
                     .status(400)
                     .header("Content-Type", "application/json")
-                    .body(Body::new(r#"{"error": "Query parameter 'q' cannot be empty"}"#.to_string()))
+                    .body(Body::new(
+                        r#"{"error": "Query parameter 'q' cannot be empty"}"#.to_string(),
+                    ))
                     .unwrap());
             }
 
@@ -105,7 +107,7 @@ pub async fn search_products<RestState: RestStateDef>(
                 .iter()
                 .map(ProductTO::from)
                 .collect();
-                
+
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
@@ -214,7 +216,7 @@ pub async fn update_product<RestState: RestStateDef>(
         (async {
             // Ensure the ID in the path matches the product
             product.id = Some(id);
-            
+
             let updated = ProductTO::from(
                 &rest_state
                     .product_service()
@@ -329,10 +331,10 @@ pub async fn update_product_by_ean<RestState: RestStateDef>(
                 .product_service()
                 .get_by_ean(&ean, context.auth.clone(), None)
                 .await?;
-            
+
             // Use the ID from the existing product
             product.id = Some(existing.id);
-            
+
             let updated = ProductTO::from(
                 &rest_state
                     .product_service()
@@ -375,7 +377,7 @@ pub async fn delete_product_by_ean<RestState: RestStateDef>(
                 .product_service()
                 .get_by_ean(&ean, context.auth.clone(), None)
                 .await?;
-            
+
             rest_state
                 .product_service()
                 .delete(product.id, context.auth, None)

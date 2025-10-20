@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use time::PrimitiveDateTime;
 
 /// Transfer object for user creation requests

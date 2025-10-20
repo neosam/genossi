@@ -8,11 +8,11 @@ pub trait UuidService: Clone + Send + Sync {
 
 mockall::mock! {
     pub UuidService {}
-    
+
     impl Clone for UuidService {
         fn clone(&self) -> Self;
     }
-    
+
     #[async_trait]
     impl UuidService for UuidService {
         async fn new_v4(&self) -> Uuid;

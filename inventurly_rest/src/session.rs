@@ -12,9 +12,9 @@ use inventurly_service::session::SessionService;
 #[cfg(feature = "oidc")]
 use tower_cookies::Cookies;
 
-use crate::RestStateDef;
 #[cfg(feature = "oidc")]
 use crate::Context;
+use crate::RestStateDef;
 
 #[cfg(feature = "oidc")]
 pub async fn register_session<RestState: RestStateDef>(
@@ -36,7 +36,7 @@ pub async fn register_session<RestState: RestStateDef>(
             .preferred_username()
             .map(|s| s.as_str().to_string())
             .unwrap_or_else(|| "NoUsername".to_string());
-        
+
         // Use the new method that ensures user exists before creating session
         let session = rest_state
             .session_service()
@@ -138,18 +138,18 @@ pub async fn forbid_unauthenticated<RestState: RestStateDef>(
     use tracing::{info, warn};
 
     info!("Checking authentication");
-    
+
     // Check if context exists and has auth_context
     let is_authenticated = request
         .extensions()
         .get::<Context>()
         .and_then(|ctx| ctx.auth_context.as_ref())
         .is_some();
-    
+
     // Allow access to authenticate endpoint and swagger
     let is_public_path = request.uri().path().ends_with("/authenticate")
         || request.uri().path().starts_with("/swagger-ui");
-    
+
     if is_authenticated || is_public_path {
         info!("Authenticated or public path");
         next.run(request).await

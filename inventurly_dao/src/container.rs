@@ -6,43 +6,40 @@ use uuid::Uuid;
 use crate::DaoError;
 
 #[derive(Debug, Clone)]
-pub struct ProductEntity {
+pub struct ContainerEntity {
     pub id: Uuid,
-    pub ean: Arc<str>,
     pub name: Arc<str>,
-    pub short_name: Arc<str>,
-    pub sales_unit: Arc<str>,
-    pub requires_weighing: bool,
-    pub price: i64, // Price in cents
+    pub weight_grams: i64,
+    pub description: Arc<str>,
     pub created: PrimitiveDateTime,
     pub deleted: Option<PrimitiveDateTime>,
     pub version: Uuid,
 }
 
 #[async_trait]
-pub trait ProductDao: Send + Sync {
+pub trait ContainerDao: Send + Sync {
     type Transaction: Send + Sync;
 
-    async fn dump_all(&self, tx: Self::Transaction) -> Result<Arc<[ProductEntity]>, DaoError>;
+    async fn dump_all(&self, tx: Self::Transaction) -> Result<Arc<[ContainerEntity]>, DaoError>;
 
     async fn create(
         &self,
-        entity: &ProductEntity,
+        entity: &ContainerEntity,
         process: &str,
         tx: Self::Transaction,
     ) -> Result<(), DaoError>;
 
     async fn update(
         &self,
-        entity: &ProductEntity,
+        entity: &ContainerEntity,
         process: &str,
         tx: Self::Transaction,
     ) -> Result<(), DaoError>;
 
     // Default implementation that filters dump_all results
-    async fn all(&self, tx: Self::Transaction) -> Result<Arc<[ProductEntity]>, DaoError> {
+    async fn all(&self, tx: Self::Transaction) -> Result<Arc<[ContainerEntity]>, DaoError> {
         let all_entities = self.dump_all(tx).await?;
-        let active_entities: Vec<ProductEntity> = all_entities
+        let active_entities: Vec<ContainerEntity> = all_entities
             .iter()
             .filter(|e| e.deleted.is_none())
             .cloned()
@@ -50,25 +47,12 @@ pub trait ProductDao: Send + Sync {
         Ok(active_entities.into())
     }
 
-    // Default implementation that finds by EAN from dump_all results
-    async fn find_by_ean(
-        &self,
-        ean: &str,
-        tx: Self::Transaction,
-    ) -> Result<Option<ProductEntity>, DaoError> {
-        let all_entities = self.dump_all(tx).await?;
-        Ok(all_entities
-            .iter()
-            .find(|e| e.deleted.is_none() && e.ean.as_ref() == ean)
-            .cloned())
-    }
-
     // Default implementation that finds by ID from dump_all results
     async fn find_by_id(
         &self,
         id: Uuid,
         tx: Self::Transaction,
-    ) -> Result<Option<ProductEntity>, DaoError> {
+    ) -> Result<Option<ContainerEntity>, DaoError> {
         let all_entities = self.dump_all(tx).await?;
         Ok(all_entities
             .iter()
@@ -76,43 +60,51 @@ pub trait ProductDao: Send + Sync {
             .cloned())
     }
 
-    // Default implementation that searches by name and EAN from dump_all results
+    // Default implementation that finds by name from dump_all results
+    async fn find_by_name(
+        &self,
+        name: &str,
+        tx: Self::Transaction,
+    ) -> Result<Option<ContainerEntity>, DaoError> {
+        let all_entities = self.dump_all(tx).await?;
+        Ok(all_entities
+            .iter()
+            .find(|e| e.deleted.is_none() && e.name.as_ref() == name)
+            .cloned())
+    }
+
+    // Default implementation that searches by name from dump_all results
     async fn search(
         &self,
         query: &str,
         limit: Option<usize>,
         tx: Self::Transaction,
-    ) -> Result<Arc<[ProductEntity]>, DaoError> {
+    ) -> Result<Arc<[ContainerEntity]>, DaoError> {
         let all_entities = self.dump_all(tx).await?;
         let query_lower = query.to_lowercase();
 
-        let mut matching_entities: Vec<ProductEntity> = all_entities
+        let mut matching_entities: Vec<ContainerEntity> = all_entities
             .iter()
             .filter(|e| {
                 e.deleted.is_none()
                     && (e.name.to_lowercase().contains(&query_lower)
-                        || e.ean.to_lowercase().contains(&query_lower)
-                        || e.short_name.to_lowercase().contains(&query_lower))
+                        || e.description.to_lowercase().contains(&query_lower))
             })
             .cloned()
             .collect();
 
         // Sort by relevance: exact matches first, then starts with, then contains
         matching_entities.sort_by(|a, b| {
-            let a_exact =
-                a.name.to_lowercase() == query_lower || a.ean.to_lowercase() == query_lower;
-            let b_exact =
-                b.name.to_lowercase() == query_lower || b.ean.to_lowercase() == query_lower;
+            let a_exact = a.name.to_lowercase() == query_lower;
+            let b_exact = b.name.to_lowercase() == query_lower;
 
             if a_exact && !b_exact {
                 std::cmp::Ordering::Less
             } else if !a_exact && b_exact {
                 std::cmp::Ordering::Greater
             } else {
-                let a_starts = a.name.to_lowercase().starts_with(&query_lower)
-                    || a.ean.to_lowercase().starts_with(&query_lower);
-                let b_starts = b.name.to_lowercase().starts_with(&query_lower)
-                    || b.ean.to_lowercase().starts_with(&query_lower);
+                let a_starts = a.name.to_lowercase().starts_with(&query_lower);
+                let b_starts = b.name.to_lowercase().starts_with(&query_lower);
 
                 if a_starts && !b_starts {
                     std::cmp::Ordering::Less
@@ -146,21 +138,24 @@ mod tests {
         unsafe impl Sync for Transaction {}
     }
 
-    struct TestProductDao {
-        entities: Vec<ProductEntity>,
+    struct TestContainerDao {
+        entities: Vec<ContainerEntity>,
     }
 
     #[async_trait]
-    impl ProductDao for TestProductDao {
+    impl ContainerDao for TestContainerDao {
         type Transaction = MockTransaction;
 
-        async fn dump_all(&self, _tx: Self::Transaction) -> Result<Arc<[ProductEntity]>, DaoError> {
+        async fn dump_all(
+            &self,
+            _tx: Self::Transaction,
+        ) -> Result<Arc<[ContainerEntity]>, DaoError> {
             Ok(self.entities.clone().into())
         }
 
         async fn create(
             &self,
-            _entity: &ProductEntity,
+            _entity: &ContainerEntity,
             _process: &str,
             _tx: Self::Transaction,
         ) -> Result<(), DaoError> {
@@ -169,7 +164,7 @@ mod tests {
 
         async fn update(
             &self,
-            _entity: &ProductEntity,
+            _entity: &ContainerEntity,
             _process: &str,
             _tx: Self::Transaction,
         ) -> Result<(), DaoError> {
@@ -179,17 +174,14 @@ mod tests {
 
     fn create_test_entity(
         id: Uuid,
-        ean: &str,
+        name: &str,
         deleted: Option<PrimitiveDateTime>,
-    ) -> ProductEntity {
-        ProductEntity {
+    ) -> ContainerEntity {
+        ContainerEntity {
             id,
-            ean: Arc::from(ean),
-            name: Arc::from("Test Product"),
-            short_name: Arc::from("Test"),
-            sales_unit: Arc::from("St"),
-            requires_weighing: false,
-            price: 100,
+            name: Arc::from(name),
+            weight_grams: 1000,
+            description: Arc::from("Test container"),
             created: PrimitiveDateTime::MIN,
             deleted,
             version: Uuid::new_v4(),
@@ -202,11 +194,11 @@ mod tests {
         let id2 = Uuid::new_v4();
         let id3 = Uuid::new_v4();
 
-        let dao = TestProductDao {
+        let dao = TestContainerDao {
             entities: vec![
-                create_test_entity(id1, "123", None),
-                create_test_entity(id2, "456", Some(PrimitiveDateTime::MIN)),
-                create_test_entity(id3, "789", None),
+                create_test_entity(id1, "Container 1", None),
+                create_test_entity(id2, "Container 2", Some(PrimitiveDateTime::MIN)),
+                create_test_entity(id3, "Container 3", None),
             ],
         };
 
@@ -220,32 +212,32 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_find_by_ean_returns_active_entity() {
+    async fn test_find_by_name_returns_active_entity() {
         let id = Uuid::new_v4();
-        let dao = TestProductDao {
-            entities: vec![create_test_entity(id, "123456", None)],
+        let dao = TestContainerDao {
+            entities: vec![create_test_entity(id, "Test Container", None)],
         };
 
         let tx = MockTransaction::new();
-        let result = dao.find_by_ean("123456", tx).await.unwrap();
+        let result = dao.find_by_name("Test Container", tx).await.unwrap();
 
         assert!(result.is_some());
         assert_eq!(result.unwrap().id, id);
     }
 
     #[tokio::test]
-    async fn test_find_by_ean_ignores_deleted_entity() {
+    async fn test_find_by_name_ignores_deleted_entity() {
         let id = Uuid::new_v4();
-        let dao = TestProductDao {
+        let dao = TestContainerDao {
             entities: vec![create_test_entity(
                 id,
-                "123456",
+                "Test Container",
                 Some(PrimitiveDateTime::MIN),
             )],
         };
 
         let tx = MockTransaction::new();
-        let result = dao.find_by_ean("123456", tx).await.unwrap();
+        let result = dao.find_by_name("Test Container", tx).await.unwrap();
 
         assert!(result.is_none());
     }
@@ -253,24 +245,24 @@ mod tests {
     #[tokio::test]
     async fn test_find_by_id_returns_active_entity() {
         let id = Uuid::new_v4();
-        let dao = TestProductDao {
-            entities: vec![create_test_entity(id, "123456", None)],
+        let dao = TestContainerDao {
+            entities: vec![create_test_entity(id, "Test Container", None)],
         };
 
         let tx = MockTransaction::new();
         let result = dao.find_by_id(id, tx).await.unwrap();
 
         assert!(result.is_some());
-        assert_eq!(result.unwrap().ean.as_ref(), "123456");
+        assert_eq!(result.unwrap().name.as_ref(), "Test Container");
     }
 
     #[tokio::test]
     async fn test_find_by_id_ignores_deleted_entity() {
         let id = Uuid::new_v4();
-        let dao = TestProductDao {
+        let dao = TestContainerDao {
             entities: vec![create_test_entity(
                 id,
-                "123456",
+                "Test Container",
                 Some(PrimitiveDateTime::MIN),
             )],
         };

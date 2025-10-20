@@ -1,6 +1,6 @@
-use std::sync::Arc;
 use inventurly_bin::RestStateImpl;
 use sqlx::SqlitePool;
+use std::sync::Arc;
 
 #[tokio::main]
 async fn main() {

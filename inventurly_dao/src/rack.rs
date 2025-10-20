@@ -23,14 +23,14 @@ pub trait RackDao {
 
     // Abstract methods - must be implemented by database-specific implementations
     async fn dump_all(&self, tx: Self::Transaction) -> Result<Arc<[RackEntity]>, DaoError>;
-    
+
     async fn create(
         &self,
         entity: &RackEntity,
         process: &str,
         tx: Self::Transaction,
     ) -> Result<(), DaoError>;
-    
+
     async fn update(
         &self,
         entity: &RackEntity,

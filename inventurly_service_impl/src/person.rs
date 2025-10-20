@@ -1,12 +1,9 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use inventurly_dao::{
-    person::PersonDao,
-    TransactionDao,
-};
+use inventurly_dao::{person::PersonDao, TransactionDao};
 use inventurly_service::{
-    permission::{Authentication, ADMIN_PRIVILEGE, PermissionService},
+    permission::{Authentication, PermissionService, ADMIN_PRIVILEGE},
     person::{Person, PersonService},
     uuid_service::UuidService,
     ServiceError, ValidationFailureItem,
@@ -37,11 +34,11 @@ impl<Deps: PersonServiceDeps> PersonService for PersonServiceImpl<Deps> {
         tx: Option<Self::Transaction>,
     ) -> Result<Arc<[Person]>, ServiceError> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
-        
+
         self.permission_service
             .check_permission(ADMIN_PRIVILEGE, context)
             .await?;
-        
+
         let persons = self
             .person_dao
             .all(tx.clone())
@@ -49,7 +46,7 @@ impl<Deps: PersonServiceDeps> PersonService for PersonServiceImpl<Deps> {
             .iter()
             .map(Person::from)
             .collect();
-        
+
         self.transaction_dao.commit(tx).await?;
         Ok(persons)
     }
@@ -61,11 +58,11 @@ impl<Deps: PersonServiceDeps> PersonService for PersonServiceImpl<Deps> {
         tx: Option<Self::Transaction>,
     ) -> Result<Person, ServiceError> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
-        
+
         self.permission_service
             .check_permission(ADMIN_PRIVILEGE, context)
             .await?;
-        
+
         let person = self
             .person_dao
             .find_by_id(id, tx.clone())
@@ -73,7 +70,7 @@ impl<Deps: PersonServiceDeps> PersonService for PersonServiceImpl<Deps> {
             .as_ref()
             .map(Person::from)
             .ok_or(ServiceError::EntityNotFound(id))?;
-        
+
         self.transaction_dao.commit(tx).await?;
         Ok(person)
     }
@@ -85,7 +82,7 @@ impl<Deps: PersonServiceDeps> PersonService for PersonServiceImpl<Deps> {
         tx: Option<Self::Transaction>,
     ) -> Result<Person, ServiceError> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
-        
+
         self.permission_service
             .check_permission(ADMIN_PRIVILEGE, context.clone())
             .await?;
@@ -120,7 +117,7 @@ impl<Deps: PersonServiceDeps> PersonService for PersonServiceImpl<Deps> {
         self.person_dao
             .create(&(&new_person).into(), PERSON_SERVICE_PROCESS, tx.clone())
             .await?;
-        
+
         self.transaction_dao.commit(tx).await?;
         Ok(new_person)
     }
@@ -132,17 +129,14 @@ impl<Deps: PersonServiceDeps> PersonService for PersonServiceImpl<Deps> {
         tx: Option<Self::Transaction>,
     ) -> Result<Person, ServiceError> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
-        
+
         self.permission_service
             .check_permission(ADMIN_PRIVILEGE, context.clone())
             .await?;
 
         // First check if the person exists
-        let existing = self
-            .person_dao
-            .find_by_id(item.id, tx.clone())
-            .await?;
-        
+        let existing = self.person_dao.find_by_id(item.id, tx.clone()).await?;
+
         if existing.is_none() {
             return Err(ServiceError::EntityNotFound(item.id));
         }
@@ -167,7 +161,7 @@ impl<Deps: PersonServiceDeps> PersonService for PersonServiceImpl<Deps> {
         self.person_dao
             .update(&item.into(), PERSON_SERVICE_PROCESS, tx.clone())
             .await?;
-        
+
         let updated = self
             .person_dao
             .find_by_id(item.id, tx.clone())
@@ -175,7 +169,7 @@ impl<Deps: PersonServiceDeps> PersonService for PersonServiceImpl<Deps> {
             .as_ref()
             .map(Person::from)
             .ok_or(ServiceError::EntityNotFound(item.id))?;
-        
+
         self.transaction_dao.commit(tx).await?;
         Ok(updated)
     }
@@ -187,32 +181,29 @@ impl<Deps: PersonServiceDeps> PersonService for PersonServiceImpl<Deps> {
         tx: Option<Self::Transaction>,
     ) -> Result<(), ServiceError> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
-        
+
         self.permission_service
             .check_permission(ADMIN_PRIVILEGE, context)
             .await?;
-        
+
         // Fetch the existing entity
-        let existing = self
-            .person_dao
-            .find_by_id(id, tx.clone())
-            .await?;
-        
+        let existing = self.person_dao.find_by_id(id, tx.clone()).await?;
+
         match existing {
             Some(mut entity) => {
                 // Set deleted timestamp
                 let now = time::OffsetDateTime::now_utc();
                 entity.deleted = Some(time::PrimitiveDateTime::new(now.date(), now.time()));
-                
+
                 // Update the entity with deleted timestamp
                 self.person_dao
                     .update(&entity, PERSON_SERVICE_PROCESS, tx.clone())
                     .await?;
-                
+
                 self.transaction_dao.commit(tx).await?;
                 Ok(())
             }
-            None => Err(ServiceError::EntityNotFound(id))
+            None => Err(ServiceError::EntityNotFound(id)),
         }
     }
 }

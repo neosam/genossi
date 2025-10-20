@@ -1,12 +1,15 @@
-use std::sync::Arc;
 use async_trait::async_trait;
-use inventurly_dao::permission::{PermissionDao, UserEntity, RoleEntity, PrivilegeEntity};
+use inventurly_dao::permission::{PermissionDao, PrivilegeEntity, RoleEntity, UserEntity};
 use inventurly_service::{
+    auth_types::{
+        PrivilegeResponseTO, PrivilegeTO, RolePrivilege, RoleResponseTO, RoleTO, UserResponseTO,
+        UserRole, UserTO,
+    },
     permission::{Authentication, PermissionService, ADMIN_PRIVILEGE},
     user_service::UserService,
-    auth_types::{UserTO, RoleTO, PrivilegeTO, UserRole, RolePrivilege, UserResponseTO, RoleResponseTO, PrivilegeResponseTO},
     ServiceError,
 };
+use std::sync::Arc;
 
 use crate::gen_service_impl;
 
@@ -62,7 +65,7 @@ impl<Deps: PermissionServiceDeps> PermissionService for PermissionServiceImpl<De
         context: Authentication<Self::Context>,
     ) -> Result<Arc<[UserResponseTO]>, ServiceError> {
         self.check_permission(ADMIN_PRIVILEGE, context).await?;
-        
+
         let users = self.permission_dao.all_users().await?;
         let response_users: Vec<UserResponseTO> = users
             .iter()
@@ -72,7 +75,7 @@ impl<Deps: PermissionServiceDeps> PermissionService for PermissionServiceImpl<De
                 update_process: user.update_process.to_string(),
             })
             .collect();
-        
+
         Ok(Arc::from(response_users))
     }
 
@@ -81,16 +84,19 @@ impl<Deps: PermissionServiceDeps> PermissionService for PermissionServiceImpl<De
         user: UserTO,
         context: Authentication<Self::Context>,
     ) -> Result<(), ServiceError> {
-        self.check_permission(ADMIN_PRIVILEGE, context.clone()).await?;
-        
+        self.check_permission(ADMIN_PRIVILEGE, context.clone())
+            .await?;
+
         let current_user = self.get_current_user_for_process(context).await?;
         let user_entity = UserEntity {
             name: user.name.into(),
             update_timestamp: None, // Will be set by the DAO layer
             update_process: current_user.clone().into(),
         };
-        
-        self.permission_dao.create_user(&user_entity, &current_user).await?;
+
+        self.permission_dao
+            .create_user(&user_entity, &current_user)
+            .await?;
         Ok(())
     }
 
@@ -100,7 +106,7 @@ impl<Deps: PermissionServiceDeps> PermissionService for PermissionServiceImpl<De
         context: Authentication<Self::Context>,
     ) -> Result<(), ServiceError> {
         self.check_permission(ADMIN_PRIVILEGE, context).await?;
-        
+
         self.permission_dao.delete_user(&username).await?;
         Ok(())
     }
@@ -111,7 +117,7 @@ impl<Deps: PermissionServiceDeps> PermissionService for PermissionServiceImpl<De
         context: Authentication<Self::Context>,
     ) -> Result<Arc<[RoleResponseTO]>, ServiceError> {
         self.check_permission(ADMIN_PRIVILEGE, context).await?;
-        
+
         let roles = self.permission_dao.all_roles().await?;
         let response_roles: Vec<RoleResponseTO> = roles
             .iter()
@@ -121,7 +127,7 @@ impl<Deps: PermissionServiceDeps> PermissionService for PermissionServiceImpl<De
                 update_process: role.update_process.to_string(),
             })
             .collect();
-        
+
         Ok(Arc::from(response_roles))
     }
 
@@ -130,16 +136,19 @@ impl<Deps: PermissionServiceDeps> PermissionService for PermissionServiceImpl<De
         role: RoleTO,
         context: Authentication<Self::Context>,
     ) -> Result<(), ServiceError> {
-        self.check_permission(ADMIN_PRIVILEGE, context.clone()).await?;
-        
+        self.check_permission(ADMIN_PRIVILEGE, context.clone())
+            .await?;
+
         let current_user = self.get_current_user_for_process(context).await?;
         let role_entity = RoleEntity {
             name: role.name.into(),
             update_timestamp: None, // Will be set by the DAO layer
             update_process: current_user.clone().into(),
         };
-        
-        self.permission_dao.create_role(&role_entity, &current_user).await?;
+
+        self.permission_dao
+            .create_role(&role_entity, &current_user)
+            .await?;
         Ok(())
     }
 
@@ -149,7 +158,7 @@ impl<Deps: PermissionServiceDeps> PermissionService for PermissionServiceImpl<De
         context: Authentication<Self::Context>,
     ) -> Result<(), ServiceError> {
         self.check_permission(ADMIN_PRIVILEGE, context).await?;
-        
+
         self.permission_dao.delete_role(&role_name).await?;
         Ok(())
     }
@@ -160,7 +169,7 @@ impl<Deps: PermissionServiceDeps> PermissionService for PermissionServiceImpl<De
         context: Authentication<Self::Context>,
     ) -> Result<Arc<[PrivilegeResponseTO]>, ServiceError> {
         self.check_permission(ADMIN_PRIVILEGE, context).await?;
-        
+
         let privileges = self.permission_dao.all_privileges().await?;
         let response_privileges: Vec<PrivilegeResponseTO> = privileges
             .iter()
@@ -170,7 +179,7 @@ impl<Deps: PermissionServiceDeps> PermissionService for PermissionServiceImpl<De
                 update_process: privilege.update_process.to_string(),
             })
             .collect();
-        
+
         Ok(Arc::from(response_privileges))
     }
 
@@ -179,16 +188,19 @@ impl<Deps: PermissionServiceDeps> PermissionService for PermissionServiceImpl<De
         privilege: PrivilegeTO,
         context: Authentication<Self::Context>,
     ) -> Result<(), ServiceError> {
-        self.check_permission(ADMIN_PRIVILEGE, context.clone()).await?;
-        
+        self.check_permission(ADMIN_PRIVILEGE, context.clone())
+            .await?;
+
         let current_user = self.get_current_user_for_process(context).await?;
         let privilege_entity = PrivilegeEntity {
             name: privilege.name.into(),
             update_timestamp: None, // Will be set by the DAO layer
             update_process: current_user.clone().into(),
         };
-        
-        self.permission_dao.create_privilege(&privilege_entity, &current_user).await?;
+
+        self.permission_dao
+            .create_privilege(&privilege_entity, &current_user)
+            .await?;
         Ok(())
     }
 
@@ -198,8 +210,10 @@ impl<Deps: PermissionServiceDeps> PermissionService for PermissionServiceImpl<De
         context: Authentication<Self::Context>,
     ) -> Result<(), ServiceError> {
         self.check_permission(ADMIN_PRIVILEGE, context).await?;
-        
-        self.permission_dao.delete_privilege(&privilege_name).await?;
+
+        self.permission_dao
+            .delete_privilege(&privilege_name)
+            .await?;
         Ok(())
     }
 
@@ -209,10 +223,13 @@ impl<Deps: PermissionServiceDeps> PermissionService for PermissionServiceImpl<De
         user_role: UserRole,
         context: Authentication<Self::Context>,
     ) -> Result<(), ServiceError> {
-        self.check_permission(ADMIN_PRIVILEGE, context.clone()).await?;
-        
+        self.check_permission(ADMIN_PRIVILEGE, context.clone())
+            .await?;
+
         let current_user = self.get_current_user_for_process(context).await?;
-        self.permission_dao.add_user_role(&user_role.user, &user_role.role, &current_user).await?;
+        self.permission_dao
+            .add_user_role(&user_role.user, &user_role.role, &current_user)
+            .await?;
         Ok(())
     }
 
@@ -222,8 +239,10 @@ impl<Deps: PermissionServiceDeps> PermissionService for PermissionServiceImpl<De
         context: Authentication<Self::Context>,
     ) -> Result<(), ServiceError> {
         self.check_permission(ADMIN_PRIVILEGE, context).await?;
-        
-        self.permission_dao.remove_user_role(&user_role.user, &user_role.role).await?;
+
+        self.permission_dao
+            .remove_user_role(&user_role.user, &user_role.role)
+            .await?;
         Ok(())
     }
 
@@ -233,7 +252,7 @@ impl<Deps: PermissionServiceDeps> PermissionService for PermissionServiceImpl<De
         context: Authentication<Self::Context>,
     ) -> Result<Arc<[RoleResponseTO]>, ServiceError> {
         self.check_permission(ADMIN_PRIVILEGE, context).await?;
-        
+
         let roles = self.permission_dao.get_user_roles(&username).await?;
         let response_roles: Vec<RoleResponseTO> = roles
             .iter()
@@ -243,7 +262,7 @@ impl<Deps: PermissionServiceDeps> PermissionService for PermissionServiceImpl<De
                 update_process: role.update_process.to_string(),
             })
             .collect();
-        
+
         Ok(Arc::from(response_roles))
     }
 
@@ -253,10 +272,17 @@ impl<Deps: PermissionServiceDeps> PermissionService for PermissionServiceImpl<De
         role_privilege: RolePrivilege,
         context: Authentication<Self::Context>,
     ) -> Result<(), ServiceError> {
-        self.check_permission(ADMIN_PRIVILEGE, context.clone()).await?;
-        
+        self.check_permission(ADMIN_PRIVILEGE, context.clone())
+            .await?;
+
         let current_user = self.get_current_user_for_process(context).await?;
-        self.permission_dao.add_role_privilege(&role_privilege.role, &role_privilege.privilege, &current_user).await?;
+        self.permission_dao
+            .add_role_privilege(
+                &role_privilege.role,
+                &role_privilege.privilege,
+                &current_user,
+            )
+            .await?;
         Ok(())
     }
 
@@ -266,8 +292,10 @@ impl<Deps: PermissionServiceDeps> PermissionService for PermissionServiceImpl<De
         context: Authentication<Self::Context>,
     ) -> Result<(), ServiceError> {
         self.check_permission(ADMIN_PRIVILEGE, context).await?;
-        
-        self.permission_dao.remove_role_privilege(&role_privilege.role, &role_privilege.privilege).await?;
+
+        self.permission_dao
+            .remove_role_privilege(&role_privilege.role, &role_privilege.privilege)
+            .await?;
         Ok(())
     }
 
@@ -277,7 +305,7 @@ impl<Deps: PermissionServiceDeps> PermissionService for PermissionServiceImpl<De
         context: Authentication<Self::Context>,
     ) -> Result<Arc<[PrivilegeResponseTO]>, ServiceError> {
         self.check_permission(ADMIN_PRIVILEGE, context).await?;
-        
+
         let privileges = self.permission_dao.get_role_privileges(&role_name).await?;
         let response_privileges: Vec<PrivilegeResponseTO> = privileges
             .iter()
@@ -287,7 +315,7 @@ impl<Deps: PermissionServiceDeps> PermissionService for PermissionServiceImpl<De
                 update_process: privilege.update_process.to_string(),
             })
             .collect();
-        
+
         Ok(Arc::from(response_privileges))
     }
 
@@ -297,7 +325,7 @@ impl<Deps: PermissionServiceDeps> PermissionService for PermissionServiceImpl<De
         context: Authentication<Self::Context>,
     ) -> Result<Arc<[PrivilegeResponseTO]>, ServiceError> {
         self.check_permission(ADMIN_PRIVILEGE, context).await?;
-        
+
         let privileges = self.permission_dao.get_user_privileges(&username).await?;
         let response_privileges: Vec<PrivilegeResponseTO> = privileges
             .iter()
@@ -307,7 +335,7 @@ impl<Deps: PermissionServiceDeps> PermissionService for PermissionServiceImpl<De
                 update_process: privilege.update_process.to_string(),
             })
             .collect();
-        
+
         Ok(Arc::from(response_privileges))
     }
 }
@@ -321,9 +349,7 @@ impl<Deps: PermissionServiceDeps> PermissionServiceImpl<Deps> {
     ) -> Result<String, ServiceError> {
         match context {
             Authentication::Full => Ok("system".to_string()),
-            Authentication::Context(ctx) => {
-                self.user_service.current_user(ctx).await
-            }
+            Authentication::Context(ctx) => self.user_service.current_user(ctx).await,
         }
     }
 }

@@ -3,8 +3,8 @@ use uuid::Uuid;
 
 use inventurly_dao::permission::{PermissionDao, SessionEntity};
 use inventurly_service::{
+    auth_types::{AuthContext, MockContext, UserSession},
     session::SessionService,
-    auth_types::{UserSession, AuthContext, MockContext},
     ServiceError,
 };
 
@@ -19,23 +19,23 @@ gen_service_impl! {
 #[async_trait]
 impl<Deps: SessionServiceDeps> SessionService for SessionServiceImpl<Deps> {
     async fn create_session(
-        &self, 
-        user_id: &str, 
-        expires_in_seconds: i64
+        &self,
+        user_id: &str,
+        expires_in_seconds: i64,
     ) -> Result<UserSession, ServiceError> {
         let now = time::OffsetDateTime::now_utc().unix_timestamp();
         let expires_at = now + expires_in_seconds;
         let session_id = Uuid::new_v4().to_string();
-        
+
         let session_entity = SessionEntity {
             id: session_id.clone().into(),
             user_id: user_id.into(),
             expires: expires_at,
             created: now,
         };
-        
+
         self.permission_dao.create_session(&session_entity).await?;
-        
+
         Ok(UserSession {
             session_id: session_id.into(),
             user_id: user_id.into(),
@@ -45,21 +45,21 @@ impl<Deps: SessionServiceDeps> SessionService for SessionServiceImpl<Deps> {
     }
 
     async fn verify_user_session(
-        &self, 
-        session_id: &str
+        &self,
+        session_id: &str,
     ) -> Result<Option<UserSession>, ServiceError> {
         let session = self.permission_dao.get_session(session_id).await?;
-        
+
         if let Some(session_entity) = session {
             let now = time::OffsetDateTime::now_utc().unix_timestamp();
-            
+
             // Check if session is expired
             if session_entity.expires < now {
                 // Clean up expired session
                 self.permission_dao.delete_session(session_id).await?;
                 return Ok(None);
             }
-            
+
             Ok(Some(UserSession {
                 session_id: session_entity.id,
                 user_id: session_entity.user_id,
@@ -71,10 +71,7 @@ impl<Deps: SessionServiceDeps> SessionService for SessionServiceImpl<Deps> {
         }
     }
 
-    async fn invalidate_session(
-        &self, 
-        session_id: &str
-    ) -> Result<(), ServiceError> {
+    async fn invalidate_session(&self, session_id: &str) -> Result<(), ServiceError> {
         self.permission_dao.delete_session(session_id).await?;
         Ok(())
     }
@@ -88,8 +85,8 @@ impl<Deps: SessionServiceDeps> SessionService for SessionServiceImpl<Deps> {
     }
 
     async fn extract_auth_context(
-        &self, 
-        session_id: Option<String>
+        &self,
+        session_id: Option<String>,
     ) -> Result<Option<AuthContext>, ServiceError> {
         match session_id {
             Some(sid) => {
@@ -106,15 +103,17 @@ impl<Deps: SessionServiceDeps> SessionService for SessionServiceImpl<Deps> {
             None => Ok(None),
         }
     }
-    
+
     async fn ensure_user_and_create_session(
-        &self, 
-        user_id: &str, 
-        expires_in_seconds: i64
+        &self,
+        user_id: &str,
+        expires_in_seconds: i64,
     ) -> Result<UserSession, ServiceError> {
         // Ensure user exists for OIDC auto-registration
-        self.permission_dao.ensure_user_exists(user_id, "oidc-auto-register").await?;
-        
+        self.permission_dao
+            .ensure_user_exists(user_id, "oidc-auto-register")
+            .await?;
+
         // Now create the session
         self.create_session(user_id, expires_in_seconds).await
     }
@@ -126,9 +125,9 @@ pub struct MockSessionServiceImpl;
 #[async_trait]
 impl SessionService for MockSessionServiceImpl {
     async fn create_session(
-        &self, 
-        user_id: &str, 
-        expires_in_seconds: i64
+        &self,
+        user_id: &str,
+        expires_in_seconds: i64,
     ) -> Result<UserSession, ServiceError> {
         let now = time::OffsetDateTime::now_utc().unix_timestamp();
         Ok(UserSession {
@@ -140,8 +139,8 @@ impl SessionService for MockSessionServiceImpl {
     }
 
     async fn verify_user_session(
-        &self, 
-        _session_id: &str
+        &self,
+        _session_id: &str,
     ) -> Result<Option<UserSession>, ServiceError> {
         let now = time::OffsetDateTime::now_utc().unix_timestamp();
         Ok(Some(UserSession {
@@ -152,10 +151,7 @@ impl SessionService for MockSessionServiceImpl {
         }))
     }
 
-    async fn invalidate_session(
-        &self, 
-        _session_id: &str
-    ) -> Result<(), ServiceError> {
+    async fn invalidate_session(&self, _session_id: &str) -> Result<(), ServiceError> {
         Ok(())
     }
 
@@ -164,8 +160,8 @@ impl SessionService for MockSessionServiceImpl {
     }
 
     async fn extract_auth_context(
-        &self, 
-        session_id: Option<String>
+        &self,
+        session_id: Option<String>,
     ) -> Result<Option<AuthContext>, ServiceError> {
         if session_id.is_some() {
             Ok(Some(AuthContext::Mock(MockContext::default())))

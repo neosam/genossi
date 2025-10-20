@@ -4,7 +4,7 @@ use axum::response::Response;
 use axum::routing::{get, post};
 use axum::{Extension, Json, Router};
 use inventurly_rest_types::{
-    CheckDuplicateRequestTO, DuplicateDetectionConfigTO, DuplicateDetectionResultTO, 
+    CheckDuplicateRequestTO, DuplicateDetectionConfigTO, DuplicateDetectionResultTO,
     DuplicateMatchTO,
 };
 use inventurly_service::duplicate_detection::DuplicateDetectionService;
@@ -13,7 +13,7 @@ use serde::Deserialize;
 use tracing::instrument;
 use utoipa::OpenApi;
 
-use crate::{error_handler, Context, RestStateDef, RestError};
+use crate::{error_handler, Context, RestError, RestStateDef};
 
 pub fn generate_route<RestState: RestStateDef>() -> Router<RestState> {
     Router::new()
@@ -34,14 +34,27 @@ pub struct DuplicateQueryParams {
 
 impl From<DuplicateQueryParams> for DuplicateDetectionConfigTO {
     fn from(params: DuplicateQueryParams) -> Self {
-        let default_config = inventurly_service::duplicate_detection::DuplicateDetectionConfig::default();
+        let default_config =
+            inventurly_service::duplicate_detection::DuplicateDetectionConfig::default();
         Self {
-            similarity_threshold: params.similarity_threshold.unwrap_or(default_config.similarity_threshold),
-            exact_match_weight: params.exact_match_weight.unwrap_or(default_config.exact_match_weight),
-            word_order_weight: params.word_order_weight.unwrap_or(default_config.word_order_weight),
-            levenshtein_weight: params.levenshtein_weight.unwrap_or(default_config.levenshtein_weight),
-            jaro_winkler_weight: params.jaro_winkler_weight.unwrap_or(default_config.jaro_winkler_weight),
-            category_aware: params.category_aware.unwrap_or(default_config.category_aware),
+            similarity_threshold: params
+                .similarity_threshold
+                .unwrap_or(default_config.similarity_threshold),
+            exact_match_weight: params
+                .exact_match_weight
+                .unwrap_or(default_config.exact_match_weight),
+            word_order_weight: params
+                .word_order_weight
+                .unwrap_or(default_config.word_order_weight),
+            levenshtein_weight: params
+                .levenshtein_weight
+                .unwrap_or(default_config.levenshtein_weight),
+            jaro_winkler_weight: params
+                .jaro_winkler_weight
+                .unwrap_or(default_config.jaro_winkler_weight),
+            category_aware: params
+                .category_aware
+                .unwrap_or(default_config.category_aware),
         }
     }
 }
@@ -196,10 +209,8 @@ pub async fn check_potential_duplicate<RestState: RestStateDef>(
                 .await
                 .map_err(RestError::from)?;
 
-            let response_matches: Vec<DuplicateMatchTO> = matches
-                .into_iter()
-                .map(DuplicateMatchTO::from)
-                .collect();
+            let response_matches: Vec<DuplicateMatchTO> =
+                matches.into_iter().map(DuplicateMatchTO::from).collect();
 
             Ok(Response::builder()
                 .status(200)

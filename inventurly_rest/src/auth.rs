@@ -66,13 +66,13 @@ async fn get_auth_info_impl(context: Context) -> Result<Response, RestError> {
                     user_id.to_string()
                 }
             };
-            
+
             // TODO: Get actual roles from permission service
             let response = AuthInfoResponse {
                 username,
                 roles: vec!["user".to_string()],
             };
-            
+
             Ok(Json(response).into_response())
         }
         None => Err(RestError::Unauthorized),
@@ -81,7 +81,6 @@ async fn get_auth_info_impl(context: Context) -> Result<Response, RestError> {
 
 pub fn generate_route<RestState: RestStateDef>() -> axum::Router<RestState> {
     use axum::routing::get;
-    
-    axum::Router::new()
-        .route("/info", get(get_auth_info::<RestState>))
+
+    axum::Router::new().route("/info", get(get_auth_info::<RestState>))
 }

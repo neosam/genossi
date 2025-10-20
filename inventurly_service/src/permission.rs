@@ -1,8 +1,14 @@
-use std::fmt::Debug;
-use std::sync::Arc;
+use crate::{
+    auth_types::{
+        PrivilegeResponseTO, PrivilegeTO, RolePrivilege, RoleResponseTO, RoleTO, UserResponseTO,
+        UserRole, UserTO,
+    },
+    ServiceError,
+};
 use async_trait::async_trait;
 use mockall::automock;
-use crate::{ServiceError, auth_types::{UserTO, RoleTO, PrivilegeTO, UserRole, RolePrivilege, UserResponseTO, RoleResponseTO, PrivilegeResponseTO}};
+use std::fmt::Debug;
+use std::sync::Arc;
 
 #[derive(Clone, Debug)]
 pub enum Authentication<Context> {
@@ -138,4 +144,3 @@ pub trait PermissionService {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MockContext;
-

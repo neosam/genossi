@@ -1,6 +1,6 @@
-use std::sync::Arc;
 use async_trait::async_trait;
 use mockall::automock;
+use std::sync::Arc;
 use time::PrimitiveDateTime;
 use uuid::Uuid;
 
@@ -8,24 +8,24 @@ use crate::{permission::Authentication, ServiceError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Price {
-    cents: i64,  // Store price in cents to avoid floating point issues
+    cents: i64, // Store price in cents to avoid floating point issues
 }
 
 impl Price {
     pub fn from_cents(cents: i64) -> Self {
         Self { cents }
     }
-    
+
     pub fn from_euros(euros: f64) -> Self {
         Self {
             cents: (euros * 100.0).round() as i64,
         }
     }
-    
+
     pub fn to_cents(&self) -> i64 {
         self.cents
     }
-    
+
     pub fn to_euros(&self) -> f64 {
         self.cents as f64 / 100.0
     }
@@ -47,10 +47,11 @@ impl From<Price> for i64 {
 // For CSV parsing (German format "5,39")
 impl std::str::FromStr for Price {
     type Err = String;
-    
+
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let normalized = s.replace(',', ".");
-        let euros = normalized.parse::<f64>()
+        let euros = normalized
+            .parse::<f64>()
             .map_err(|e| format!("Invalid price format: {}", e))?;
         Ok(Self::from_euros(euros))
     }
@@ -109,48 +110,48 @@ impl From<&Product> for inventurly_dao::product::ProductEntity {
 pub trait ProductService: Send + Sync {
     type Context: Send + Sync;
     type Transaction: Send + Sync;
-    
+
     async fn get_all(
         &self,
         context: Authentication<Self::Context>,
         tx: Option<Self::Transaction>,
     ) -> Result<Arc<[Product]>, ServiceError>;
-    
+
     async fn get_by_ean(
         &self,
         ean: &str,
         context: Authentication<Self::Context>,
         tx: Option<Self::Transaction>,
     ) -> Result<Product, ServiceError>;
-    
+
     async fn get_by_id(
         &self,
         id: Uuid,
         context: Authentication<Self::Context>,
         tx: Option<Self::Transaction>,
     ) -> Result<Product, ServiceError>;
-    
+
     async fn create(
         &self,
         item: &Product,
         context: Authentication<Self::Context>,
         tx: Option<Self::Transaction>,
     ) -> Result<Product, ServiceError>;
-    
+
     async fn update(
         &self,
         item: &Product,
         context: Authentication<Self::Context>,
         tx: Option<Self::Transaction>,
     ) -> Result<Product, ServiceError>;
-    
+
     async fn delete(
         &self,
         id: Uuid,
         context: Authentication<Self::Context>,
         tx: Option<Self::Transaction>,
     ) -> Result<(), ServiceError>;
-    
+
     async fn search(
         &self,
         query: &str,

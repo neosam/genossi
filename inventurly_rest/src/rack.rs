@@ -199,10 +199,7 @@ pub async fn delete_rack<RestState: RestStateDef>(
                 .rack_service()
                 .delete(id, context.auth, None)
                 .await?;
-            Ok(Response::builder()
-                .status(204)
-                .body(Body::empty())
-                .unwrap())
+            Ok(Response::builder().status(204).body(Body::empty()).unwrap())
         })
         .await,
     )

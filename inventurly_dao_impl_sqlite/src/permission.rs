@@ -1,13 +1,13 @@
-use std::sync::Arc;
 use async_trait::async_trait;
 use sqlx::SqlitePool;
+use std::sync::Arc;
 use time::PrimitiveDateTime;
 
+use crate::TransactionImpl;
 use inventurly_dao::{
-    permission::{PermissionDao, UserEntity, RoleEntity, PrivilegeEntity, SessionEntity},
+    permission::{PermissionDao, PrivilegeEntity, RoleEntity, SessionEntity, UserEntity},
     DaoError,
 };
-use crate::TransactionImpl;
 
 pub struct PermissionDaoImpl {
     pool: Arc<SqlitePool>,
@@ -21,19 +21,27 @@ impl PermissionDaoImpl {
     /// Helper to parse timestamp from SQLite TEXT
     fn parse_timestamp(timestamp: Option<String>) -> Option<PrimitiveDateTime> {
         timestamp.and_then(|ts| {
-            time::PrimitiveDateTime::parse(&ts, &time::format_description::well_known::Iso8601::DEFAULT)
-                .or_else(|_| {
-                    // Fallback: try SQLite datetime format
-                    let format = time::macros::format_description!("[year]-[month]-[day] [hour]:[minute]:[second]");
-                    time::PrimitiveDateTime::parse(&ts, format)
-                })
-                .ok()
+            time::PrimitiveDateTime::parse(
+                &ts,
+                &time::format_description::well_known::Iso8601::DEFAULT,
+            )
+            .or_else(|_| {
+                // Fallback: try SQLite datetime format
+                let format = time::macros::format_description!(
+                    "[year]-[month]-[day] [hour]:[minute]:[second]"
+                );
+                time::PrimitiveDateTime::parse(&ts, format)
+            })
+            .ok()
         })
     }
 
     /// Helper to format timestamp for SQLite
     fn format_timestamp(timestamp: Option<PrimitiveDateTime>) -> Option<String> {
-        timestamp.map(|ts| ts.format(&time::format_description::well_known::Iso8601::DEFAULT).unwrap_or_default())
+        timestamp.map(|ts| {
+            ts.format(&time::format_description::well_known::Iso8601::DEFAULT)
+                .unwrap_or_default()
+        })
     }
 }
 
@@ -62,12 +70,11 @@ impl PermissionDao for PermissionDaoImpl {
     }
 
     async fn all_users(&self) -> Result<Arc<[UserEntity]>, DaoError> {
-        let users = sqlx::query!(
-            "SELECT name, update_timestamp, update_process FROM user ORDER BY name"
-        )
-        .fetch_all(self.pool.as_ref())
-        .await
-        .map_err(|e| DaoError::DatabaseError(e.to_string().into()))?;
+        let users =
+            sqlx::query!("SELECT name, update_timestamp, update_process FROM user ORDER BY name")
+                .fetch_all(self.pool.as_ref())
+                .await
+                .map_err(|e| DaoError::DatabaseError(e.to_string().into()))?;
 
         let user_entities: Vec<UserEntity> = users
             .into_iter()
@@ -100,7 +107,7 @@ impl PermissionDao for PermissionDaoImpl {
     async fn create_user(&self, user: &UserEntity, process: &str) -> Result<(), DaoError> {
         let timestamp = Self::format_timestamp(user.update_timestamp);
         let name = user.name.as_ref();
-        
+
         sqlx::query!(
             "INSERT INTO user (name, update_timestamp, update_process) VALUES (?, ?, ?)",
             name,
@@ -124,12 +131,11 @@ impl PermissionDao for PermissionDaoImpl {
     }
 
     async fn all_roles(&self) -> Result<Arc<[RoleEntity]>, DaoError> {
-        let roles = sqlx::query!(
-            "SELECT name, update_timestamp, update_process FROM role ORDER BY name"
-        )
-        .fetch_all(self.pool.as_ref())
-        .await
-        .map_err(|e| DaoError::DatabaseError(e.to_string().into()))?;
+        let roles =
+            sqlx::query!("SELECT name, update_timestamp, update_process FROM role ORDER BY name")
+                .fetch_all(self.pool.as_ref())
+                .await
+                .map_err(|e| DaoError::DatabaseError(e.to_string().into()))?;
 
         let role_entities: Vec<RoleEntity> = roles
             .into_iter()
@@ -162,7 +168,7 @@ impl PermissionDao for PermissionDaoImpl {
     async fn create_role(&self, role: &RoleEntity, process: &str) -> Result<(), DaoError> {
         let timestamp = Self::format_timestamp(role.update_timestamp);
         let name = role.name.as_ref();
-        
+
         sqlx::query!(
             "INSERT INTO role (name, update_timestamp, update_process) VALUES (?, ?, ?)",
             name,
@@ -221,10 +227,14 @@ impl PermissionDao for PermissionDaoImpl {
         }))
     }
 
-    async fn create_privilege(&self, privilege: &PrivilegeEntity, process: &str) -> Result<(), DaoError> {
+    async fn create_privilege(
+        &self,
+        privilege: &PrivilegeEntity,
+        process: &str,
+    ) -> Result<(), DaoError> {
         let timestamp = Self::format_timestamp(privilege.update_timestamp);
         let name = privilege.name.as_ref();
-        
+
         sqlx::query!(
             "INSERT INTO privilege (name, update_timestamp, update_process) VALUES (?, ?, ?)",
             name,
@@ -247,7 +257,12 @@ impl PermissionDao for PermissionDaoImpl {
         Ok(())
     }
 
-    async fn add_user_role(&self, username: &str, role: &str, process: &str) -> Result<(), DaoError> {
+    async fn add_user_role(
+        &self,
+        username: &str,
+        role: &str,
+        process: &str,
+    ) -> Result<(), DaoError> {
         let timestamp = time::OffsetDateTime::now_utc()
             .format(&time::format_description::well_known::Iso8601::DEFAULT)
             .unwrap_or_default();
@@ -306,7 +321,12 @@ impl PermissionDao for PermissionDaoImpl {
         Ok(Arc::from(role_entities))
     }
 
-    async fn add_role_privilege(&self, role_name: &str, privilege_name: &str, process: &str) -> Result<(), DaoError> {
+    async fn add_role_privilege(
+        &self,
+        role_name: &str,
+        privilege_name: &str,
+        process: &str,
+    ) -> Result<(), DaoError> {
         let timestamp = time::OffsetDateTime::now_utc()
             .format(&time::format_description::well_known::Iso8601::DEFAULT)
             .unwrap_or_default();
@@ -325,7 +345,11 @@ impl PermissionDao for PermissionDaoImpl {
         Ok(())
     }
 
-    async fn remove_role_privilege(&self, role_name: &str, privilege_name: &str) -> Result<(), DaoError> {
+    async fn remove_role_privilege(
+        &self,
+        role_name: &str,
+        privilege_name: &str,
+    ) -> Result<(), DaoError> {
         sqlx::query!(
             "DELETE FROM role_privilege WHERE role_name = ? AND privilege_name = ?",
             role_name,
@@ -338,7 +362,10 @@ impl PermissionDao for PermissionDaoImpl {
         Ok(())
     }
 
-    async fn get_role_privileges(&self, role_name: &str) -> Result<Arc<[PrivilegeEntity]>, DaoError> {
+    async fn get_role_privileges(
+        &self,
+        role_name: &str,
+    ) -> Result<Arc<[PrivilegeEntity]>, DaoError> {
         let privileges = sqlx::query!(
             r#"
             SELECT p.name, p.update_timestamp, p.update_process
@@ -365,7 +392,10 @@ impl PermissionDao for PermissionDaoImpl {
         Ok(Arc::from(privilege_entities))
     }
 
-    async fn get_user_privileges(&self, username: &str) -> Result<Arc<[PrivilegeEntity]>, DaoError> {
+    async fn get_user_privileges(
+        &self,
+        username: &str,
+    ) -> Result<Arc<[PrivilegeEntity]>, DaoError> {
         let privileges = sqlx::query!(
             r#"
             SELECT DISTINCT p.name, p.update_timestamp, p.update_process
@@ -396,7 +426,7 @@ impl PermissionDao for PermissionDaoImpl {
     async fn create_session(&self, session: &SessionEntity) -> Result<(), DaoError> {
         let id = session.id.as_ref();
         let user_id = session.user_id.as_ref();
-        
+
         sqlx::query!(
             "INSERT INTO session (id, user_id, expires, created) VALUES (?, ?, ?, ?)",
             id,

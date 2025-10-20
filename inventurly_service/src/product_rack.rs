@@ -1,9 +1,9 @@
-use std::sync::Arc;
 use async_trait::async_trait;
-use uuid::Uuid;
+use std::sync::Arc;
 use time::PrimitiveDateTime;
+use uuid::Uuid;
 
-use crate::{ServiceError, permission::Authentication};
+use crate::{permission::Authentication, ServiceError};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProductRack {
@@ -60,7 +60,6 @@ pub trait ProductRackService {
         context: Authentication<Self::Context>,
         tx: Option<Self::Transaction>,
     ) -> Result<(), ServiceError>;
-
 
     /// Get all racks that contain a specific product
     async fn get_racks_for_product(

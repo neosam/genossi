@@ -3,11 +3,11 @@ use axum::extract::{Multipart, State};
 use axum::response::Response;
 use axum::routing::post;
 use axum::{Extension, Router};
-use inventurly_service::csv_import::{CsvImportService, CsvImportResult, CsvImportError};
+use inventurly_service::csv_import::{CsvImportError, CsvImportResult, CsvImportService};
 use tracing::instrument;
 use utoipa::OpenApi;
 
-use crate::{error_handler, Context, RestStateDef, RestError};
+use crate::{error_handler, Context, RestError, RestStateDef};
 
 /// Schema for CSV file upload in multipart form
 #[derive(utoipa::ToSchema)]
@@ -19,8 +19,7 @@ pub struct CsvFileUpload {
 }
 
 pub fn generate_route<RestState: RestStateDef>() -> Router<RestState> {
-    Router::new()
-        .route("/products", post(import_products_csv::<RestState>))
+    Router::new().route("/products", post(import_products_csv::<RestState>))
 }
 
 #[instrument(skip(rest_state, multipart))]
@@ -48,26 +47,32 @@ pub async fn import_products_csv<RestState: RestStateDef>(
         (async {
             // Extract the CSV file from multipart form data
             let mut csv_content = String::new();
-            
-            while let Some(field) = multipart.next_field().await
-                .map_err(|e| RestError::BadRequest(format!("Multipart parsing error: {}", e)))? 
+
+            while let Some(field) = multipart
+                .next_field()
+                .await
+                .map_err(|e| RestError::BadRequest(format!("Multipart parsing error: {}", e)))?
             {
                 let field_name = field.name().unwrap_or("unknown");
-                
+
                 if field_name == "file" {
-                    let file_data = field.bytes().await
-                        .map_err(|e| RestError::BadRequest(format!("Failed to read file: {}", e)))?;
-                    
-                    csv_content = String::from_utf8(file_data.to_vec())
-                        .map_err(|e| RestError::BadRequest(format!("File is not valid UTF-8: {}", e)))?;
+                    let file_data = field.bytes().await.map_err(|e| {
+                        RestError::BadRequest(format!("Failed to read file: {}", e))
+                    })?;
+
+                    csv_content = String::from_utf8(file_data.to_vec()).map_err(|e| {
+                        RestError::BadRequest(format!("File is not valid UTF-8: {}", e))
+                    })?;
                     break;
                 }
             }
-            
+
             if csv_content.is_empty() {
-                return Err(RestError::BadRequest("No file provided or file is empty".to_string()));
+                return Err(RestError::BadRequest(
+                    "No file provided or file is empty".to_string(),
+                ));
             }
-            
+
             // Import the CSV content
             let result: CsvImportResult = rest_state
                 .csv_import_service()

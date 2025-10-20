@@ -1,7 +1,7 @@
-use std::sync::Arc;
 use async_trait::async_trait;
-use uuid::Uuid;
+use std::sync::Arc;
 use time::PrimitiveDateTime;
+use uuid::Uuid;
 
 use crate::DaoError;
 

@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod auth_middleware;
+pub mod container;
 pub mod csv_import;
 pub mod duplicate_detection;
 pub mod permission;
@@ -124,12 +125,17 @@ pub trait RestStateDef: Clone + Send + Sync + 'static {
         + Send
         + Sync
         + 'static;
+    type ContainerService: inventurly_service::container::ContainerService<Context = MockContext>
+        + Send
+        + Sync
+        + 'static;
     type SessionService: inventurly_service::session::SessionService + Send + Sync + 'static;
 
     fn person_service(&self) -> Arc<Self::PersonService>;
     fn product_service(&self) -> Arc<Self::ProductService>;
     fn rack_service(&self) -> Arc<Self::RackService>;
     fn product_rack_service(&self) -> Arc<Self::ProductRackService>;
+    fn container_service(&self) -> Arc<Self::ContainerService>;
     fn csv_import_service(&self) -> Arc<Self::CsvImportService>;
     fn duplicate_detection_service(&self) -> Arc<Self::DuplicateDetectionService>;
     fn permission_service(&self) -> Arc<Self::PermissionService>;
@@ -143,6 +149,7 @@ pub trait RestStateDef: Clone + Send + Sync + 'static {
         (path = "/persons", api = person::ApiDoc),
         (path = "/products", api = product::ApiDoc),
         (path = "/racks", api = rack::ApiDoc),
+        (path = "/containers", api = container::ApiDoc),
         (path = "/product-racks", api = product_rack::ApiDoc),
         (path = "/csv-import", api = csv_import::CsvImportApiDoc),
         (path = "/duplicate-detection", api = duplicate_detection::DuplicateDetectionApiDoc),
@@ -171,19 +178,28 @@ pub fn oidc_config() -> OidcConfig {
     let issuer = std::env::var("ISSUER").expect("ISSUER env variable");
     let client_id = std::env::var("CLIENT_ID").expect("CLIENT_ID env variable");
     let client_secret = std::env::var("CLIENT_SECRET").ok();
-    
+
     // Debug logging for OIDC configuration
     tracing::info!("OIDC Configuration:");
     tracing::info!("  APP_URL: {}", app_url);
     tracing::info!("  ISSUER: {}", issuer);
     tracing::info!("  CLIENT_ID: {}", client_id);
-    tracing::info!("  CLIENT_SECRET: {}", if client_secret.is_some() { "***PROVIDED***" } else { "NOT_SET" });
-    
+    tracing::info!(
+        "  CLIENT_SECRET: {}",
+        if client_secret.is_some() {
+            "***PROVIDED***"
+        } else {
+            "NOT_SET"
+        }
+    );
+
     let filtered_secret = client_secret.filter(|s| !s.is_empty());
     if filtered_secret.is_none() {
-        tracing::warn!("CLIENT_SECRET is empty or not set - this may cause authentication failures");
+        tracing::warn!(
+            "CLIENT_SECRET is empty or not set - this may cause authentication failures"
+        );
     }
-    
+
     OidcConfig {
         app_url,
         issuer,
@@ -230,7 +246,6 @@ async fn context_extractor<RestState: RestStateDef>(
     session::context_extractor(rest_state, request, next).await
 }
 
-
 pub async fn create_app<RestState: RestStateDef>(rest_state: RestState) -> Router {
     let mut api_doc = ApiDoc::openapi();
     let base = std::env::var("BASE_PATH").unwrap_or("http://localhost:3000/".into());
@@ -241,8 +256,7 @@ pub async fn create_app<RestState: RestStateDef>(rest_state: RestState) -> Route
 
     let swagger_router = SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", api_doc);
 
-    let mut app = Router::new()
-        .merge(swagger_router);
+    let mut app = Router::new().merge(swagger_router);
 
     #[cfg(feature = "oidc")]
     {
@@ -254,6 +268,7 @@ pub async fn create_app<RestState: RestStateDef>(rest_state: RestState) -> Route
         .nest("/persons", person::generate_route())
         .nest("/products", product::generate_route())
         .nest("/racks", rack::generate_route())
+        .nest("/containers", container::generate_route())
         .nest("/product-racks", product_rack::generate_route())
         .nest("/csv-import", csv_import::generate_route())
         .nest(
@@ -311,7 +326,7 @@ pub async fn create_app<RestState: RestStateDef>(rest_state: RestState) -> Route
             Ok(layer) => {
                 tracing::info!("OIDC client discovery successful");
                 layer
-            },
+            }
             Err(e) => {
                 tracing::error!("OIDC client discovery failed: {:?}", e);
                 tracing::error!("Check your OIDC configuration:");
@@ -330,8 +345,7 @@ pub async fn create_app<RestState: RestStateDef>(rest_state: RestState) -> Route
             .layer(oidc_auth_layer);
 
         // Add logout route with OIDC support
-        app
-            .route("/logout", get(logout))
+        app.route("/logout", get(logout))
             .layer(middleware::from_fn_with_state(
                 rest_state.clone(),
                 session::register_session::<RestState>,

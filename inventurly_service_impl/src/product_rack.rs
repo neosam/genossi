@@ -1,19 +1,19 @@
-use std::sync::Arc;
 use async_trait::async_trait;
-use uuid::Uuid;
+use std::sync::Arc;
 use time::OffsetDateTime;
+use uuid::Uuid;
 
-use inventurly_service::{
-    ServiceError, ValidationFailureItem,
-    product_rack::{ProductRack, ProductRackService},
-    permission::{Authentication, PermissionService},
-    uuid_service::UuidService,
-};
 use inventurly_dao::{
-    TransactionDao,
-    product_rack::{ProductRackDao, ProductRackEntity},
     product::ProductDao,
+    product_rack::{ProductRackDao, ProductRackEntity},
     rack::RackDao,
+    TransactionDao,
+};
+use inventurly_service::{
+    permission::{Authentication, PermissionService},
+    product_rack::{ProductRack, ProductRackService},
+    uuid_service::UuidService,
+    ServiceError, ValidationFailureItem,
 };
 
 const ADMIN_PRIVILEGE: &str = "admin";
@@ -45,25 +45,34 @@ impl<Deps: ProductRackServiceDependencies> ProductRackService for ProductRackSer
         tx: Option<Self::Transaction>,
     ) -> Result<ProductRack, ServiceError> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
-        
+
         self.permission_service
             .check_permission(ADMIN_PRIVILEGE, context)
             .await?;
 
         // Check if product exists
-        let product_exists = self.product_dao.find_by_id(product_id, tx.clone()).await?.is_some();
+        let product_exists = self
+            .product_dao
+            .find_by_id(product_id, tx.clone())
+            .await?
+            .is_some();
         if !product_exists {
             return Err(ServiceError::EntityNotFound(product_id));
         }
 
         // Check if rack exists
-        let rack_exists = self.rack_dao.find_by_id(rack_id, tx.clone()).await?.is_some();
+        let rack_exists = self
+            .rack_dao
+            .find_by_id(rack_id, tx.clone())
+            .await?
+            .is_some();
         if !rack_exists {
             return Err(ServiceError::EntityNotFound(rack_id));
         }
 
         // Check if relationship already exists
-        let existing = self.product_rack_dao
+        let existing = self
+            .product_rack_dao
             .find_by_product_and_rack(product_id, rack_id, tx.clone())
             .await?;
 
@@ -87,7 +96,9 @@ impl<Deps: ProductRackServiceDependencies> ProductRackService for ProductRackSer
         };
 
         let entity = ProductRackEntity::from(&new_product_rack);
-        self.product_rack_dao.create(&entity, PRODUCT_RACK_SERVICE_PROCESS, tx.clone()).await?;
+        self.product_rack_dao
+            .create(&entity, PRODUCT_RACK_SERVICE_PROCESS, tx.clone())
+            .await?;
 
         self.transaction_dao.commit(tx).await?;
         Ok(new_product_rack)
@@ -101,13 +112,14 @@ impl<Deps: ProductRackServiceDependencies> ProductRackService for ProductRackSer
         tx: Option<Self::Transaction>,
     ) -> Result<(), ServiceError> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
-        
+
         self.permission_service
             .check_permission(ADMIN_PRIVILEGE, context)
             .await?;
 
         // Find existing relationship
-        let existing = self.product_rack_dao
+        let existing = self
+            .product_rack_dao
             .find_by_product_and_rack(product_id, rack_id, tx.clone())
             .await?;
 
@@ -121,12 +133,13 @@ impl<Deps: ProductRackServiceDependencies> ProductRackService for ProductRackSer
         relationship.deleted = Some(time::PrimitiveDateTime::new(now.date(), now.time()));
 
         let entity = ProductRackEntity::from(&relationship);
-        self.product_rack_dao.update(&entity, PRODUCT_RACK_SERVICE_PROCESS, tx.clone()).await?;
+        self.product_rack_dao
+            .update(&entity, PRODUCT_RACK_SERVICE_PROCESS, tx.clone())
+            .await?;
 
         self.transaction_dao.commit(tx).await?;
         Ok(())
     }
-
 
     async fn get_racks_for_product(
         &self,
@@ -135,14 +148,17 @@ impl<Deps: ProductRackServiceDependencies> ProductRackService for ProductRackSer
         tx: Option<Self::Transaction>,
     ) -> Result<Arc<[ProductRack]>, ServiceError> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
-        
+
         self.permission_service
             .check_permission(ADMIN_PRIVILEGE, context)
             .await?;
 
-        let entities = self.product_rack_dao.find_racks_by_product(product_id, tx.clone()).await?;
+        let entities = self
+            .product_rack_dao
+            .find_racks_by_product(product_id, tx.clone())
+            .await?;
         let relationships: Vec<ProductRack> = entities.iter().map(ProductRack::from).collect();
-        
+
         self.transaction_dao.commit(tx).await?;
         Ok(relationships.into())
     }
@@ -154,14 +170,17 @@ impl<Deps: ProductRackServiceDependencies> ProductRackService for ProductRackSer
         tx: Option<Self::Transaction>,
     ) -> Result<Arc<[ProductRack]>, ServiceError> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
-        
+
         self.permission_service
             .check_permission(ADMIN_PRIVILEGE, context)
             .await?;
 
-        let entities = self.product_rack_dao.find_products_by_rack(rack_id, tx.clone()).await?;
+        let entities = self
+            .product_rack_dao
+            .find_products_by_rack(rack_id, tx.clone())
+            .await?;
         let relationships: Vec<ProductRack> = entities.iter().map(ProductRack::from).collect();
-        
+
         self.transaction_dao.commit(tx).await?;
         Ok(relationships.into())
     }
@@ -174,19 +193,20 @@ impl<Deps: ProductRackServiceDependencies> ProductRackService for ProductRackSer
         tx: Option<Self::Transaction>,
     ) -> Result<Option<ProductRack>, ServiceError> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
-        
+
         self.permission_service
             .check_permission(ADMIN_PRIVILEGE, context)
             .await?;
 
-        let entity = self.product_rack_dao
+        let entity = self
+            .product_rack_dao
             .find_by_product_and_rack(product_id, rack_id, tx.clone())
             .await?;
-        
+
         let result = entity
             .filter(|e| e.deleted.is_none())
             .map(|e| ProductRack::from(&e));
-        
+
         self.transaction_dao.commit(tx).await?;
         Ok(result)
     }
@@ -197,14 +217,14 @@ impl<Deps: ProductRackServiceDependencies> ProductRackService for ProductRackSer
         tx: Option<Self::Transaction>,
     ) -> Result<Arc<[ProductRack]>, ServiceError> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
-        
+
         self.permission_service
             .check_permission(ADMIN_PRIVILEGE, context)
             .await?;
 
         let entities = self.product_rack_dao.all(tx.clone()).await?;
         let relationships: Vec<ProductRack> = entities.iter().map(ProductRack::from).collect();
-        
+
         self.transaction_dao.commit(tx).await?;
         Ok(relationships.into())
     }

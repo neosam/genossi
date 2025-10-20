@@ -1,12 +1,9 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use inventurly_dao::{
-    rack::RackDao,
-    TransactionDao,
-};
+use inventurly_dao::{rack::RackDao, TransactionDao};
 use inventurly_service::{
-    permission::{Authentication, ADMIN_PRIVILEGE, PermissionService},
+    permission::{Authentication, PermissionService, ADMIN_PRIVILEGE},
     rack::{Rack, RackService},
     uuid_service::UuidService,
     ServiceError, ValidationFailureItem,
@@ -37,14 +34,14 @@ impl<Deps: RackServiceDeps> RackService for RackServiceImpl<Deps> {
         tx: Option<Self::Transaction>,
     ) -> Result<Arc<[Rack]>, ServiceError> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
-        
+
         self.permission_service
             .check_permission(ADMIN_PRIVILEGE, context)
             .await?;
 
         let entities = self.rack_dao.all(tx.clone()).await?;
         let racks: Vec<Rack> = entities.iter().map(Rack::from).collect();
-        
+
         self.transaction_dao.commit(tx).await?;
         Ok(racks.into())
     }
@@ -56,14 +53,14 @@ impl<Deps: RackServiceDeps> RackService for RackServiceImpl<Deps> {
         tx: Option<Self::Transaction>,
     ) -> Result<Option<Rack>, ServiceError> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
-        
+
         self.permission_service
             .check_permission(ADMIN_PRIVILEGE, context)
             .await?;
 
         let entity = self.rack_dao.find_by_id(id, tx.clone()).await?;
         let result = entity.map(|e| Rack::from(&e));
-        
+
         self.transaction_dao.commit(tx).await?;
         Ok(result)
     }
@@ -75,7 +72,7 @@ impl<Deps: RackServiceDeps> RackService for RackServiceImpl<Deps> {
         tx: Option<Self::Transaction>,
     ) -> Result<Rack, ServiceError> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
-        
+
         self.permission_service
             .check_permission(ADMIN_PRIVILEGE, context)
             .await?;
@@ -95,7 +92,9 @@ impl<Deps: RackServiceDeps> RackService for RackServiceImpl<Deps> {
         };
 
         let entity = inventurly_dao::rack::RackEntity::from(&new_rack);
-        self.rack_dao.create(&entity, RACK_SERVICE_PROCESS, tx.clone()).await?;
+        self.rack_dao
+            .create(&entity, RACK_SERVICE_PROCESS, tx.clone())
+            .await?;
 
         self.transaction_dao.commit(tx).await?;
         Ok(new_rack)
@@ -108,7 +107,7 @@ impl<Deps: RackServiceDeps> RackService for RackServiceImpl<Deps> {
         tx: Option<Self::Transaction>,
     ) -> Result<Rack, ServiceError> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
-        
+
         self.permission_service
             .check_permission(ADMIN_PRIVILEGE, context)
             .await?;
@@ -124,10 +123,13 @@ impl<Deps: RackServiceDeps> RackService for RackServiceImpl<Deps> {
 
         // Update rack (preserve version for optimistic locking)
         let entity = inventurly_dao::rack::RackEntity::from(rack);
-        self.rack_dao.update(&entity, RACK_SERVICE_PROCESS, tx.clone()).await?;
+        self.rack_dao
+            .update(&entity, RACK_SERVICE_PROCESS, tx.clone())
+            .await?;
 
         // Fetch the updated rack to get the new version
-        let updated = self.rack_dao
+        let updated = self
+            .rack_dao
             .find_by_id(rack.id, tx.clone())
             .await?
             .map(|e| Rack::from(&e))
@@ -144,7 +146,7 @@ impl<Deps: RackServiceDeps> RackService for RackServiceImpl<Deps> {
         tx: Option<Self::Transaction>,
     ) -> Result<(), ServiceError> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
-        
+
         self.permission_service
             .check_permission(ADMIN_PRIVILEGE, context)
             .await?;
@@ -159,7 +161,9 @@ impl<Deps: RackServiceDeps> RackService for RackServiceImpl<Deps> {
             deleted_rack.deleted = Some(time::PrimitiveDateTime::new(now.date(), now.time()));
 
             let entity = inventurly_dao::rack::RackEntity::from(&deleted_rack);
-            self.rack_dao.update(&entity, RACK_SERVICE_PROCESS, tx.clone()).await?;
+            self.rack_dao
+                .update(&entity, RACK_SERVICE_PROCESS, tx.clone())
+                .await?;
         } else {
             return Err(ServiceError::EntityNotFound(id));
         }

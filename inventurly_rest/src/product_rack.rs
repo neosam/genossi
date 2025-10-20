@@ -5,7 +5,7 @@ use axum::extract::Path;
 use axum::routing::{delete, get, post};
 use axum::{extract::State, response::Response};
 use axum::{Extension, Json, Router};
-use inventurly_rest_types::{ProductRackTO, AddProductToRackRequestTO};
+use inventurly_rest_types::{AddProductToRackRequestTO, ProductRackTO};
 use inventurly_service::product_rack::ProductRackService;
 use tracing::instrument;
 use utoipa::OpenApi;
@@ -16,9 +16,18 @@ use crate::{error_handler, Context, RestStateDef};
 pub fn generate_route<RestState: RestStateDef>() -> Router<RestState> {
     Router::new()
         .route("/", post(add_product_to_rack::<RestState>))
-        .route("/{product_id}/{rack_id}", delete(remove_product_from_rack::<RestState>))
-        .route("/{product_id}/{rack_id}", get(get_product_rack_relationship::<RestState>))
-        .route("/product/{product_id}", get(get_racks_for_product::<RestState>))
+        .route(
+            "/{product_id}/{rack_id}",
+            delete(remove_product_from_rack::<RestState>),
+        )
+        .route(
+            "/{product_id}/{rack_id}",
+            get(get_product_rack_relationship::<RestState>),
+        )
+        .route(
+            "/product/{product_id}",
+            get(get_racks_for_product::<RestState>),
+        )
         .route("/rack/{rack_id}", get(get_products_in_rack::<RestState>))
         .route("/all", get(get_all_relationships::<RestState>))
 }
@@ -44,12 +53,7 @@ pub async fn add_product_to_rack<RestState: RestStateDef>(
         (async {
             let product_rack = rest_state
                 .product_rack_service()
-                .add_product_to_rack(
-                    request.product_id,
-                    request.rack_id,
-                    context.auth,
-                    None,
-                )
+                .add_product_to_rack(request.product_id, request.rack_id, context.auth, None)
                 .await?;
             let product_rack_to = ProductRackTO::from(&product_rack);
             Ok(Response::builder()
@@ -88,15 +92,11 @@ pub async fn remove_product_from_rack<RestState: RestStateDef>(
                 .product_rack_service()
                 .remove_product_from_rack(product_id, rack_id, context.auth, None)
                 .await?;
-            Ok(Response::builder()
-                .status(204)
-                .body(Body::empty())
-                .unwrap())
+            Ok(Response::builder().status(204).body(Body::empty()).unwrap())
         })
         .await,
     )
 }
-
 
 #[instrument(skip(rest_state))]
 #[utoipa::path(
