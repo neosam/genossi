@@ -72,7 +72,7 @@ mod tests {
         async fn get_product(&self, ean: &str) -> Option<ProductTO> {
             let response = self
                 .client
-                .get(self.url(&format!("/products/{}", ean)))
+                .get(self.url(&format!("/products/by-ean/{}", ean)))
                 .send()
                 .await
                 .expect("Request failed");
@@ -114,7 +114,7 @@ mod tests {
         ) -> Result<ProductTO, u16> {
             let response = self
                 .client
-                .put(self.url(&format!("/products/{}", ean)))
+                .put(self.url(&format!("/products/by-ean/{}", ean)))
                 .json(&json!({
                     "ean": product.ean,
                     "name": name,
@@ -148,7 +148,7 @@ mod tests {
         async fn delete_product(&self, ean: &str) -> u16 {
             let response = self
                 .client
-                .delete(self.url(&format!("/products/{}", ean)))
+                .delete(self.url(&format!("/products/by-ean/{}", ean)))
                 .send()
                 .await
                 .expect("Request failed");

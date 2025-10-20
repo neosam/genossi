@@ -1,7 +1,8 @@
 use axum::body::Body;
 use axum::http::{Method, Request, StatusCode};
 use inventurly_rest::RestStateDef;
-use inventurly_rest_types::{PersonTO, ProductRackTO, RackTO};
+use inventurly_rest_types::{ContainerTO, PersonTO, ProductRackTO, RackTO};
+use inventurly_service::container::{Container, ContainerService};
 use inventurly_service::csv_import::{
     CsvImportResult, CsvImportService, CsvProductRow, ImportAction,
 };
@@ -30,6 +31,7 @@ struct TestRestState {
     duplicate_detection_service: Arc<MockDuplicateDetectionService>,
     permission_service: Arc<MockPermissionService>,
     session_service: Arc<MockSessionService>,
+    container_service: Arc<MockContainerService>,
 }
 
 impl RestStateDef for TestRestState {
@@ -41,6 +43,7 @@ impl RestStateDef for TestRestState {
     type DuplicateDetectionService = MockDuplicateDetectionService;
     type PermissionService = MockPermissionService;
     type SessionService = MockSessionService;
+    type ContainerService = MockContainerService;
 
     fn person_service(&self) -> Arc<Self::PersonService> {
         self.person_service.clone()
@@ -72,6 +75,10 @@ impl RestStateDef for TestRestState {
 
     fn session_service(&self) -> Arc<Self::SessionService> {
         self.session_service.clone()
+    }
+
+    fn container_service(&self) -> Arc<Self::ContainerService> {
+        self.container_service.clone()
     }
 }
 
@@ -724,6 +731,148 @@ impl SessionService for MockSessionService {
     }
 }
 
+#[derive(Clone)]
+struct MockContainerService;
+
+#[async_trait::async_trait]
+impl ContainerService for MockContainerService {
+    type Context = MockContext;
+    type Transaction = inventurly_dao::MockTransaction;
+
+    async fn get_all(
+        &self,
+        _auth: Authentication<Self::Context>,
+        _transaction: Option<Self::Transaction>,
+    ) -> Result<Arc<[Container]>, inventurly_service::ServiceError> {
+        let container = Container {
+            id: Uuid::parse_str("c1b2c3d4-e5f6-7890-abcd-ef1234567890").unwrap(),
+            name: Arc::from("Test Container"),
+            weight_grams: 500,
+            description: Arc::from("A test container for storage"),
+            created: time::PrimitiveDateTime::new(
+                time::Date::from_calendar_date(2024, time::Month::January, 1).unwrap(),
+                time::Time::from_hms(0, 0, 0).unwrap(),
+            ),
+            deleted: None,
+            version: Uuid::parse_str("456e7890-e12b-34c5-a678-901234567890").unwrap(),
+        };
+        Ok(Arc::from([container]))
+    }
+
+    async fn get_by_id(
+        &self,
+        id: Uuid,
+        _auth: Authentication<Self::Context>,
+        _transaction: Option<Self::Transaction>,
+    ) -> Result<Container, inventurly_service::ServiceError> {
+        if id == Uuid::parse_str("c1b2c3d4-e5f6-7890-abcd-ef1234567890").unwrap() {
+            Ok(Container {
+                id,
+                name: Arc::from("Test Container"),
+                weight_grams: 500,
+                description: Arc::from("A test container for storage"),
+                created: time::PrimitiveDateTime::new(
+                    time::Date::from_calendar_date(2024, time::Month::January, 1).unwrap(),
+                    time::Time::from_hms(0, 0, 0).unwrap(),
+                ),
+                deleted: None,
+                version: Uuid::parse_str("456e7890-e12b-34c5-a678-901234567890").unwrap(),
+            })
+        } else {
+            Err(inventurly_service::ServiceError::EntityNotFound(id))
+        }
+    }
+
+    async fn get_by_name(
+        &self,
+        name: &str,
+        _auth: Authentication<Self::Context>,
+        _transaction: Option<Self::Transaction>,
+    ) -> Result<Container, inventurly_service::ServiceError> {
+        if name == "Test Container" {
+            Ok(Container {
+                id: Uuid::parse_str("c1b2c3d4-e5f6-7890-abcd-ef1234567890").unwrap(),
+                name: Arc::from("Test Container"),
+                weight_grams: 500,
+                description: Arc::from("A test container for storage"),
+                created: time::PrimitiveDateTime::new(
+                    time::Date::from_calendar_date(2024, time::Month::January, 1).unwrap(),
+                    time::Time::from_hms(0, 0, 0).unwrap(),
+                ),
+                deleted: None,
+                version: Uuid::parse_str("456e7890-e12b-34c5-a678-901234567890").unwrap(),
+            })
+        } else {
+            Err(inventurly_service::ServiceError::EntityNotFound(Uuid::nil()))
+        }
+    }
+
+    async fn create(
+        &self,
+        container: &Container,
+        _auth: Authentication<Self::Context>,
+        _transaction: Option<Self::Transaction>,
+    ) -> Result<Container, inventurly_service::ServiceError> {
+        Ok(Container {
+            id: Uuid::new_v4(),
+            name: container.name.clone(),
+            weight_grams: container.weight_grams,
+            description: container.description.clone(),
+            created: time::PrimitiveDateTime::new(
+                time::Date::from_calendar_date(2024, time::Month::January, 1).unwrap(),
+                time::Time::from_hms(0, 0, 0).unwrap(),
+            ),
+            deleted: None,
+            version: Uuid::new_v4(),
+        })
+    }
+
+    async fn update(
+        &self,
+        container: &Container,
+        _auth: Authentication<Self::Context>,
+        _transaction: Option<Self::Transaction>,
+    ) -> Result<Container, inventurly_service::ServiceError> {
+        if container.id == Uuid::parse_str("c1b2c3d4-e5f6-7890-abcd-ef1234567890").unwrap() {
+            Ok(Container {
+                id: container.id,
+                name: container.name.clone(),
+                weight_grams: container.weight_grams,
+                description: container.description.clone(),
+                created: container.created,
+                deleted: container.deleted,
+                version: Uuid::new_v4(),
+            })
+        } else {
+            Err(inventurly_service::ServiceError::EntityNotFound(container.id))
+        }
+    }
+
+    async fn delete(
+        &self,
+        id: Uuid,
+        _auth: Authentication<Self::Context>,
+        _transaction: Option<Self::Transaction>,
+    ) -> Result<(), inventurly_service::ServiceError> {
+        if id == Uuid::parse_str("c1b2c3d4-e5f6-7890-abcd-ef1234567890").unwrap() {
+            Ok(())
+        } else {
+            Err(inventurly_service::ServiceError::EntityNotFound(id))
+        }
+    }
+
+    async fn search(
+        &self,
+        _query: &str,
+        _limit: Option<usize>,
+        _auth: Authentication<Self::Context>,
+        _transaction: Option<Self::Transaction>,
+    ) -> Result<Arc<[Container]>, inventurly_service::ServiceError> {
+        // Return an empty result for search
+        Ok(Arc::from([]))
+    }
+}
+
 fn create_test_app() -> axum::Router {
     let rest_state = TestRestState {
         person_service: Arc::new(MockPersonService),
@@ -734,11 +883,13 @@ fn create_test_app() -> axum::Router {
         duplicate_detection_service: Arc::new(MockDuplicateDetectionService),
         permission_service: Arc::new(MockPermissionService),
         session_service: Arc::new(MockSessionService),
+        container_service: Arc::new(MockContainerService),
     };
 
     axum::Router::new()
         .nest("/persons", inventurly_rest::person::generate_route())
         .nest("/racks", inventurly_rest::rack::generate_route())
+        .nest("/containers", inventurly_rest::container::generate_route())
         .nest(
             "/product-racks",
             inventurly_rest::product_rack::generate_route(),
@@ -1314,4 +1465,201 @@ async fn test_get_all_product_rack_relationships() {
 
     // Mock service returns empty array
     assert_eq!(product_racks.len(), 0);
+}
+
+// Container Tests
+
+#[tokio::test]
+async fn test_get_all_containers() {
+    let app = create_test_app();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/containers")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let containers: Vec<ContainerTO> = serde_json::from_slice(&body).unwrap();
+
+    assert_eq!(containers.len(), 1);
+    assert_eq!(containers[0].name, "Test Container");
+    assert_eq!(containers[0].weight_grams, 500);
+    assert_eq!(containers[0].description, "A test container for storage");
+}
+
+#[tokio::test]
+async fn test_get_container_by_id() {
+    let app = create_test_app();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/containers/c1b2c3d4-e5f6-7890-abcd-ef1234567890")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let container: ContainerTO = serde_json::from_slice(&body).unwrap();
+
+    assert_eq!(container.name, "Test Container");
+    assert_eq!(container.weight_grams, 500);
+    assert_eq!(container.description, "A test container for storage");
+}
+
+#[tokio::test]
+async fn test_get_container_not_found() {
+    let app = create_test_app();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri("/containers/00000000-0000-0000-0000-000000000000")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_create_container() {
+    let app = create_test_app();
+    let new_container = json!({
+        "name": "Storage Container B",
+        "weight_grams": 750,
+        "description": "Secondary storage container"
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/containers")
+                .header("content-type", "application/json")
+                .body(Body::from(new_container.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let container: ContainerTO = serde_json::from_slice(&body).unwrap();
+
+    assert_eq!(container.name, "Storage Container B");
+    assert_eq!(container.weight_grams, 750);
+    assert_eq!(container.description, "Secondary storage container");
+    assert!(container.id.is_some());
+}
+
+#[tokio::test]
+async fn test_update_container() {
+    let app = create_test_app();
+    let updated_container = json!({
+        "name": "Updated Container A",
+        "weight_grams": 600,
+        "description": "Updated description for container A"
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::PUT)
+                .uri("/containers/c1b2c3d4-e5f6-7890-abcd-ef1234567890")
+                .header("content-type", "application/json")
+                .body(Body::from(updated_container.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let container: ContainerTO = serde_json::from_slice(&body).unwrap();
+
+    assert_eq!(container.name, "Updated Container A");
+    assert_eq!(container.weight_grams, 600);
+    assert_eq!(container.description, "Updated description for container A");
+}
+
+#[tokio::test]
+async fn test_update_container_not_found() {
+    let app = create_test_app();
+    let updated_container = json!({
+        "name": "NonExistent",
+        "weight_grams": 100,
+        "description": "This container does not exist"
+    });
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::PUT)
+                .uri("/containers/00000000-0000-0000-0000-000000000000")
+                .header("content-type", "application/json")
+                .body(Body::from(updated_container.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_delete_container() {
+    let app = create_test_app();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::DELETE)
+                .uri("/containers/c1b2c3d4-e5f6-7890-abcd-ef1234567890")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+}
+
+#[tokio::test]
+async fn test_delete_container_not_found() {
+    let app = create_test_app();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::DELETE)
+                .uri("/containers/00000000-0000-0000-0000-000000000000")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
