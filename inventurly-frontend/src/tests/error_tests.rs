@@ -1,17 +1,17 @@
 #[cfg(test)]
 mod error_handling_tests {
-    use crate::error::{result_handler, ShiftyError};
+    use crate::error::{result_handler, InventurlyError};
 
     #[test]
-    fn test_shifty_error_variants() {
-        // Test the actual error variants that exist in ShiftyError
+    fn test_inventurly_error_variants() {
+        // Test the actual error variants that exist in InventurlyError
 
         // Since reqwest::Error is hard to construct directly, let's test with a time error instead
         if let Err(time_error) = time::Date::from_calendar_date(2024, time::Month::February, 30) {
-            let shifty_error = ShiftyError::TimeComponentRange(time_error);
+            let inventurly_error = InventurlyError::TimeComponentRange(time_error);
 
-            match shifty_error {
-                ShiftyError::TimeComponentRange(_) => {
+            match inventurly_error {
+                InventurlyError::TimeComponentRange(_) => {
                     // Test passes if we can create the error
                     assert!(true);
                 }
@@ -30,11 +30,11 @@ mod error_handling_tests {
 
         match invalid_date_result {
             Err(time_error) => {
-                // Convert time error to ShiftyError
-                let shifty_error = ShiftyError::TimeComponentRange(time_error);
+                // Convert time error to InventurlyError
+                let inventurly_error = InventurlyError::TimeComponentRange(time_error);
 
-                match shifty_error {
-                    ShiftyError::TimeComponentRange(_) => {
+                match inventurly_error {
+                    InventurlyError::TimeComponentRange(_) => {
                         assert!(true); // Test passes
                     }
                     _ => panic!("Expected TimeComponentRange error"),
@@ -45,8 +45,8 @@ mod error_handling_tests {
                 // This is just for testing the error type
                 let week_error = time::Date::from_iso_week_date(2024, 54, time::Weekday::Monday);
                 if let Err(time_error) = week_error {
-                    let shifty_error = ShiftyError::TimeComponentRange(time_error);
-                    assert!(matches!(shifty_error, ShiftyError::TimeComponentRange(_)));
+                    let inventurly_error = InventurlyError::TimeComponentRange(time_error);
+                    assert!(matches!(inventurly_error, InventurlyError::TimeComponentRange(_)));
                 }
             }
         }
@@ -54,7 +54,7 @@ mod error_handling_tests {
 
     #[test]
     fn test_result_handler_success() {
-        let ok_result: Result<String, ShiftyError> = Ok("success".to_string());
+        let ok_result: Result<String, InventurlyError> = Ok("success".to_string());
         let result = result_handler(ok_result);
 
         assert_eq!(result, Some("success".to_string()));
@@ -64,8 +64,8 @@ mod error_handling_tests {
     fn test_result_handler_error() {
         // Create an invalid date to get a ComponentRange error
         let invalid_date = time::Date::from_calendar_date(2024, time::Month::February, 30);
-        let error_result: Result<String, ShiftyError> = match invalid_date {
-            Err(time_error) => Err(ShiftyError::TimeComponentRange(time_error)),
+        let error_result: Result<String, InventurlyError> = match invalid_date {
+            Err(time_error) => Err(InventurlyError::TimeComponentRange(time_error)),
             Ok(_) => Ok("shouldn't happen".to_string()),
         };
 
@@ -76,17 +76,17 @@ mod error_handling_tests {
     #[test]
     fn test_result_handler_with_different_types() {
         // Test with integer success
-        let ok_int: Result<i32, ShiftyError> = Ok(42);
+        let ok_int: Result<i32, InventurlyError> = Ok(42);
         assert_eq!(result_handler(ok_int), Some(42));
 
         // Test with boolean success
-        let ok_bool: Result<bool, ShiftyError> = Ok(true);
+        let ok_bool: Result<bool, InventurlyError> = Ok(true);
         assert_eq!(result_handler(ok_bool), Some(true));
 
         // Test with errors using actual error types
         if let Err(time_error) = time::Date::from_iso_week_date(2024, 54, time::Weekday::Monday) {
-            let err_int: Result<i32, ShiftyError> =
-                Err(ShiftyError::TimeComponentRange(time_error));
+            let err_int: Result<i32, InventurlyError> =
+                Err(InventurlyError::TimeComponentRange(time_error));
             assert_eq!(result_handler(err_int), None);
         }
     }
@@ -95,8 +95,8 @@ mod error_handling_tests {
     fn test_error_display() {
         // Test that errors can be displayed
         if let Err(time_error) = time::Date::from_calendar_date(2024, time::Month::February, 30) {
-            let shifty_error = ShiftyError::TimeComponentRange(time_error);
-            let error_string = format!("{}", shifty_error);
+            let inventurly_error = InventurlyError::TimeComponentRange(time_error);
+            let error_string = format!("{}", inventurly_error);
 
             // Error string should contain some meaningful text
             assert!(!error_string.is_empty());
@@ -108,8 +108,8 @@ mod error_handling_tests {
     fn test_error_debug() {
         // Test that errors can be debugged
         if let Err(time_error) = time::Date::from_iso_week_date(2024, 55, time::Weekday::Monday) {
-            let shifty_error = ShiftyError::TimeComponentRange(time_error);
-            let debug_string = format!("{:?}", shifty_error);
+            let inventurly_error = InventurlyError::TimeComponentRange(time_error);
+            let debug_string = format!("{:?}", inventurly_error);
 
             // Debug string should contain some meaningful text
             assert!(!debug_string.is_empty());
@@ -118,44 +118,26 @@ mod error_handling_tests {
     }
 
     #[test]
-    fn test_week_date_errors() {
-        use crate::state::week::Week;
+    fn test_iso_week_date_errors() {
+        use time::{Date, Weekday};
 
         // Test definitely invalid weeks
-        let definitely_invalid_weeks = vec![
-            Week {
-                year: 2024,
-                week: 0,
-            }, // Week 0 doesn't exist
-            Week {
-                year: 2024,
-                week: 55,
-            }, // Week 55 definitely doesn't exist
+        let invalid_week_dates = vec![
+            Date::from_iso_week_date(2024, 0, Weekday::Monday),   // Week 0 doesn't exist
+            Date::from_iso_week_date(2024, 55, Weekday::Monday),  // Week 55 definitely doesn't exist
+            Date::from_iso_week_date(2024, 54, Weekday::Monday),  // Week 54 may not exist
         ];
 
-        for invalid_week in definitely_invalid_weeks {
-            // These should return errors
-            assert!(
-                invalid_week.monday().is_err(),
-                "Week {}/{} should be invalid",
-                invalid_week.year,
-                invalid_week.week
-            );
-            assert!(
-                invalid_week.sunday().is_err(),
-                "Week {}/{} should be invalid",
-                invalid_week.year,
-                invalid_week.week
-            );
+        for invalid_date_result in invalid_week_dates {
+            assert!(invalid_date_result.is_err(), "Invalid week date should fail");
         }
 
-        // Test that valid weeks work
-        let valid_week = Week {
-            year: 2024,
-            week: 1,
-        };
-        assert!(valid_week.monday().is_ok());
-        assert!(valid_week.sunday().is_ok());
+        // Test that valid week dates work
+        let valid_date = Date::from_iso_week_date(2024, 1, Weekday::Monday);
+        assert!(valid_date.is_ok());
+        
+        let valid_date = Date::from_iso_week_date(2024, 52, Weekday::Sunday);
+        assert!(valid_date.is_ok());
     }
 
     #[test]
@@ -205,16 +187,16 @@ mod error_handling_tests {
     #[test]
     fn test_service_error_propagation() {
         // Simulate service layer error handling with actual error types
-        fn simulate_failing_operation() -> Result<String, ShiftyError> {
+        fn simulate_failing_operation() -> Result<String, InventurlyError> {
             // Create a ComponentRange error
             let invalid_date = time::Date::from_calendar_date(2024, time::Month::February, 30);
             match invalid_date {
-                Err(time_error) => Err(ShiftyError::TimeComponentRange(time_error)),
+                Err(time_error) => Err(InventurlyError::TimeComponentRange(time_error)),
                 Ok(_) => Ok("unexpected success".to_string()),
             }
         }
 
-        fn simulate_service_call() -> Result<String, ShiftyError> {
+        fn simulate_service_call() -> Result<String, InventurlyError> {
             let operation_result = simulate_failing_operation()?;
             Ok(format!("Processed: {}", operation_result))
         }
@@ -223,7 +205,7 @@ mod error_handling_tests {
         assert!(service_result.is_err());
 
         match service_result {
-            Err(ShiftyError::TimeComponentRange(_)) => {
+            Err(InventurlyError::TimeComponentRange(_)) => {
                 // Error propagated correctly
                 assert!(true);
             }

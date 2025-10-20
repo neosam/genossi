@@ -39,7 +39,7 @@ mod unit_tests {
             application_title: "Test App".into(),
             is_prod: false,
             env_short_description: "TEST".into(),
-            show_vacation: true,
+            show_vacation: false,
         };
 
         assert_eq!(config.backend.as_ref(), "http://localhost:3000");
@@ -63,23 +63,19 @@ mod unit_tests {
 
 #[cfg(test)]
 mod i18n_tests {
-    use crate::i18n::{generate, Key, Locale};
+    use crate::i18n::{I18n, Key, Locale};
     use time::{Date, Month};
 
     #[test]
     fn test_locale_variants() {
-        let locales = vec![Locale::En, Locale::De, Locale::Cs];
-        assert_eq!(locales.len(), 3);
+        let locales = vec![Locale::En, Locale::De];
+        assert_eq!(locales.len(), 2);
     }
 
     #[test]
     fn test_i18n_creation() {
-        // Create i18n instance using the generate function
-        let i18n = generate(Locale::En);
-
-        // Test basic structure exists with translations loaded
-        assert_eq!(i18n.current_locale, Locale::En);
-        assert_eq!(i18n.fallback_locale, Locale::En);
+        // Create i18n instance using the I18n::new function
+        let i18n = I18n::new(Locale::En);
 
         // Test that basic translations are available
         let save_text = i18n.t(Key::Save);
@@ -99,52 +95,52 @@ mod i18n_tests {
 
 #[cfg(test)]
 mod service_tests {
-    use crate::service::billing_period::BillingPeriodStore;
-    use crate::service::text_template::TextTemplateStore;
-    use crate::state::text_template::TextTemplate;
+    use crate::state::container::Container;
     use uuid::Uuid;
 
     #[test]
-    fn test_text_template_store_default() {
-        let store = TextTemplateStore::default();
+    fn test_container_state_default() {
+        let store = Container::default();
 
-        assert_eq!(store.templates.len(), 0);
-        assert!(store.selected_template.is_none());
-        assert_eq!(store.filtered_templates.len(), 0);
-        assert!(store.current_filter_type.is_none());
+        assert_eq!(store.items.len(), 0);
+        assert!(!store.loading);
+        assert!(store.error.is_none());
     }
 
     #[test]
-    fn test_text_template_creation() {
-        let template = TextTemplate {
-            id: Uuid::new_v4(),
-            name: Some("Test Template".into()),
-            template_type: "billing-period".into(),
-            template_text: "Template content".into(),
-            created_at: None,
-            created_by: None,
+    fn test_container_to_creation() {
+        use rest_types::ContainerTO;
+        
+        let container = ContainerTO {
+            id: Some(Uuid::new_v4()),
+            name: "Test Container".to_string(),
+            weight_grams: 100,
+            description: "Test Description".to_string(),
+            created: None,
+            deleted: None,
+            version: None,
         };
 
-        assert_eq!(
-            template.name.as_ref().map(|s| s.as_ref()),
-            Some("Test Template")
-        );
-        assert_eq!(template.template_type.as_ref(), "billing-period");
+        assert_eq!(container.name, "Test Container");
+        assert_eq!(container.weight_grams, 100);
+        assert_eq!(container.description, "Test Description");
     }
 
     #[test]
-    fn test_billing_period_store_default() {
-        let store = BillingPeriodStore::default();
-
-        assert_eq!(store.billing_periods.len(), 0);
-        assert!(store.selected_billing_period.is_none());
+    fn test_product_state_creation() {
+        use crate::state::product::Product;
+        
+        let product_state = Product::default();
+        assert_eq!(product_state.items.len(), 0);
+        assert!(!product_state.loading);
+        assert!(product_state.error.is_none());
     }
 }
 
 #[cfg(test)]
 mod utils_tests {
     // Removed unused js function imports
-    use crate::error::{result_handler, ShiftyError};
+    use crate::error::{result_handler, InventurlyError};
     use time::{Date, Month};
     use uuid::Uuid;
 
@@ -189,7 +185,7 @@ mod utils_tests {
 
     #[test]
     fn test_error_result_handler() {
-        let ok_result: Result<i32, ShiftyError> = Ok(42);
+        let ok_result: Result<i32, InventurlyError> = Ok(42);
         let result = result_handler(ok_result);
         assert_eq!(result, Some(42));
     }
