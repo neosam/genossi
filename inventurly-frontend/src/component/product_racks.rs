@@ -1,16 +1,16 @@
-use dioxus::prelude::*;
-use uuid::Uuid;
-use rest_types::{ProductRackTO, RackTO};
-use crate::i18n::{use_i18n, Key};
-use crate::component::{ProductRackForm, modal::Modal};
-use crate::service::product_rack::{get_racks_for_product_action, remove_product_from_rack_action};
-use crate::service::config::CONFIG;
 use crate::api;
+use crate::component::{modal::Modal, ProductRackForm};
+use crate::i18n::{use_i18n, Key};
+use crate::service::config::CONFIG;
+use crate::service::product_rack::{get_racks_for_product_action, remove_product_from_rack_action};
+use dioxus::prelude::*;
+use rest_types::{ProductRackTO, RackTO};
+use uuid::Uuid;
 
 #[component]
 pub fn ProductRacks(product_id: Uuid) -> Element {
     let i18n = use_i18n();
-    
+
     let racks_for_product = use_signal(|| Vec::<ProductRackTO>::new());
     let racks_map = use_signal(|| std::collections::HashMap::<Uuid, RackTO>::new());
     let loading = use_signal(|| false);
@@ -23,25 +23,25 @@ pub fn ProductRacks(product_id: Uuid) -> Element {
         let racks_map = racks_map.clone();
         let loading = loading.clone();
         let error = error.clone();
-        
+
         move |_| {
             spawn({
                 let racks_for_product = racks_for_product.clone();
                 let racks_map = racks_map.clone();
                 let mut loading = loading.clone();
                 let mut error = error.clone();
-                
+
                 async move {
                     loading.set(true);
                     error.set(None);
-                    
+
                     // Load racks for product and all racks
                     let config = CONFIG.read().clone();
                     let (product_racks_result, all_racks_result) = futures_util::join!(
                         get_racks_for_product_action(product_id),
                         api::get_racks(&config)
                     );
-                    
+
                     match product_racks_result {
                         Ok(product_racks) => {
                             let mut racks_for_product = racks_for_product.clone();
@@ -53,7 +53,7 @@ pub fn ProductRacks(product_id: Uuid) -> Element {
                             return;
                         }
                     }
-                    
+
                     match all_racks_result {
                         Ok(all_racks) => {
                             let mut map = std::collections::HashMap::new();
@@ -69,7 +69,7 @@ pub fn ProductRacks(product_id: Uuid) -> Element {
                             error.set(Some(format!("Failed to load racks: {}", e)));
                         }
                     }
-                    
+
                     loading.set(false);
                 }
             });
@@ -85,10 +85,10 @@ pub fn ProductRacks(product_id: Uuid) -> Element {
         spawn({
             let mut error = error.clone();
             let load_racks = load_racks.clone();
-            
+
             async move {
                 error.set(None);
-                
+
                 match remove_product_from_rack_action(product_id, rack_id).await {
                     Ok(()) => {
                         load_racks.call(());
@@ -156,7 +156,7 @@ pub fn ProductRacks(product_id: Uuid) -> Element {
                         tbody { class: "bg-white divide-y divide-gray-200",
                             for (idx, product_rack) in racks_for_product().iter().enumerate() {
                                 if let Some(rack) = racks_map().get(&product_rack.rack_id) {
-                                    tr { 
+                                    tr {
                                         key: "{idx}",
                                         class: "hover:bg-gray-50",
                                         td { class: "px-6 py-4 whitespace-nowrap text-sm text-gray-900",

@@ -1,13 +1,13 @@
-use crate::component::{RackForm, RackProducts, TopBar};
+use crate::component::{ContainerForm, TopBar};
 use crate::i18n::{use_i18n, Key};
 use dioxus::prelude::*;
 use uuid::Uuid;
 
 #[component]
-pub fn RackDetails(id: String) -> Element {
+pub fn ContainerDetails(id: String) -> Element {
     let i18n = use_i18n();
 
-    let rack_id = if id == "new" {
+    let container_id = if id == "new" {
         None
     } else {
         Uuid::parse_str(&id).ok()
@@ -18,22 +18,15 @@ pub fn RackDetails(id: String) -> Element {
             TopBar {}
             div { class: "flex-1 container mx-auto px-4 py-8",
                 h1 { class: "text-3xl font-bold mb-6",
-                    if rack_id.is_some() {
+                    if container_id.is_some() {
                         {i18n.t(Key::Edit)}
                     } else {
                         {i18n.t(Key::Create)}
                     }
                     " "
-                    {i18n.t(Key::Racks)}
+                    {i18n.t(Key::Containers)}
                 }
-                RackForm { rack_id }
-
-                // Show product management for existing racks
-                if let Some(id) = rack_id {
-                    div { class: "mt-8",
-                        RackProducts { rack_id: id }
-                    }
-                }
+                ContainerForm { container_id: container_id }
             }
         }
     }

@@ -1,11 +1,7 @@
 use dioxus::prelude::*;
 use futures_util::StreamExt;
 
-use crate::{
-    api,
-    service::error::ERROR_STORE,
-    state::Config,
-};
+use crate::{api, service::error::ERROR_STORE, state::Config};
 
 use super::{auth, product::ProductService};
 
@@ -31,7 +27,7 @@ pub enum ConfigAction {
 }
 pub async fn config_service(mut rx: UnboundedReceiver<ConfigAction>) {
     load_config().await;
-    
+
     // Send LoadProducts event after config is loaded
     let product_service = use_coroutine_handle::<ProductService>();
     product_service.send(ProductService::LoadProducts);

@@ -1,9 +1,9 @@
-use dioxus::prelude::*;
-use rest_types::RackTO;
-use uuid::Uuid;
 use crate::api;
 use crate::service::config::CONFIG;
 use crate::state::Rack;
+use dioxus::prelude::*;
+use rest_types::RackTO;
+use uuid::Uuid;
 
 pub static RACKS: GlobalSignal<Rack> = GlobalSignal::new(Rack::default);
 

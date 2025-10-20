@@ -1,8 +1,8 @@
-pub mod en;
 pub mod de;
+pub mod en;
 
-use std::rc::Rc;
 use dioxus::prelude::*;
+use std::rc::Rc;
 use web_sys;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -21,14 +21,14 @@ fn detect_browser_locale() -> Locale {
     // Try to detect browser language preference
     if let Some(window) = web_sys::window() {
         let navigator = window.navigator();
-        
+
         // First try the primary language
         if let Some(language) = navigator.language() {
             if is_german_language(&language) {
                 return Locale::De;
             }
         }
-        
+
         // Then try the languages array for broader preferences
         let languages = navigator.languages();
         for i in 0..languages.length() {
@@ -39,18 +39,18 @@ fn detect_browser_locale() -> Locale {
             }
         }
     }
-    
+
     // Default fallback to English
     Locale::En
 }
 
 fn is_german_language(lang: &str) -> bool {
     let lang_lower = lang.to_lowercase();
-    lang_lower == "de" || 
-    lang_lower.starts_with("de-") || 
-    lang_lower == "de-de" || 
-    lang_lower == "de-at" || 
-    lang_lower == "de-ch"
+    lang_lower == "de"
+        || lang_lower.starts_with("de-")
+        || lang_lower == "de-de"
+        || lang_lower == "de-at"
+        || lang_lower == "de-ch"
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -67,7 +67,7 @@ pub enum Key {
     Back,
     Confirm,
     Actions,
-    
+
     // Authentication
     Login,
     Logout,
@@ -77,14 +77,15 @@ pub enum Key {
     NotAuthenticated,
     WelcomeTitle,
     PleaseLogin,
-    
+
     // Navigation
     Home,
     Products,
     Racks,
+    Containers,
     Persons,
     Permissions,
-    
+
     // Product fields
     ProductName,
     ProductEan,
@@ -94,13 +95,20 @@ pub enum Key {
     ProductRequiresWeighing,
     ProductCreated,
     ProductDeleted,
-    
+
     // Rack fields
     RackName,
     RackDescription,
     RackCreated,
     RackDeleted,
-    
+
+    // Container fields
+    ContainerName,
+    ContainerWeightGrams,
+    ContainerDescription,
+    ContainerCreated,
+    ContainerDeleted,
+
     // Product-Rack fields
     ProductRackQuantity,
     ProductRackRelationship,
@@ -112,19 +120,19 @@ pub enum Key {
     Quantity,
     RacksForProduct,
     ProductsInRack,
-    
+
     // Person fields
     PersonName,
     PersonAge,
     PersonCreated,
     PersonDeleted,
-    
+
     // Permission fields
     PermissionName,
     PermissionDescription,
     PermissionCreated,
     PermissionDeleted,
-    
+
     // Messages
     NoDataFound,
     ErrorLoadingData,
@@ -132,14 +140,14 @@ pub enum Key {
     ItemUpdated,
     ItemDeleted,
     ConfirmDelete,
-    
+
     // CSV Import
     CsvImport,
     SelectFile,
     ImportButton,
     ImportSuccess,
     ImportError,
-    
+
     // Duplicate Detection
     CheckDuplicates,
     DuplicatesFound,
@@ -155,26 +163,36 @@ impl I18n {
     pub fn new(locale: Locale) -> Self {
         Self { locale }
     }
-    
+
     pub fn t(&self, key: Key) -> Rc<str> {
         match self.locale {
             Locale::En => en::translate(key),
             Locale::De => de::translate(key),
         }
     }
-    
+
     #[allow(dead_code)]
     pub fn format_date(&self, date: time::Date) -> String {
         match self.locale {
             Locale::En => {
-                format!("{:04}-{:02}-{:02}", date.year(), date.month() as u8, date.day())
+                format!(
+                    "{:04}-{:02}-{:02}",
+                    date.year(),
+                    date.month() as u8,
+                    date.day()
+                )
             }
             Locale::De => {
-                format!("{:02}.{:02}.{:04}", date.day(), date.month() as u8, date.year())
+                format!(
+                    "{:02}.{:02}.{:04}",
+                    date.day(),
+                    date.month() as u8,
+                    date.year()
+                )
             }
         }
     }
-    
+
     pub fn format_datetime(&self, datetime: time::PrimitiveDateTime) -> String {
         match self.locale {
             Locale::En => {
@@ -205,7 +223,7 @@ impl I18n {
             }
         }
     }
-    
+
     pub fn format_price(&self, cents: i64) -> String {
         let euros = cents as f64 / 100.0;
         match self.locale {

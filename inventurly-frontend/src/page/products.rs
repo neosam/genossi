@@ -1,11 +1,11 @@
-use dioxus::prelude::*;
-use crate::component::{TopBar, ProductList};
+use crate::component::{ProductList, TopBar};
 use crate::i18n::{use_i18n, Key};
+use dioxus::prelude::*;
 
 #[component]
 pub fn Products() -> Element {
     let i18n = use_i18n();
-    
+
     rsx! {
         div { class: "flex flex-col min-h-screen",
             TopBar {}

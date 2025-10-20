@@ -1,13 +1,13 @@
-use dioxus::prelude::*;
 use crate::component::TopBar;
 use crate::i18n::{use_i18n, Key};
 use crate::router::Route;
+use dioxus::prelude::*;
 
 #[component]
 pub fn Home() -> Element {
     let i18n = use_i18n();
     let nav = navigator();
-    
+
     rsx! {
         div { class: "flex flex-col min-h-screen",
             TopBar {}

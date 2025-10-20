@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 
 use crate::{
-    i18n::{Key, use_i18n},
+    i18n::{use_i18n, Key},
     router::Route,
     service::{auth::AUTH, config::CONFIG},
 };
@@ -13,7 +13,7 @@ pub fn TopBar() -> Element {
     let config = CONFIG.read().clone();
     let backend_url = config.backend.clone();
     let mut visible = use_signal(|| false);
-    
+
     let show_products = auth_info.is_some();
 
     rsx! {
@@ -45,6 +45,9 @@ pub fn TopBar() -> Element {
                         li {
                             Link { to: Route::Racks {}, {i18n.t(Key::Racks)} }
                         }
+                        li {
+                            Link { to: Route::Containers {}, {i18n.t(Key::Containers)} }
+                        }
                     }
                     if auth_info.is_some() {
                         div { class: "mb-6 md:mb-0" }
@@ -53,7 +56,7 @@ pub fn TopBar() -> Element {
                 ul { class: "ml-1",
                     li { class: "flex",
                         if let Some(auth_info) = auth_info {
-                            a { href: "{backend_url}/logout", 
+                            a { href: "{backend_url}/logout",
                                 { i18n.t(Key::Logout).replace("{user}", &auth_info.user) }
                             }
                         } else {

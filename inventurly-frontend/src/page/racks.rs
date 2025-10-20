@@ -1,14 +1,14 @@
-use dioxus::prelude::*;
-use crate::component::{TopBar, RackList};
-use crate::i18n::{use_i18n, Key};
-use crate::service::rack::RACKS;
-use crate::service::config::CONFIG;
 use crate::api;
+use crate::component::{RackList, TopBar};
+use crate::i18n::{use_i18n, Key};
+use crate::service::config::CONFIG;
+use crate::service::rack::RACKS;
+use dioxus::prelude::*;
 
 #[component]
 pub fn Racks() -> Element {
     let i18n = use_i18n();
-    
+
     // Reload racks when the page mounts to ensure fresh data
     use_effect(move || {
         spawn(async move {
@@ -28,7 +28,7 @@ pub fn Racks() -> Element {
             }
         });
     });
-    
+
     rsx! {
         div { class: "flex flex-col min-h-screen",
             TopBar {}

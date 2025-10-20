@@ -1,12 +1,12 @@
-use dioxus::prelude::*;
-use uuid::Uuid;
-use rest_types::RackTO;
-use crate::i18n::{use_i18n, Key};
-use crate::service::product_rack::add_product_to_rack_action;
-use crate::service::config::CONFIG;
-use crate::component::{SearchableProductSelector, BarcodeScanner, ScanResult};
-use crate::service::product::{ProductService, PRODUCTS};
 use crate::api;
+use crate::component::{BarcodeScanner, ScanResult, SearchableProductSelector};
+use crate::i18n::{use_i18n, Key};
+use crate::service::config::CONFIG;
+use crate::service::product::{ProductService, PRODUCTS};
+use crate::service::product_rack::add_product_to_rack_action;
+use dioxus::prelude::*;
+use rest_types::RackTO;
+use uuid::Uuid;
 
 #[component]
 pub fn ProductRackForm(
@@ -17,7 +17,7 @@ pub fn ProductRackForm(
 ) -> Element {
     let i18n = use_i18n();
     let product_service = use_coroutine_handle::<ProductService>();
-    
+
     let mut selected_product = use_signal(|| product_id);
     let mut selected_rack = use_signal(|| rack_id);
     let racks = use_signal(|| Vec::<RackTO>::new());
@@ -31,17 +31,17 @@ pub fn ProductRackForm(
     use_effect(move || {
         // Load products via ProductService (into global state)
         product_service.send(ProductService::LoadProducts);
-        
+
         // Load racks
         spawn({
             let mut racks = racks.clone();
             let mut loading = loading.clone();
             let mut error = error.clone();
-            
+
             async move {
                 loading.set(true);
                 let config = CONFIG.read().clone();
-                
+
                 match api::get_racks(&config).await {
                     Ok(rack_list) => {
                         racks.set(rack_list);
@@ -50,7 +50,7 @@ pub fn ProductRackForm(
                         error.set(Some(format!("Failed to load racks: {}", e)));
                     }
                 }
-                
+
                 loading.set(false);
             }
         });
@@ -62,51 +62,77 @@ pub fn ProductRackForm(
 
     let handle_barcode_scan = move |scan_result: ScanResult| {
         let scanned_ean = scan_result.barcode;
-        web_sys::console::log_1(&wasm_bindgen::JsValue::from_str(&format!("ProductRackForm: Barcode scan result: {}", scanned_ean)));
-        
+        web_sys::console::log_1(&wasm_bindgen::JsValue::from_str(&format!(
+            "ProductRackForm: Barcode scan result: {}",
+            scanned_ean
+        )));
+
         // Remove checksum digit from EAN (last digit)
         let ean = if scanned_ean.len() > 1 {
             &scanned_ean[..scanned_ean.len() - 1]
         } else {
             &scanned_ean
         };
-        web_sys::console::log_1(&wasm_bindgen::JsValue::from_str(&format!("ProductRackForm: EAN without checksum: {}", ean)));
-        
+        web_sys::console::log_1(&wasm_bindgen::JsValue::from_str(&format!(
+            "ProductRackForm: EAN without checksum: {}",
+            ean
+        )));
+
         // Check if products are loaded
         let products_state = PRODUCTS.read();
-        web_sys::console::log_1(&wasm_bindgen::JsValue::from_str(&format!("ProductRackForm: Products loaded: {}", products_state.items.len())));
-        
+        web_sys::console::log_1(&wasm_bindgen::JsValue::from_str(&format!(
+            "ProductRackForm: Products loaded: {}",
+            products_state.items.len()
+        )));
+
         if products_state.items.is_empty() {
-            scanner_message.set(Some("⚠ Products not loaded yet, please try again".to_string()));
+            scanner_message.set(Some(
+                "⚠ Products not loaded yet, please try again".to_string(),
+            ));
             show_scanner.set(false);
             return;
         }
-        
+
         // Find product by EAN in global PRODUCTS state
-        web_sys::console::log_1(&wasm_bindgen::JsValue::from_str(&format!("ProductRackForm: Searching for EAN {} in {} products", ean, products_state.items.len())));
-        
+        web_sys::console::log_1(&wasm_bindgen::JsValue::from_str(&format!(
+            "ProductRackForm: Searching for EAN {} in {} products",
+            ean,
+            products_state.items.len()
+        )));
+
         if let Some(product) = products_state.items.iter().find(|p| p.ean == ean) {
-            web_sys::console::log_1(&wasm_bindgen::JsValue::from_str(&format!("ProductRackForm: Found product {} (EAN: {}) with ID {:?}", product.name, product.ean, product.id)));
-            
+            web_sys::console::log_1(&wasm_bindgen::JsValue::from_str(&format!(
+                "ProductRackForm: Found product {} (EAN: {}) with ID {:?}",
+                product.name, product.ean, product.id
+            )));
+
             if let Some(product_id) = product.id {
-                web_sys::console::log_1(&wasm_bindgen::JsValue::from_str(&format!("ProductRackForm: Calling handle_product_selected with ID: {}", product_id)));
-                
+                web_sys::console::log_1(&wasm_bindgen::JsValue::from_str(&format!(
+                    "ProductRackForm: Calling handle_product_selected with ID: {}",
+                    product_id
+                )));
+
                 // Only call handle_product_selected - it will update the selected_product signal
                 // and trigger the SearchableProductSelector to update
                 handle_product_selected(Some(product_id));
-                
+
                 web_sys::console::log_1(&wasm_bindgen::JsValue::from_str(&format!("ProductRackForm: After calling handle_product_selected, selected_product is: {:?}", selected_product())));
-                
+
                 scanner_message.set(Some(format!("✓ Product selected: {}", product.name)));
             } else {
-                web_sys::console::log_1(&wasm_bindgen::JsValue::from_str("ProductRackForm: Product found but has no ID"));
+                web_sys::console::log_1(&wasm_bindgen::JsValue::from_str(
+                    "ProductRackForm: Product found but has no ID",
+                ));
                 scanner_message.set(Some("⚠ Product found but has no ID".to_string()));
             }
         } else {
-            web_sys::console::log_1(&wasm_bindgen::JsValue::from_str(&format!("ProductRackForm: No product found with EAN: {} (scanned: {})", ean, scanned_ean)));
+            web_sys::console::log_1(&wasm_bindgen::JsValue::from_str(&format!(
+                "ProductRackForm: No product found with EAN: {} (scanned: {})",
+                ean, scanned_ean
+            )));
             scanner_message.set(Some(format!("❌ No product found with EAN: {}", ean)));
         }
-        
+
         show_scanner.set(false);
     };
 
@@ -121,11 +147,11 @@ pub fn ProductRackForm(
                 let mut saving = saving.clone();
                 let mut error = error.clone();
                 let on_saved = on_saved.clone();
-                
+
                 async move {
                     saving.set(true);
                     error.set(None);
-                    
+
                     match add_product_to_rack_action(prod_id, rack_id).await {
                         Ok(()) => {
                             on_saved.call(());
@@ -134,7 +160,7 @@ pub fn ProductRackForm(
                             error.set(Some(e));
                         }
                     }
-                    
+
                     saving.set(false);
                 }
             });
@@ -148,14 +174,14 @@ pub fn ProductRackForm(
             h2 { class: "text-xl font-bold",
                 {i18n.t(Key::AddProductToRack)}
             }
-            
+
             if loading() {
                 div { class: "text-center py-4",
                     {i18n.t(Key::Loading)}
                 }
             } else {
                 div { class: "space-y-4",
-                    
+
                     if let Some(error_msg) = error() {
                         div { class: "bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded",
                             {error_msg}
@@ -167,10 +193,10 @@ pub fn ProductRackForm(
                         label { class: "block text-sm font-medium mb-1",
                             {i18n.t(Key::SelectProduct)}
                         }
-                        
+
                         // Scanner message
                         if let Some(message) = scanner_message.read().as_ref() {
-                            div { 
+                            div {
                                 class: if message.contains("found:") {
                                     "bg-green-100 text-green-700 p-2 rounded mb-2 text-sm"
                                 } else {
@@ -179,7 +205,7 @@ pub fn ProductRackForm(
                                 {message.clone()}
                             }
                         }
-                        
+
                         div { class: "flex gap-2",
                             div { class: "flex-1",
                                 SearchableProductSelector {
@@ -217,11 +243,11 @@ pub fn ProductRackForm(
                                     selected_rack.set(None);
                                 }
                             },
-                            
+
                             option { value: "", "-- {i18n.t(Key::SelectRack)} --" }
-                            
+
                             for rack in racks().iter() {
-                                option { 
+                                option {
                                     value: rack.id.unwrap().to_string(),
                                     selected: Some(rack.id.unwrap()) == selected_rack(),
                                     "{rack.name} - {rack.description}"
@@ -237,14 +263,14 @@ pub fn ProductRackForm(
                             class: "px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed",
                             disabled: !is_valid || saving(),
                             onclick: handle_save,
-                            
+
                             if saving() {
                                 {i18n.t(Key::Loading)}
                             } else {
                                 {i18n.t(Key::Save)}
                             }
                         }
-                        
+
                         button {
                             r#type: "button",
                             class: "px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600",
@@ -255,7 +281,7 @@ pub fn ProductRackForm(
                     }
                 }
             }
-            
+
             // Barcode Scanner
             if show_scanner() {
                 BarcodeScanner {

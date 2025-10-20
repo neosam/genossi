@@ -15,7 +15,7 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::Back => "Back",
         Key::Confirm => "Confirm",
         Key::Actions => "Actions",
-        
+
         // Authentication
         Key::Login => "Login",
         Key::Logout => "Logout",
@@ -25,14 +25,15 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::NotAuthenticated => "Not authenticated",
         Key::WelcomeTitle => "Welcome to Inventurly",
         Key::PleaseLogin => "Please login to continue",
-        
+
         // Navigation
         Key::Home => "Home",
         Key::Products => "Products",
         Key::Racks => "Racks",
+        Key::Containers => "Containers",
         Key::Persons => "Persons",
         Key::Permissions => "Permissions",
-        
+
         // Product fields
         Key::ProductName => "Name",
         Key::ProductEan => "EAN",
@@ -42,13 +43,20 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::ProductRequiresWeighing => "Requires Weighing",
         Key::ProductCreated => "Created",
         Key::ProductDeleted => "Deleted",
-        
+
         // Rack fields
         Key::RackName => "Name",
         Key::RackDescription => "Description",
         Key::RackCreated => "Created",
         Key::RackDeleted => "Deleted",
-        
+
+        // Container fields
+        Key::ContainerName => "Name",
+        Key::ContainerWeightGrams => "Weight (grams)",
+        Key::ContainerDescription => "Description",
+        Key::ContainerCreated => "Created",
+        Key::ContainerDeleted => "Deleted",
+
         // Product-Rack fields
         Key::ProductRackQuantity => "Quantity",
         Key::ProductRackRelationship => "Product-Rack Relationship",
@@ -60,19 +68,19 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::Quantity => "Quantity",
         Key::RacksForProduct => "Racks for Product",
         Key::ProductsInRack => "Products in Rack",
-        
+
         // Person fields
         Key::PersonName => "Name",
         Key::PersonAge => "Age",
         Key::PersonCreated => "Created",
         Key::PersonDeleted => "Deleted",
-        
+
         // Permission fields
         Key::PermissionName => "Name",
         Key::PermissionDescription => "Description",
         Key::PermissionCreated => "Created",
         Key::PermissionDeleted => "Deleted",
-        
+
         // Messages
         Key::NoDataFound => "No data found",
         Key::ErrorLoadingData => "Error loading data",
@@ -80,18 +88,19 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::ItemUpdated => "Item updated successfully",
         Key::ItemDeleted => "Item deleted successfully",
         Key::ConfirmDelete => "Are you sure you want to delete this item?",
-        
+
         // CSV Import
         Key::CsvImport => "CSV Import",
         Key::SelectFile => "Select File",
         Key::ImportButton => "Import",
         Key::ImportSuccess => "Import successful",
         Key::ImportError => "Import failed",
-        
+
         // Duplicate Detection
         Key::CheckDuplicates => "Check for Duplicates",
         Key::DuplicatesFound => "Potential duplicates found",
         Key::NoDuplicatesFound => "No duplicates found",
         Key::SimilarityScore => "Similarity Score",
-    }.into()
+    }
+    .into()
 }

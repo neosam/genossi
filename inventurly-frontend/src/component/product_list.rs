@@ -1,14 +1,14 @@
-use dioxus::prelude::*;
 use crate::i18n::{use_i18n, Key};
 use crate::router::Route;
 use crate::service::product::PRODUCTS;
+use dioxus::prelude::*;
 
 #[component]
 pub fn ProductList() -> Element {
     let i18n = use_i18n();
     let nav = navigator();
     let products = PRODUCTS.read();
-    
+
     rsx! {
         div { class: "bg-white rounded-lg shadow",
             div { class: "px-6 py-4 border-b flex justify-between items-center",
@@ -21,7 +21,7 @@ pub fn ProductList() -> Element {
                     {i18n.t(Key::Create)}
                 }
             }
-            
+
             if products.items.is_empty() {
                 div { class: "p-6 text-center text-gray-500",
                     {i18n.t(Key::NoDataFound)}
@@ -53,7 +53,7 @@ pub fn ProductList() -> Element {
                                 {
                                     let product_id = product.id;
                                     rsx! {
-                                        tr { 
+                                        tr {
                                             class: "border-b hover:bg-gray-50 cursor-pointer",
                                             onclick: move |_| {
                                                 if let Some(id) = product_id {

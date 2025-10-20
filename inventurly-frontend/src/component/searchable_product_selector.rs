@@ -1,8 +1,8 @@
-use dioxus::prelude::*;
-use uuid::Uuid;
-use rest_types::ProductTO;
 use crate::i18n::{use_i18n, Key};
-use crate::service::product::{PRODUCTS, ProductService};
+use crate::service::product::{ProductService, PRODUCTS};
+use dioxus::prelude::*;
+use rest_types::ProductTO;
+use uuid::Uuid;
 use wasm_bindgen::JsValue;
 
 #[component]
@@ -13,12 +13,12 @@ pub fn SearchableProductSelector(
 ) -> Element {
     let i18n = use_i18n();
     let product_service = use_coroutine_handle::<ProductService>();
-    
+
     let mut search_query = use_signal(|| String::new());
     let mut selected_product = use_signal(|| None::<ProductTO>);
     let mut show_results = use_signal(|| false);
     let mut search_timer = use_signal(|| None::<gloo_timers::callback::Timeout>);
-    
+
     // Read global state directly for proper Dioxus reactivity
     let products_state = PRODUCTS.read();
     let search_results = &products_state.search_results;
@@ -27,15 +27,29 @@ pub fn SearchableProductSelector(
 
     // Load the selected product when selected_product_id changes
     use_effect(use_reactive!(|selected_product_id| {
-        web_sys::console::log_1(&JsValue::from_str(&format!("SearchableProductSelector: selected_product_id changed to {:?}", selected_product_id)));
-        
+        web_sys::console::log_1(&JsValue::from_str(&format!(
+            "SearchableProductSelector: selected_product_id changed to {:?}",
+            selected_product_id
+        )));
+
         if let Some(product_id) = selected_product_id {
             // Find the product in the loaded products
             let products_state = PRODUCTS.read();
-            web_sys::console::log_1(&JsValue::from_str(&format!("SearchableProductSelector: Looking for product ID {} in {} products", product_id, products_state.items.len())));
-            
-            if let Some(product) = products_state.items.iter().find(|p| p.id == Some(product_id)) {
-                web_sys::console::log_1(&JsValue::from_str(&format!("SearchableProductSelector: Found product: {} ({})", product.name, product.ean)));
+            web_sys::console::log_1(&JsValue::from_str(&format!(
+                "SearchableProductSelector: Looking for product ID {} in {} products",
+                product_id,
+                products_state.items.len()
+            )));
+
+            if let Some(product) = products_state
+                .items
+                .iter()
+                .find(|p| p.id == Some(product_id))
+            {
+                web_sys::console::log_1(&JsValue::from_str(&format!(
+                    "SearchableProductSelector: Found product: {} ({})",
+                    product.name, product.ean
+                )));
                 selected_product.set(Some(product.clone()));
                 search_query.set(format!("{} ({})", product.name, product.ean));
             } else {
@@ -46,21 +60,22 @@ pub fn SearchableProductSelector(
             }
         } else {
             // No product ID provided, clear the selection
-            web_sys::console::log_1(&JsValue::from_str("SearchableProductSelector: No product ID provided, clearing selection"));
+            web_sys::console::log_1(&JsValue::from_str(
+                "SearchableProductSelector: No product ID provided, clearing selection",
+            ));
             selected_product.set(None);
             search_query.set(String::new());
         }
     }));
 
-
     let mut handle_input_change = move |value: String| {
         search_query.set(value.clone());
-        
+
         // Cancel any existing timer
         if let Some(timer) = search_timer.write().take() {
             drop(timer); // Cancel the previous timer
         }
-        
+
         if value.is_empty() {
             selected_product.set(None);
             on_product_selected.call(None);
@@ -69,12 +84,12 @@ pub fn SearchableProductSelector(
             // Set a new timer for 500ms
             let timer_value = value.clone();
             let product_service_clone = product_service.clone();
-            
+
             let timer = gloo_timers::callback::Timeout::new(500, move || {
                 // Send search event after 500ms of no typing
                 product_service_clone.send(ProductService::SearchProducts(timer_value));
             });
-            
+
             search_timer.set(Some(timer));
             show_results.set(true);
         } else {
@@ -123,7 +138,7 @@ pub fn SearchableProductSelector(
                         }
                     }
                 }
-                
+
                 // Clear button
                 if !search_query().is_empty() && !disabled {
                     button {
@@ -168,7 +183,7 @@ pub fn SearchableProductSelector(
                                     let product = product.clone();
                                     move |_| handle_product_select(product.clone())
                                 },
-                                
+
                                 div { class: "font-medium text-sm",
                                     {product.name.clone()}
                                 }

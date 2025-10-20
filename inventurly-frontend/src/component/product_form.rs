@@ -1,11 +1,11 @@
-use dioxus::prelude::*;
-use uuid::Uuid;
-use rest_types::{ProductTO, Price};
+use crate::api;
+use crate::component::{BarcodeScanner, ScanResult};
 use crate::i18n::{use_i18n, Key};
 use crate::router::Route;
-use crate::component::{BarcodeScanner, ScanResult};
-use crate::api;
 use crate::service::config::CONFIG;
+use dioxus::prelude::*;
+use rest_types::{Price, ProductTO};
+use uuid::Uuid;
 
 #[component]
 pub fn ProductForm(product_id: Option<Uuid>) -> Element {
@@ -23,11 +23,11 @@ pub fn ProductForm(product_id: Option<Uuid>) -> Element {
         deleted: None,
         version: None,
     });
-    
+
     let loading = use_signal(|| false);
     let error = use_signal(|| None::<String>);
     let mut show_scanner = use_signal(|| false);
-    
+
     // Load existing product data if editing
     use_effect(move || {
         if let Some(id) = product_id {
@@ -35,11 +35,11 @@ pub fn ProductForm(product_id: Option<Uuid>) -> Element {
                 let mut product = product.clone();
                 let mut loading = loading.clone();
                 let mut error = error.clone();
-                
+
                 async move {
                     loading.set(true);
                     let config = CONFIG.read().clone();
-                    
+
                     match api::get_product(&config, id).await {
                         Ok(product_data) => {
                             *product.write() = product_data;
@@ -49,27 +49,27 @@ pub fn ProductForm(product_id: Option<Uuid>) -> Element {
                             error.set(Some(format!("Failed to load product: {}", e)));
                         }
                     }
-                    
+
                     loading.set(false);
                 }
             });
         }
     });
-    
+
     let save_product = move |_| {
         spawn({
             let product = product.clone();
             let mut loading = loading.clone();
             let mut error = error.clone();
             let nav = nav.clone();
-            
+
             async move {
                 loading.set(true);
                 error.set(None);
-                
+
                 let config = CONFIG.read().clone();
                 let product_data = product.read().clone();
-                
+
                 let result = if product_data.id.is_some() {
                     // Update existing product
                     api::update_product(&config, product_data).await
@@ -77,7 +77,7 @@ pub fn ProductForm(product_id: Option<Uuid>) -> Element {
                     // Create new product
                     api::create_product(&config, product_data).await
                 };
-                
+
                 match result {
                     Ok(_) => {
                         // Navigate to products list on success
@@ -87,12 +87,12 @@ pub fn ProductForm(product_id: Option<Uuid>) -> Element {
                         error.set(Some(format!("Failed to save product: {}", e)));
                     }
                 }
-                
+
                 loading.set(false);
             }
         });
     };
-    
+
     rsx! {
         div { class: "bg-white rounded-lg shadow p-6",
             h2 { class: "text-2xl font-bold mb-6",
@@ -104,15 +104,15 @@ pub fn ProductForm(product_id: Option<Uuid>) -> Element {
                 " "
                 {i18n.t(Key::Products)}
             }
-            
+
             if let Some(err) = error.read().as_ref() {
                 div { class: "bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4",
                     {err.clone()}
                 }
             }
-            
+
             form {
-                
+
                 div { class: "mb-4",
                     label { class: "block text-sm font-medium text-gray-700 mb-2",
                         {i18n.t(Key::ProductEan)}
@@ -133,7 +133,7 @@ pub fn ProductForm(product_id: Option<Uuid>) -> Element {
                         }
                     }
                 }
-                
+
                 div { class: "mb-4",
                     label { class: "block text-sm font-medium text-gray-700 mb-2",
                         {i18n.t(Key::ProductName)}
@@ -146,7 +146,7 @@ pub fn ProductForm(product_id: Option<Uuid>) -> Element {
                         required: true,
                     }
                 }
-                
+
                 div { class: "mb-4",
                     label { class: "block text-sm font-medium text-gray-700 mb-2",
                         {i18n.t(Key::ProductShortName)}
@@ -159,7 +159,7 @@ pub fn ProductForm(product_id: Option<Uuid>) -> Element {
                         required: true,
                     }
                 }
-                
+
                 div { class: "mb-4",
                     label { class: "block text-sm font-medium text-gray-700 mb-2",
                         {i18n.t(Key::ProductSalesUnit)}
@@ -172,7 +172,7 @@ pub fn ProductForm(product_id: Option<Uuid>) -> Element {
                         required: true,
                     }
                 }
-                
+
                 div { class: "mb-4",
                     label { class: "block text-sm font-medium text-gray-700 mb-2",
                         {i18n.t(Key::ProductPrice)} " (in cents)"
@@ -189,7 +189,7 @@ pub fn ProductForm(product_id: Option<Uuid>) -> Element {
                         required: true,
                     }
                 }
-                
+
                 div { class: "mb-6",
                     label { class: "flex items-center",
                         input {
@@ -201,7 +201,7 @@ pub fn ProductForm(product_id: Option<Uuid>) -> Element {
                         {i18n.t(Key::ProductRequiresWeighing)}
                     }
                 }
-                
+
                 div { class: "flex gap-4",
                     button {
                         class: "px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50",
@@ -218,7 +218,7 @@ pub fn ProductForm(product_id: Option<Uuid>) -> Element {
                     }
                 }
             }
-            
+
             if *show_scanner.read() {
                 BarcodeScanner {
                     on_scan: move |result: ScanResult| {

@@ -1,16 +1,16 @@
-use dioxus::prelude::*;
+use crate::api;
 use crate::i18n::{use_i18n, Key};
 use crate::router::Route;
-use crate::service::rack::RACKS;
-use crate::api;
 use crate::service::config::CONFIG;
+use crate::service::rack::RACKS;
+use dioxus::prelude::*;
 
 #[component]
 pub fn RackList() -> Element {
     let i18n = use_i18n();
     let nav = navigator();
     let racks = RACKS.read();
-    
+
     rsx! {
         div { class: "bg-white rounded-lg shadow",
             div { class: "px-6 py-4 border-b flex justify-between items-center",
@@ -23,7 +23,7 @@ pub fn RackList() -> Element {
                     {i18n.t(Key::Create)}
                 }
             }
-            
+
             if racks.items.is_empty() {
                 div { class: "p-6 text-center text-gray-500",
                     {i18n.t(Key::NoDataFound)}
@@ -52,7 +52,7 @@ pub fn RackList() -> Element {
                                 {
                                     let rack_id = rack.id;
                                     rsx! {
-                                        tr { 
+                                        tr {
                                             class: "border-b hover:bg-gray-50 cursor-pointer",
                                             onclick: move |_| {
                                                 if let Some(id) = rack_id {

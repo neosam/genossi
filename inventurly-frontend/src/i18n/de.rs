@@ -30,6 +30,7 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::Home => "Startseite",
         Key::Products => "Produkte",
         Key::Racks => "Regale",
+        Key::Containers => "Container",
         Key::Persons => "Personen",
         Key::Permissions => "Berechtigungen",
 
@@ -48,6 +49,13 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::RackDescription => "Beschreibung",
         Key::RackCreated => "Erstellt",
         Key::RackDeleted => "Gelöscht",
+
+        // Container fields
+        Key::ContainerName => "Name",
+        Key::ContainerWeightGrams => "Gewicht (Gramm)",
+        Key::ContainerDescription => "Beschreibung",
+        Key::ContainerCreated => "Erstellt",
+        Key::ContainerDeleted => "Gelöscht",
 
         // Product-Rack fields
         Key::ProductRackQuantity => "Menge",

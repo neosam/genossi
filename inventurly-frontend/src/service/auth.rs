@@ -1,10 +1,7 @@
 use crate::{api, state::AuthInfo};
 use dioxus::prelude::*;
 
-use super::{
-    config::CONFIG,
-    error::ERROR_STORE,
-};
+use super::{config::CONFIG, error::ERROR_STORE};
 
 pub async fn load_auth_info() {
     if CONFIG.read().backend.is_empty() {

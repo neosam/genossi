@@ -1,9 +1,8 @@
 use std::rc::Rc;
 
 use rest_types::{
-    ProductTO, RackTO, UserTO,
-    DuplicateDetectionResultTO, CheckDuplicateRequestTO,
-    ProductRackTO, AddProductToRackRequestTO,
+    AddProductToRackRequestTO, CheckDuplicateRequestTO, ContainerTO, DuplicateDetectionResultTO,
+    ProductRackTO, ProductTO, RackTO, UserTO,
 };
 use tracing::info;
 use uuid::Uuid;
@@ -43,7 +42,7 @@ pub async fn login(
         }))
         .send()
         .await?;
-    
+
     Ok(response.status() == 200)
 }
 
@@ -80,7 +79,6 @@ pub async fn load_config() -> Result<Config, reqwest::Error> {
     Ok(res)
 }
 
-
 // Product API
 pub async fn get_products(config: &Config) -> Result<Vec<ProductTO>, reqwest::Error> {
     info!("Fetching products");
@@ -104,7 +102,10 @@ pub async fn get_product(config: &Config, id: Uuid) -> Result<ProductTO, reqwest
 }
 
 #[allow(dead_code)]
-pub async fn create_product(config: &Config, product: ProductTO) -> Result<ProductTO, reqwest::Error> {
+pub async fn create_product(
+    config: &Config,
+    product: ProductTO,
+) -> Result<ProductTO, reqwest::Error> {
     info!("Creating product");
     let url = format!("{}/products", config.backend);
     let client = reqwest::Client::new();
@@ -116,7 +117,10 @@ pub async fn create_product(config: &Config, product: ProductTO) -> Result<Produ
 }
 
 #[allow(dead_code)]
-pub async fn update_product(config: &Config, product: ProductTO) -> Result<ProductTO, reqwest::Error> {
+pub async fn update_product(
+    config: &Config,
+    product: ProductTO,
+) -> Result<ProductTO, reqwest::Error> {
     info!("Updating product {:?}", product.id);
     let url = format!("{}/products/{}", config.backend, product.id.unwrap());
     let client = reqwest::Client::new();
@@ -167,7 +171,6 @@ pub async fn check_duplicates(
     info!("Duplicate check completed");
     Ok(res)
 }
-
 
 // CSV Import
 #[allow(dead_code)]
@@ -243,6 +246,78 @@ pub async fn delete_rack(config: &Config, id: Uuid) -> Result<(), reqwest::Error
     Ok(())
 }
 
+// Container API
+pub async fn get_containers(config: &Config) -> Result<Vec<ContainerTO>, reqwest::Error> {
+    info!("Fetching containers");
+    let url = format!("{}/containers", config.backend);
+    let response = reqwest::get(url).await?;
+    response.error_for_status_ref()?;
+    let res = response.json().await?;
+    info!("Containers fetched");
+    Ok(res)
+}
+
+pub async fn get_container(config: &Config, id: Uuid) -> Result<ContainerTO, reqwest::Error> {
+    info!("Fetching container {id}");
+    let url = format!("{}/containers/{}", config.backend, id);
+    let response = reqwest::get(url).await?;
+    response.error_for_status_ref()?;
+    let res = response.json().await?;
+    info!("Container fetched");
+    Ok(res)
+}
+
+pub async fn create_container(
+    config: &Config,
+    container: ContainerTO,
+) -> Result<ContainerTO, reqwest::Error> {
+    info!("Creating container");
+    let url = format!("{}/containers", config.backend);
+    let client = reqwest::Client::new();
+    let response = client.post(url).json(&container).send().await?;
+    response.error_for_status_ref()?;
+    let res = response.json().await?;
+    info!("Container created");
+    Ok(res)
+}
+
+pub async fn update_container(
+    config: &Config,
+    container: ContainerTO,
+) -> Result<ContainerTO, reqwest::Error> {
+    info!("Updating container {:?}", container.id);
+    let url = format!("{}/containers/{}", config.backend, container.id.unwrap());
+    let client = reqwest::Client::new();
+    let response = client.put(url).json(&container).send().await?;
+    response.error_for_status_ref()?;
+    let res = response.json().await?;
+    info!("Container updated");
+    Ok(res)
+}
+
+pub async fn delete_container(config: &Config, id: Uuid) -> Result<(), reqwest::Error> {
+    info!("Deleting container {id}");
+    let url = format!("{}/containers/{}", config.backend, id);
+    let client = reqwest::Client::new();
+    let response = client.delete(url).send().await?;
+    response.error_for_status_ref()?;
+    info!("Container deleted");
+    Ok(())
+}
+
+pub async fn search_containers(
+    config: &Config,
+    query: &str,
+) -> Result<Vec<ContainerTO>, reqwest::Error> {
+    info!("Searching containers: {query}");
+    let url = format!("{}/containers?q={}", config.backend, query);
+    let response = reqwest::get(url).await?;
+    response.error_for_status_ref()?;
+    let res = response.json().await?;
+    info!("Container search completed");
+    Ok(res)
+}
+
 // Product-Rack API
 pub async fn add_product_to_rack(
     config: &Config,
@@ -269,7 +344,10 @@ pub async fn remove_product_from_rack(
     rack_id: Uuid,
 ) -> Result<(), reqwest::Error> {
     info!("Removing product {product_id} from rack {rack_id}");
-    let url = format!("{}/product-racks/{}/{}", config.backend, product_id, rack_id);
+    let url = format!(
+        "{}/product-racks/{}/{}",
+        config.backend, product_id, rack_id
+    );
     let client = reqwest::Client::new();
     let response = client.delete(url).send().await?;
     response.error_for_status_ref()?;
@@ -277,14 +355,16 @@ pub async fn remove_product_from_rack(
     Ok(())
 }
 
-
 pub async fn get_product_rack_relationship(
     config: &Config,
     product_id: Uuid,
     rack_id: Uuid,
 ) -> Result<Option<ProductRackTO>, reqwest::Error> {
     info!("Fetching product-rack relationship {product_id}-{rack_id}");
-    let url = format!("{}/product-racks/{}/{}", config.backend, product_id, rack_id);
+    let url = format!(
+        "{}/product-racks/{}/{}",
+        config.backend, product_id, rack_id
+    );
     let response = reqwest::get(url).await?;
     if response.status() == 404 {
         return Ok(None);

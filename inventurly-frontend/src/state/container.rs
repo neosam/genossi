@@ -1,13 +1,13 @@
-use rest_types::RackTO;
+use rest_types::ContainerTO;
 
 #[derive(Clone)]
-pub struct Rack {
-    pub items: Vec<RackTO>,
+pub struct Container {
+    pub items: Vec<ContainerTO>,
     pub loading: bool,
     pub error: Option<String>,
 }
 
-impl Default for Rack {
+impl Default for Container {
     fn default() -> Self {
         Self {
             items: vec![],
