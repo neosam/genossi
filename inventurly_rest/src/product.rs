@@ -11,6 +11,7 @@ use inventurly_rest_types::ProductTO;
 use inventurly_service::product::ProductService;
 use tracing::instrument;
 use utoipa::OpenApi;
+use uuid::Uuid;
 
 use crate::{error_handler, Context, RestStateDef};
 
@@ -24,10 +25,14 @@ pub fn generate_route<RestState: RestStateDef>() -> Router<RestState> {
     Router::new()
         .route("/", get(get_all_products::<RestState>))
         .route("/search", get(search_products::<RestState>))
-        .route("/{ean}", get(get_product::<RestState>))
+        .route("/{id}", get(get_product::<RestState>))
         .route("/", post(create_product::<RestState>))
-        .route("/{ean}", put(update_product::<RestState>))
-        .route("/{ean}", delete(delete_product::<RestState>))
+        .route("/{id}", put(update_product::<RestState>))
+        .route("/{id}", delete(delete_product::<RestState>))
+        // EAN-based endpoints for backward compatibility
+        .route("/by-ean/{ean}", get(get_product_by_ean::<RestState>))
+        .route("/by-ean/{ean}", put(update_product_by_ean::<RestState>))
+        .route("/by-ean/{ean}", delete(delete_product_by_ean::<RestState>))
 }
 
 #[instrument(skip(rest_state))]
@@ -114,13 +119,13 @@ pub async fn search_products<RestState: RestStateDef>(
 #[instrument(skip(rest_state))]
 #[utoipa::path(
     get,
-    path = "/{ean}",
+    path = "/{id}",
     tag = "Products",
     params(
-        ("ean", description = "Product EAN", example = "4260474470041"),
+        ("id", description = "Product ID"),
     ),
     responses(
-        (status = 200, description = "Get product by EAN", body = ProductTO),
+        (status = 200, description = "Get product by ID", body = ProductTO),
         (status = 404, description = "Product not found"),
         (status = 500, description = "Internal server error"),
     ),
@@ -128,14 +133,14 @@ pub async fn search_products<RestState: RestStateDef>(
 pub async fn get_product<RestState: RestStateDef>(
     rest_state: State<RestState>,
     Extension(context): Extension<Context>,
-    Path(ean): Path<String>,
+    Path(id): Path<Uuid>,
 ) -> Response {
     error_handler(
         (async {
             let product = ProductTO::from(
                 &rest_state
                     .product_service()
-                    .get_by_ean(&ean, context.auth, None)
+                    .get_by_id(id, context.auth, None)
                     .await?,
             );
             Ok(Response::builder()
@@ -186,10 +191,10 @@ pub async fn create_product<RestState: RestStateDef>(
 #[instrument(skip(rest_state))]
 #[utoipa::path(
     put,
-    path = "/{ean}",
+    path = "/{id}",
     tag = "Products",
     params(
-        ("ean", description = "Product EAN", example = "4260474470041"),
+        ("id", description = "Product ID"),
     ),
     request_body = ProductTO,
     responses(
@@ -200,6 +205,118 @@ pub async fn create_product<RestState: RestStateDef>(
     ),
 )]
 pub async fn update_product<RestState: RestStateDef>(
+    rest_state: State<RestState>,
+    Extension(context): Extension<Context>,
+    Path(id): Path<Uuid>,
+    Json(mut product): Json<ProductTO>,
+) -> Response {
+    error_handler(
+        (async {
+            // Ensure the ID in the path matches the product
+            product.id = Some(id);
+            
+            let updated = ProductTO::from(
+                &rest_state
+                    .product_service()
+                    .update(&(&product).into(), context.auth, None)
+                    .await?,
+            );
+            Ok(Response::builder()
+                .status(200)
+                .header("Content-Type", "application/json")
+                .body(Body::new(serde_json::to_string(&updated).unwrap()))
+                .unwrap())
+        })
+        .await,
+    )
+}
+
+#[instrument(skip(rest_state))]
+#[utoipa::path(
+    delete,
+    path = "/{id}",
+    tag = "Products",
+    params(
+        ("id", description = "Product ID"),
+    ),
+    responses(
+        (status = 204, description = "Product deleted successfully"),
+        (status = 404, description = "Product not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
+pub async fn delete_product<RestState: RestStateDef>(
+    rest_state: State<RestState>,
+    Extension(context): Extension<Context>,
+    Path(id): Path<Uuid>,
+) -> Response {
+    error_handler(
+        (async {
+            rest_state
+                .product_service()
+                .delete(id, context.auth, None)
+                .await?;
+            Ok(Response::builder().status(204).body(Body::empty()).unwrap())
+        })
+        .await,
+    )
+}
+
+// EAN-based endpoints for backward compatibility
+#[instrument(skip(rest_state))]
+#[utoipa::path(
+    get,
+    path = "/by-ean/{ean}",
+    tag = "Products",
+    params(
+        ("ean", description = "Product EAN", example = "4260474470041"),
+    ),
+    responses(
+        (status = 200, description = "Get product by EAN", body = ProductTO),
+        (status = 404, description = "Product not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
+pub async fn get_product_by_ean<RestState: RestStateDef>(
+    rest_state: State<RestState>,
+    Extension(context): Extension<Context>,
+    Path(ean): Path<String>,
+) -> Response {
+    error_handler(
+        (async {
+            let product = ProductTO::from(
+                &rest_state
+                    .product_service()
+                    .get_by_ean(&ean, context.auth, None)
+                    .await?,
+            );
+            Ok(Response::builder()
+                .status(200)
+                .header("Content-Type", "application/json")
+                .body(Body::new(serde_json::to_string(&product).unwrap()))
+                .unwrap())
+        })
+        .await,
+    )
+}
+
+#[instrument(skip(rest_state))]
+#[utoipa::path(
+    put,
+    path = "/by-ean/{ean}",
+    tag = "Products",
+    params(
+        ("ean", description = "Product EAN", example = "4260474470041"),
+    ),
+    request_body = ProductTO,
+    responses(
+        (status = 200, description = "Update product by EAN", body = ProductTO),
+        (status = 400, description = "Validation error"),
+        (status = 404, description = "Product not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
+pub async fn update_product_by_ean<RestState: RestStateDef>(
     rest_state: State<RestState>,
     Extension(context): Extension<Context>,
     Path(ean): Path<String>,
@@ -235,7 +352,7 @@ pub async fn update_product<RestState: RestStateDef>(
 #[instrument(skip(rest_state))]
 #[utoipa::path(
     delete,
-    path = "/{ean}",
+    path = "/by-ean/{ean}",
     tag = "Products",
     params(
         ("ean", description = "Product EAN", example = "4260474470041"),
@@ -246,7 +363,7 @@ pub async fn update_product<RestState: RestStateDef>(
         (status = 500, description = "Internal server error"),
     ),
 )]
-pub async fn delete_product<RestState: RestStateDef>(
+pub async fn delete_product_by_ean<RestState: RestStateDef>(
     rest_state: State<RestState>,
     Extension(context): Extension<Context>,
     Path(ean): Path<String>,
@@ -277,7 +394,10 @@ pub async fn delete_product<RestState: RestStateDef>(
         get_product,
         create_product,
         update_product,
-        delete_product
+        delete_product,
+        get_product_by_ean,
+        update_product_by_ean,
+        delete_product_by_ean
     ),
     components(
         schemas(ProductTO, inventurly_rest_types::Price)

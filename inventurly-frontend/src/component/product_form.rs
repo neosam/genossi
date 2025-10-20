@@ -4,6 +4,8 @@ use rest_types::{ProductTO, Price};
 use crate::i18n::{use_i18n, Key};
 use crate::router::Route;
 use crate::component::{BarcodeScanner, ScanResult};
+use crate::api;
+use crate::service::config::CONFIG;
 
 #[component]
 pub fn ProductForm(product_id: Option<Uuid>) -> Element {
@@ -26,9 +28,69 @@ pub fn ProductForm(product_id: Option<Uuid>) -> Element {
     let error = use_signal(|| None::<String>);
     let mut show_scanner = use_signal(|| false);
     
+    // Load existing product data if editing
+    use_effect(move || {
+        if let Some(id) = product_id {
+            spawn({
+                let mut product = product.clone();
+                let mut loading = loading.clone();
+                let mut error = error.clone();
+                
+                async move {
+                    loading.set(true);
+                    let config = CONFIG.read().clone();
+                    
+                    match api::get_product(&config, id).await {
+                        Ok(product_data) => {
+                            *product.write() = product_data;
+                            error.set(None);
+                        }
+                        Err(e) => {
+                            error.set(Some(format!("Failed to load product: {}", e)));
+                        }
+                    }
+                    
+                    loading.set(false);
+                }
+            });
+        }
+    });
+    
     let save_product = move |_| {
-        // For now, just navigate back - actual save will be implemented later
-        nav.push(Route::Products {});
+        spawn({
+            let product = product.clone();
+            let mut loading = loading.clone();
+            let mut error = error.clone();
+            let nav = nav.clone();
+            
+            async move {
+                loading.set(true);
+                error.set(None);
+                
+                let config = CONFIG.read().clone();
+                let product_data = product.read().clone();
+                
+                let result = if product_data.id.is_some() {
+                    // Update existing product
+                    api::update_product(&config, product_data).await
+                } else {
+                    // Create new product
+                    api::create_product(&config, product_data).await
+                };
+                
+                match result {
+                    Ok(_) => {
+                        // Navigate to products list on success
+                        nav.push(Route::Products {});
+                    }
+                    Err(e) => {
+                        error.set(Some(format!("Failed to save product: {}", e)));
+                    }
+                }
+                
+                loading.set(false);
+            }
+        });
     };
     
     rsx! {
@@ -50,7 +112,6 @@ pub fn ProductForm(product_id: Option<Uuid>) -> Element {
             }
             
             form {
-                onsubmit: save_product,
                 
                 div { class: "mb-4",
                     label { class: "block text-sm font-medium text-gray-700 mb-2",
@@ -144,8 +205,9 @@ pub fn ProductForm(product_id: Option<Uuid>) -> Element {
                 div { class: "flex gap-4",
                     button {
                         class: "px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50",
-                        r#type: "submit",
+                        r#type: "button",
                         disabled: *loading.read(),
+                        onclick: save_product,
                         {i18n.t(Key::Save)}
                     }
                     button {
