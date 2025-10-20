@@ -5,6 +5,7 @@ use crate::i18n::{use_i18n, Key};
 use crate::router::Route;
 use crate::api;
 use crate::service::config::CONFIG;
+use crate::service::rack::RACKS;
 
 #[component]
 pub fn RackForm(rack_id: Option<Uuid>) -> Element {
@@ -76,6 +77,20 @@ pub fn RackForm(rack_id: Option<Uuid>) -> Element {
                     Ok(saved_rack) => {
                         // Update the rack with the returned data (includes ID for new racks)
                         *rack.write() = saved_rack;
+                        
+                        // Reload the racks list to include the new/updated rack
+                        RACKS.write().loading = true;
+                        match api::get_racks(&config).await {
+                            Ok(racks) => {
+                                RACKS.write().items = racks;
+                                RACKS.write().error = None;
+                            }
+                            Err(e) => {
+                                RACKS.write().error = Some(format!("Failed to reload racks: {}", e));
+                            }
+                        }
+                        RACKS.write().loading = false;
+                        
                         // Navigate to rack list on success
                         nav.push(Route::Racks {});
                     }
