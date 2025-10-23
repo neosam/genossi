@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use rest_types::{
     AddProductToRackRequestTO, CheckDuplicateRequestTO, ContainerTO, DuplicateDetectionResultTO,
-    ProductRackTO, ProductTO, RackTO, UserTO,
+    DuplicateMatchTO, ProductRackTO, ProductTO, RackTO, UserTO,
 };
 use tracing::info;
 use uuid::Uuid;
@@ -161,7 +161,7 @@ pub async fn search_products(
 pub async fn check_duplicates(
     config: &Config,
     request: CheckDuplicateRequestTO,
-) -> Result<DuplicateDetectionResultTO, reqwest::Error> {
+) -> Result<Vec<DuplicateMatchTO>, reqwest::Error> {
     info!("Checking for duplicate products");
     let url = format!("{}/duplicate-detection/check", config.backend);
     let client = reqwest::Client::new();
@@ -169,6 +169,33 @@ pub async fn check_duplicates(
     response.error_for_status_ref()?;
     let res = response.json().await?;
     info!("Duplicate check completed");
+    Ok(res)
+}
+
+#[allow(dead_code)]
+pub async fn find_all_duplicates(
+    config: &Config,
+) -> Result<Vec<DuplicateDetectionResultTO>, reqwest::Error> {
+    info!("Finding all duplicate products");
+    let url = format!("{}/duplicate-detection/products", config.backend);
+    let response = reqwest::get(url).await?;
+    response.error_for_status_ref()?;
+    let res = response.json().await?;
+    info!("Find all duplicates completed");
+    Ok(res)
+}
+
+#[allow(dead_code)]
+pub async fn find_duplicates_by_ean(
+    config: &Config,
+    ean: &str,
+) -> Result<DuplicateDetectionResultTO, reqwest::Error> {
+    info!("Finding duplicates for product: {ean}");
+    let url = format!("{}/duplicate-detection/products/{}", config.backend, ean);
+    let response = reqwest::get(url).await?;
+    response.error_for_status_ref()?;
+    let res = response.json().await?;
+    info!("Find duplicates by EAN completed");
     Ok(res)
 }
 

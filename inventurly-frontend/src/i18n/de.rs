@@ -101,6 +101,77 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::DuplicatesFound => "Mögliche Duplikate gefunden",
         Key::NoDuplicatesFound => "Keine Duplikate gefunden",
         Key::SimilarityScore => "Ähnlichkeitswert",
+        
+        // Duplicate Detection Page
+        Key::DetectionMode => "Erkennungsmodus",
+        Key::ScanAllProducts => "Alle Produkte scannen",
+        Key::CheckSpecificProduct => "Bestimmtes Produkt prüfen",
+        Key::CheckNewProduct => "Neues Produkt prüfen",
+        Key::DetectionSettings => "Erkennungseinstellungen",
+        Key::SimilarityThreshold => "Ähnlichkeitsschwellenwert",
+        Key::ExactMatchWeight => "Gewichtung Exakte Übereinstimmung",
+        Key::WordOrderWeight => "Gewichtung Wortreihenfolge",
+        Key::LevenshteinWeight => "Gewichtung Levenshtein",
+        Key::JaroWinklerWeight => "Gewichtung Jaro-Winkler",
+        Key::CategoryAware => "Kategoriebasierte Erkennung",
+        Key::CategoryAwareDescription => "Kategoriebasierte Übereinstimmung (berücksichtigt Verkaufseinheit und Wiegeerfordernis)",
+        Key::ResetToDefaults => "Auf Standardwerte zurücksetzen",
+        Key::ThresholdDescription => "Niedrigere Werte finden mehr potentielle Duplikate, höhere Werte sind konservativer",
+        
+        // Duplicate Detection Actions
+        Key::StartScan => "Scan starten",
+        Key::Scanning => "Scannen...",
+        Key::CheckProduct => "Produkt prüfen",
+        Key::Checking => "Prüfen...",
+        Key::CheckForDuplicates => "Auf Duplikate prüfen",
+        Key::Processing => "Verarbeitung...",
+        
+        // Duplicate Detection Messages
+        Key::NoScanPerformed => "Noch kein Scan durchgeführt",
+        Key::ClickStartScanDescription => "Klicken Sie auf 'Scan starten', um alle Duplikate in Ihrer Produktdatenbank zu finden",
+        Key::NoProductChecked => "Noch kein Produkt geprüft",
+        Key::SelectProductDescription => "Wählen Sie ein Produkt aus und klicken Sie auf 'Produkt prüfen', um Duplikate zu finden",
+        Key::EnterProductDescription => "Geben Sie Produktdetails ein und klicken Sie auf 'Auf Duplikate prüfen'",
+        
+        // Product Form
+        Key::ProductNamePlaceholder => "Produktname",
+        Key::SalesUnitPlaceholder => "Verkaufseinheit (z.B. 100g)",
+        Key::RequiresWeighing => "Wiegeartikel",
+        Key::SelectProductOption => "Produkt auswählen...",
+        
+        // Algorithm Names
+        Key::ExactMatch => "Exakte Übereinstimmung",
+        Key::WordOrder => "Wortreihenfolge",
+        Key::Levenshtein => "Levenshtein",
+        Key::JaroWinkler => "Jaro-Winkler",
+        Key::Category => "Kategorie",
+        Key::AlgorithmBreakdown => "Algorithmus-Aufschlüsselung",
+        
+        // Confidence Levels
+        Key::VeryHigh => "Sehr hoch",
+        Key::High => "Hoch",
+        Key::Medium => "Mittel",
+        Key::Low => "Niedrig",
+        
+        // Actions
+        Key::ViewProduct => "Produkt anzeigen",
+        Key::SuggestMerge => "Zusammenführung vorschlagen",
+        
+        // Results
+        Key::PotentialDuplicateMatches => "Potentielle Duplikatsübereinstimmungen",
+        Key::OriginalProduct => "Originalprodukt",
+        Key::PotentialDuplicatesFound => "potentielle Duplikate gefunden",
+        
+        // Page Description
+        Key::DuplicateDetectionDescription => "Finden Sie potentielle Duplikatsprodukte mit fortschrittlichen Ähnlichkeitsalgorithmen",
+        
+        // Expandable UI
+        Key::ShowDetails => "Details anzeigen",
+        Key::HideDetails => "Details ausblenden",
+        Key::ExpandAll => "Alle erweitern",
+        Key::CollapseAll => "Alle einklappen",
+        Key::Summary => "Zusammenfassung",
+        Key::Details => "Details",
     }
     .into()
 }

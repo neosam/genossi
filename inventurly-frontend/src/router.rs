@@ -2,6 +2,7 @@ use dioxus::prelude::*;
 
 pub use crate::page::ContainerDetails;
 pub use crate::page::Containers;
+pub use crate::page::DuplicateDetection;
 pub use crate::page::Home;
 pub use crate::page::ProductDetails;
 pub use crate::page::Products;
@@ -16,6 +17,8 @@ pub enum Route {
     Products {},
     #[route("/inventory/:id")]
     ProductDetails { id: String },
+    #[route("/inventory/duplicates")]
+    DuplicateDetection {},
     #[route("/rack-management")]
     Racks {},
     #[route("/rack-management/:id")]

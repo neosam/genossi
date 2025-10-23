@@ -2,6 +2,7 @@ pub mod auth;
 pub mod config;
 pub mod container;
 pub mod dropdown;
+pub mod duplicate_detection;
 pub mod error;
 pub mod i18n;
 pub mod product;

@@ -103,7 +103,7 @@ impl<'de> Deserialize<'de> for Price {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct ProductTO {
     pub id: Option<Uuid>,
     pub ean: String,
@@ -161,7 +161,7 @@ pub struct PermissionTO {
 }
 
 // Duplicate Detection types
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct DuplicateDetectionConfigTO {
     pub similarity_threshold: f64,
     pub exact_match_weight: f64,
@@ -171,7 +171,7 @@ pub struct DuplicateDetectionConfigTO {
     pub category_aware: bool,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct AlgorithmScoresTO {
     pub exact_match: f64,
     pub word_order: f64,
@@ -180,7 +180,7 @@ pub struct AlgorithmScoresTO {
     pub category_score: f64,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum MatchConfidenceTO {
     VeryHigh,
     High,
@@ -188,7 +188,7 @@ pub enum MatchConfidenceTO {
     Low,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct DuplicateMatchTO {
     pub product: ProductTO,
     pub similarity_score: f64,
@@ -196,7 +196,7 @@ pub struct DuplicateMatchTO {
     pub confidence: MatchConfidenceTO,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct DuplicateDetectionResultTO {
     pub checked_product: ProductTO,
     pub matches: Vec<DuplicateMatchTO>,

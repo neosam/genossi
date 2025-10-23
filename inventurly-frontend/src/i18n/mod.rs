@@ -153,6 +153,77 @@ pub enum Key {
     DuplicatesFound,
     NoDuplicatesFound,
     SimilarityScore,
+    
+    // Duplicate Detection Page
+    DetectionMode,
+    ScanAllProducts,
+    CheckSpecificProduct,
+    CheckNewProduct,
+    DetectionSettings,
+    SimilarityThreshold,
+    ExactMatchWeight,
+    WordOrderWeight,
+    LevenshteinWeight,
+    JaroWinklerWeight,
+    CategoryAware,
+    CategoryAwareDescription,
+    ResetToDefaults,
+    ThresholdDescription,
+    
+    // Duplicate Detection Actions
+    StartScan,
+    Scanning,
+    CheckProduct,
+    Checking,
+    CheckForDuplicates,
+    Processing,
+    
+    // Duplicate Detection Messages
+    NoScanPerformed,
+    ClickStartScanDescription,
+    NoProductChecked,
+    SelectProductDescription,
+    EnterProductDescription,
+    
+    // Product Form
+    ProductNamePlaceholder,
+    SalesUnitPlaceholder,
+    RequiresWeighing,
+    SelectProductOption,
+    
+    // Algorithm Names
+    ExactMatch,
+    WordOrder,
+    Levenshtein,
+    JaroWinkler,
+    Category,
+    AlgorithmBreakdown,
+    
+    // Confidence Levels
+    VeryHigh,
+    High,
+    Medium,
+    Low,
+    
+    // Actions
+    ViewProduct,
+    SuggestMerge,
+    
+    // Results
+    PotentialDuplicateMatches,
+    OriginalProduct,
+    PotentialDuplicatesFound,
+    
+    // Page Description
+    DuplicateDetectionDescription,
+    
+    // Expandable UI
+    ShowDetails,
+    HideDetails,
+    ExpandAll,
+    CollapseAll,
+    Summary,
+    Details,
 }
 
 pub struct I18n {

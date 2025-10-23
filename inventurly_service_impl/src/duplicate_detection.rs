@@ -110,6 +110,17 @@ impl<Deps: DuplicateDetectionServiceDeps> DuplicateDetectionService
             }
         }
 
+        // Sort results by highest similarity score found in each result's matches (highest first)
+        results.sort_by(|a, b| {
+            let max_score_a = a.matches.iter()
+                .map(|m| m.similarity_score)
+                .fold(0.0, f64::max);
+            let max_score_b = b.matches.iter()
+                .map(|m| m.similarity_score)
+                .fold(0.0, f64::max);
+            max_score_b.partial_cmp(&max_score_a).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
         self.transaction_dao.commit(tx).await?;
         Ok(results)
     }

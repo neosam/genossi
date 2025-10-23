@@ -101,6 +101,77 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::DuplicatesFound => "Potential duplicates found",
         Key::NoDuplicatesFound => "No duplicates found",
         Key::SimilarityScore => "Similarity Score",
+        
+        // Duplicate Detection Page
+        Key::DetectionMode => "Detection Mode",
+        Key::ScanAllProducts => "Scan All Products",
+        Key::CheckSpecificProduct => "Check Specific Product",
+        Key::CheckNewProduct => "Check New Product",
+        Key::DetectionSettings => "Detection Settings",
+        Key::SimilarityThreshold => "Similarity Threshold",
+        Key::ExactMatchWeight => "Exact Match Weight",
+        Key::WordOrderWeight => "Word Order Weight",
+        Key::LevenshteinWeight => "Levenshtein Weight",
+        Key::JaroWinklerWeight => "Jaro-Winkler Weight",
+        Key::CategoryAware => "Category-aware matching",
+        Key::CategoryAwareDescription => "Category-aware matching (considers sales unit and weighing requirements)",
+        Key::ResetToDefaults => "Reset to Defaults",
+        Key::ThresholdDescription => "Lower values find more potential duplicates, higher values are more conservative",
+        
+        // Duplicate Detection Actions
+        Key::StartScan => "Start Scan",
+        Key::Scanning => "Scanning...",
+        Key::CheckProduct => "Check Product",
+        Key::Checking => "Checking...",
+        Key::CheckForDuplicates => "Check for Duplicates",
+        Key::Processing => "Processing...",
+        
+        // Duplicate Detection Messages
+        Key::NoScanPerformed => "No scan performed yet",
+        Key::ClickStartScanDescription => "Click 'Start Scan' to find all duplicates in your product database",
+        Key::NoProductChecked => "No product checked yet",
+        Key::SelectProductDescription => "Select a product and click 'Check Product' to find duplicates",
+        Key::EnterProductDescription => "Enter product details and click 'Check for Duplicates'",
+        
+        // Product Form
+        Key::ProductNamePlaceholder => "Product name",
+        Key::SalesUnitPlaceholder => "Sales unit (e.g., 100g)",
+        Key::RequiresWeighing => "Requires weighing",
+        Key::SelectProductOption => "Select a product...",
+        
+        // Algorithm Names
+        Key::ExactMatch => "Exact Match",
+        Key::WordOrder => "Word Order",
+        Key::Levenshtein => "Levenshtein",
+        Key::JaroWinkler => "Jaro-Winkler",
+        Key::Category => "Category",
+        Key::AlgorithmBreakdown => "Algorithm Breakdown",
+        
+        // Confidence Levels
+        Key::VeryHigh => "Very High",
+        Key::High => "High",
+        Key::Medium => "Medium",
+        Key::Low => "Low",
+        
+        // Actions
+        Key::ViewProduct => "View Product",
+        Key::SuggestMerge => "Suggest Merge",
+        
+        // Results
+        Key::PotentialDuplicateMatches => "Potential Duplicate Matches",
+        Key::OriginalProduct => "Original Product",
+        Key::PotentialDuplicatesFound => "potential duplicates found",
+        
+        // Page Description
+        Key::DuplicateDetectionDescription => "Find potential duplicate products using advanced similarity algorithms",
+        
+        // Expandable UI
+        Key::ShowDetails => "Show Details",
+        Key::HideDetails => "Hide Details",
+        Key::ExpandAll => "Expand All",
+        Key::CollapseAll => "Collapse All",
+        Key::Summary => "Summary",
+        Key::Details => "Details",
     }
     .into()
 }
