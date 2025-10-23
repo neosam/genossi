@@ -140,7 +140,7 @@ async fn test_create_and_get_person_integration() {
         .person_service()
         .get(
             person_id,
-            Authentication::Context(inventurly_service::permission::MockContext),
+            Authentication::Full,
             None,
         )
         .await
@@ -216,7 +216,7 @@ async fn test_create_multiple_persons_and_get_all() {
         .person_service()
         .create(
             &person2,
-            Authentication::Context(inventurly_service::permission::MockContext),
+            Authentication::Full,
             None,
         )
         .await

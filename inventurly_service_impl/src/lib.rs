@@ -8,6 +8,7 @@ pub mod product;
 pub mod product_rack;
 pub mod rack;
 pub mod session;
+pub mod user_service;
 pub mod uuid_service;
 
 pub use permission::PermissionServiceImpl;

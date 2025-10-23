@@ -1,5 +1,3 @@
-#[cfg(feature = "oidc")]
-use std::sync::Arc;
 
 use axum::extract::Request;
 use axum::extract::State;
@@ -97,11 +95,41 @@ pub async fn context_extractor<RestState: RestStateDef>(
         None
     };
 
+    #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
     let context = Context {
         auth: inventurly_service::permission::Authentication::Context(
             inventurly_service::permission::MockContext,
         ),
         auth_context,
+    };
+    
+    #[cfg(feature = "oidc")]
+    let context = {
+        let auth = if let Some(ref auth_ctx) = auth_context {
+            match auth_ctx {
+                inventurly_service::auth_types::AuthContext::Mock(mock_ctx) => {
+                    inventurly_service::permission::Authentication::Context(
+                        inventurly_service::auth_types::AuthenticatedContext {
+                            user_id: mock_ctx.user_id.clone(),
+                        },
+                    )
+                }
+                inventurly_service::auth_types::AuthContext::Oidc(user_id) => {
+                    inventurly_service::permission::Authentication::Context(
+                        inventurly_service::auth_types::AuthenticatedContext {
+                            user_id: user_id.clone(),
+                        },
+                    )
+                }
+            }
+        } else {
+            inventurly_service::permission::Authentication::Full
+        };
+        
+        Context {
+            auth,
+            auth_context,
+        }
     };
 
     request.extensions_mut().insert(context);

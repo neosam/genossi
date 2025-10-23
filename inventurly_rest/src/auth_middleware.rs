@@ -5,6 +5,10 @@ use axum::{
     response::Response,
 };
 use inventurly_service::{auth_types::AuthContext, permission::PermissionService, ServiceError};
+#[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
+use inventurly_service::permission::MockContext;
+#[cfg(feature = "oidc")]
+use inventurly_service::auth_types::AuthenticatedContext;
 
 use crate::RestStateDef;
 
@@ -59,13 +63,25 @@ pub async fn require_admin<S: RestStateDef>(
             // Check if user has admin privilege
             let permission_service = state.permission_service();
 
-            // Convert AuthContext to MockContext for the permission service
-            let mock_context = match auth_context {
-                AuthContext::Mock(_) => inventurly_service::permission::MockContext,
+            // Convert AuthContext to appropriate context for the permission service
+            #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
+            let context = match auth_context {
+                AuthContext::Mock(_) => MockContext,
                 #[cfg(feature = "oidc")]
-                AuthContext::Oidc(_) => inventurly_service::permission::MockContext, // For now, treat OIDC as mock
+                AuthContext::Oidc(_) => unreachable!("OIDC should not be available with mock_auth"),
             };
-            let auth = inventurly_service::permission::Authentication::Context(mock_context);
+            
+            #[cfg(feature = "oidc")]
+            let context = match auth_context {
+                AuthContext::Mock(mock_ctx) => AuthenticatedContext {
+                    user_id: mock_ctx.user_id.clone(),
+                },
+                AuthContext::Oidc(user_id) => AuthenticatedContext {
+                    user_id: user_id.clone(),
+                },
+            };
+            
+            let auth = inventurly_service::permission::Authentication::Context(context);
 
             match permission_service.check_permission("admin", auth).await {
                 Ok(()) => next.run(request).await,
@@ -160,10 +176,17 @@ fn extract_bearer_token(auth_str: &str) -> Option<String> {
 pub fn mock_auth_context() -> crate::Context {
     // In development mode, always inject DEVUSER context
     let mock_context = AuthContext::Mock(inventurly_service::auth_types::MockContext::default());
+    
+    #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
+    let auth = inventurly_service::permission::Authentication::Context(MockContext);
+    
+    #[cfg(feature = "oidc")]
+    let auth = inventurly_service::permission::Authentication::Context(AuthenticatedContext {
+        user_id: "DEVUSER".into(),
+    });
+    
     crate::Context {
-        auth: inventurly_service::permission::Authentication::Context(
-            inventurly_service::permission::MockContext,
-        ),
+        auth,
         auth_context: Some(mock_context),
     }
 }

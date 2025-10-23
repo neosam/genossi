@@ -4,8 +4,12 @@ use inventurly_dao_impl_sqlite::{
     container::SqliteContainerDao, person::PersonDaoImpl, product::ProductDaoImpl,
     product_rack::ProductRackDaoImpl, rack::RackDaoImpl, TransactionDaoImpl, TransactionImpl,
 };
+#[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
 use inventurly_service::permission::MockContext;
+#[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
 use inventurly_service::user_service::MockUserService;
+#[cfg(feature = "oidc")]
+use inventurly_service::auth_types::AuthenticatedContext;
 use inventurly_service_impl::{
     container::{ContainerServiceDeps, ContainerServiceImpl},
     csv_import::{CsvImportServiceDeps, CsvImportServiceImpl},
@@ -19,7 +23,10 @@ use inventurly_service_impl::{
 use sqlx::SqlitePool;
 
 // Type aliases for clarity
+#[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
 type Context = MockContext;
+#[cfg(feature = "oidc")]
+type Context = AuthenticatedContext;
 type Transaction = TransactionImpl;
 type TransactionDao = TransactionDaoImpl;
 type PersonDao = PersonDaoImpl;
@@ -33,7 +40,10 @@ type PermissionDao = inventurly_dao::permission::MockPermissionDao;
 #[cfg(feature = "oidc")]
 type PermissionDao = inventurly_dao_impl_sqlite::permission::PermissionDaoImpl;
 type UuidService = inventurly_service_impl::uuid_service::UuidServiceImpl;
+#[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
 type UserService = MockUserService;
+#[cfg(feature = "oidc")]
+type UserService = inventurly_service_impl::user_service::AuthContextUserService;
 
 // Define dependency structures
 pub struct PermissionServiceDependencies;
@@ -226,7 +236,10 @@ impl RestStateImpl {
             Arc::new(inventurly_dao_impl_sqlite::permission::PermissionDaoImpl::new(pool.clone()));
 
         // Create services
-        let user_service = Arc::new(inventurly_service::user_service::MockUserService);
+        #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
+        let user_service = Arc::new(MockUserService);
+        #[cfg(feature = "oidc")]
+        let user_service = Arc::new(inventurly_service_impl::user_service::AuthContextUserService);
         let uuid_service = Arc::new(UuidService::new());
 
         // Create PermissionService using struct literal syntax

@@ -87,7 +87,10 @@ struct MockPersonService;
 
 #[async_trait::async_trait]
 impl PersonService for MockPersonService {
+    #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
     type Context = MockContext;
+    #[cfg(feature = "oidc")]
+    type Context = inventurly_service::auth_types::AuthenticatedContext;
     type Transaction = inventurly_dao::MockTransaction;
 
     async fn get_all(
@@ -190,7 +193,10 @@ struct MockProductService;
 
 #[async_trait::async_trait]
 impl ProductService for MockProductService {
+    #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
     type Context = MockContext;
+    #[cfg(feature = "oidc")]
+    type Context = inventurly_service::auth_types::AuthenticatedContext;
     type Transaction = inventurly_dao::MockTransaction;
 
     async fn get_all(
@@ -266,7 +272,10 @@ struct MockRackService;
 
 #[async_trait::async_trait]
 impl RackService for MockRackService {
+    #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
     type Context = MockContext;
+    #[cfg(feature = "oidc")]
+    type Context = inventurly_service::auth_types::AuthenticatedContext;
     type Transaction = inventurly_dao::MockTransaction;
 
     async fn get_all(
@@ -369,7 +378,10 @@ struct MockProductRackService;
 
 #[async_trait::async_trait]
 impl ProductRackService for MockProductRackService {
+    #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
     type Context = MockContext;
+    #[cfg(feature = "oidc")]
+    type Context = inventurly_service::auth_types::AuthenticatedContext;
     type Transaction = inventurly_dao::MockTransaction;
 
     async fn add_product_to_rack(
@@ -443,7 +455,10 @@ struct MockCsvImportService;
 
 #[async_trait::async_trait]
 impl CsvImportService for MockCsvImportService {
+    #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
     type Context = MockContext;
+    #[cfg(feature = "oidc")]
+    type Context = inventurly_service::auth_types::AuthenticatedContext;
     type Transaction = inventurly_dao::MockTransaction;
 
     async fn import_products_csv(
@@ -475,7 +490,10 @@ struct MockDuplicateDetectionService;
 
 #[async_trait::async_trait]
 impl DuplicateDetectionService for MockDuplicateDetectionService {
+    #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
     type Context = MockContext;
+    #[cfg(feature = "oidc")]
+    type Context = inventurly_service::auth_types::AuthenticatedContext;
     type Transaction = inventurly_dao::MockTransaction;
 
     async fn find_duplicates(
@@ -517,7 +535,10 @@ struct MockPermissionService;
 
 #[async_trait::async_trait]
 impl PermissionService for MockPermissionService {
+    #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
     type Context = MockContext;
+    #[cfg(feature = "oidc")]
+    type Context = inventurly_service::auth_types::AuthenticatedContext;
 
     async fn check_permission(
         &self,
@@ -736,7 +757,10 @@ struct MockContainerService;
 
 #[async_trait::async_trait]
 impl ContainerService for MockContainerService {
+    #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
     type Context = MockContext;
+    #[cfg(feature = "oidc")]
+    type Context = inventurly_service::auth_types::AuthenticatedContext;
     type Transaction = inventurly_dao::MockTransaction;
 
     async fn get_all(

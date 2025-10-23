@@ -668,10 +668,24 @@ pub async fn get_user_privileges<RestState: RestStateDef>(
 // Helper functions
 
 /// Extract authentication context from the Context
+#[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
 fn extract_auth_context(
     context: &Option<Context>,
 ) -> Result<
     inventurly_service::permission::Authentication<inventurly_service::permission::MockContext>,
+    RestError,
+> {
+    match context {
+        Some(ctx) => Ok(ctx.auth.clone()),
+        None => Err(RestError::Unauthorized),
+    }
+}
+
+#[cfg(feature = "oidc")]
+fn extract_auth_context(
+    context: &Option<Context>,
+) -> Result<
+    inventurly_service::permission::Authentication<inventurly_service::auth_types::AuthenticatedContext>,
     RestError,
 > {
     match context {

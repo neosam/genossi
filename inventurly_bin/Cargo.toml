@@ -5,8 +5,16 @@ edition.workspace = true
 
 [features]
 default = ["mock_auth"]
-mock_auth = ["inventurly_service/mock_auth", "inventurly_service_impl/mock_auth", "inventurly_rest/mock_auth"]
-oidc = ["inventurly_service/oidc", "inventurly_service_impl/oidc", "inventurly_rest/oidc"]
+mock_auth = [
+    "inventurly_service/mock_auth",
+    "inventurly_service_impl/mock_auth",
+    "inventurly_rest/mock_auth",
+]
+oidc = [
+    "inventurly_service/oidc",
+    "inventurly_service_impl/oidc",
+    "inventurly_rest/oidc",
+]
 
 [[bin]]
 name = "inventurly"
@@ -35,5 +43,9 @@ utoipa-swagger-ui = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
 time = { workspace = true }
-reqwest = { version = "0.11", features = ["json", "multipart"] }
+reqwest = { version = "0.11", default-features = false, features = [
+    "json",
+    "multipart",
+    "rustls-tls",
+] }
 futures = "0.3"

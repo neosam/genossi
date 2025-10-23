@@ -103,6 +103,12 @@ pub struct MockContext {
     pub user_id: Arc<str>,
 }
 
+/// Authenticated user context (for real authentication like OIDC)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuthenticatedContext {
+    pub user_id: Arc<str>,
+}
+
 impl Default for MockContext {
     fn default() -> Self {
         Self {

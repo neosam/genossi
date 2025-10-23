@@ -15,8 +15,12 @@ use async_trait::async_trait;
 use axum::{body::Body, middleware, response::Response, Router};
 use inventurly_service::{
     auth_types::AuthContext,
-    permission::{Authentication, MockContext},
+    permission::Authentication,
 };
+#[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
+use inventurly_service::permission::MockContext;
+#[cfg(feature = "oidc")]
+use inventurly_service::auth_types::AuthenticatedContext;
 use std::sync::Arc;
 use tower_cookies::CookieManagerLayer;
 use tower_http::cors::CorsLayer;
@@ -29,19 +33,42 @@ use axum::response::{IntoResponse, Redirect};
 #[cfg(feature = "oidc")]
 use axum::routing::get;
 
+#[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
 #[derive(Clone, Debug)]
 pub struct Context {
     pub auth: Authentication<MockContext>,
     pub auth_context: Option<AuthContext>,
 }
 
+#[cfg(feature = "oidc")]
+#[derive(Clone, Debug)]
+pub struct Context {
+    pub auth: Authentication<AuthenticatedContext>,
+    pub auth_context: Option<AuthContext>,
+}
+
 impl Default for Context {
     fn default() -> Self {
-        Self {
-            auth: Authentication::Context(MockContext),
-            auth_context: Some(AuthContext::Mock(
-                inventurly_service::auth_types::MockContext::default(),
-            )),
+        #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
+        {
+            Self {
+                auth: Authentication::Context(MockContext),
+                auth_context: Some(AuthContext::Mock(
+                    inventurly_service::auth_types::MockContext::default(),
+                )),
+            }
+        }
+        
+        #[cfg(feature = "oidc")]
+        {
+            Self {
+                auth: Authentication::Context(AuthenticatedContext {
+                    user_id: "DEVUSER".into(), // Default for tests/development
+                }),
+                auth_context: Some(AuthContext::Mock(
+                    inventurly_service::auth_types::MockContext::default(),
+                )),
+            }
         }
     }
 }
@@ -95,37 +122,42 @@ pub fn error_handler(result: Result<Response, RestError>) -> Response {
     }
 }
 
+#[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
+type ContextType = MockContext;
+#[cfg(feature = "oidc")]
+type ContextType = AuthenticatedContext;
+
 #[async_trait]
 pub trait RestStateDef: Clone + Send + Sync + 'static {
-    type PersonService: inventurly_service::person::PersonService<Context = MockContext>
+    type PersonService: inventurly_service::person::PersonService<Context = ContextType>
         + Send
         + Sync
         + 'static;
-    type ProductService: inventurly_service::product::ProductService<Context = MockContext>
+    type ProductService: inventurly_service::product::ProductService<Context = ContextType>
         + Send
         + Sync
         + 'static;
-    type CsvImportService: inventurly_service::csv_import::CsvImportService<Context = MockContext>
+    type CsvImportService: inventurly_service::csv_import::CsvImportService<Context = ContextType>
         + Send
         + Sync
         + 'static;
-    type DuplicateDetectionService: inventurly_service::duplicate_detection::DuplicateDetectionService<Context = MockContext>
+    type DuplicateDetectionService: inventurly_service::duplicate_detection::DuplicateDetectionService<Context = ContextType>
         + Send
         + Sync
         + 'static;
-    type PermissionService: inventurly_service::permission::PermissionService<Context = MockContext>
+    type PermissionService: inventurly_service::permission::PermissionService<Context = ContextType>
         + Send
         + Sync
         + 'static;
-    type RackService: inventurly_service::rack::RackService<Context = MockContext>
+    type RackService: inventurly_service::rack::RackService<Context = ContextType>
         + Send
         + Sync
         + 'static;
-    type ProductRackService: inventurly_service::product_rack::ProductRackService<Context = MockContext>
+    type ProductRackService: inventurly_service::product_rack::ProductRackService<Context = ContextType>
         + Send
         + Sync
         + 'static;
-    type ContainerService: inventurly_service::container::ContainerService<Context = MockContext>
+    type ContainerService: inventurly_service::container::ContainerService<Context = ContextType>
         + Send
         + Sync
         + 'static;

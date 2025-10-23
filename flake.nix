@@ -51,6 +51,7 @@
             sqlx-cli
             sqlite
             nodejs
+            pkg-config
             # Weitere Tools die du brauchst
           ];
         };
