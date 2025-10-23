@@ -243,6 +243,9 @@ in
               priority = 100;
               extraConfig = ''
                 rewrite ^/api/(.*)$ /$1 break;
+                proxy_connect_timeout 60s;
+                proxy_send_timeout 600s;
+                proxy_read_timeout 600s;
               '';
             };
             locations."= /config.json" = {
