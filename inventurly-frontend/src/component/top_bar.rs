@@ -14,7 +14,18 @@ pub fn TopBar() -> Element {
     let backend_url = config.backend.clone();
     let mut visible = use_signal(|| false);
 
-    let show_products = auth_info.is_some();
+    let show_products = auth_info
+        .as_ref()
+        .map(|a| a.has_privilege("view_inventory"))
+        .unwrap_or(false);
+    let show_duplicates = auth_info
+        .as_ref()
+        .map(|a| a.has_privilege("detect_duplicates"))
+        .unwrap_or(false);
+    let show_permissions = auth_info
+        .as_ref()
+        .map(|a| a.has_privilege("manage_users") || a.has_privilege("admin"))
+        .unwrap_or(false);
 
     rsx! {
         div { class: "flex bg-gray-800 text-white p-4 md:p-0 items-center print:hidden",
@@ -47,6 +58,16 @@ pub fn TopBar() -> Element {
                         }
                         li {
                             Link { to: Route::Containers {}, {i18n.t(Key::Containers)} }
+                        }
+                    }
+                    if show_duplicates {
+                        li {
+                            Link { to: Route::DuplicateDetection {}, "Duplicate Detection" }
+                        }
+                    }
+                    if show_permissions {
+                        li {
+                            Link { to: Route::Permissions {}, {i18n.t(Key::Permissions)} }
                         }
                     }
                     if auth_info.is_some() {

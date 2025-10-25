@@ -25,6 +25,9 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::NotAuthenticated => "Nicht angemeldet",
         Key::WelcomeTitle => "Willkommen bei Inventurly",
         Key::PleaseLogin => "Bitte melden Sie sich an, um fortzufahren",
+        Key::AccessDenied => "Zugriff verweigert",
+        Key::InsufficientPrivileges => "Sie haben nicht die erforderlichen Berechtigungen für diese Seite.",
+        Key::BackToHome => "Zur Startseite",
 
         // Navigation
         Key::Home => "Startseite",

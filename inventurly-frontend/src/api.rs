@@ -19,7 +19,8 @@ pub async fn fetch_auth_info(backend_url: Rc<str>) -> Result<Option<AuthInfo>, r
     let user: UserTO = response.json().await?;
     let auth_info = AuthInfo {
         user: user.username.into(),
-        privileges: user.roles.into_iter().map(|r| r.into()).collect(),
+        roles: user.roles.into_iter().map(|r| r.into()).collect(),
+        privileges: user.privileges.into_iter().map(|p| p.into()).collect(),
         authenticated: true,
     };
     info!("Auth info fetched");

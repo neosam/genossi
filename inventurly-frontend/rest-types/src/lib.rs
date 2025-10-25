@@ -135,6 +135,7 @@ pub struct ProductTO {
 pub struct UserTO {
     pub username: String,
     pub roles: Vec<String>,
+    pub privileges: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

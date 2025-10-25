@@ -1,5 +1,7 @@
+use crate::auth::RequirePrivilege;
 use crate::component::{DuplicateConfigForm, DuplicateResultsList, TopBar};
 use crate::i18n::{use_i18n, Key};
+use crate::page::AccessDeniedPage;
 use crate::service::duplicate_detection::{
     check_duplicates, clear_error, find_all_duplicates, find_duplicates_by_ean, update_config,
     DUPLICATE_DETECTION,
@@ -55,7 +57,10 @@ pub fn DuplicateDetection() -> Element {
     };
 
     rsx! {
-        div { class: "flex flex-col min-h-screen",
+        RequirePrivilege {
+            privilege: "detect_duplicates",
+            fallback: rsx! { AccessDeniedPage { required_privilege: "detect_duplicates".to_string() } },
+            div { class: "flex flex-col min-h-screen",
             TopBar {}
             div { class: "flex-1 container mx-auto px-4 py-8",
                 div { class: "mb-6",
@@ -332,5 +337,6 @@ pub fn DuplicateDetection() -> Element {
                 }
             }
         }
+    }
     }
 }

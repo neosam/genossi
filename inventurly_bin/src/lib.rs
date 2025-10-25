@@ -34,10 +34,7 @@ type ProductDao = ProductDaoImpl;
 type RackDao = RackDaoImpl;
 type ProductRackDao = ProductRackDaoImpl;
 type ContainerDao = SqliteContainerDao;
-#[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
-type PermissionDao = inventurly_dao::permission::MockPermissionDao;
-
-#[cfg(feature = "oidc")]
+// Always use real SQLite permission DAO regardless of auth mode
 type PermissionDao = inventurly_dao_impl_sqlite::permission::PermissionDaoImpl;
 type UuidService = inventurly_service_impl::uuid_service::UuidServiceImpl;
 #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
@@ -228,10 +225,8 @@ impl RestStateImpl {
         let rack_dao = Arc::new(RackDao::new(pool.clone()));
         let product_rack_dao = Arc::new(ProductRackDao::new(pool.clone()));
         let container_dao = Arc::new(ContainerDao::new(pool.as_ref().clone()));
-        #[cfg(feature = "mock_auth")]
-        let permission_dao = Arc::new(inventurly_dao::permission::MockPermissionDao);
-
-        #[cfg(feature = "oidc")]
+        // Always use real SQLite permission DAO regardless of auth mode
+        // Mock auth should only mock user identity, not the actual data
         let permission_dao =
             Arc::new(inventurly_dao_impl_sqlite::permission::PermissionDaoImpl::new(pool.clone()));
 

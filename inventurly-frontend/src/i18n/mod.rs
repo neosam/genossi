@@ -77,6 +77,9 @@ pub enum Key {
     NotAuthenticated,
     WelcomeTitle,
     PleaseLogin,
+    AccessDenied,
+    InsufficientPrivileges,
+    BackToHome,
 
     // Navigation
     Home,

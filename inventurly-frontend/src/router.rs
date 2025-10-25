@@ -4,6 +4,7 @@ pub use crate::page::ContainerDetails;
 pub use crate::page::Containers;
 pub use crate::page::DuplicateDetection;
 pub use crate::page::Home;
+pub use crate::page::Permissions;
 pub use crate::page::ProductDetails;
 pub use crate::page::Products;
 pub use crate::page::RackDetails;
@@ -27,4 +28,6 @@ pub enum Route {
     Containers {},
     #[route("/container-management/:id")]
     ContainerDetails { id: String },
+    #[route("/permissions")]
+    Permissions {},
 }
