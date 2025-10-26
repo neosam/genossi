@@ -40,7 +40,7 @@ pub async fn get_all_persons<RestState: RestStateDef>(
         (async {
             let persons: Arc<[PersonTO]> = rest_state
                 .person_service()
-                .get_all(context.auth, None)
+                .get_all(crate::extract_auth_context(Some(context))?, None)
                 .await?
                 .iter()
                 .map(PersonTO::from)
@@ -79,7 +79,7 @@ pub async fn get_person<RestState: RestStateDef>(
             let person = PersonTO::from(
                 &rest_state
                     .person_service()
-                    .get(person_id, context.auth, None)
+                    .get(person_id, crate::extract_auth_context(Some(context))?, None)
                     .await?,
             );
             Ok(Response::builder()
@@ -114,7 +114,7 @@ pub async fn create_person<RestState: RestStateDef>(
             let person = PersonTO::from(
                 &rest_state
                     .person_service()
-                    .create(&(&person).into(), context.auth, None)
+                    .create(&(&person).into(), crate::extract_auth_context(Some(context))?, None)
                     .await?,
             );
             Ok(Response::builder()
@@ -155,7 +155,7 @@ pub async fn update_person<RestState: RestStateDef>(
             let person = PersonTO::from(
                 &rest_state
                     .person_service()
-                    .update(&(&person).into(), context.auth, None)
+                    .update(&(&person).into(), crate::extract_auth_context(Some(context))?, None)
                     .await?,
             );
             Ok(Response::builder()
@@ -191,7 +191,7 @@ pub async fn delete_person<RestState: RestStateDef>(
         (async {
             rest_state
                 .person_service()
-                .delete(person_id, context.auth, None)
+                .delete(person_id, crate::extract_auth_context(Some(context))?, None)
                 .await?;
             Ok(Response::builder().status(204).body(Body::empty()).unwrap())
         })

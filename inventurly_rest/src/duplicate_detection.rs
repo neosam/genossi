@@ -89,7 +89,7 @@ pub async fn find_all_duplicates<RestState: RestStateDef>(
 
             let results = rest_state
                 .duplicate_detection_service()
-                .find_all_duplicates(Some(config), context.auth, None)
+                .find_all_duplicates(Some(config), crate::extract_auth_context(Some(context))?, None)
                 .await
                 .map_err(RestError::from)?;
 
@@ -140,16 +140,17 @@ pub async fn find_duplicates_by_ean<RestState: RestStateDef>(
             let config = config_to.into();
 
             // First get the product by EAN
+            let auth = crate::extract_auth_context(Some(context))?;
             let product = rest_state
                 .product_service()
-                .get_by_ean(&ean, context.auth.clone(), None)
+                .get_by_ean(&ean, auth.clone(), None)
                 .await
                 .map_err(RestError::from)?;
 
             // Then find duplicates for that product
             let result = rest_state
                 .duplicate_detection_service()
-                .find_duplicates(&product, Some(config), context.auth, None)
+                .find_duplicates(&product, Some(config), auth, None)
                 .await
                 .map_err(RestError::from)?;
 
@@ -203,7 +204,7 @@ pub async fn check_potential_duplicate<RestState: RestStateDef>(
                     &request.sales_unit,
                     request.requires_weighing,
                     Some(config),
-                    context.auth,
+                    crate::extract_auth_context(Some(context))?,
                     None,
                 )
                 .await

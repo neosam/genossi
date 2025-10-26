@@ -53,7 +53,7 @@ pub async fn add_product_to_rack<RestState: RestStateDef>(
         (async {
             let product_rack = rest_state
                 .product_rack_service()
-                .add_product_to_rack(request.product_id, request.rack_id, context.auth, None)
+                .add_product_to_rack(request.product_id, request.rack_id, crate::extract_auth_context(Some(context))?, None)
                 .await?;
             let product_rack_to = ProductRackTO::from(&product_rack);
             Ok(Response::builder()
@@ -90,7 +90,7 @@ pub async fn remove_product_from_rack<RestState: RestStateDef>(
         (async {
             rest_state
                 .product_rack_service()
-                .remove_product_from_rack(product_id, rack_id, context.auth, None)
+                .remove_product_from_rack(product_id, rack_id, crate::extract_auth_context(Some(context))?, None)
                 .await?;
             Ok(Response::builder().status(204).body(Body::empty()).unwrap())
         })
@@ -122,7 +122,7 @@ pub async fn get_product_rack_relationship<RestState: RestStateDef>(
         (async {
             if let Some(product_rack) = rest_state
                 .product_rack_service()
-                .get_product_rack_relationship(product_id, rack_id, context.auth, None)
+                .get_product_rack_relationship(product_id, rack_id, crate::extract_auth_context(Some(context))?, None)
                 .await?
             {
                 let product_rack_to = ProductRackTO::from(&product_rack);
@@ -164,7 +164,7 @@ pub async fn get_racks_for_product<RestState: RestStateDef>(
         (async {
             let product_racks: Arc<[ProductRackTO]> = rest_state
                 .product_rack_service()
-                .get_racks_for_product(product_id, context.auth, None)
+                .get_racks_for_product(product_id, crate::extract_auth_context(Some(context))?, None)
                 .await?
                 .iter()
                 .map(ProductRackTO::from)
@@ -201,7 +201,7 @@ pub async fn get_products_in_rack<RestState: RestStateDef>(
         (async {
             let product_racks: Arc<[ProductRackTO]> = rest_state
                 .product_rack_service()
-                .get_products_in_rack(rack_id, context.auth, None)
+                .get_products_in_rack(rack_id, crate::extract_auth_context(Some(context))?, None)
                 .await?
                 .iter()
                 .map(ProductRackTO::from)
@@ -234,7 +234,7 @@ pub async fn get_all_relationships<RestState: RestStateDef>(
         (async {
             let product_racks: Arc<[ProductRackTO]> = rest_state
                 .product_rack_service()
-                .get_all_relationships(context.auth, None)
+                .get_all_relationships(crate::extract_auth_context(Some(context))?, None)
                 .await?
                 .iter()
                 .map(ProductRackTO::from)

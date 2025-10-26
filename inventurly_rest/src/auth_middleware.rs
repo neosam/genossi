@@ -36,17 +36,21 @@ pub async fn extract_auth_context<S: RestStateDef>(
 
 /// Middleware that requires authentication - returns 401 if no valid auth context
 pub async fn require_authentication<S: RestStateDef>(request: Request, next: Next) -> Response {
-    let auth_context = request
-        .extensions()
-        .get::<crate::Context>()
-        .and_then(|ctx| ctx.auth_context.as_ref());
+    #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
+    let is_authenticated = request.extensions().get::<crate::Context>().is_some();
+    
+    #[cfg(feature = "oidc")]
+    let is_authenticated = request.extensions().get::<crate::Context>()
+        .map(|ctx| ctx.is_some())
+        .unwrap_or(false);
 
-    match auth_context {
-        Some(_) => next.run(request).await,
-        None => Response::builder()
+    if is_authenticated {
+        next.run(request).await
+    } else {
+        Response::builder()
             .status(StatusCode::UNAUTHORIZED)
             .body("Unauthorized".into())
-            .unwrap(),
+            .unwrap()
     }
 }
 
@@ -59,50 +63,30 @@ pub async fn require_admin<S: RestStateDef>(
     let context = request.extensions().get::<crate::Context>();
 
     if let Some(ctx) = context {
-        if let Some(auth_context) = &ctx.auth_context {
-            // Check if user has admin privilege
-            let permission_service = state.permission_service();
-
-            // Convert AuthContext to appropriate context for the permission service
-            #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
-            let context = match auth_context {
-                AuthContext::Mock(_) => MockContext,
-                #[cfg(feature = "oidc")]
-                AuthContext::Oidc(_) => unreachable!("OIDC should not be available with mock_auth"),
-            };
-            
-            #[cfg(feature = "oidc")]
-            let context = match auth_context {
-                AuthContext::Mock(mock_ctx) => AuthenticatedContext {
-                    user_id: mock_ctx.user_id.clone(),
-                },
-                AuthContext::Oidc(user_id) => AuthenticatedContext {
-                    user_id: user_id.clone(),
-                },
-            };
-            
-            let auth = inventurly_service::permission::Authentication::Context(context);
-
-            match permission_service.check_permission("admin", auth).await {
-                Ok(()) => next.run(request).await,
-                Err(ServiceError::PermissionDenied) => Response::builder()
-                    .status(StatusCode::FORBIDDEN)
-                    .body("Forbidden".into())
-                    .unwrap(),
-                Err(ServiceError::Unauthorized) => Response::builder()
-                    .status(StatusCode::UNAUTHORIZED)
-                    .body("Unauthorized".into())
-                    .unwrap(),
-                Err(_) => Response::builder()
-                    .status(StatusCode::INTERNAL_SERVER_ERROR)
-                    .body("Internal Server Error".into())
-                    .unwrap(),
+        // Use the helper function to extract auth
+        match crate::extract_auth_context(Some(ctx.clone())) {
+            Ok(auth) => {
+                let permission_service = state.permission_service();
+                match permission_service.check_permission("admin", auth).await {
+                    Ok(()) => next.run(request).await,
+                    Err(ServiceError::PermissionDenied) => Response::builder()
+                        .status(StatusCode::FORBIDDEN)
+                        .body("Forbidden".into())
+                        .unwrap(),
+                    Err(ServiceError::Unauthorized) => Response::builder()
+                        .status(StatusCode::UNAUTHORIZED)
+                        .body("Unauthorized".into())
+                        .unwrap(),
+                    Err(_) => Response::builder()
+                        .status(StatusCode::INTERNAL_SERVER_ERROR)
+                        .body("Internal Server Error".into())
+                        .unwrap(),
+                }
             }
-        } else {
-            Response::builder()
+            Err(_) => Response::builder()
                 .status(StatusCode::UNAUTHORIZED)
                 .body("Unauthorized".into())
-                .unwrap()
+                .unwrap(),
         }
     } else {
         Response::builder()
@@ -174,21 +158,11 @@ fn extract_bearer_token(auth_str: &str) -> Option<String> {
 /// Development middleware that injects a mock authentication context
 /// Returns a Context for injection in development mode
 pub fn mock_auth_context() -> crate::Context {
-    // In development mode, always inject DEVUSER context
-    let mock_context = AuthContext::Mock(inventurly_service::auth_types::MockContext::default());
-    
     #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
-    let auth = inventurly_service::permission::Authentication::Context(MockContext);
+    return MockContext;
     
     #[cfg(feature = "oidc")]
-    let auth = inventurly_service::permission::Authentication::Context(AuthenticatedContext {
-        user_id: "DEVUSER".into(),
-    });
-    
-    crate::Context {
-        auth,
-        auth_context: Some(mock_context),
-    }
+    return Some("DEVUSER".into());
 }
 
 /// Helper function to get auth context from request extensions

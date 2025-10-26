@@ -59,15 +59,16 @@ pub async fn get_all_containers<RestState: RestStateDef>(
 ) -> Response {
     error_handler(
         (async {
+            let auth = crate::extract_auth_context(Some(context))?;
             let containers = if let Some(query) = params.q {
                 rest_state
                     .container_service()
-                    .search(&query, params.limit, context.auth, None)
+                    .search(&query, params.limit, auth.clone(), None)
                     .await?
             } else {
                 rest_state
                     .container_service()
-                    .get_all(context.auth, None)
+                    .get_all(auth, None)
                     .await?
             };
 
@@ -105,9 +106,10 @@ pub async fn get_container<RestState: RestStateDef>(
 ) -> Response {
     error_handler(
         (async {
+            let auth = crate::extract_auth_context(Some(context))?;
             let container = rest_state
                 .container_service()
-                .get_by_id(id, context.auth, None)
+                .get_by_id(id, auth, None)
                 .await?;
 
             let container_to = ContainerTO::from(&container);
@@ -143,7 +145,7 @@ pub async fn create_container<RestState: RestStateDef>(
             let container = Container::from(&container_to);
             let created_container = rest_state
                 .container_service()
-                .create(&container, context.auth, None)
+                .create(&container, crate::extract_auth_context(Some(context))?, None)
                 .await?;
 
             let created_container_to = ContainerTO::from(&created_container);
@@ -189,7 +191,7 @@ pub async fn update_container<RestState: RestStateDef>(
             let container = Container::from(&container_to);
             let updated_container = rest_state
                 .container_service()
-                .update(&container, context.auth, None)
+                .update(&container, crate::extract_auth_context(Some(context))?, None)
                 .await?;
 
             let updated_container_to = ContainerTO::from(&updated_container);
@@ -228,7 +230,7 @@ pub async fn delete_container<RestState: RestStateDef>(
         (async {
             rest_state
                 .container_service()
-                .delete(id, context.auth, None)
+                .delete(id, crate::extract_auth_context(Some(context))?, None)
                 .await?;
 
             Ok(Response::builder().status(204).body(Body::empty()).unwrap())

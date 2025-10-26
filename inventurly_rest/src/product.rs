@@ -53,7 +53,7 @@ pub async fn get_all_products<RestState: RestStateDef>(
         (async {
             let products: Arc<[ProductTO]> = rest_state
                 .product_service()
-                .get_all(context.auth, None)
+                .get_all(crate::extract_auth_context(Some(context))?, None)
                 .await?
                 .iter()
                 .map(ProductTO::from)
@@ -102,7 +102,7 @@ pub async fn search_products<RestState: RestStateDef>(
 
             let products: Arc<[ProductTO]> = rest_state
                 .product_service()
-                .search(&query.q, query.limit, context.auth, None)
+                .search(&query.q, query.limit, crate::extract_auth_context(Some(context))?, None)
                 .await?
                 .iter()
                 .map(ProductTO::from)
@@ -142,7 +142,7 @@ pub async fn get_product<RestState: RestStateDef>(
             let product = ProductTO::from(
                 &rest_state
                     .product_service()
-                    .get_by_id(id, context.auth, None)
+                    .get_by_id(id, crate::extract_auth_context(Some(context))?, None)
                     .await?,
             );
             Ok(Response::builder()
@@ -177,7 +177,7 @@ pub async fn create_product<RestState: RestStateDef>(
             let product = ProductTO::from(
                 &rest_state
                     .product_service()
-                    .create(&(&product).into(), context.auth, None)
+                    .create(&(&product).into(), crate::extract_auth_context(Some(context))?, None)
                     .await?,
             );
             Ok(Response::builder()
@@ -220,7 +220,7 @@ pub async fn update_product<RestState: RestStateDef>(
             let updated = ProductTO::from(
                 &rest_state
                     .product_service()
-                    .update(&(&product).into(), context.auth, None)
+                    .update(&(&product).into(), crate::extract_auth_context(Some(context))?, None)
                     .await?,
             );
             Ok(Response::builder()
@@ -256,7 +256,7 @@ pub async fn delete_product<RestState: RestStateDef>(
         (async {
             rest_state
                 .product_service()
-                .delete(id, context.auth, None)
+                .delete(id, crate::extract_auth_context(Some(context))?, None)
                 .await?;
             Ok(Response::builder().status(204).body(Body::empty()).unwrap())
         })
@@ -289,7 +289,7 @@ pub async fn get_product_by_ean<RestState: RestStateDef>(
             let product = ProductTO::from(
                 &rest_state
                     .product_service()
-                    .get_by_ean(&ean, context.auth, None)
+                    .get_by_ean(&ean, crate::extract_auth_context(Some(context))?, None)
                     .await?,
             );
             Ok(Response::builder()
@@ -327,9 +327,10 @@ pub async fn update_product_by_ean<RestState: RestStateDef>(
     error_handler(
         (async {
             // First, get the existing product to get its ID
+            let auth = crate::extract_auth_context(Some(context))?;
             let existing = rest_state
                 .product_service()
-                .get_by_ean(&ean, context.auth.clone(), None)
+                .get_by_ean(&ean, auth.clone(), None)
                 .await?;
 
             // Use the ID from the existing product
@@ -338,7 +339,7 @@ pub async fn update_product_by_ean<RestState: RestStateDef>(
             let updated = ProductTO::from(
                 &rest_state
                     .product_service()
-                    .update(&(&product).into(), context.auth, None)
+                    .update(&(&product).into(), auth, None)
                     .await?,
             );
             Ok(Response::builder()
@@ -373,14 +374,15 @@ pub async fn delete_product_by_ean<RestState: RestStateDef>(
     error_handler(
         (async {
             // First, get the product to get its ID
+            let auth = crate::extract_auth_context(Some(context))?;
             let product = rest_state
                 .product_service()
-                .get_by_ean(&ean, context.auth.clone(), None)
+                .get_by_ean(&ean, auth.clone(), None)
                 .await?;
 
             rest_state
                 .product_service()
-                .delete(product.id, context.auth, None)
+                .delete(product.id, auth, None)
                 .await?;
             Ok(Response::builder().status(204).body(Body::empty()).unwrap())
         })

@@ -40,7 +40,7 @@ pub async fn get_all_racks<RestState: RestStateDef>(
         (async {
             let racks: Arc<[RackTO]> = rest_state
                 .rack_service()
-                .get_all(context.auth, None)
+                .get_all(crate::extract_auth_context(Some(context))?, None)
                 .await?
                 .iter()
                 .map(RackTO::from)
@@ -78,7 +78,7 @@ pub async fn get_rack<RestState: RestStateDef>(
         (async {
             if let Some(rack) = rest_state
                 .rack_service()
-                .get_by_id(id, context.auth, None)
+                .get_by_id(id, crate::extract_auth_context(Some(context))?, None)
                 .await?
             {
                 let rack_to = RackTO::from(&rack);
@@ -120,7 +120,7 @@ pub async fn create_rack<RestState: RestStateDef>(
             let rack = inventurly_service::rack::Rack::from(&rack_to);
             let created_rack = rest_state
                 .rack_service()
-                .create(&rack, context.auth, None)
+                .create(&rack, crate::extract_auth_context(Some(context))?, None)
                 .await?;
             let created_rack_to = RackTO::from(&created_rack);
             Ok(Response::builder()
@@ -161,7 +161,7 @@ pub async fn update_rack<RestState: RestStateDef>(
             let rack = inventurly_service::rack::Rack::from(&rack_to);
             let updated_rack = rest_state
                 .rack_service()
-                .update(&rack, context.auth, None)
+                .update(&rack, crate::extract_auth_context(Some(context))?, None)
                 .await?;
             let updated_rack_to = RackTO::from(&updated_rack);
             Ok(Response::builder()
@@ -197,7 +197,7 @@ pub async fn delete_rack<RestState: RestStateDef>(
         (async {
             rest_state
                 .rack_service()
-                .delete(id, context.auth, None)
+                .delete(id, crate::extract_auth_context(Some(context))?, None)
                 .await?;
             Ok(Response::builder().status(204).body(Body::empty()).unwrap())
         })

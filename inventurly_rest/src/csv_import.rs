@@ -76,7 +76,7 @@ pub async fn import_products_csv<RestState: RestStateDef>(
             // Import the CSV content
             let result: CsvImportResult = rest_state
                 .csv_import_service()
-                .import_products_csv(&csv_content, context.auth, None)
+                .import_products_csv(&csv_content, crate::extract_auth_context(Some(context))?, None)
                 .await
                 .map_err(RestError::from)?;
 

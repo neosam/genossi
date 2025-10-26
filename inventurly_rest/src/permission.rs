@@ -68,7 +68,7 @@ pub async fn get_all_users<RestState: RestStateDef>(
     error_handler(
         (async {
             let permission_service = rest_state.permission_service();
-            let auth_context = extract_auth_context(&Some(context))?;
+            let auth_context = crate::extract_auth_context(Some(context))?;
 
             let users = permission_service
                 .get_all_users(auth_context)
@@ -104,7 +104,7 @@ pub async fn create_user<RestState: RestStateDef>(
     error_handler(
         (async {
             let permission_service = rest_state.permission_service();
-            let auth_context = extract_auth_context(&Some(context))?;
+            let auth_context = crate::extract_auth_context(Some(context))?;
 
             permission_service
                 .create_user(user, auth_context)
@@ -145,7 +145,7 @@ pub async fn delete_user<RestState: RestStateDef>(
     error_handler(
         (async {
             let permission_service = rest_state.permission_service();
-            let auth_context = extract_auth_context(&Some(context))?;
+            let auth_context = crate::extract_auth_context(Some(context))?;
 
             permission_service
                 .delete_user(username, auth_context)
@@ -183,7 +183,7 @@ pub async fn get_all_roles<RestState: RestStateDef>(
     error_handler(
         (async {
             let permission_service = rest_state.permission_service();
-            let auth_context = extract_auth_context(&Some(context))?;
+            let auth_context = crate::extract_auth_context(Some(context))?;
 
             let roles = permission_service
                 .get_all_roles(auth_context)
@@ -219,7 +219,7 @@ pub async fn create_role<RestState: RestStateDef>(
     error_handler(
         (async {
             let permission_service = rest_state.permission_service();
-            let auth_context = extract_auth_context(&Some(context))?;
+            let auth_context = crate::extract_auth_context(Some(context))?;
 
             permission_service
                 .create_role(role, auth_context)
@@ -260,7 +260,7 @@ pub async fn delete_role<RestState: RestStateDef>(
     error_handler(
         (async {
             let permission_service = rest_state.permission_service();
-            let auth_context = extract_auth_context(&Some(context))?;
+            let auth_context = crate::extract_auth_context(Some(context))?;
 
             permission_service
                 .delete_role(role_name, auth_context)
@@ -298,7 +298,7 @@ pub async fn get_all_privileges<RestState: RestStateDef>(
     error_handler(
         (async {
             let permission_service = rest_state.permission_service();
-            let auth_context = extract_auth_context(&Some(context))?;
+            let auth_context = crate::extract_auth_context(Some(context))?;
 
             let privileges = permission_service
                 .get_all_privileges(auth_context)
@@ -334,7 +334,7 @@ pub async fn create_privilege<RestState: RestStateDef>(
     error_handler(
         (async {
             let permission_service = rest_state.permission_service();
-            let auth_context = extract_auth_context(&Some(context))?;
+            let auth_context = crate::extract_auth_context(Some(context))?;
 
             permission_service
                 .create_privilege(privilege, auth_context)
@@ -375,7 +375,7 @@ pub async fn delete_privilege<RestState: RestStateDef>(
     error_handler(
         (async {
             let permission_service = rest_state.permission_service();
-            let auth_context = extract_auth_context(&Some(context))?;
+            let auth_context = crate::extract_auth_context(Some(context))?;
 
             permission_service
                 .delete_privilege(privilege_name, auth_context)
@@ -416,7 +416,7 @@ pub async fn assign_user_role<RestState: RestStateDef>(
     error_handler(
         (async {
             let permission_service = rest_state.permission_service();
-            let auth_context = extract_auth_context(&Some(context))?;
+            let auth_context = crate::extract_auth_context(Some(context))?;
 
             permission_service
                 .assign_user_role(user_role, auth_context)
@@ -455,7 +455,7 @@ pub async fn remove_user_role<RestState: RestStateDef>(
     error_handler(
         (async {
             let permission_service = rest_state.permission_service();
-            let auth_context = extract_auth_context(&Some(context))?;
+            let auth_context = crate::extract_auth_context(Some(context))?;
 
             permission_service
                 .remove_user_role(user_role, auth_context)
@@ -496,7 +496,7 @@ pub async fn get_user_roles<RestState: RestStateDef>(
     error_handler(
         (async {
             let permission_service = rest_state.permission_service();
-            let auth_context = extract_auth_context(&Some(context))?;
+            let auth_context = crate::extract_auth_context(Some(context))?;
 
             let roles = permission_service
                 .get_user_roles(username, auth_context)
@@ -534,7 +534,7 @@ pub async fn assign_role_privilege<RestState: RestStateDef>(
     error_handler(
         (async {
             let permission_service = rest_state.permission_service();
-            let auth_context = extract_auth_context(&Some(context))?;
+            let auth_context = crate::extract_auth_context(Some(context))?;
 
             permission_service
                 .assign_role_privilege(role_privilege, auth_context)
@@ -573,7 +573,7 @@ pub async fn remove_role_privilege<RestState: RestStateDef>(
     error_handler(
         (async {
             let permission_service = rest_state.permission_service();
-            let auth_context = extract_auth_context(&Some(context))?;
+            let auth_context = crate::extract_auth_context(Some(context))?;
 
             permission_service
                 .remove_role_privilege(role_privilege, auth_context)
@@ -614,7 +614,7 @@ pub async fn get_role_privileges<RestState: RestStateDef>(
     error_handler(
         (async {
             let permission_service = rest_state.permission_service();
-            let auth_context = extract_auth_context(&Some(context))?;
+            let auth_context = crate::extract_auth_context(Some(context))?;
 
             let privileges = permission_service
                 .get_role_privileges(role_name, auth_context)
@@ -652,7 +652,7 @@ pub async fn get_user_privileges<RestState: RestStateDef>(
     error_handler(
         (async {
             let permission_service = rest_state.permission_service();
-            let auth_context = extract_auth_context(&Some(context))?;
+            let auth_context = crate::extract_auth_context(Some(context))?;
 
             let privileges = permission_service
                 .get_user_privileges(username, auth_context)
@@ -667,32 +667,7 @@ pub async fn get_user_privileges<RestState: RestStateDef>(
 
 // Helper functions
 
-/// Extract authentication context from the Context
-#[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
-fn extract_auth_context(
-    context: &Option<Context>,
-) -> Result<
-    inventurly_service::permission::Authentication<inventurly_service::permission::MockContext>,
-    RestError,
-> {
-    match context {
-        Some(ctx) => Ok(ctx.auth.clone()),
-        None => Err(RestError::Unauthorized),
-    }
-}
-
-#[cfg(feature = "oidc")]
-fn extract_auth_context(
-    context: &Option<Context>,
-) -> Result<
-    inventurly_service::permission::Authentication<inventurly_service::auth_types::AuthenticatedContext>,
-    RestError,
-> {
-    match context {
-        Some(ctx) => Ok(ctx.auth.clone()),
-        None => Err(RestError::Unauthorized),
-    }
-}
+// Use the global extract_auth_context helper from lib.rs
 
 /// Convert ServiceError to RestError
 fn service_error_to_rest_error(error: ServiceError) -> RestError {

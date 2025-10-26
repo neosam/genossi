@@ -57,50 +57,82 @@ async fn get_auth_info_impl<RestState: RestStateDef>(
     rest_state: RestState,
     context: Context,
 ) -> Result<Response, RestError> {
-    match context.auth_context {
-        Some(auth_context) => {
-            // Extract user information from auth context
-            let username = match auth_context {
-                #[cfg(feature = "mock_auth")]
-                inventurly_service::auth_types::AuthContext::Mock(ref mock_ctx) => {
-                    mock_ctx.user_id.to_string()
-                }
-                #[cfg(feature = "oidc")]
-                inventurly_service::auth_types::AuthContext::Oidc(ref user_id) => {
-                    user_id.to_string()
-                }
-            };
+    #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
+    {
+        let username = "DEVUSER".to_string();
+        let auth = inventurly_service::permission::Authentication::Context(context);
+        
+        // Get actual roles and privileges from permission service
+        let permission_service = rest_state.permission_service();
+        
+        // Get user's roles
+        let roles = match permission_service
+            .get_user_roles(username.clone(), auth.clone())
+            .await
+        {
+            Ok(roles) => roles.iter().map(|r| r.name.to_string()).collect(),
+            Err(_) => vec![], // If we can't get roles, return empty list
+        };
+        
+        // Get user's privileges
+        let privileges = match permission_service
+            .get_user_privileges(username.clone(), auth.clone())
+            .await
+        {
+            Ok(privs) => privs.iter().map(|p| p.name.to_string()).collect(),
+            Err(_) => vec![], // If we can't get privileges, return empty list
+        };
 
-            // Get actual roles and privileges from permission service
-            let permission_service = rest_state.permission_service();
-            
-            // Get user's roles
-            let roles = match permission_service
-                .get_user_roles(username.clone(), context.auth.clone())
-                .await
-            {
-                Ok(roles) => roles.iter().map(|r| r.name.to_string()).collect(),
-                Err(_) => vec![], // If we can't get roles, return empty list
-            };
-            
-            // Get user's privileges
-            let privileges = match permission_service
-                .get_user_privileges(username.clone(), context.auth.clone())
-                .await
-            {
-                Ok(privs) => privs.iter().map(|p| p.name.to_string()).collect(),
-                Err(_) => vec![], // If we can't get privileges, return empty list
-            };
+        let response = AuthInfoResponse {
+            username,
+            roles,
+            privileges,
+        };
 
-            let response = AuthInfoResponse {
-                username,
-                roles,
-                privileges,
-            };
+        Ok(Json(response).into_response())
+    }
+    
+    #[cfg(feature = "oidc")]
+    {
+        match context {
+            Some(user_id) => {
+                let username = user_id.to_string();
+                let auth_context = inventurly_service::auth_types::AuthenticatedContext {
+                    user_id: user_id.clone(),
+                };
+                let auth = inventurly_service::permission::Authentication::Context(auth_context);
+                
+                // Get actual roles and privileges from permission service
+                let permission_service = rest_state.permission_service();
+                
+                // Get user's roles
+                let roles = match permission_service
+                    .get_user_roles(username.clone(), auth.clone())
+                    .await
+                {
+                    Ok(roles) => roles.iter().map(|r| r.name.to_string()).collect(),
+                    Err(_) => vec![], // If we can't get roles, return empty list
+                };
+                
+                // Get user's privileges
+                let privileges = match permission_service
+                    .get_user_privileges(username.clone(), auth.clone())
+                    .await
+                {
+                    Ok(privs) => privs.iter().map(|p| p.name.to_string()).collect(),
+                    Err(_) => vec![], // If we can't get privileges, return empty list
+                };
 
-            Ok(Json(response).into_response())
+                let response = AuthInfoResponse {
+                    username,
+                    roles,
+                    privileges,
+                };
+
+                Ok(Json(response).into_response())
+            }
+            None => Err(RestError::Unauthorized),
         }
-        None => Err(RestError::Unauthorized),
     }
 }
 

@@ -13,10 +13,6 @@ pub mod test_server;
 
 use async_trait::async_trait;
 use axum::{body::Body, middleware, response::Response, Router};
-use inventurly_service::{
-    auth_types::AuthContext,
-    permission::Authentication,
-};
 #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
 use inventurly_service::permission::MockContext;
 #[cfg(feature = "oidc")]
@@ -33,45 +29,34 @@ use axum::response::{IntoResponse, Redirect};
 #[cfg(feature = "oidc")]
 use axum::routing::get;
 
+// Simplified context type to match shifty pattern - just the user ID
 #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
-#[derive(Clone, Debug)]
-pub struct Context {
-    pub auth: Authentication<MockContext>,
-    pub auth_context: Option<AuthContext>,
+pub type Context = MockContext;
+#[cfg(feature = "oidc")]
+pub type Context = Option<Arc<str>>;
+
+// Helper function to extract Authentication from simplified Context
+#[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
+pub fn extract_auth_context(context: Option<Context>) -> Result<inventurly_service::permission::Authentication<MockContext>, RestError> {
+    match context {
+        Some(ctx) => Ok(inventurly_service::permission::Authentication::Context(ctx)),
+        None => Err(RestError::Unauthorized),
+    }
 }
 
 #[cfg(feature = "oidc")]
-#[derive(Clone, Debug)]
-pub struct Context {
-    pub auth: Authentication<AuthenticatedContext>,
-    pub auth_context: Option<AuthContext>,
-}
-
-impl Default for Context {
-    fn default() -> Self {
-        #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
-        {
-            Self {
-                auth: Authentication::Context(MockContext),
-                auth_context: Some(AuthContext::Mock(
-                    inventurly_service::auth_types::MockContext::default(),
-                )),
-            }
+pub fn extract_auth_context(context: Option<Context>) -> Result<inventurly_service::permission::Authentication<inventurly_service::auth_types::AuthenticatedContext>, RestError> {
+    match context {
+        Some(Some(user_id)) => {
+            let auth_context = inventurly_service::auth_types::AuthenticatedContext {
+                user_id: user_id.clone(),
+            };
+            Ok(inventurly_service::permission::Authentication::Context(auth_context))
         }
-        
-        #[cfg(feature = "oidc")]
-        {
-            Self {
-                auth: Authentication::Context(AuthenticatedContext {
-                    user_id: "DEVUSER".into(), // Default for tests/development
-                }),
-                auth_context: Some(AuthContext::Mock(
-                    inventurly_service::auth_types::MockContext::default(),
-                )),
-            }
-        }
+        _ => Err(RestError::Unauthorized),
     }
 }
+
 
 pub enum RestError {
     NotFound,
@@ -288,6 +273,7 @@ pub async fn create_app<RestState: RestStateDef>(rest_state: RestState) -> Route
 
     let swagger_router = SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", api_doc);
 
+    #[allow(unused_mut)]
     let mut app = Router::new().merge(swagger_router);
 
     #[cfg(feature = "oidc")]

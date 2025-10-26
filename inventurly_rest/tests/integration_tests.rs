@@ -922,7 +922,7 @@ fn create_test_app() -> axum::Router {
         .layer(axum::middleware::from_fn(
             |mut req: Request<Body>, next: axum::middleware::Next| async move {
                 req.extensions_mut()
-                    .insert(inventurly_rest::Context::default());
+                    .insert(inventurly_rest::auth_middleware::mock_auth_context());
                 next.run(req).await
             },
         ))

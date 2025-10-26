@@ -9,6 +9,10 @@ use axum_oidc::{EmptyAdditionalClaims, OidcClaims};
 use inventurly_service::session::SessionService;
 #[cfg(feature = "oidc")]
 use tower_cookies::Cookies;
+#[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
+use inventurly_service::permission::MockContext;
+#[cfg(feature = "oidc")]
+use std::sync::Arc;
 
 #[cfg(feature = "oidc")]
 use crate::Context;
@@ -68,7 +72,7 @@ pub async fn context_extractor<RestState: RestStateDef>(
     tracing::info!("All cookies: {:?}", cookies.list());
 
     tracing::info!("Search for app_session cookie");
-    let auth_context = if let Some(cookie) = cookies.get("app_session") {
+    if let Some(cookie) = cookies.get("app_session") {
         tracing::info!("app_session cookie found: {:?}", cookie);
         let session_id = cookie.value();
         tracing::info!("Session ID: {:?}", session_id);
@@ -79,60 +83,16 @@ pub async fn context_extractor<RestState: RestStateDef>(
             .unwrap()
         {
             tracing::info!("Session found: {:?}", session);
-            // Extract auth context from session
-            rest_state
-                .session_service()
-                .extract_auth_context(Some(session_id.to_string()))
-                .await
-                .ok()
-                .flatten()
+            request.extensions_mut().insert(Some(session.user_id));
         } else {
             tracing::info!("Session not found");
-            None
+            request.extensions_mut().insert(None::<Arc<str>>);
         }
     } else {
         tracing::info!("app_session cookie not found");
-        None
-    };
-
-    #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
-    let context = Context {
-        auth: inventurly_service::permission::Authentication::Context(
-            inventurly_service::permission::MockContext,
-        ),
-        auth_context,
+        request.extensions_mut().insert(None::<Arc<str>>);
     };
     
-    #[cfg(feature = "oidc")]
-    let context = {
-        let auth = if let Some(ref auth_ctx) = auth_context {
-            match auth_ctx {
-                inventurly_service::auth_types::AuthContext::Mock(mock_ctx) => {
-                    inventurly_service::permission::Authentication::Context(
-                        inventurly_service::auth_types::AuthenticatedContext {
-                            user_id: mock_ctx.user_id.clone(),
-                        },
-                    )
-                }
-                inventurly_service::auth_types::AuthContext::Oidc(user_id) => {
-                    inventurly_service::permission::Authentication::Context(
-                        inventurly_service::auth_types::AuthenticatedContext {
-                            user_id: user_id.clone(),
-                        },
-                    )
-                }
-            }
-        } else {
-            inventurly_service::permission::Authentication::Full
-        };
-        
-        Context {
-            auth,
-            auth_context,
-        }
-    };
-
-    request.extensions_mut().insert(context);
     next.run(request).await
 }
 
@@ -142,8 +102,7 @@ pub async fn context_extractor<RestState: RestStateDef>(
     mut request: Request,
     next: Next,
 ) -> Response {
-    let context = crate::auth_middleware::mock_auth_context();
-    request.extensions_mut().insert(context);
+    request.extensions_mut().insert(MockContext);
     next.run(request).await
 }
 
@@ -167,12 +126,9 @@ pub async fn forbid_unauthenticated<RestState: RestStateDef>(
 
     info!("Checking authentication");
 
-    // Check if context exists and has auth_context
-    let is_authenticated = request
-        .extensions()
-        .get::<Context>()
-        .and_then(|ctx| ctx.auth_context.as_ref())
-        .is_some();
+    // Check if context exists and has user ID (simplified like shifty)
+    let is_authenticated = request.extensions().get::<Context>().is_some()
+        && request.extensions().get::<Context>().unwrap().is_some();
 
     // Allow access to authenticate endpoint and swagger
     let is_public_path = request.uri().path().ends_with("/authenticate")
