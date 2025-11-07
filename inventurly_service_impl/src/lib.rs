@@ -1,6 +1,8 @@
 pub mod container;
 pub mod csv_import;
 pub mod duplicate_detection;
+pub mod inventur;
+pub mod inventur_measurement;
 pub mod macros;
 pub mod permission;
 pub mod person;

@@ -1,4 +1,6 @@
 pub mod container;
+pub mod inventur;
+pub mod inventur_measurement;
 pub mod permission;
 pub mod person;
 pub mod product;

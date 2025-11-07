@@ -3,6 +3,8 @@ pub mod auth_middleware;
 pub mod container;
 pub mod csv_import;
 pub mod duplicate_detection;
+pub mod inventur;
+pub mod inventur_measurement;
 pub mod permission;
 pub mod person;
 pub mod product;
@@ -146,6 +148,14 @@ pub trait RestStateDef: Clone + Send + Sync + 'static {
         + Send
         + Sync
         + 'static;
+    type InventurService: inventurly_service::inventur::InventurService<Context = ContextType>
+        + Send
+        + Sync
+        + 'static;
+    type InventurMeasurementService: inventurly_service::inventur_measurement::InventurMeasurementService<Context = ContextType>
+        + Send
+        + Sync
+        + 'static;
     type SessionService: inventurly_service::session::SessionService + Send + Sync + 'static;
 
     fn person_service(&self) -> Arc<Self::PersonService>;
@@ -153,6 +163,8 @@ pub trait RestStateDef: Clone + Send + Sync + 'static {
     fn rack_service(&self) -> Arc<Self::RackService>;
     fn product_rack_service(&self) -> Arc<Self::ProductRackService>;
     fn container_service(&self) -> Arc<Self::ContainerService>;
+    fn inventur_service(&self) -> Arc<Self::InventurService>;
+    fn inventur_measurement_service(&self) -> Arc<Self::InventurMeasurementService>;
     fn csv_import_service(&self) -> Arc<Self::CsvImportService>;
     fn duplicate_detection_service(&self) -> Arc<Self::DuplicateDetectionService>;
     fn permission_service(&self) -> Arc<Self::PermissionService>;
@@ -168,6 +180,8 @@ pub trait RestStateDef: Clone + Send + Sync + 'static {
         (path = "/racks", api = rack::ApiDoc),
         (path = "/containers", api = container::ApiDoc),
         (path = "/product-racks", api = product_rack::ApiDoc),
+        (path = "/inventur", api = inventur::ApiDoc),
+        (path = "/inventur-measurement", api = inventur_measurement::ApiDoc),
         (path = "/csv-import", api = csv_import::CsvImportApiDoc),
         (path = "/duplicate-detection", api = duplicate_detection::DuplicateDetectionApiDoc),
         (path = "/permission", api = permission::ApiDoc)
@@ -288,6 +302,8 @@ pub async fn create_app<RestState: RestStateDef>(rest_state: RestState) -> Route
         .nest("/racks", rack::generate_route())
         .nest("/containers", container::generate_route())
         .nest("/product-racks", product_rack::generate_route())
+        .nest("/inventur", inventur::generate_route())
+        .nest("/inventur-measurement", inventur_measurement::generate_route())
         .nest("/csv-import", csv_import::generate_route())
         .nest(
             "/duplicate-detection",
