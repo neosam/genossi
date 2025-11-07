@@ -59,6 +59,9 @@ pub fn ProductList() -> Element {
                                 th { class: "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider",
                                     {i18n.t(Key::ProductSalesUnit)}
                                 }
+                                th { class: "px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider",
+                                    {i18n.t(Key::ProductRequiresWeighing)}
+                                }
                                 th { class: "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider",
                                     {i18n.t(Key::ProductPrice)}
                                 }
@@ -87,6 +90,9 @@ pub fn ProductList() -> Element {
                                     }
                                     td { class: "px-6 py-4 whitespace-nowrap text-sm",
                                         {product.sales_unit.clone()}
+                                    }
+                                    td { class: "px-6 py-4 whitespace-nowrap text-sm text-center",
+                                        {if product.requires_weighing { "✓" } else { "—" }}
                                     }
                                     td { class: "px-6 py-4 whitespace-nowrap text-sm",
                                         {i18n.format_price(product.price.to_cents())}
