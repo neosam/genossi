@@ -103,6 +103,8 @@ pub enum Key {
     FilterProducts,
     ClearFilter,
     NoProductsFound,
+    ScanBarcode,
+    SearchingForEAN,
 
     // Rack fields
     RackName,

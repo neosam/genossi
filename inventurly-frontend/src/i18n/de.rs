@@ -51,6 +51,8 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::FilterProducts => "Nach Name, EAN oder Kurzname filtern...",
         Key::ClearFilter => "Filter zurücksetzen",
         Key::NoProductsFound => "Keine Produkte gefunden, die Ihren Filter entsprechen",
+        Key::ScanBarcode => "Barcode scannen",
+        Key::SearchingForEAN => "Suche nach EAN",
 
         // Rack fields
         Key::RackName => "Name",
