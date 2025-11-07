@@ -286,3 +286,91 @@ pub struct ContainerTO {
     pub version: Option<Uuid>,
 }
 
+// Inventur types
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct InventurTO {
+    pub id: Option<Uuid>,
+    pub name: String,
+    pub description: String,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    pub start_date: Option<PrimitiveDateTime>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    pub end_date: Option<PrimitiveDateTime>,
+    pub status: String,  // "draft", "active", "completed"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_by: Option<String>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    pub created: Option<PrimitiveDateTime>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    pub deleted: Option<PrimitiveDateTime>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<Uuid>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct InventurMeasurementTO {
+    pub id: Option<Uuid>,
+    pub inventur_id: Uuid,
+    pub product_id: Uuid,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rack_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub container_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub count: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub weight_grams: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub measured_by: Option<String>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    pub measured_at: Option<PrimitiveDateTime>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notes: Option<String>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    pub created: Option<PrimitiveDateTime>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    pub deleted: Option<PrimitiveDateTime>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<Uuid>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ChangeInventurStatusRequestTO {
+    pub status: String,
+}
+

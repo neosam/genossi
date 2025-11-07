@@ -4,6 +4,9 @@ pub use crate::page::ContainerDetails;
 pub use crate::page::Containers;
 pub use crate::page::DuplicateDetection;
 pub use crate::page::Home;
+pub use crate::page::InventurDetails;
+pub use crate::page::InventurMeasurements;
+pub use crate::page::Inventurs;
 pub use crate::page::Permissions;
 pub use crate::page::ProductDetails;
 pub use crate::page::Products;
@@ -20,6 +23,12 @@ pub enum Route {
     ProductDetails { id: String },
     #[route("/inventory/duplicates")]
     DuplicateDetection {},
+    #[route("/inventurs")]
+    Inventurs {},
+    #[route("/inventurs/:id")]
+    InventurDetails { id: String },
+    #[route("/inventurs/:id/measurements")]
+    InventurMeasurements { id: String },
     #[route("/rack-management")]
     Racks {},
     #[route("/rack-management/:id")]

@@ -193,6 +193,49 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::CollapseAll => "Alle einklappen",
         Key::Summary => "Zusammenfassung",
         Key::Details => "Details",
+
+        // Inventur
+        Key::Inventurs => "Inventuren",
+        Key::Inventur => "Inventur",
+        Key::InventurDetails => "Inventur-Details",
+        Key::CreateInventur => "Inventur erstellen",
+        Key::EditInventur => "Inventur bearbeiten",
+        Key::DeleteInventur => "Inventur löschen",
+        Key::ViewMeasurements => "Messungen anzeigen",
+        Key::RecordMeasurement => "Messung erfassen",
+        Key::StartInventur => "Inventur starten",
+        Key::CompleteInventur => "Inventur abschließen",
+        Key::CancelInventur => "Inventur abbrechen",
+
+        // Inventur fields
+        Key::InventurName => "Name",
+        Key::InventurDescription => "Beschreibung",
+        Key::InventurStartDate => "Startdatum",
+        Key::InventurEndDate => "Enddatum",
+        Key::InventurStatus => "Status",
+        Key::InventurCreatedBy => "Erstellt von",
+
+        // Inventur status
+        Key::StatusDraft => "Entwurf",
+        Key::StatusActive => "Aktiv",
+        Key::StatusCompleted => "Abgeschlossen",
+        Key::StatusCancelled => "Abgebrochen",
+
+        // Measurements
+        Key::Measurements => "Messungen",
+        Key::MeasurementCount => "Anzahl",
+        Key::MeasurementWeight => "Gewicht",
+        Key::MeasurementWeightGrams => "Gewicht (Gramm)",
+        Key::MeasurementNotes => "Notizen",
+        Key::MeasuredBy => "Gemessen von",
+        Key::MeasuredAt => "Gemessen am",
+        Key::NoMeasurementsFound => "Keine Messungen gefunden",
+        Key::NoInventursFound => "Keine Inventuren gefunden",
+
+        // Date filtering
+        Key::FilterByDate => "Nach Datum filtern",
+        Key::DateFrom => "Von",
+        Key::DateTo => "Bis",
     }
     .into()
 }

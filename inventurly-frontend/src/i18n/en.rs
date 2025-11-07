@@ -193,6 +193,49 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::CollapseAll => "Collapse All",
         Key::Summary => "Summary",
         Key::Details => "Details",
+
+        // Inventur
+        Key::Inventurs => "Inventories",
+        Key::Inventur => "Inventory",
+        Key::InventurDetails => "Inventory Details",
+        Key::CreateInventur => "Create Inventory",
+        Key::EditInventur => "Edit Inventory",
+        Key::DeleteInventur => "Delete Inventory",
+        Key::ViewMeasurements => "View Measurements",
+        Key::RecordMeasurement => "Record Measurement",
+        Key::StartInventur => "Start Inventory",
+        Key::CompleteInventur => "Complete Inventory",
+        Key::CancelInventur => "Cancel Inventory",
+
+        // Inventur fields
+        Key::InventurName => "Name",
+        Key::InventurDescription => "Description",
+        Key::InventurStartDate => "Start Date",
+        Key::InventurEndDate => "End Date",
+        Key::InventurStatus => "Status",
+        Key::InventurCreatedBy => "Created By",
+
+        // Inventur status
+        Key::StatusDraft => "Draft",
+        Key::StatusActive => "Active",
+        Key::StatusCompleted => "Completed",
+        Key::StatusCancelled => "Cancelled",
+
+        // Measurements
+        Key::Measurements => "Measurements",
+        Key::MeasurementCount => "Count",
+        Key::MeasurementWeight => "Weight",
+        Key::MeasurementWeightGrams => "Weight (grams)",
+        Key::MeasurementNotes => "Notes",
+        Key::MeasuredBy => "Measured By",
+        Key::MeasuredAt => "Measured At",
+        Key::NoMeasurementsFound => "No measurements found",
+        Key::NoInventursFound => "No inventories found",
+
+        // Date filtering
+        Key::FilterByDate => "Filter by Date",
+        Key::DateFrom => "From",
+        Key::DateTo => "To",
     }
     .into()
 }

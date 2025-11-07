@@ -5,6 +5,7 @@ pub mod dropdown;
 pub mod duplicate_detection;
 pub mod error;
 pub mod i18n;
+pub mod inventur;
 pub mod product;
 pub mod product_rack;
 pub mod rack;

@@ -18,6 +18,10 @@ pub fn TopBar() -> Element {
         .as_ref()
         .map(|a| a.has_privilege("view_inventory"))
         .unwrap_or(false);
+    let show_inventurs = auth_info
+        .as_ref()
+        .map(|a| a.has_privilege("view_inventur"))
+        .unwrap_or(false);
     let show_duplicates = auth_info
         .as_ref()
         .map(|a| a.has_privilege("detect_duplicates"))
@@ -58,6 +62,11 @@ pub fn TopBar() -> Element {
                         }
                         li {
                             Link { to: Route::Containers {}, {i18n.t(Key::Containers)} }
+                        }
+                    }
+                    if show_inventurs {
+                        li {
+                            Link { to: Route::Inventurs {}, {i18n.t(Key::Inventurs)} }
                         }
                     }
                     if show_duplicates {

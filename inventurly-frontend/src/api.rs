@@ -1,8 +1,9 @@
 use std::rc::Rc;
 
 use rest_types::{
-    AddProductToRackRequestTO, CheckDuplicateRequestTO, ContainerTO, DuplicateDetectionResultTO,
-    DuplicateMatchTO, ProductRackTO, ProductTO, RackTO, UserTO,
+    AddProductToRackRequestTO, ChangeInventurStatusRequestTO, CheckDuplicateRequestTO, ContainerTO,
+    DuplicateDetectionResultTO, DuplicateMatchTO, InventurMeasurementTO, InventurTO,
+    ProductRackTO, ProductTO, RackTO, UserTO,
 };
 use tracing::info;
 use uuid::Uuid;
@@ -440,4 +441,143 @@ pub async fn get_all_product_rack_relationships(
     let res = response.json().await?;
     info!("All product-rack relationships fetched");
     Ok(res)
+}
+
+// Inventur API
+pub async fn get_inventurs(config: &Config) -> Result<Vec<InventurTO>, reqwest::Error> {
+    info!("Fetching inventurs");
+    let url = format!("{}/inventur", config.backend);
+    let response = reqwest::get(url).await?;
+    response.error_for_status_ref()?;
+    let res = response.json().await?;
+    info!("Inventurs fetched");
+    Ok(res)
+}
+
+pub async fn get_inventur(config: &Config, id: Uuid) -> Result<InventurTO, reqwest::Error> {
+    info!("Fetching inventur {id}");
+    let url = format!("{}/inventur/{}", config.backend, id);
+    let response = reqwest::get(url).await?;
+    response.error_for_status_ref()?;
+    let res = response.json().await?;
+    info!("Inventur fetched");
+    Ok(res)
+}
+
+pub async fn create_inventur(
+    config: &Config,
+    inventur: InventurTO,
+) -> Result<InventurTO, reqwest::Error> {
+    info!("Creating inventur");
+    let url = format!("{}/inventur", config.backend);
+    let client = reqwest::Client::new();
+    let response = client.post(url).json(&inventur).send().await?;
+    response.error_for_status_ref()?;
+    let res = response.json().await?;
+    info!("Inventur created");
+    Ok(res)
+}
+
+pub async fn update_inventur(
+    config: &Config,
+    inventur: InventurTO,
+) -> Result<InventurTO, reqwest::Error> {
+    info!("Updating inventur {:?}", inventur.id);
+    let url = format!("{}/inventur/{}", config.backend, inventur.id.unwrap());
+    let client = reqwest::Client::new();
+    let response = client.put(url).json(&inventur).send().await?;
+    response.error_for_status_ref()?;
+    let res = response.json().await?;
+    info!("Inventur updated");
+    Ok(res)
+}
+
+pub async fn delete_inventur(config: &Config, id: Uuid) -> Result<(), reqwest::Error> {
+    info!("Deleting inventur {id}");
+    let url = format!("{}/inventur/{}", config.backend, id);
+    let client = reqwest::Client::new();
+    let response = client.delete(url).send().await?;
+    response.error_for_status_ref()?;
+    info!("Inventur deleted");
+    Ok(())
+}
+
+pub async fn change_inventur_status(
+    config: &Config,
+    id: Uuid,
+    status: String,
+) -> Result<InventurTO, reqwest::Error> {
+    info!("Changing inventur {id} status to {status}");
+    let url = format!("{}/inventur/{}/status", config.backend, id);
+    let request = ChangeInventurStatusRequestTO { status };
+    let client = reqwest::Client::new();
+    let response = client.put(url).json(&request).send().await?;
+    response.error_for_status_ref()?;
+    let res = response.json().await?;
+    info!("Inventur status changed");
+    Ok(res)
+}
+
+// Inventur Measurement API
+pub async fn get_measurements(
+    config: &Config,
+) -> Result<Vec<InventurMeasurementTO>, reqwest::Error> {
+    info!("Fetching measurements");
+    let url = format!("{}/inventur-measurement", config.backend);
+    let response = reqwest::get(url).await?;
+    response.error_for_status_ref()?;
+    let res = response.json().await?;
+    info!("Measurements fetched");
+    Ok(res)
+}
+
+pub async fn get_measurements_by_inventur(
+    config: &Config,
+    inventur_id: Uuid,
+) -> Result<Vec<InventurMeasurementTO>, reqwest::Error> {
+    info!("Fetching measurements for inventur {inventur_id}");
+    let url = format!("{}/inventur-measurement/by-inventur/{}", config.backend, inventur_id);
+    let response = reqwest::get(url).await?;
+    response.error_for_status_ref()?;
+    let res = response.json().await?;
+    info!("Measurements fetched");
+    Ok(res)
+}
+
+pub async fn create_measurement(
+    config: &Config,
+    measurement: InventurMeasurementTO,
+) -> Result<InventurMeasurementTO, reqwest::Error> {
+    info!("Creating measurement");
+    let url = format!("{}/inventur-measurement", config.backend);
+    let client = reqwest::Client::new();
+    let response = client.post(url).json(&measurement).send().await?;
+    response.error_for_status_ref()?;
+    let res = response.json().await?;
+    info!("Measurement created");
+    Ok(res)
+}
+
+pub async fn update_measurement(
+    config: &Config,
+    measurement: InventurMeasurementTO,
+) -> Result<InventurMeasurementTO, reqwest::Error> {
+    info!("Updating measurement {:?}", measurement.id);
+    let url = format!("{}/inventur-measurement/{}", config.backend, measurement.id.unwrap());
+    let client = reqwest::Client::new();
+    let response = client.put(url).json(&measurement).send().await?;
+    response.error_for_status_ref()?;
+    let res = response.json().await?;
+    info!("Measurement updated");
+    Ok(res)
+}
+
+pub async fn delete_measurement(config: &Config, id: Uuid) -> Result<(), reqwest::Error> {
+    info!("Deleting measurement {id}");
+    let url = format!("{}/inventur-measurement/{}", config.backend, id);
+    let client = reqwest::Client::new();
+    let response = client.delete(url).send().await?;
+    response.error_for_status_ref()?;
+    info!("Measurement deleted");
+    Ok(())
 }

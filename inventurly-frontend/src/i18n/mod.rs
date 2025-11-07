@@ -245,6 +245,49 @@ pub enum Key {
     CollapseAll,
     Summary,
     Details,
+
+    // Inventur
+    Inventurs,
+    Inventur,
+    InventurDetails,
+    CreateInventur,
+    EditInventur,
+    DeleteInventur,
+    ViewMeasurements,
+    RecordMeasurement,
+    StartInventur,
+    CompleteInventur,
+    CancelInventur,
+
+    // Inventur fields
+    InventurName,
+    InventurDescription,
+    InventurStartDate,
+    InventurEndDate,
+    InventurStatus,
+    InventurCreatedBy,
+
+    // Inventur status
+    StatusDraft,
+    StatusActive,
+    StatusCompleted,
+    StatusCancelled,
+
+    // Measurements
+    Measurements,
+    MeasurementCount,
+    MeasurementWeight,
+    MeasurementWeightGrams,
+    MeasurementNotes,
+    MeasuredBy,
+    MeasuredAt,
+    NoMeasurementsFound,
+    NoInventursFound,
+
+    // Date filtering
+    FilterByDate,
+    DateFrom,
+    DateTo,
 }
 
 pub struct I18n {
