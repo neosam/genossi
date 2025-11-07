@@ -9,18 +9,49 @@ pub fn ProductList() -> Element {
     let nav = navigator();
     let products = PRODUCTS.read();
 
-    // Filter products based on filter_query and exclude deleted items
+    // Filter products based on all filter criteria and exclude deleted items
     let filtered_products: Vec<_> = products.items.iter()
         .filter(|p| p.deleted.is_none()) // Hide deleted products
         .filter(|p| {
-            if products.filter_query.is_empty() {
-                true
-            } else {
+            // Text search filter
+            if !products.filter_query.is_empty() {
                 let query = products.filter_query.to_lowercase();
-                p.name.to_lowercase().contains(&query)
+                let matches = p.name.to_lowercase().contains(&query)
                     || p.ean.to_lowercase().contains(&query)
-                    || p.short_name.to_lowercase().contains(&query)
+                    || p.short_name.to_lowercase().contains(&query);
+                if !matches {
+                    return false;
+                }
             }
+
+            // Sales unit filter
+            if !products.filter_sales_units.is_empty() {
+                if !products.filter_sales_units.contains(&p.sales_unit) {
+                    return false;
+                }
+            }
+
+            // Requires weighing filter
+            if let Some(requires_weighing) = products.filter_requires_weighing {
+                if p.requires_weighing != requires_weighing {
+                    return false;
+                }
+            }
+
+            // Price range filter
+            let price_cents = p.price.to_cents();
+            if let Some(min_price) = products.filter_price_min {
+                if price_cents < min_price {
+                    return false;
+                }
+            }
+            if let Some(max_price) = products.filter_price_max {
+                if price_cents > max_price {
+                    return false;
+                }
+            }
+
+            true
         })
         .collect();
 

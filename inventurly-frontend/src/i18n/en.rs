@@ -53,6 +53,17 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::NoProductsFound => "No products found matching your filter",
         Key::ScanBarcode => "Scan Barcode",
         Key::SearchingForEAN => "Searching for EAN",
+        Key::MoreFilters => "More Filters",
+        Key::ShowFilters => "Show Filters",
+        Key::HideFilters => "Hide Filters",
+        Key::MinimumPrice => "Minimum Price",
+        Key::MaximumPrice => "Maximum Price",
+        Key::Yes => "Yes",
+        Key::No => "No",
+        Key::Both => "Both",
+        Key::ClearAllFilters => "Clear All Filters",
+        Key::SelectAll => "Select All",
+        Key::DeselectAll => "Deselect All",
 
         // Rack fields
         Key::RackName => "Name",

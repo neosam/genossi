@@ -9,6 +9,10 @@ pub struct Product {
     pub search_loading: bool,
     pub search_query: String,
     pub filter_query: String,
+    pub filter_sales_units: Vec<String>,
+    pub filter_requires_weighing: Option<bool>,
+    pub filter_price_min: Option<i64>,
+    pub filter_price_max: Option<i64>,
 }
 
 impl Default for Product {
@@ -21,6 +25,10 @@ impl Default for Product {
             search_loading: false,
             search_query: String::new(),
             filter_query: String::new(),
+            filter_sales_units: vec![],
+            filter_requires_weighing: None,
+            filter_price_min: None,
+            filter_price_max: None,
         }
     }
 }

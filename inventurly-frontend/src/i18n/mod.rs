@@ -105,6 +105,17 @@ pub enum Key {
     NoProductsFound,
     ScanBarcode,
     SearchingForEAN,
+    MoreFilters,
+    ShowFilters,
+    HideFilters,
+    MinimumPrice,
+    MaximumPrice,
+    Yes,
+    No,
+    Both,
+    ClearAllFilters,
+    SelectAll,
+    DeselectAll,
 
     // Rack fields
     RackName,
