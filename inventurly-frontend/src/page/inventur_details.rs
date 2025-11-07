@@ -1,6 +1,10 @@
+use crate::api;
 use crate::component::{InventurForm, TopBar};
 use crate::i18n::{use_i18n, Key};
+use crate::router::Route;
+use crate::service::config::CONFIG;
 use dioxus::prelude::*;
+use rest_types::InventurTO;
 use uuid::Uuid;
 
 #[component]
@@ -14,15 +18,55 @@ pub fn InventurDetails(id: String) -> Element {
         Uuid::parse_str(&id).ok()
     };
 
+    let nav = navigator();
+    let mut inventur = use_signal(|| None::<InventurTO>);
+
+    // Load inventur to check status
+    use_effect(move || {
+        if let Some(id) = inventur_id {
+            spawn(async move {
+                let config = CONFIG.read().clone();
+                if let Ok(inventur_data) = api::get_inventur(&config, id).await {
+                    inventur.set(Some(inventur_data));
+                }
+            });
+        }
+    });
+
     rsx! {
         div { class: "flex flex-col min-h-screen",
             TopBar {}
             div { class: "flex-1 container mx-auto px-4 py-8",
-                h1 { class: "text-3xl font-bold mb-6",
+                div { class: "flex justify-between items-center mb-6",
+                    h1 { class: "text-3xl font-bold",
+                        if inventur_id.is_some() {
+                            {i18n.t(Key::EditInventur)}
+                        } else {
+                            {i18n.t(Key::CreateInventur)}
+                        }
+                    }
                     if inventur_id.is_some() {
-                        {i18n.t(Key::EditInventur)}
-                    } else {
-                        {i18n.t(Key::CreateInventur)}
+                        if let Some(inv) = inventur.read().as_ref() {
+                            if inv.status == "active" {
+                                button {
+                                    class: "px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors",
+                                    onclick: {
+                                        let inventur_id_str = id.clone();
+                                        move |_| {
+                                            nav.push(Route::InventurRackSelection { id: inventur_id_str.clone() });
+                                        }
+                                    },
+                                    {i18n.t(Key::MeasureByRack)}
+                                }
+                            } else {
+                                button {
+                                    class: "px-4 py-2 bg-gray-400 text-white rounded cursor-not-allowed",
+                                    disabled: true,
+                                    title: "Inventur must be active to measure",
+                                    {i18n.t(Key::MeasureByRack)}
+                                }
+                            }
+                        }
                     }
                 }
                 InventurForm { inventur_id }

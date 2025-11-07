@@ -236,6 +236,23 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::FilterByDate => "Filter by Date",
         Key::DateFrom => "From",
         Key::DateTo => "To",
+
+        // Rack measurement
+        Key::MeasureRack => "Measure Rack",
+        Key::ProductsMeasured => "Products Measured",
+        Key::NotMeasured => "Not Measured",
+        Key::Measured => "Measured",
+        Key::QuickMeasure => "Quick Measure",
+        Key::EnterCount => "Enter Count",
+        Key::EnterWeight => "Enter Weight (grams)",
+
+        // Rack selection
+        Key::MeasureByRack => "Measure by Rack",
+        Key::ProductCount => "Products",
+        Key::NotStarted => "Not Started",
+        Key::InProgress => "In Progress",
+        Key::Complete => "Complete",
+        Key::NoProductsInRack => "No products in this rack",
     }
     .into()
 }

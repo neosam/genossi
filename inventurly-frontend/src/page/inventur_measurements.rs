@@ -1,17 +1,20 @@
 use crate::api;
 use crate::component::{MeasurementForm, MeasurementList, TopBar};
 use crate::i18n::{use_i18n, Key};
+use crate::router::Route;
 use crate::service::config::CONFIG;
 use crate::service::container::CONTAINERS;
 use crate::service::inventur::MEASUREMENTS;
 use crate::service::product::PRODUCTS;
 use crate::service::rack::RACKS;
 use dioxus::prelude::*;
+use rest_types::InventurTO;
 use uuid::Uuid;
 
 #[component]
 pub fn InventurMeasurements(id: String) -> Element {
     let i18n = use_i18n();
+    let mut inventur = use_signal(|| None::<InventurTO>);
 
     // Parse the inventur ID
     let inventur_id = match Uuid::parse_str(&id) {
@@ -39,6 +42,11 @@ pub fn InventurMeasurements(id: String) -> Element {
         spawn(async move {
             let config = CONFIG.read().clone();
             if !config.backend.is_empty() {
+                // Load inventur to check status
+                if let Ok(inventur_data) = api::get_inventur(&config, inventur_id).await {
+                    inventur.set(Some(inventur_data));
+                }
+
                 // Load measurements for this inventur
                 MEASUREMENTS.write().loading = true;
                 match api::get_measurements_by_inventur(&config, inventur_id).await {
@@ -102,12 +110,37 @@ pub fn InventurMeasurements(id: String) -> Element {
         });
     });
 
+    let nav = navigator();
+
     rsx! {
         div { class: "flex flex-col min-h-screen",
             TopBar {}
             div { class: "flex-1 container mx-auto px-4 py-8",
-                h1 { class: "text-3xl font-bold mb-6",
-                    {i18n.t(Key::Measurements)}
+                div { class: "flex justify-between items-center mb-6",
+                    h1 { class: "text-3xl font-bold",
+                        {i18n.t(Key::Measurements)}
+                    }
+                    if let Some(inv) = inventur.read().as_ref() {
+                        if inv.status == "active" {
+                            button {
+                                class: "px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors",
+                                onclick: {
+                                    let inventur_id = id.clone();
+                                    move |_| {
+                                        nav.push(Route::InventurRackSelection { id: inventur_id.clone() });
+                                    }
+                                },
+                                {i18n.t(Key::MeasureByRack)}
+                            }
+                        } else {
+                            button {
+                                class: "px-4 py-2 bg-gray-400 text-white rounded cursor-not-allowed",
+                                disabled: true,
+                                title: "Inventur must be active to measure",
+                                {i18n.t(Key::MeasureByRack)}
+                            }
+                        }
+                    }
                 }
 
                 if *show_form.read() {

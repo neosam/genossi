@@ -262,7 +262,7 @@ pub struct AddProductToRackRequestTO {
     pub rack_id: Uuid,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ContainerTO {
     pub id: Option<Uuid>,
     pub name: String,
@@ -327,7 +327,7 @@ pub struct InventurTO {
     pub version: Option<Uuid>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct InventurMeasurementTO {
     pub id: Option<Uuid>,
     pub inventur_id: Uuid,

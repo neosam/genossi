@@ -297,6 +297,14 @@ pub enum Key {
     QuickMeasure,
     EnterCount,
     EnterWeight,
+
+    // Rack selection
+    MeasureByRack,
+    ProductCount,
+    NotStarted,
+    InProgress,
+    Complete,
+    NoProductsInRack,
 }
 
 pub struct I18n {
