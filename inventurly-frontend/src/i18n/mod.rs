@@ -288,6 +288,15 @@ pub enum Key {
     FilterByDate,
     DateFrom,
     DateTo,
+
+    // Rack measurement
+    MeasureRack,
+    ProductsMeasured,
+    NotMeasured,
+    Measured,
+    QuickMeasure,
+    EnterCount,
+    EnterWeight,
 }
 
 pub struct I18n {

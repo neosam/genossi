@@ -69,4 +69,6 @@ backend = "http://localhost:3000/product-racks"
 [[web.proxy]]
 backend = "http://localhost:3000/inventur"
 [[web.proxy]]
+backend = "http://localhost:3000/inventur-measurement"
+[[web.proxy]]
 backend = "http://localhost:3000/swagger-ui"
