@@ -99,6 +99,11 @@ pub enum Key {
     ProductCreated,
     ProductDeleted,
 
+    // Product filtering
+    FilterProducts,
+    ClearFilter,
+    NoProductsFound,
+
     // Rack fields
     RackName,
     RackDescription,

@@ -47,6 +47,11 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::ProductCreated => "Erstellt",
         Key::ProductDeleted => "Gelöscht",
 
+        // Product filtering
+        Key::FilterProducts => "Nach Name, EAN oder Kurzname filtern...",
+        Key::ClearFilter => "Filter zurücksetzen",
+        Key::NoProductsFound => "Keine Produkte gefunden, die Ihren Filter entsprechen",
+
         // Rack fields
         Key::RackName => "Name",
         Key::RackDescription => "Beschreibung",

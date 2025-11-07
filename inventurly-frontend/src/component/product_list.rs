@@ -9,6 +9,21 @@ pub fn ProductList() -> Element {
     let nav = navigator();
     let products = PRODUCTS.read();
 
+    // Filter products based on filter_query and exclude deleted items
+    let filtered_products: Vec<_> = products.items.iter()
+        .filter(|p| p.deleted.is_none()) // Hide deleted products
+        .filter(|p| {
+            if products.filter_query.is_empty() {
+                true
+            } else {
+                let query = products.filter_query.to_lowercase();
+                p.name.to_lowercase().contains(&query)
+                    || p.ean.to_lowercase().contains(&query)
+                    || p.short_name.to_lowercase().contains(&query)
+            }
+        })
+        .collect();
+
     rsx! {
         div { class: "bg-white rounded-lg shadow",
             div { class: "px-6 py-4 border-b flex justify-between items-center",
@@ -22,9 +37,13 @@ pub fn ProductList() -> Element {
                 }
             }
 
-            if products.items.is_empty() {
+            if filtered_products.is_empty() {
                 div { class: "p-6 text-center text-gray-500",
-                    {i18n.t(Key::NoDataFound)}
+                    if products.items.is_empty() {
+                        {i18n.t(Key::NoDataFound)}
+                    } else {
+                        {i18n.t(Key::NoProductsFound)}
+                    }
                 }
             } else {
                 div { class: "overflow-x-auto",
@@ -49,7 +68,7 @@ pub fn ProductList() -> Element {
                             }
                         }
                         tbody {
-                            for product in products.items.iter() {
+                            for product in filtered_products.iter() {
                                 {
                                     let product_id = product.id;
                                     rsx! {
