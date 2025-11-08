@@ -3,6 +3,7 @@ pub mod container;
 pub mod csv_import;
 pub mod duplicate_detection;
 pub mod inventur;
+pub mod inventur_custom_entry;
 pub mod inventur_measurement;
 pub mod permission;
 pub mod person;

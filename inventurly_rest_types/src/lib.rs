@@ -767,6 +767,104 @@ impl From<&InventurMeasurementTO> for inventurly_service::inventur_measurement::
     }
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct InventurCustomEntryTO {
+    #[schema(example = "123e4567-e89b-12d3-a456-426614174000")]
+    pub id: Option<Uuid>,
+    #[schema(example = "456e7890-e89b-12d3-a456-426614174000")]
+    pub inventur_id: Uuid,
+    #[schema(example = "Unknown Product XYZ")]
+    pub custom_product_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(example = "abc1234-e89b-12d3-a456-426614174000")]
+    pub rack_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(example = "def5678-e89b-12d3-a456-426614174000")]
+    pub container_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(example = 25)]
+    pub count: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(example = 2500)]
+    pub weight_grams: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(example = "counter1")]
+    pub measured_by: Option<String>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    #[schema(example = "2025-01-15T14:30:00Z")]
+    pub measured_at: Option<time::PrimitiveDateTime>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(example = "Product not in system, needs investigation")]
+    pub notes: Option<String>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    #[schema(example = "2025-01-15T14:30:00Z")]
+    pub created: Option<time::PrimitiveDateTime>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    pub deleted: Option<time::PrimitiveDateTime>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<Uuid>,
+}
+
+impl From<&inventurly_service::inventur_custom_entry::InventurCustomEntry> for InventurCustomEntryTO {
+    fn from(entry: &inventurly_service::inventur_custom_entry::InventurCustomEntry) -> Self {
+        Self {
+            id: Some(entry.id),
+            inventur_id: entry.inventur_id,
+            custom_product_name: entry.custom_product_name.to_string(),
+            rack_id: entry.rack_id,
+            container_id: entry.container_id,
+            count: entry.count,
+            weight_grams: entry.weight_grams,
+            measured_by: Some(entry.measured_by.to_string()),
+            measured_at: Some(entry.measured_at),
+            notes: entry.notes.as_ref().map(|n| n.to_string()),
+            created: Some(entry.created),
+            deleted: entry.deleted,
+            version: Some(entry.version),
+        }
+    }
+}
+
+impl From<&InventurCustomEntryTO> for inventurly_service::inventur_custom_entry::InventurCustomEntry {
+    fn from(to: &InventurCustomEntryTO) -> Self {
+        use std::sync::Arc;
+        let now = time::OffsetDateTime::now_utc();
+        let now_primitive = time::PrimitiveDateTime::new(now.date(), now.time());
+
+        Self {
+            id: to.id.unwrap_or_else(Uuid::nil),
+            inventur_id: to.inventur_id,
+            custom_product_name: Arc::from(to.custom_product_name.as_str()),
+            rack_id: to.rack_id,
+            container_id: to.container_id,
+            count: to.count,
+            weight_grams: to.weight_grams,
+            // measured_by will be overwritten by the service layer from auth context
+            measured_by: Arc::from(to.measured_by.as_deref().unwrap_or("UNKNOWN")),
+            measured_at: to.measured_at.unwrap_or(now_primitive),
+            notes: to.notes.as_ref().map(|n| Arc::from(n.as_str())),
+            created: to.created.unwrap_or(now_primitive),
+            deleted: to.deleted,
+            version: to.version.unwrap_or_else(Uuid::nil),
+        }
+    }
+}
+
 /// Request body for changing inventur status
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct ChangeInventurStatusRequestTO {

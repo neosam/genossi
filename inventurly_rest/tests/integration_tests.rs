@@ -10,6 +10,7 @@ use inventurly_service::duplicate_detection::{
     DuplicateDetectionConfig, DuplicateDetectionResult, DuplicateDetectionService, DuplicateMatch,
 };
 use inventurly_service::inventur::{Inventur, InventurService};
+use inventurly_service::inventur_custom_entry::{InventurCustomEntry, InventurCustomEntryService};
 use inventurly_service::inventur_measurement::{InventurMeasurement, InventurMeasurementService};
 use inventurly_service::permission::PermissionService;
 use inventurly_service::permission::{Authentication, MockContext};
@@ -36,6 +37,7 @@ struct TestRestState {
     container_service: Arc<MockContainerService>,
     inventur_service: Arc<MockInventurService>,
     inventur_measurement_service: Arc<MockInventurMeasurementService>,
+    inventur_custom_entry_service: Arc<MockInventurCustomEntryService>,
 }
 
 impl RestStateDef for TestRestState {
@@ -50,6 +52,7 @@ impl RestStateDef for TestRestState {
     type ContainerService = MockContainerService;
     type InventurService = MockInventurService;
     type InventurMeasurementService = MockInventurMeasurementService;
+    type InventurCustomEntryService = MockInventurCustomEntryService;
 
     fn person_service(&self) -> Arc<Self::PersonService> {
         self.person_service.clone()
@@ -93,6 +96,10 @@ impl RestStateDef for TestRestState {
 
     fn inventur_measurement_service(&self) -> Arc<Self::InventurMeasurementService> {
         self.inventur_measurement_service.clone()
+    }
+
+    fn inventur_custom_entry_service(&self) -> Arc<Self::InventurCustomEntryService> {
+        self.inventur_custom_entry_service.clone()
     }
 }
 
@@ -1075,6 +1082,77 @@ impl InventurMeasurementService for MockInventurMeasurementService {
     }
 }
 
+#[derive(Clone)]
+struct MockInventurCustomEntryService;
+
+#[async_trait::async_trait]
+impl InventurCustomEntryService for MockInventurCustomEntryService {
+    #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
+    type Context = MockContext;
+    #[cfg(feature = "oidc")]
+    type Context = inventurly_service::auth_types::AuthenticatedContext;
+    type Transaction = inventurly_dao::MockTransaction;
+
+    async fn get_all(
+        &self,
+        _context: Authentication<Self::Context>,
+        _tx: Option<Self::Transaction>,
+    ) -> Result<Arc<[InventurCustomEntry]>, inventurly_service::ServiceError> {
+        Ok(Arc::from([]))
+    }
+
+    async fn get_by_id(
+        &self,
+        _id: Uuid,
+        _context: Authentication<Self::Context>,
+        _tx: Option<Self::Transaction>,
+    ) -> Result<InventurCustomEntry, inventurly_service::ServiceError> {
+        Err(inventurly_service::ServiceError::EntityNotFound(Uuid::nil()))
+    }
+
+    async fn get_by_inventur_id(
+        &self,
+        _inventur_id: Uuid,
+        _context: Authentication<Self::Context>,
+        _tx: Option<Self::Transaction>,
+    ) -> Result<Arc<[InventurCustomEntry]>, inventurly_service::ServiceError> {
+        Ok(Arc::from([]))
+    }
+
+    async fn create(
+        &self,
+        _item: &InventurCustomEntry,
+        _context: Authentication<Self::Context>,
+        _tx: Option<Self::Transaction>,
+    ) -> Result<InventurCustomEntry, inventurly_service::ServiceError> {
+        Err(inventurly_service::ServiceError::InternalError(Arc::from(
+            "Not implemented",
+        )))
+    }
+
+    async fn update(
+        &self,
+        _item: &InventurCustomEntry,
+        _context: Authentication<Self::Context>,
+        _tx: Option<Self::Transaction>,
+    ) -> Result<InventurCustomEntry, inventurly_service::ServiceError> {
+        Err(inventurly_service::ServiceError::InternalError(Arc::from(
+            "Not implemented",
+        )))
+    }
+
+    async fn delete(
+        &self,
+        _id: Uuid,
+        _context: Authentication<Self::Context>,
+        _tx: Option<Self::Transaction>,
+    ) -> Result<(), inventurly_service::ServiceError> {
+        Err(inventurly_service::ServiceError::InternalError(Arc::from(
+            "Not implemented",
+        )))
+    }
+}
+
 fn create_test_app() -> axum::Router {
     let rest_state = TestRestState {
         person_service: Arc::new(MockPersonService),
@@ -1088,6 +1166,7 @@ fn create_test_app() -> axum::Router {
         container_service: Arc::new(MockContainerService),
         inventur_service: Arc::new(MockInventurService),
         inventur_measurement_service: Arc::new(MockInventurMeasurementService),
+        inventur_custom_entry_service: Arc::new(MockInventurCustomEntryService),
     };
 
     axum::Router::new()
