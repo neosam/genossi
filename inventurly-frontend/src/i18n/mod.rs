@@ -305,6 +305,17 @@ pub enum Key {
     InProgress,
     Complete,
     NoProductsInRack,
+
+    // Custom entries
+    CustomEntries,
+    AddCustomEntry,
+    EditCustomEntry,
+    CustomProductName,
+    Count,
+    WeightGrams,
+    Notes,
+    DeleteCustomEntry,
+    ConfirmDeleteCustomEntry,
 }
 
 pub struct I18n {

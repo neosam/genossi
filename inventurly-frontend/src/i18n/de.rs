@@ -253,6 +253,17 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::InProgress => "In Bearbeitung",
         Key::Complete => "Abgeschlossen",
         Key::NoProductsInRack => "Keine Produkte in diesem Regal",
+
+        // Custom entries
+        Key::CustomEntries => "Benutzerdefinierte Einträge",
+        Key::AddCustomEntry => "Benutzerdefinierten Eintrag hinzufügen",
+        Key::EditCustomEntry => "Benutzerdefinierten Eintrag bearbeiten",
+        Key::CustomProductName => "Produktname",
+        Key::Count => "Anzahl",
+        Key::WeightGrams => "Gewicht (Gramm)",
+        Key::Notes => "Notizen",
+        Key::DeleteCustomEntry => "Löschen",
+        Key::ConfirmDeleteCustomEntry => "Löschen bestätigen",
     }
     .into()
 }

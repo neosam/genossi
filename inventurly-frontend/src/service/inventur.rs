@@ -2,7 +2,7 @@ use crate::api;
 use crate::service::config::CONFIG;
 use crate::state::{Inventur, InventurMeasurement};
 use dioxus::prelude::*;
-use rest_types::{InventurTO, InventurMeasurementTO, ChangeInventurStatusRequestTO};
+use rest_types::{InventurTO, InventurMeasurementTO};
 use uuid::Uuid;
 
 pub static INVENTURS: GlobalSignal<Inventur> = GlobalSignal::new(Inventur::default);

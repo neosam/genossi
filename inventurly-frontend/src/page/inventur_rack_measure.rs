@@ -1,5 +1,5 @@
 use crate::api;
-use crate::component::{QuickMeasureForm, RackProductMeasureList, TopBar};
+use crate::component::{CustomEntryForm, CustomEntryList, QuickMeasureForm, RackProductMeasureList, TopBar};
 use crate::i18n::{use_i18n, Key};
 use crate::router::Route;
 use crate::service::config::CONFIG;
@@ -8,7 +8,7 @@ use crate::service::inventur::MEASUREMENTS;
 use crate::service::product::PRODUCTS;
 use crate::service::product_rack::get_products_in_rack_action;
 use dioxus::prelude::*;
-use rest_types::{InventurTO, ProductTO, RackTO};
+use rest_types::{InventurCustomEntryTO, InventurTO, ProductTO, RackTO};
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -57,6 +57,10 @@ pub fn InventurRackMeasure(inventur_id: String, rack_id: String) -> Element {
     let mut loading = use_signal(|| true);
     let mut error = use_signal(|| None::<String>);
     let mut selected_product = use_signal(|| None::<ProductTO>);
+    let mut custom_entries = use_signal(|| Vec::<InventurCustomEntryTO>::new());
+    let mut selected_custom_entry = use_signal(|| None::<InventurCustomEntryTO>);
+    let mut show_custom_entry_form = use_signal(|| false);
+    let mut entry_to_delete = use_signal(|| None::<InventurCustomEntryTO>);
 
     // Load data
     use_effect(move || {
@@ -163,6 +167,16 @@ pub fn InventurRackMeasure(inventur_id: String, rack_id: String) -> Element {
                 CONTAINERS.write().loading = false;
             }
 
+            // Load custom entries for this inventur
+            match api::get_custom_entries_by_inventur(&config, inventur_uuid).await {
+                Ok(entries) => {
+                    custom_entries.set(entries);
+                }
+                Err(e) => {
+                    error.set(Some(format!("Failed to load custom entries: {}", e)));
+                }
+            }
+
             loading.set(false);
         });
     });
@@ -182,6 +196,29 @@ pub fn InventurRackMeasure(inventur_id: String, rack_id: String) -> Element {
         .filter(|c| c.deleted.is_none())
         .cloned()
         .collect();
+
+    // Filter custom entries for this rack
+    let rack_custom_entries: Vec<_> = custom_entries
+        .read()
+        .iter()
+        .filter(|e| e.rack_id == Some(rack_uuid) && e.deleted.is_none())
+        .cloned()
+        .collect();
+
+    // Handler to reload custom entries
+    let reload_custom_entries = move || {
+        spawn(async move {
+            let config = CONFIG.read().clone();
+            match api::get_custom_entries_by_inventur(&config, inventur_uuid).await {
+                Ok(entries) => {
+                    custom_entries.set(entries);
+                }
+                Err(_e) => {
+                    // Silently fail - user will see stale data
+                }
+            }
+        });
+    };
 
     // Check if inventur is active
     let is_inventur_active = inventur.read().as_ref().map(|inv| inv.status == "active").unwrap_or(false);
@@ -249,6 +286,75 @@ pub fn InventurRackMeasure(inventur_id: String, rack_id: String) -> Element {
 
                 // Main content
                 if !*loading.read() && error.read().is_none() {
+                    // Custom entry form modal (available regardless of inventur status)
+                    if *show_custom_entry_form.read() {
+                        CustomEntryForm {
+                            inventur_id: inventur_uuid,
+                            rack_id: rack_uuid,
+                            containers: active_containers.clone(),
+                            existing_entry: selected_custom_entry.read().clone(),
+                            on_save: move |_| {
+                                show_custom_entry_form.set(false);
+                                selected_custom_entry.set(None);
+                                reload_custom_entries();
+                            },
+                            on_cancel: move |_| {
+                                show_custom_entry_form.set(false);
+                                selected_custom_entry.set(None);
+                            }
+                        }
+                    }
+
+                    // Delete confirmation modal (available regardless of inventur status)
+                    if let Some(entry) = entry_to_delete.read().as_ref() {
+                        div {
+                            class: "fixed inset-0 bg-black bg-opacity-50 z-40 flex items-center justify-center p-4",
+                            onclick: move |_| entry_to_delete.set(None),
+
+                            div {
+                                class: "bg-white rounded-lg shadow-xl max-w-md w-full p-6 relative z-50",
+                                onclick: move |e| e.stop_propagation(),
+
+                                h3 { class: "text-xl font-semibold mb-4",
+                                    {i18n.t(Key::ConfirmDeleteCustomEntry)}
+                                }
+
+                                p { class: "mb-6 text-gray-700",
+                                    "Are you sure you want to delete \""
+                                    {entry.custom_product_name.clone()}
+                                    "\"?"
+                                }
+
+                                div { class: "flex gap-2",
+                                    button {
+                                        class: "flex-1 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700",
+                                        onclick: {
+                                            let entry_id = entry.id.unwrap();
+                                            move |_| {
+                                                spawn({
+                                                    let mut entry_to_delete = entry_to_delete.clone();
+                                                    async move {
+                                                        let config = CONFIG.read().clone();
+                                                        if let Ok(_) = api::delete_custom_entry(&config, entry_id).await {
+                                                            reload_custom_entries();
+                                                        }
+                                                        entry_to_delete.set(None);
+                                                    }
+                                                });
+                                            }
+                                        },
+                                        {i18n.t(Key::DeleteCustomEntry)}
+                                    }
+                                    button {
+                                        class: "flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded hover:bg-gray-400",
+                                        onclick: move |_| entry_to_delete.set(None),
+                                        {i18n.t(Key::Cancel)}
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     if is_inventur_active {
                         if let Some(product) = selected_product.read().as_ref() {
                             // Show measurement form (as modal overlay)
@@ -278,6 +384,32 @@ pub fn InventurRackMeasure(inventur_id: String, rack_id: String) -> Element {
                                 selected_product.set(Some(product));
                             }
                         }
+
+                        // Custom entries section
+                        div { class: "mt-6",
+                            div { class: "mb-4",
+                                button {
+                                    class: "px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700",
+                                    onclick: move |_| {
+                                        selected_custom_entry.set(None);
+                                        show_custom_entry_form.set(true);
+                                    },
+                                    "+ "
+                                    {i18n.t(Key::AddCustomEntry)}
+                                }
+                            }
+
+                            CustomEntryList {
+                                entries: rack_custom_entries.clone(),
+                                on_edit: move |entry| {
+                                    selected_custom_entry.set(Some(entry));
+                                    show_custom_entry_form.set(true);
+                                },
+                                on_delete: move |entry| {
+                                    entry_to_delete.set(Some(entry));
+                                }
+                            }
+                        }
                     } else {
                         // Show product list but without ability to measure
                         RackProductMeasureList {
@@ -286,6 +418,32 @@ pub fn InventurRackMeasure(inventur_id: String, rack_id: String) -> Element {
                             rack_id: rack_uuid,
                             on_measure: move |_| {
                                 // Do nothing - inventur is not active
+                            }
+                        }
+
+                        // Custom entries section
+                        div { class: "mt-6",
+                            div { class: "mb-4",
+                                button {
+                                    class: "px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700",
+                                    onclick: move |_| {
+                                        selected_custom_entry.set(None);
+                                        show_custom_entry_form.set(true);
+                                    },
+                                    "+ "
+                                    {i18n.t(Key::AddCustomEntry)}
+                                }
+                            }
+
+                            CustomEntryList {
+                                entries: rack_custom_entries.clone(),
+                                on_edit: move |entry| {
+                                    selected_custom_entry.set(Some(entry));
+                                    show_custom_entry_form.set(true);
+                                },
+                                on_delete: move |entry| {
+                                    entry_to_delete.set(Some(entry));
+                                }
                             }
                         }
                     }

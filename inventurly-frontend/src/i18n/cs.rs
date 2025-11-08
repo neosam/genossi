@@ -296,4 +296,23 @@ pub fn add_i18n_cs(i18n: &mut I18n<Key, Locale>) {
     i18n.add_text(Locale::Cs, Key::CopyToClipboard, "Kopírovat do schránky");
     i18n.add_text(Locale::Cs, Key::CopiedToClipboard, "Zkopírováno do schránky!");
     i18n.add_text(Locale::Cs, Key::CopyFailed, "Chyba při kopírování do schránky");
+
+    // Inventory measurements
+    i18n.add_text(Locale::Cs, Key::MeasureByRack, "Měřit podle regálu");
+    i18n.add_text(Locale::Cs, Key::ProductCount, "Produkty");
+    i18n.add_text(Locale::Cs, Key::NotStarted, "Nezahájeno");
+    i18n.add_text(Locale::Cs, Key::InProgress, "Probíhá");
+    i18n.add_text(Locale::Cs, Key::Complete, "Dokončeno");
+    i18n.add_text(Locale::Cs, Key::NoProductsInRack, "Žádné produkty v tomto regálu");
+
+    // Custom entries
+    i18n.add_text(Locale::Cs, Key::CustomEntries, "Vlastní záznamy");
+    i18n.add_text(Locale::Cs, Key::AddCustomEntry, "Přidat vlastní záznam");
+    i18n.add_text(Locale::Cs, Key::EditCustomEntry, "Upravit vlastní záznam");
+    i18n.add_text(Locale::Cs, Key::CustomProductName, "Název produktu");
+    i18n.add_text(Locale::Cs, Key::Count, "Počet");
+    i18n.add_text(Locale::Cs, Key::WeightGrams, "Hmotnost (gramy)");
+    i18n.add_text(Locale::Cs, Key::Notes, "Poznámky");
+    i18n.add_text(Locale::Cs, Key::DeleteCustomEntry, "Smazat");
+    i18n.add_text(Locale::Cs, Key::ConfirmDeleteCustomEntry, "Potvrdit smazání");
 }

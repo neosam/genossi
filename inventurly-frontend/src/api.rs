@@ -2,8 +2,8 @@ use std::rc::Rc;
 
 use rest_types::{
     AddProductToRackRequestTO, ChangeInventurStatusRequestTO, CheckDuplicateRequestTO, ContainerTO,
-    DuplicateDetectionResultTO, DuplicateMatchTO, InventurMeasurementTO, InventurTO,
-    ProductRackTO, ProductTO, RackTO, UserTO,
+    DuplicateDetectionResultTO, DuplicateMatchTO, InventurCustomEntryTO, InventurMeasurementTO,
+    InventurTO, ProductRackTO, ProductTO, RackTO, UserTO,
 };
 use tracing::info;
 use uuid::Uuid;
@@ -579,5 +579,56 @@ pub async fn delete_measurement(config: &Config, id: Uuid) -> Result<(), reqwest
     let response = client.delete(url).send().await?;
     response.error_for_status_ref()?;
     info!("Measurement deleted");
+    Ok(())
+}
+
+pub async fn get_custom_entries_by_inventur(
+    config: &Config,
+    inventur_id: Uuid,
+) -> Result<Vec<InventurCustomEntryTO>, reqwest::Error> {
+    info!("Fetching custom entries for inventur {inventur_id}");
+    let url = format!("{}/inventur-custom-entry/by-inventur/{}", config.backend, inventur_id);
+    let response = reqwest::get(url).await?;
+    response.error_for_status_ref()?;
+    let res = response.json().await?;
+    info!("Custom entries fetched");
+    Ok(res)
+}
+
+pub async fn create_custom_entry(
+    config: &Config,
+    entry: InventurCustomEntryTO,
+) -> Result<InventurCustomEntryTO, reqwest::Error> {
+    info!("Creating custom entry");
+    let url = format!("{}/inventur-custom-entry", config.backend);
+    let client = reqwest::Client::new();
+    let response = client.post(url).json(&entry).send().await?;
+    response.error_for_status_ref()?;
+    let res = response.json().await?;
+    info!("Custom entry created");
+    Ok(res)
+}
+
+pub async fn update_custom_entry(
+    config: &Config,
+    entry: InventurCustomEntryTO,
+) -> Result<InventurCustomEntryTO, reqwest::Error> {
+    info!("Updating custom entry {:?}", entry.id);
+    let url = format!("{}/inventur-custom-entry/{}", config.backend, entry.id.unwrap());
+    let client = reqwest::Client::new();
+    let response = client.put(url).json(&entry).send().await?;
+    response.error_for_status_ref()?;
+    let res = response.json().await?;
+    info!("Custom entry updated");
+    Ok(res)
+}
+
+pub async fn delete_custom_entry(config: &Config, id: Uuid) -> Result<(), reqwest::Error> {
+    info!("Deleting custom entry {id}");
+    let url = format!("{}/inventur-custom-entry/{}", config.backend, id);
+    let client = reqwest::Client::new();
+    let response = client.delete(url).send().await?;
+    response.error_for_status_ref()?;
+    info!("Custom entry deleted");
     Ok(())
 }
