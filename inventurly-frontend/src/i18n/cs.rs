@@ -289,6 +289,10 @@ pub fn add_i18n_cs(i18n: &mut I18n<Key, Locale>) {
     i18n.add_text(Locale::Cs, Key::Paid, "Placený");
     i18n.add_text(Locale::Cs, Key::Inactive, "Neaktivní");
     i18n.add_text(Locale::Cs, Key::Login, "Přihlásit se");
+    i18n.add_text(Locale::Cs, Key::InventurTokenLoginTitle, "Přihlášení k inventuře");
+    i18n.add_text(Locale::Cs, Key::EnterYourName, "Zadejte své jméno");
+    i18n.add_text(Locale::Cs, Key::NamePlaceholder, "Vaše jméno");
+    i18n.add_text(Locale::Cs, Key::InventurTokenLoginFailed, "Přihlášení se nezdařilo. Zkontrolujte prosím své jméno a zkuste to znovu.");
     i18n.add_text(Locale::Cs, Key::LogoutUser, "Odhlásit {user}");
     i18n.add_text(Locale::Cs, Key::ShiftplanReport, "Zpráva plánu směn");
     i18n.add_text(Locale::Cs, Key::GenerateShiftplanReport, "Generovat zprávu plánu směn");

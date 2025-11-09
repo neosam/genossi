@@ -80,6 +80,10 @@ pub enum Key {
     AccessDenied,
     InsufficientPrivileges,
     BackToHome,
+    InventurTokenLoginTitle,
+    EnterYourName,
+    NamePlaceholder,
+    InventurTokenLoginFailed,
 
     // Navigation
     Home,

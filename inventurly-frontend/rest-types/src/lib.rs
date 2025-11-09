@@ -139,6 +139,12 @@ pub struct UserTO {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct InventurTokenLoginRequest {
+    pub name: String,
+    pub token: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PermissionTO {
     pub id: Option<Uuid>,
     pub name: String,

@@ -8,6 +8,7 @@ pub use crate::page::InventurDetails;
 pub use crate::page::InventurMeasurements;
 pub use crate::page::InventurRackMeasure;
 pub use crate::page::InventurRackSelection;
+pub use crate::page::InventurTokenLogin;
 pub use crate::page::Inventurs;
 pub use crate::page::Permissions;
 pub use crate::page::ProductDetails;
@@ -19,6 +20,8 @@ pub use crate::page::Racks;
 pub enum Route {
     #[route("/")]
     Home {},
+    #[route("/login/:token")]
+    InventurTokenLogin { token: String },
     #[route("/inventory")]
     Products {},
     #[route("/inventory/:id")]

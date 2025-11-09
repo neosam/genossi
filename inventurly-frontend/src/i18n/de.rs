@@ -28,6 +28,10 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::AccessDenied => "Zugriff verweigert",
         Key::InsufficientPrivileges => "Sie haben nicht die erforderlichen Berechtigungen für diese Seite.",
         Key::BackToHome => "Zur Startseite",
+        Key::InventurTokenLoginTitle => "Inventur-Anmeldung",
+        Key::EnterYourName => "Geben Sie Ihren Namen ein",
+        Key::NamePlaceholder => "Ihr Name",
+        Key::InventurTokenLoginFailed => "Anmeldung fehlgeschlagen. Bitte überprüfen Sie Ihren Namen und versuchen Sie es erneut.",
 
         // Navigation
         Key::Home => "Startseite",

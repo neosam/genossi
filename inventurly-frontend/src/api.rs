@@ -3,7 +3,7 @@ use std::rc::Rc;
 use rest_types::{
     AddProductToRackRequestTO, ChangeInventurStatusRequestTO, CheckDuplicateRequestTO, ContainerTO,
     DuplicateDetectionResultTO, DuplicateMatchTO, InventurCustomEntryTO, InventurMeasurementTO,
-    InventurTO, ProductRackTO, ProductTO, RackTO, UserTO,
+    InventurTO, InventurTokenLoginRequest, ProductRackTO, ProductTO, RackTO, UserTO,
 };
 use tracing::info;
 use uuid::Uuid;
@@ -56,6 +56,29 @@ pub async fn logout(backend_url: Rc<str>) -> Result<(), reqwest::Error> {
         .post(format!("{}/auth/logout", backend_url))
         .send()
         .await?;
+    Ok(())
+}
+
+pub async fn login_with_inventur_token(
+    backend_url: Rc<str>,
+    name: &str,
+    token: &str,
+) -> Result<(), reqwest::Error> {
+    info!("Logging in with inventur token");
+    let client = reqwest::Client::new();
+    let request = InventurTokenLoginRequest {
+        name: name.to_string(),
+        token: token.to_string(),
+    };
+
+    let response = client
+        .post(format!("{}/auth/inventur-token", backend_url))
+        .json(&request)
+        .send()
+        .await?;
+
+    response.error_for_status_ref()?;
+    info!("Successfully logged in with inventur token");
     Ok(())
 }
 

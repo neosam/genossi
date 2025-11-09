@@ -28,6 +28,10 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::AccessDenied => "Access Denied",
         Key::InsufficientPrivileges => "You do not have sufficient privileges to access this page.",
         Key::BackToHome => "Back to Home",
+        Key::InventurTokenLoginTitle => "Inventory Login",
+        Key::EnterYourName => "Enter your name",
+        Key::NamePlaceholder => "Your name",
+        Key::InventurTokenLoginFailed => "Login failed. Please check your name and try again.",
 
         // Navigation
         Key::Home => "Home",
