@@ -53,16 +53,17 @@ pub fn QuickMeasureForm(
         move || {
             // Parse the value
             let parsed_value = value.read().parse::<i64>().ok();
-            if parsed_value.is_none() || parsed_value == Some(0) {
+            if parsed_value.is_none() {
                 return false;
             }
 
             // If product requires weighing and container is selected, check weight > container weight
+            // Skip validation for 0 (assume 0 = empty container)
             if product.requires_weighing {
                 if let Some(container_id) = *selected_container.read() {
                     if let Some(container) = containers_clone.iter().find(|c| c.id == Some(container_id)) {
                         if let Some(weight) = parsed_value {
-                            if weight <= container.weight_grams {
+                            if weight > 0 && weight <= container.weight_grams {
                                 return false;
                             }
                         }
@@ -98,7 +99,7 @@ pub fn QuickMeasureForm(
 
                     // Parse the value
                     let parsed_value = value.read().parse::<i64>().ok();
-                    if parsed_value.is_none() || parsed_value == Some(0) {
+                    if parsed_value.is_none() {
                         error.set(Some("Please enter a valid value".to_string()));
                         loading.set(false);
                         return;

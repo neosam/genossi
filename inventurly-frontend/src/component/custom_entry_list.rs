@@ -14,12 +14,12 @@ pub fn CustomEntryList(
     let get_value = |entry: &InventurCustomEntryTO| -> String {
         let mut parts = Vec::new();
         if let Some(count) = entry.count {
-            if count > 0 {
+            if count >= 0 {
                 parts.push(format!("Count: {}", count));
             }
         }
         if let Some(weight) = entry.weight_grams {
-            if weight > 0 {
+            if weight >= 0 {
                 parts.push(format!("Weight: {} g", weight));
             }
         }
