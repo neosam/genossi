@@ -297,6 +297,8 @@ pub enum Key {
     QuickMeasure,
     EnterCount,
     EnterWeight,
+    MeasurementProgress,
+    ViewRackProgress,
 
     // Rack selection
     MeasureByRack,

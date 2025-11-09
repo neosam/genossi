@@ -15,6 +15,7 @@ pub mod session;
 pub mod test_server;
 
 use async_trait::async_trait;
+use axum::routing::get;
 use axum::{body::Body, middleware, response::Response, Router};
 #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
 use inventurly_service::permission::MockContext;
@@ -27,10 +28,7 @@ use tracing::info;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
-#[cfg(feature = "oidc")]
 use axum::response::{IntoResponse, Redirect};
-#[cfg(feature = "oidc")]
-use axum::routing::get;
 
 // Simplified context type to match shifty pattern - just the user ID
 #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
@@ -246,7 +244,6 @@ pub fn oidc_config() -> OidcConfig {
     }
 }
 
-#[cfg(feature = "oidc")]
 pub async fn login() -> Redirect {
     Redirect::to("/")
 }
@@ -297,10 +294,27 @@ pub async fn create_app<RestState: RestStateDef>(rest_state: RestState) -> Route
     #[allow(unused_mut)]
     let mut app = Router::new().merge(swagger_router);
 
+    app = app.route("/authenticate", get(login));
+    
     #[cfg(feature = "oidc")]
-    {
-        app = app.route("/authenticate", get(login));
-    }
+    let app = {
+        use axum::error_handling::HandleErrorLayer;
+        use axum_oidc::error::MiddlewareError;
+        use axum_oidc::{EmptyAdditionalClaims, OidcAuthLayer, OidcLoginLayer};
+        use http::Uri;
+        use time::Duration;
+        use tower::ServiceBuilder;
+        use tower_sessions::cookie::SameSite;
+        use tower_sessions::{Expiry, MemoryStore, SessionManagerLayer};
+
+        let oidc_login_service = ServiceBuilder::new()
+            .layer(HandleErrorLayer::new(|e: MiddlewareError| async {
+                tracing::error!("OIDC Login error: {:?}", e);
+                e.into_response()
+            }))
+            .layer(OidcLoginLayer::<EmptyAdditionalClaims>::new());
+        app.layer(oidc_login_service)
+    };
 
     let app = app
         .nest("/auth", auth::generate_route())
@@ -347,13 +361,6 @@ pub async fn create_app<RestState: RestStateDef>(rest_state: RestState) -> Route
             .with_same_site(SameSite::Strict)
             .with_expiry(Expiry::OnInactivity(Duration::minutes(50)));
 
-        let oidc_login_service = ServiceBuilder::new()
-            .layer(HandleErrorLayer::new(|e: MiddlewareError| async {
-                tracing::error!("OIDC Login error: {:?}", e);
-                e.into_response()
-            }))
-            .layer(OidcLoginLayer::<EmptyAdditionalClaims>::new());
-
         tracing::info!("Attempting OIDC client discovery...");
         let oidc_auth_layer_result = OidcAuthLayer::<EmptyAdditionalClaims>::discover_client(
             Uri::from_maybe_shared(oidc_config.app_url.clone()).expect("valid APP_URL"),
@@ -392,7 +399,6 @@ pub async fn create_app<RestState: RestStateDef>(rest_state: RestState) -> Route
                 rest_state.clone(),
                 session::register_session::<RestState>,
             ))
-            .layer(oidc_login_service)
             .layer(oidc_auth_service)
             .layer(session_layer)
             .layer(CookieManagerLayer::new())

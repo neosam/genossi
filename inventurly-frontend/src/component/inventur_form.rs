@@ -4,7 +4,8 @@ use crate::router::Route;
 use crate::service::config::CONFIG;
 use crate::service::inventur::INVENTURS;
 use dioxus::prelude::*;
-use rest_types::InventurTO;
+use rest_types::{InventurMeasurementTO, InventurTO};
+use std::collections::HashSet;
 use time::PrimitiveDateTime;
 use uuid::Uuid;
 
@@ -32,6 +33,11 @@ pub fn InventurForm(inventur_id: Option<Uuid>) -> Element {
     let mut start_date_str = use_signal(|| String::new());
     let mut end_date_str = use_signal(|| String::new());
 
+    // Measurement progress tracking
+    let measurements = use_signal(|| Vec::<InventurMeasurementTO>::new());
+    let total_measured = use_signal(|| 0usize);
+    let total_products = use_signal(|| 0usize);
+
     // Load existing inventur data if editing
     use_effect(move || {
         if let Some(id) = inventur_id {
@@ -41,6 +47,9 @@ pub fn InventurForm(inventur_id: Option<Uuid>) -> Element {
                 let mut error = error.clone();
                 let mut start_date_str = start_date_str.clone();
                 let mut end_date_str = end_date_str.clone();
+                let mut measurements = measurements.clone();
+                let mut total_measured = total_measured.clone();
+                let mut total_products = total_products.clone();
 
                 async move {
                     loading.set(true);
@@ -61,6 +70,41 @@ pub fn InventurForm(inventur_id: Option<Uuid>) -> Element {
                         }
                         Err(e) => {
                             error.set(Some(format!("Failed to load inventur: {}", e)));
+                        }
+                    }
+
+                    // Load measurements to calculate progress
+                    match api::get_measurements_by_inventur(&config, id).await {
+                        Ok(measurement_data) => {
+                            // Calculate unique measured products
+                            let measured_products: HashSet<Uuid> = measurement_data
+                                .iter()
+                                .filter(|m| m.deleted.is_none())
+                                .map(|m| m.product_id)
+                                .collect();
+
+                            total_measured.set(measured_products.len());
+                            measurements.set(measurement_data);
+                        }
+                        Err(_) => {
+                            // Silently fail for measurements - not critical for form editing
+                        }
+                    }
+
+                    // Load all product-rack relationships to calculate total products
+                    match api::get_all_product_rack_relationships(&config).await {
+                        Ok(product_racks) => {
+                            // Calculate unique products in racks
+                            let unique_products: HashSet<Uuid> = product_racks
+                                .iter()
+                                .filter(|pr| pr.deleted.is_none())
+                                .map(|pr| pr.product_id)
+                                .collect();
+
+                            total_products.set(unique_products.len());
+                        }
+                        Err(_) => {
+                            // Silently fail - not critical for form editing
                         }
                     }
 
@@ -163,6 +207,27 @@ pub fn InventurForm(inventur_id: Option<Uuid>) -> Element {
         }
     };
 
+    // Determine if fields should be locked (when inventur is active or completed)
+    let is_locked = inventur.read().status == "active" || inventur.read().status == "completed";
+
+    // Calculate progress percentage
+    let percentage = if total_products() > 0 {
+        (total_measured() as f64 / total_products() as f64 * 100.0).round() as u32
+    } else {
+        0
+    };
+
+    // Calculate progress badge class and text
+    let measured = total_measured();
+    let total = total_products();
+    let (progress_class, progress_text) = if measured == 0 {
+        ("px-2 py-1 rounded-full bg-gray-200 text-gray-700", i18n.t(Key::NotStarted))
+    } else if measured == total {
+        ("px-2 py-1 rounded-full bg-green-500 text-white", i18n.t(Key::Complete))
+    } else {
+        ("px-2 py-1 rounded-full bg-green-200 text-green-800", i18n.t(Key::InProgress))
+    };
+
     rsx! {
         div { class: "bg-white rounded-lg shadow p-6",
             h2 { class: "text-2xl font-bold mb-6",
@@ -179,6 +244,45 @@ pub fn InventurForm(inventur_id: Option<Uuid>) -> Element {
                 }
             }
 
+            // Progress display (only when editing and have total products loaded)
+            if inventur_id.is_some() && total > 0 {
+                div { class: "bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6",
+                    div { class: "flex items-center justify-between mb-2",
+                        h3 { class: "text-lg font-semibold text-blue-900",
+                            {i18n.t(Key::MeasurementProgress)}
+                        }
+                        div { class: "text-sm",
+                            span {
+                                class: "{progress_class}",
+                                {progress_text.clone()}
+                            }
+                        }
+                    }
+                    p { class: "text-blue-800",
+                        {format!("{} / {} {} ({}%)", measured, total, i18n.t(Key::ProductsMeasured), percentage)}
+                    }
+                    if let Some(id) = inventur_id {
+                        a {
+                            href: "#",
+                            class: "text-sm text-blue-600 hover:text-blue-800 mt-2 inline-block",
+                            onclick: move |_| {
+                                nav.push(Route::InventurRackSelection { id: id.to_string() });
+                            },
+                            "→ {i18n.t(Key::ViewRackProgress)}"
+                        }
+                    }
+                }
+            }
+
+            // Info banner when fields are locked
+            if is_locked {
+                div { class: "bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded mb-4",
+                    p { class: "text-sm",
+                        "Fields are locked because the inventur is {inventur.read().status}. Change status to 'draft' or 'cancelled' to edit."
+                    }
+                }
+            }
+
             div {
                 div { class: "mb-4",
                     label {
@@ -189,11 +293,16 @@ pub fn InventurForm(inventur_id: Option<Uuid>) -> Element {
                     input {
                         id: "name",
                         r#type: "text",
-                        class: "w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500",
+                        class: if is_locked {
+                            "w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm bg-gray-100 cursor-not-allowed"
+                        } else {
+                            "w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                        },
                         value: "{inventur.read().name}",
                         oninput: move |e| {
                             inventur.write().name = e.value();
                         },
+                        disabled: is_locked,
                         required: true,
                     }
                 }
@@ -206,12 +315,17 @@ pub fn InventurForm(inventur_id: Option<Uuid>) -> Element {
                     }
                     textarea {
                         id: "description",
-                        class: "w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500",
+                        class: if is_locked {
+                            "w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm bg-gray-100 cursor-not-allowed"
+                        } else {
+                            "w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                        },
                         rows: "3",
                         value: "{inventur.read().description}",
                         oninput: move |e| {
                             inventur.write().description = e.value();
                         },
+                        disabled: is_locked,
                         required: true,
                     }
                 }
@@ -226,13 +340,18 @@ pub fn InventurForm(inventur_id: Option<Uuid>) -> Element {
                         input {
                             id: "start_date",
                             r#type: "datetime-local",
-                            class: "w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500",
+                            class: if is_locked {
+                                "w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm bg-gray-100 cursor-not-allowed"
+                            } else {
+                                "w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            },
                             value: "{start_date_str.read()}",
                             oninput: move |e| {
                                 let value = e.value();
                                 start_date_str.set(value.clone());
                                 inventur.write().start_date = parse_datetime_from_input(&value);
                             },
+                            disabled: is_locked,
                         }
                     }
 
@@ -245,13 +364,18 @@ pub fn InventurForm(inventur_id: Option<Uuid>) -> Element {
                         input {
                             id: "end_date",
                             r#type: "datetime-local",
-                            class: "w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500",
+                            class: if is_locked {
+                                "w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm bg-gray-100 cursor-not-allowed"
+                            } else {
+                                "w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                            },
                             value: "{end_date_str.read()}",
                             oninput: move |e| {
                                 let value = e.value();
                                 end_date_str.set(value.clone());
                                 inventur.write().end_date = parse_datetime_from_input(&value);
                             },
+                            disabled: is_locked,
                         }
                     }
                 }

@@ -304,6 +304,8 @@ pub fn add_i18n_cs(i18n: &mut I18n<Key, Locale>) {
     i18n.add_text(Locale::Cs, Key::InProgress, "Probíhá");
     i18n.add_text(Locale::Cs, Key::Complete, "Dokončeno");
     i18n.add_text(Locale::Cs, Key::NoProductsInRack, "Žádné produkty v tomto regálu");
+    i18n.add_text(Locale::Cs, Key::MeasurementProgress, "Průběh měření");
+    i18n.add_text(Locale::Cs, Key::ViewRackProgress, "Zobrazit průběh regálů");
 
     // Custom entries
     i18n.add_text(Locale::Cs, Key::CustomEntries, "Vlastní záznamy");

@@ -243,6 +243,8 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::NotMeasured => "Not Measured",
         Key::Measured => "Measured",
         Key::QuickMeasure => "Quick Measure",
+        Key::MeasurementProgress => "Measurement Progress",
+        Key::ViewRackProgress => "View Rack Progress",
         Key::EnterCount => "Enter Count",
         Key::EnterWeight => "Enter Weight (grams)",
 
