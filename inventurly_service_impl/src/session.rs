@@ -151,6 +151,21 @@ impl<Deps: SessionServiceDeps> SessionService for SessionServiceImpl<Deps> {
         // Now create the session
         self.create_session(user_id, expires_in_seconds).await
     }
+
+    async fn ensure_user_and_create_session_with_claims(
+        &self,
+        user_id: &str,
+        expires_in_seconds: i64,
+        claims: Option<String>,
+    ) -> Result<UserSession, ServiceError> {
+        // Ensure user exists for inventur token auto-registration
+        self.permission_dao
+            .ensure_user_exists(user_id, "inventur-token-auto-register")
+            .await?;
+
+        // Now create the session with claims
+        self.create_session_with_claims(user_id, expires_in_seconds, claims).await
+    }
 }
 
 // Mock implementation for development/testing

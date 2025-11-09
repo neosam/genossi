@@ -788,6 +788,21 @@ impl SessionService for MockSessionService {
     async fn cleanup_expired_sessions(&self) -> Result<u64, inventurly_service::ServiceError> {
         Ok(0)
     }
+
+    async fn ensure_user_and_create_session_with_claims(
+        &self,
+        _user_id: &str,
+        _expires_at: i64,
+        claims: Option<String>,
+    ) -> Result<inventurly_service::auth_types::UserSession, inventurly_service::ServiceError> {
+        Ok(inventurly_service::auth_types::UserSession {
+            session_id: "test-session".into(),
+            user_id: "testuser".into(),
+            expires_at: 9999999999,
+            created_at: 1000000000,
+            claims: claims.map(|s| std::sync::Arc::from(s.as_str())),
+        })
+    }
 }
 
 #[derive(Clone)]

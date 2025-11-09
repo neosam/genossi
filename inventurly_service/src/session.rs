@@ -55,6 +55,19 @@ pub trait SessionService: Send + Sync {
         // Implementations that need auto-registration should override this
         self.create_session(user_id, expires_in_seconds).await
     }
+
+    /// Ensures a user exists and then creates a session with claims for them
+    /// Used for inventur token login auto-registration flow
+    async fn ensure_user_and_create_session_with_claims(
+        &self,
+        user_id: &str,
+        expires_in_seconds: i64,
+        claims: Option<String>,
+    ) -> Result<UserSession, ServiceError> {
+        // Default implementation just calls create_session_with_claims
+        // Implementations that need auto-registration should override this
+        self.create_session_with_claims(user_id, expires_in_seconds, claims).await
+    }
 }
 
 /// Development session service implementation

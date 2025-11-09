@@ -208,9 +208,10 @@ async fn inventur_token_login_impl<RestState: RestStateDef>(
     }).to_string();
 
     // Create session with claims (24 hours)
+    // This will auto-create the virtual user if it doesn't exist
     let session = rest_state
         .session_service()
-        .create_session_with_claims(&user_id, 24 * 60 * 60, Some(claims))
+        .ensure_user_and_create_session_with_claims(&user_id, 24 * 60 * 60, Some(claims))
         .await?;
 
     let response = InventurTokenLoginResponse {
