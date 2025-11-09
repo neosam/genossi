@@ -1,5 +1,5 @@
 use crate::api;
-use crate::component::{CustomEntryForm, CustomEntryList, QuickMeasureForm, RackProductMeasureList, TopBar};
+use crate::component::{BarcodeScanner, CustomEntryForm, CustomEntryList, QuickMeasureForm, RackProductMeasureList, ScanResult, TopBar};
 use crate::i18n::{use_i18n, Key};
 use crate::router::Route;
 use crate::service::config::CONFIG;
@@ -62,6 +62,8 @@ pub fn InventurRackMeasure(inventur_id: String, rack_id: String) -> Element {
     let mut show_custom_entry_form = use_signal(|| false);
     let mut entry_to_delete = use_signal(|| None::<InventurCustomEntryTO>);
     let mut filter_query = use_signal(|| String::new());
+    let mut show_scanner = use_signal(|| false);
+    let mut scanner_message = use_signal(|| None::<String>);
 
     // Load data
     use_effect(move || {
@@ -237,6 +239,26 @@ pub fn InventurRackMeasure(inventur_id: String, rack_id: String) -> Element {
         });
     };
 
+    // Handler for barcode scanning
+    let i18n_clone = i18n.clone();
+    let handle_barcode_scan = move |result: ScanResult| {
+        // Strip checksum digit (scanner returns EAN with checksum, DB stores without)
+        let ean = if result.barcode.len() > 1 {
+            &result.barcode[..result.barcode.len() - 1]
+        } else {
+            &result.barcode
+        };
+
+        // Set filter query to scanned EAN
+        filter_query.set(ean.to_string());
+
+        // Show feedback message
+        scanner_message.set(Some(format!("{}: {}", i18n_clone.t(Key::SearchingForEAN), ean)));
+
+        // Close scanner
+        show_scanner.set(false);
+    };
+
     // Check if inventur is active
     let is_inventur_active = inventur.read().as_ref().map(|inv| inv.status == "active").unwrap_or(false);
 
@@ -372,6 +394,14 @@ pub fn InventurRackMeasure(inventur_id: String, rack_id: String) -> Element {
                         }
                     }
 
+                    // Barcode scanner modal
+                    if show_scanner() {
+                        BarcodeScanner {
+                            on_scan: handle_barcode_scan,
+                            on_close: move |_| show_scanner.set(false)
+                        }
+                    }
+
                     if is_inventur_active {
                         if let Some(product) = selected_product.read().as_ref() {
                             // Show measurement form (as modal overlay)
@@ -393,24 +423,44 @@ pub fn InventurRackMeasure(inventur_id: String, rack_id: String) -> Element {
                         }
 
                         // Product filter
-                        div { class: "mb-4",
-                            div { class: "relative",
-                                input {
-                                    r#type: "text",
-                                    class: "w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500",
-                                    placeholder: "{i18n.t(Key::FilterProducts)}",
-                                    value: "{filter_query}",
-                                    oninput: move |evt| {
-                                        filter_query.set(evt.value());
-                                    },
-                                }
-                                if !filter_query().is_empty() {
-                                    button {
-                                        class: "absolute right-2 top-1/2 -translate-y-1/2 px-3 py-1 text-gray-500 hover:text-gray-700",
-                                        onclick: move |_| filter_query.set(String::new()),
-                                        title: "{i18n.t(Key::ClearFilter)}",
-                                        "✕"
+                        div { class: "mb-4 space-y-2",
+                            div { class: "flex gap-2",
+                                div { class: "relative flex-1",
+                                    input {
+                                        r#type: "text",
+                                        class: "w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500",
+                                        placeholder: "{i18n.t(Key::FilterProducts)}",
+                                        value: "{filter_query}",
+                                        oninput: move |evt| {
+                                            filter_query.set(evt.value());
+                                            scanner_message.set(None);
+                                        },
                                     }
+                                    if !filter_query().is_empty() {
+                                        button {
+                                            class: "absolute right-2 top-1/2 -translate-y-1/2 px-3 py-1 text-gray-500 hover:text-gray-700",
+                                            onclick: move |_| {
+                                                filter_query.set(String::new());
+                                                scanner_message.set(None);
+                                            },
+                                            title: "{i18n.t(Key::ClearFilter)}",
+                                            "✕"
+                                        }
+                                    }
+                                }
+                                button {
+                                    class: "px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 flex items-center gap-2",
+                                    onclick: move |_| {
+                                        scanner_message.set(None);
+                                        show_scanner.set(true);
+                                    },
+                                    "📷 "
+                                    {i18n.t(Key::ScanBarcode)}
+                                }
+                            }
+                            if let Some(msg) = scanner_message() {
+                                div { class: "text-sm text-gray-600",
+                                    {msg}
                                 }
                             }
                         }
@@ -452,24 +502,44 @@ pub fn InventurRackMeasure(inventur_id: String, rack_id: String) -> Element {
                         }
                     } else {
                         // Product filter
-                        div { class: "mb-4",
-                            div { class: "relative",
-                                input {
-                                    r#type: "text",
-                                    class: "w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500",
-                                    placeholder: "{i18n.t(Key::FilterProducts)}",
-                                    value: "{filter_query}",
-                                    oninput: move |evt| {
-                                        filter_query.set(evt.value());
-                                    },
-                                }
-                                if !filter_query().is_empty() {
-                                    button {
-                                        class: "absolute right-2 top-1/2 -translate-y-1/2 px-3 py-1 text-gray-500 hover:text-gray-700",
-                                        onclick: move |_| filter_query.set(String::new()),
-                                        title: "{i18n.t(Key::ClearFilter)}",
-                                        "✕"
+                        div { class: "mb-4 space-y-2",
+                            div { class: "flex gap-2",
+                                div { class: "relative flex-1",
+                                    input {
+                                        r#type: "text",
+                                        class: "w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500",
+                                        placeholder: "{i18n.t(Key::FilterProducts)}",
+                                        value: "{filter_query}",
+                                        oninput: move |evt| {
+                                            filter_query.set(evt.value());
+                                            scanner_message.set(None);
+                                        },
                                     }
+                                    if !filter_query().is_empty() {
+                                        button {
+                                            class: "absolute right-2 top-1/2 -translate-y-1/2 px-3 py-1 text-gray-500 hover:text-gray-700",
+                                            onclick: move |_| {
+                                                filter_query.set(String::new());
+                                                scanner_message.set(None);
+                                            },
+                                            title: "{i18n.t(Key::ClearFilter)}",
+                                            "✕"
+                                        }
+                                    }
+                                }
+                                button {
+                                    class: "px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 flex items-center gap-2",
+                                    onclick: move |_| {
+                                        scanner_message.set(None);
+                                        show_scanner.set(true);
+                                    },
+                                    "📷 "
+                                    {i18n.t(Key::ScanBarcode)}
+                                }
+                            }
+                            if let Some(msg) = scanner_message() {
+                                div { class: "text-sm text-gray-600",
+                                    {msg}
                                 }
                             }
                         }
