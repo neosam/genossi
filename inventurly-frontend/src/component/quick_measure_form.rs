@@ -169,118 +169,31 @@ pub fn QuickMeasureForm(
     };
 
     rsx! {
-        // Modal backdrop
+        // Modal backdrop - positioned at top on mobile
         div {
-            class: "fixed inset-0 bg-black bg-opacity-50 z-40 flex items-center justify-center p-4",
+            class: "fixed inset-0 bg-black bg-opacity-50 z-40 flex items-start md:items-center justify-center p-4",
             onclick: move |_| on_cancel.call(()),
 
-            // Modal content
+            // Modal content - with max height and flex layout
             div {
-                class: "bg-white rounded-lg shadow-xl max-w-md w-full p-6 relative z-50",
+                class: "bg-white rounded-lg shadow-xl max-w-md w-full max-h-[90vh] flex flex-col relative z-50",
                 onclick: move |e| e.stop_propagation(),
 
-                h3 { class: "text-xl font-semibold mb-4",
-                    {i18n.t(Key::QuickMeasure)}
-                    " - "
-                    {product.name.clone()}
-                }
+                // Sticky header with title and buttons
+                div {
+                    class: "sticky top-0 bg-white border-b border-gray-200 p-4 flex flex-col gap-3 z-10 rounded-t-lg",
 
-                if let Some(err) = error.read().as_ref() {
-                    div { class: "bg-red-100 border border-red-400 text-red-700 px-3 py-2 rounded mb-4 text-sm",
-                        {err.clone()}
-                    }
-                }
-
-                // Show validation warning for weight vs container
-                if product.requires_weighing {
-                    if let Some(container_id) = *selected_container.read() {
-                        if let Some(container) = containers.iter().find(|c| c.id == Some(container_id)) {
-                            if let Ok(weight) = value.read().parse::<i64>() {
-                                if weight > 0 && weight <= container.weight_grams {
-                                    div { class: "bg-yellow-100 border border-yellow-400 text-yellow-700 px-3 py-2 rounded mb-4 text-sm",
-                                        "Weight must be greater than container weight ("
-                                        {container.weight_grams.to_string()}
-                                        "g)"
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                div { class: "space-y-4",
-                    div {
-                        label {
-                            class: "block text-sm font-medium text-gray-700 mb-1",
-                            if product.requires_weighing {
-                                {i18n.t(Key::EnterWeight)}
-                            } else {
-                                {i18n.t(Key::EnterCount)}
-                            }
-                        }
-                        input {
-                            r#type: "number",
-                            class: "w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500",
-                            value: "{value.read()}",
-                            oninput: move |e| {
-                                value.set(e.value());
-                            },
-                            autofocus: true,
-                        }
+                    h3 { class: "text-xl font-semibold",
+                        {i18n.t(Key::QuickMeasure)}
+                        " - "
+                        {product.name.clone()}
                     }
 
-                    // Container selection (especially important for weighing products)
-                    if product.requires_weighing {
-                        div {
-                            label {
-                                class: "block text-sm font-medium text-gray-700 mb-1",
-                                {i18n.t(Key::ContainerName)}
-                                " (Tara)"
-                            }
-                            select {
-                                class: "w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500",
-                                value: "{selected_container.read().as_ref().map(|id| id.to_string()).unwrap_or_default()}",
-                                onchange: move |e| {
-                                    if e.value().is_empty() {
-                                        selected_container.set(None);
-                                    } else if let Ok(uuid) = Uuid::parse_str(&e.value()) {
-                                        selected_container.set(Some(uuid));
-                                    }
-                                },
-                                option { value: "", "No container" }
-                                for container in containers.iter().filter(|c| c.deleted.is_none()) {
-                                    option {
-                                        value: "{container.id.unwrap_or(Uuid::nil())}",
-                                        selected: selected_container.read().as_ref().map(|id| *id == container.id.unwrap_or(Uuid::nil())).unwrap_or(false),
-                                        {container.name.clone()}
-                                        " ("
-                                        {container.weight_grams.to_string()}
-                                        "g)"
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    div {
-                        label {
-                            class: "block text-sm font-medium text-gray-700 mb-1",
-                            {i18n.t(Key::MeasurementNotes)}
-                        }
-                        textarea {
-                            class: "w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500",
-                            rows: "2",
-                            value: "{notes.read()}",
-                            oninput: move |e| {
-                                notes.set(e.value());
-                            },
-                        }
-                    }
-
-                    div { class: "flex gap-2 pt-2",
+                    // Buttons at top
+                    div { class: "flex gap-2",
                         button {
                             r#type: "button",
-                            class: "flex-1 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed",
+                            class: "flex-1 px-4 py-3 md:py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed",
                             disabled: *loading.read() || !is_valid(),
                             onclick: {
                                 let save = save_measurement.clone();
@@ -294,9 +207,115 @@ pub fn QuickMeasureForm(
                         }
                         button {
                             r#type: "button",
-                            class: "flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded hover:bg-gray-400",
+                            class: "flex-1 px-4 py-3 md:py-2 bg-gray-300 text-gray-700 rounded hover:bg-gray-400",
                             onclick: move |_| on_cancel.call(()),
                             {i18n.t(Key::Cancel)}
+                        }
+                    }
+                }
+
+                // Scrollable body
+                div {
+                    class: "flex-1 overflow-y-auto p-4",
+
+                    if let Some(err) = error.read().as_ref() {
+                        div { class: "bg-red-100 border border-red-400 text-red-700 px-3 py-2 rounded mb-4 text-sm",
+                            {err.clone()}
+                        }
+                    }
+
+                    // Show validation warning for weight vs container
+                    if product.requires_weighing {
+                        if let Some(container_id) = *selected_container.read() {
+                            if let Some(container) = containers.iter().find(|c| c.id == Some(container_id)) {
+                                if let Ok(weight) = value.read().parse::<i64>() {
+                                    if weight > 0 && weight <= container.weight_grams {
+                                        div { class: "bg-yellow-100 border border-yellow-400 text-yellow-700 px-3 py-2 rounded mb-4 text-sm",
+                                            "Weight must be greater than container weight ("
+                                            {container.weight_grams.to_string()}
+                                            "g)"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    div { class: "space-y-4",
+                        div {
+                            label {
+                                class: "block text-sm font-medium text-gray-700 mb-1",
+                                if product.requires_weighing {
+                                    {i18n.t(Key::EnterWeight)}
+                                } else {
+                                    {i18n.t(Key::EnterCount)}
+                                }
+                            }
+                            input {
+                                r#type: "number",
+                                inputmode: "decimal",
+                                class: "w-full px-3 py-3 md:py-2 text-lg md:text-base border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500",
+                                value: "{value.read()}",
+                                onmounted: move |event| async move {
+                                    let _ = event.set_focus(true).await;
+                                },
+                                oninput: move |e| {
+                                    value.set(e.value());
+                                },
+                                onkeydown: move |evt| {
+                                    if evt.key().to_string() == "Enter" && is_valid() {
+                                        save_measurement();
+                                    }
+                                },
+                            }
+                        }
+
+                        // Container selection (especially important for weighing products)
+                        if product.requires_weighing {
+                            div {
+                                label {
+                                    class: "block text-sm font-medium text-gray-700 mb-1",
+                                    {i18n.t(Key::ContainerName)}
+                                    " (Tara)"
+                                }
+                                select {
+                                    class: "w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500",
+                                    value: "{selected_container.read().as_ref().map(|id| id.to_string()).unwrap_or_default()}",
+                                    onchange: move |e| {
+                                        if e.value().is_empty() {
+                                            selected_container.set(None);
+                                        } else if let Ok(uuid) = Uuid::parse_str(&e.value()) {
+                                            selected_container.set(Some(uuid));
+                                        }
+                                    },
+                                    option { value: "", "No container" }
+                                    for container in containers.iter().filter(|c| c.deleted.is_none()) {
+                                        option {
+                                            value: "{container.id.unwrap_or(Uuid::nil())}",
+                                            selected: selected_container.read().as_ref().map(|id| *id == container.id.unwrap_or(Uuid::nil())).unwrap_or(false),
+                                            {container.name.clone()}
+                                            " ("
+                                            {container.weight_grams.to_string()}
+                                            "g)"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        div {
+                            label {
+                                class: "block text-sm font-medium text-gray-700 mb-1",
+                                {i18n.t(Key::MeasurementNotes)}
+                            }
+                            textarea {
+                                class: "w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500",
+                                rows: "2",
+                                value: "{notes.read()}",
+                                oninput: move |e| {
+                                    notes.set(e.value());
+                                },
+                            }
                         }
                     }
                 }

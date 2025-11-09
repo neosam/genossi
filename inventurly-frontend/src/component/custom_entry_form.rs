@@ -219,10 +219,12 @@ pub fn CustomEntryForm(
                             r#type: "text",
                             class: "w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500",
                             value: "{product_name.read()}",
+                            onmounted: move |event| async move {
+                                let _ = event.set_focus(true).await;
+                            },
                             oninput: move |e| {
                                 product_name.set(e.value());
                             },
-                            autofocus: true,
                             placeholder: "Unknown Product",
                         }
                     }
