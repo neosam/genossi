@@ -86,7 +86,7 @@ in pkgs.rustPlatform.buildRustPackage rec {
 <body>
     <div id="main"></div>
     <script type="module">
-        import init from './inventurly-frontend.js';
+        import init from '/inventurly-frontend.js';
         init();
     </script>
 </body>

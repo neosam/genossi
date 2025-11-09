@@ -119,12 +119,12 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Inventurly</title>
-    <link rel="stylesheet" href="tailwind.css">
+    <link rel="stylesheet" href="/tailwind.css">
 </head>
 <body>
     <div id="main"></div>
     <script type="module">
-        import init from './inventurly-frontend.js';
+        import init from '/inventurly-frontend.js';
         init();
     </script>
 </body>
