@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use mockall::automock;
+use std::sync::Arc;
 
 use crate::{
     auth_types::{AuthContext, UserSession},
@@ -15,6 +16,14 @@ pub trait SessionService: Send + Sync {
         &self,
         user_id: &str,
         expires_in_seconds: i64,
+    ) -> Result<UserSession, ServiceError>;
+
+    /// Create a new user session with claims
+    async fn create_session_with_claims(
+        &self,
+        user_id: &str,
+        expires_in_seconds: i64,
+        claims: Option<String>,
     ) -> Result<UserSession, ServiceError>;
 
     /// Verify a session by session ID and return user session info
@@ -64,6 +73,23 @@ impl SessionService for DevSessionService {
             user_id: user_id.into(),
             expires_at: now + expires_in_seconds,
             created_at: now,
+            claims: None,
+        })
+    }
+
+    async fn create_session_with_claims(
+        &self,
+        user_id: &str,
+        expires_in_seconds: i64,
+        claims: Option<String>,
+    ) -> Result<UserSession, ServiceError> {
+        let now = time::OffsetDateTime::now_utc().unix_timestamp();
+        Ok(UserSession {
+            session_id: "mock-session".into(),
+            user_id: user_id.into(),
+            expires_at: now + expires_in_seconds,
+            created_at: now,
+            claims: claims.map(|s| Arc::from(s.as_str())),
         })
     }
 
@@ -77,6 +103,7 @@ impl SessionService for DevSessionService {
             user_id: "DEVUSER".into(),
             expires_at: now + 3600,
             created_at: now,
+            claims: None,
         }))
     }
 

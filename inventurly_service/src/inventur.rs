@@ -18,6 +18,7 @@ pub struct Inventur {
     pub created: PrimitiveDateTime,
     pub deleted: Option<PrimitiveDateTime>,
     pub version: Uuid,
+    pub token: Option<Arc<str>>, // Optional token for quick access during inventory
 }
 
 impl From<&inventurly_dao::inventur::InventurEntity> for Inventur {
@@ -33,6 +34,7 @@ impl From<&inventurly_dao::inventur::InventurEntity> for Inventur {
             created: entity.created,
             deleted: entity.deleted,
             version: entity.version,
+            token: entity.token.clone(),
         }
     }
 }
@@ -50,6 +52,7 @@ impl From<&Inventur> for inventurly_dao::inventur::InventurEntity {
             created: inventur.created,
             deleted: inventur.deleted,
             version: inventur.version,
+            token: inventur.token.clone(),
         }
     }
 }
@@ -108,6 +111,12 @@ pub trait InventurService: Send + Sync {
         context: Authentication<Self::Context>,
         tx: Option<Self::Transaction>,
     ) -> Result<(), ServiceError>;
+
+    async fn find_by_token(
+        &self,
+        token: &str,
+        tx: Option<Self::Transaction>,
+    ) -> Result<Option<Inventur>, ServiceError>;
 }
 
 mockall::mock! {

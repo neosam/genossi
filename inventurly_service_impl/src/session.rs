@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use std::sync::Arc;
 use uuid::Uuid;
 
 use inventurly_dao::permission::{PermissionDao, SessionEntity};
@@ -32,6 +33,7 @@ impl<Deps: SessionServiceDeps> SessionService for SessionServiceImpl<Deps> {
             user_id: user_id.into(),
             expires: expires_at,
             created: now,
+            claims: None,
         };
 
         self.permission_dao.create_session(&session_entity).await?;
@@ -41,6 +43,37 @@ impl<Deps: SessionServiceDeps> SessionService for SessionServiceImpl<Deps> {
             user_id: user_id.into(),
             expires_at,
             created_at: now,
+            claims: None,
+        })
+    }
+
+    async fn create_session_with_claims(
+        &self,
+        user_id: &str,
+        expires_in_seconds: i64,
+        claims: Option<String>,
+    ) -> Result<UserSession, ServiceError> {
+        let now = time::OffsetDateTime::now_utc().unix_timestamp();
+        let expires_at = now + expires_in_seconds;
+        let session_id = Uuid::new_v4().to_string();
+
+        let claims_arc = claims.map(|s| Arc::from(s.as_str()));
+        let session_entity = SessionEntity {
+            id: session_id.clone().into(),
+            user_id: user_id.into(),
+            expires: expires_at,
+            created: now,
+            claims: claims_arc.clone(),
+        };
+
+        self.permission_dao.create_session(&session_entity).await?;
+
+        Ok(UserSession {
+            session_id: session_id.into(),
+            user_id: user_id.into(),
+            expires_at,
+            created_at: now,
+            claims: claims_arc,
         })
     }
 
@@ -65,6 +98,7 @@ impl<Deps: SessionServiceDeps> SessionService for SessionServiceImpl<Deps> {
                 user_id: session_entity.user_id,
                 expires_at: session_entity.expires,
                 created_at: session_entity.created,
+                claims: session_entity.claims,
             }))
         } else {
             Ok(None)
@@ -135,6 +169,23 @@ impl SessionService for MockSessionServiceImpl {
             user_id: user_id.into(),
             expires_at: now + expires_in_seconds,
             created_at: now,
+            claims: None,
+        })
+    }
+
+    async fn create_session_with_claims(
+        &self,
+        user_id: &str,
+        expires_in_seconds: i64,
+        claims: Option<String>,
+    ) -> Result<UserSession, ServiceError> {
+        let now = time::OffsetDateTime::now_utc().unix_timestamp();
+        Ok(UserSession {
+            session_id: "mock-session".into(),
+            user_id: user_id.into(),
+            expires_at: now + expires_in_seconds,
+            created_at: now,
+            claims: claims.map(|s| Arc::from(s.as_str())),
         })
     }
 
@@ -148,6 +199,7 @@ impl SessionService for MockSessionServiceImpl {
             user_id: "DEVUSER".into(),
             expires_at: now + 3600, // 1 hour from now
             created_at: now - 60,   // Created 1 minute ago
+            claims: None,
         }))
     }
 

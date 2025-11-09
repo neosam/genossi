@@ -8,6 +8,7 @@ use inventurly_service::{
     uuid_service::UuidService,
     ServiceError, ValidationFailureItem,
 };
+use rand::Rng;
 use uuid::Uuid;
 
 use crate::gen_service_impl;
@@ -29,6 +30,21 @@ const MANAGE_INVENTUR_PRIVILEGE: &str = "manage_inventur";
 const STATUS_DRAFT: &str = "draft";
 const STATUS_ACTIVE: &str = "active";
 const STATUS_COMPLETED: &str = "completed";
+
+/// Generate a random 32-character token for inventur access
+fn generate_token() -> String {
+    const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ\
+                              abcdefghijklmnopqrstuvwxyz\
+                              0123456789";
+    let mut rng = rand::thread_rng();
+
+    (0..32)
+        .map(|_| {
+            let idx = rng.gen_range(0..CHARSET.len());
+            CHARSET[idx] as char
+        })
+        .collect()
+}
 
 fn validate_status_transition(current: &str, new: &str) -> Result<(), ServiceError> {
     let valid = match (current, new) {
@@ -196,13 +212,29 @@ impl<Deps: InventurServiceDeps> InventurService for InventurServiceImpl<Deps> {
         // Validate status transition
         validate_status_transition(existing.status.as_ref(), item.status.as_ref())?;
 
-        let entity = inventurly_dao::inventur::InventurEntity::from(item);
+        // Generate token if transitioning to active and no token exists
+        let mut updated_item = item.clone();
+        if item.status.as_ref() == STATUS_ACTIVE
+            && existing.status.as_ref() != STATUS_ACTIVE
+            && item.token.is_none()
+        {
+            updated_item.token = Some(Arc::from(generate_token()));
+        }
+
+        let entity = inventurly_dao::inventur::InventurEntity::from(&updated_item);
         self.inventur_dao
             .update(&entity, INVENTUR_SERVICE_PROCESS, tx.clone())
             .await?;
 
+        // Fetch the updated entity to ensure response matches database state
+        let updated = self
+            .inventur_dao
+            .find_by_id(item.id, tx.clone())
+            .await?
+            .ok_or(ServiceError::EntityNotFound(item.id))?;
+
         self.transaction_dao.commit(tx).await?;
-        Ok(item.clone())
+        Ok(Inventur::from(&updated))
     }
 
     async fn change_status(
@@ -232,6 +264,11 @@ impl<Deps: InventurServiceDeps> InventurService for InventurServiceImpl<Deps> {
         let mut inventur = Inventur::from(&existing);
         inventur.status = Arc::from(new_status);
 
+        // If moving to active, generate token if not already present
+        if new_status == STATUS_ACTIVE && inventur.token.is_none() {
+            inventur.token = Some(Arc::from(generate_token()));
+        }
+
         // If moving to completed, set end_date
         if new_status == STATUS_COMPLETED && inventur.end_date.is_none() {
             let now = time::OffsetDateTime::now_utc();
@@ -243,8 +280,15 @@ impl<Deps: InventurServiceDeps> InventurService for InventurServiceImpl<Deps> {
             .update(&entity, INVENTUR_SERVICE_PROCESS, tx.clone())
             .await?;
 
+        // Fetch the updated entity to ensure response matches database state
+        let updated = self
+            .inventur_dao
+            .find_by_id(id, tx.clone())
+            .await?
+            .ok_or(ServiceError::EntityNotFound(id))?;
+
         self.transaction_dao.commit(tx).await?;
-        Ok(inventur)
+        Ok(Inventur::from(&updated))
     }
 
     async fn delete(
@@ -276,5 +320,22 @@ impl<Deps: InventurServiceDeps> InventurService for InventurServiceImpl<Deps> {
 
         self.transaction_dao.commit(tx).await?;
         Ok(())
+    }
+
+    async fn find_by_token(
+        &self,
+        token: &str,
+        tx: Option<Self::Transaction>,
+    ) -> Result<Option<Inventur>, ServiceError> {
+        let tx = self.transaction_dao.use_transaction(tx).await?;
+
+        let inventur_entity = self
+            .inventur_dao
+            .find_by_token(token, tx.clone())
+            .await?;
+
+        self.transaction_dao.commit(tx).await?;
+
+        Ok(inventur_entity.as_ref().map(Inventur::from))
     }
 }

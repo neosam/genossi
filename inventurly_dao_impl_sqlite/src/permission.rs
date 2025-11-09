@@ -426,13 +426,15 @@ impl PermissionDao for PermissionDaoImpl {
     async fn create_session(&self, session: &SessionEntity) -> Result<(), DaoError> {
         let id = session.id.as_ref();
         let user_id = session.user_id.as_ref();
+        let claims = session.claims.as_ref().map(|c| c.as_ref());
 
         sqlx::query!(
-            "INSERT INTO session (id, user_id, expires, created) VALUES (?, ?, ?, ?)",
+            "INSERT INTO session (id, user_id, expires, created, claims) VALUES (?, ?, ?, ?, ?)",
             id,
             user_id,
             session.expires,
-            session.created
+            session.created,
+            claims
         )
         .execute(self.pool.as_ref())
         .await
@@ -443,7 +445,7 @@ impl PermissionDao for PermissionDaoImpl {
 
     async fn get_session(&self, session_id: &str) -> Result<Option<SessionEntity>, DaoError> {
         let session = sqlx::query!(
-            "SELECT id, user_id, expires, created FROM session WHERE id = ?",
+            "SELECT id, user_id, expires, created, claims FROM session WHERE id = ?",
             session_id
         )
         .fetch_optional(self.pool.as_ref())
@@ -455,6 +457,7 @@ impl PermissionDao for PermissionDaoImpl {
             user_id: Arc::from(row.user_id.as_str()),
             expires: row.expires,
             created: row.created,
+            claims: row.claims.map(|c| Arc::from(c.as_str())),
         }))
     }
 

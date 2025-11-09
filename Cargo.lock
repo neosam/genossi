@@ -1405,6 +1405,7 @@ dependencies = [
  "csv",
  "inventurly_dao",
  "inventurly_service",
+ "rand",
  "strsim 0.10.0",
  "time",
  "tracing",

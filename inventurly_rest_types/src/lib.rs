@@ -627,6 +627,9 @@ pub struct InventurTO {
     pub deleted: Option<time::PrimitiveDateTime>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(example = "abc123xyz789...")]
+    pub token: Option<String>,
 }
 
 impl From<&inventurly_service::inventur::Inventur> for InventurTO {
@@ -642,6 +645,7 @@ impl From<&inventurly_service::inventur::Inventur> for InventurTO {
             created: Some(inventur.created),
             deleted: inventur.deleted,
             version: Some(inventur.version),
+            token: inventur.token.as_ref().map(|t| t.to_string()),
         }
     }
 }
@@ -664,6 +668,7 @@ impl From<&InventurTO> for inventurly_service::inventur::Inventur {
             created: to.created.unwrap_or(now_primitive),
             deleted: to.deleted,
             version: to.version.unwrap_or_else(Uuid::nil),
+            token: to.token.as_ref().map(|t| Arc::from(t.as_str())),
         }
     }
 }

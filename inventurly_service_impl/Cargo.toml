@@ -17,3 +17,4 @@ time = { workspace = true }
 uuid = { workspace = true }
 tracing = { workspace = true }
 strsim = { workspace = true }
+rand = { workspace = true }

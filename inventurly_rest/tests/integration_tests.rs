@@ -745,6 +745,22 @@ impl SessionService for MockSessionService {
             user_id: "testuser".into(),
             expires_at: 9999999999,
             created_at: 1000000000,
+            claims: None,
+        })
+    }
+
+    async fn create_session_with_claims(
+        &self,
+        _user_id: &str,
+        _expires_at: i64,
+        claims: Option<String>,
+    ) -> Result<inventurly_service::auth_types::UserSession, inventurly_service::ServiceError> {
+        Ok(inventurly_service::auth_types::UserSession {
+            session_id: "test-session".into(),
+            user_id: "testuser".into(),
+            expires_at: 9999999999,
+            created_at: 1000000000,
+            claims: claims.map(|s| std::sync::Arc::from(s.as_str())),
         })
     }
 
@@ -758,6 +774,7 @@ impl SessionService for MockSessionService {
             user_id: "testuser".into(),
             expires_at: 9999999999,
             created_at: 1000000000,
+            claims: None,
         }))
     }
 
@@ -998,6 +1015,14 @@ impl InventurService for MockInventurService {
         Err(inventurly_service::ServiceError::InternalError(Arc::from(
             "Not implemented",
         )))
+    }
+
+    async fn find_by_token(
+        &self,
+        _token: &str,
+        _tx: Option<Self::Transaction>,
+    ) -> Result<Option<Inventur>, inventurly_service::ServiceError> {
+        Ok(None)
     }
 }
 

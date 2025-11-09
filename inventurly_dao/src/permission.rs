@@ -118,6 +118,7 @@ pub struct SessionEntity {
     pub user_id: Arc<str>,
     pub expires: i64,
     pub created: i64,
+    pub claims: Option<Arc<str>>,  // JSON string containing session claims
 }
 
 // Mock implementation for testing
@@ -277,6 +278,7 @@ impl PermissionDao for MockPermissionDao {
             user_id: Arc::from("DEVUSER"),
             expires: time::OffsetDateTime::now_utc().unix_timestamp() + 3600,
             created: time::OffsetDateTime::now_utc().unix_timestamp(),
+            claims: None,
         }))
     }
 

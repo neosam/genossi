@@ -85,6 +85,7 @@ pub struct UserSession {
     pub user_id: Arc<str>,
     pub expires_at: i64,
     pub created_at: i64,
+    pub claims: Option<Arc<str>>, // JSON string containing session claims
 }
 
 /// Authentication context for different modes
@@ -107,6 +108,7 @@ pub struct MockContext {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuthenticatedContext {
     pub user_id: Arc<str>,
+    pub claims: Option<Arc<str>>, // JSON string containing session claims
 }
 
 impl Default for MockContext {

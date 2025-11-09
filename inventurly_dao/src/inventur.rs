@@ -17,6 +17,7 @@ pub struct InventurEntity {
     pub created: PrimitiveDateTime,
     pub deleted: Option<PrimitiveDateTime>,
     pub version: Uuid,
+    pub token: Option<Arc<str>>, // Optional token for quick access during inventory
 }
 
 #[async_trait]
@@ -76,5 +77,18 @@ pub trait InventurDao: Send + Sync {
             .cloned()
             .collect();
         Ok(matching.into())
+    }
+
+    // Find inventur by token
+    async fn find_by_token(
+        &self,
+        token: &str,
+        tx: Self::Transaction,
+    ) -> Result<Option<InventurEntity>, DaoError> {
+        let all_entities = self.dump_all(tx).await?;
+        Ok(all_entities
+            .iter()
+            .find(|e| e.deleted.is_none() && e.token.as_ref().map(|t| t.as_ref()) == Some(token))
+            .cloned())
     }
 }

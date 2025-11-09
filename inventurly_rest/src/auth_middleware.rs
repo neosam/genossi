@@ -162,7 +162,10 @@ pub fn mock_auth_context() -> crate::Context {
     return MockContext;
     
     #[cfg(feature = "oidc")]
-    return Some("DEVUSER".into());
+    return Some(inventurly_service::auth_types::AuthenticatedContext {
+        user_id: "DEVUSER".into(),
+        claims: None,
+    });
 }
 
 /// Helper function to get auth context from request extensions

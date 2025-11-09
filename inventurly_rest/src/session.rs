@@ -83,14 +83,19 @@ pub async fn context_extractor<RestState: RestStateDef>(
             .unwrap()
         {
             tracing::info!("Session found: {:?}", session);
-            request.extensions_mut().insert(Some(session.user_id));
+            // Insert AuthenticatedContext with claims as the Context
+            let auth_context = inventurly_service::auth_types::AuthenticatedContext {
+                user_id: session.user_id,
+                claims: session.claims,
+            };
+            request.extensions_mut().insert(Some(auth_context));
         } else {
             tracing::info!("Session not found");
-            request.extensions_mut().insert(None::<Arc<str>>);
+            request.extensions_mut().insert(None::<inventurly_service::auth_types::AuthenticatedContext>);
         }
     } else {
         tracing::info!("app_session cookie not found");
-        request.extensions_mut().insert(None::<Arc<str>>);
+        request.extensions_mut().insert(None::<inventurly_service::auth_types::AuthenticatedContext>);
     };
     
     next.run(request).await
@@ -130,8 +135,9 @@ pub async fn forbid_unauthenticated<RestState: RestStateDef>(
     let is_authenticated = request.extensions().get::<Context>().is_some()
         && request.extensions().get::<Context>().unwrap().is_some();
 
-    // Allow access to authenticate endpoint and swagger
+    // Allow access to authenticate endpoint, token login, and swagger
     let is_public_path = request.uri().path().ends_with("/authenticate")
+        || request.uri().path().ends_with("/inventur-token")
         || request.uri().path().starts_with("/swagger-ui");
 
     if is_authenticated || is_public_path {

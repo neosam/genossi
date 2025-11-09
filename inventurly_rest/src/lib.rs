@@ -34,7 +34,7 @@ use axum::response::{IntoResponse, Redirect};
 #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
 pub type Context = MockContext;
 #[cfg(feature = "oidc")]
-pub type Context = Option<Arc<str>>;
+pub type Context = Option<inventurly_service::auth_types::AuthenticatedContext>;
 
 // Helper function to extract Authentication from simplified Context
 #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
@@ -48,10 +48,7 @@ pub fn extract_auth_context(context: Option<Context>) -> Result<inventurly_servi
 #[cfg(feature = "oidc")]
 pub fn extract_auth_context(context: Option<Context>) -> Result<inventurly_service::permission::Authentication<inventurly_service::auth_types::AuthenticatedContext>, RestError> {
     match context {
-        Some(Some(user_id)) => {
-            let auth_context = inventurly_service::auth_types::AuthenticatedContext {
-                user_id: user_id.clone(),
-            };
+        Some(Some(auth_context)) => {
             Ok(inventurly_service::permission::Authentication::Context(auth_context))
         }
         _ => Err(RestError::Unauthorized),

@@ -22,6 +22,7 @@ struct InventurDb {
     created: String,
     deleted: Option<String>,
     version: Vec<u8>,
+    token: Option<String>,
 }
 
 impl TryFrom<&InventurDb> for InventurEntity {
@@ -68,6 +69,7 @@ impl TryFrom<&InventurDb> for InventurEntity {
             created: parse_datetime(&db.created)?,
             deleted: db.deleted.as_ref().map(|d| parse_datetime(d)).transpose()?,
             version: Uuid::from_slice(&db.version)?,
+            token: db.token.as_ref().map(|t| Arc::from(t.as_str())),
         })
     }
 }
@@ -88,7 +90,7 @@ impl InventurDao for InventurDaoImpl {
 
     async fn dump_all(&self, tx: Self::Transaction) -> Result<Arc<[InventurEntity]>, DaoError> {
         let rows = sqlx::query_as::<_, InventurDb>(
-            "SELECT id, name, description, start_date, end_date, status, created_by, created, deleted, version
+            "SELECT id, name, description, start_date, end_date, status, created_by, created, deleted, version, token
              FROM inventur ORDER BY start_date DESC"
         )
         .fetch_all(tx.tx.lock().await.as_mut())
@@ -132,10 +134,11 @@ impl InventurDao for InventurDaoImpl {
         let description = entity.description.to_string();
         let status = entity.status.to_string();
         let created_by = entity.created_by.to_string();
+        let token = entity.token.as_ref().map(|t| t.to_string());
 
         sqlx::query(
-            "INSERT INTO inventur (id, name, description, start_date, end_date, status, created_by, created, version)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            "INSERT INTO inventur (id, name, description, start_date, end_date, status, created_by, created, version, token)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )
         .bind(id)
         .bind(name)
@@ -146,6 +149,7 @@ impl InventurDao for InventurDaoImpl {
         .bind(created_by)
         .bind(created)
         .bind(version)
+        .bind(token)
         .execute(tx.tx.lock().await.as_mut())
         .await
         .map_err(|e| DaoError::DatabaseError(Arc::from(e.to_string())))?;
@@ -180,6 +184,7 @@ impl InventurDao for InventurDaoImpl {
         let description = entity.description.to_string();
         let status = entity.status.to_string();
         let created_by = entity.created_by.to_string();
+        let token = entity.token.as_ref().map(|t| t.to_string());
 
         // Format deleted timestamp if present
         let deleted = match entity.deleted {
@@ -207,7 +212,7 @@ impl InventurDao for InventurDaoImpl {
         let rows_affected = sqlx::query(
             "UPDATE inventur
              SET name = ?, description = ?, start_date = ?, end_date = ?, status = ?,
-                 created_by = ?, deleted = ?, version = ?
+                 created_by = ?, deleted = ?, version = ?, token = ?
              WHERE id = ? AND version = ? AND deleted IS NULL",
         )
         .bind(name)
@@ -218,6 +223,7 @@ impl InventurDao for InventurDaoImpl {
         .bind(created_by)
         .bind(deleted)
         .bind(new_version)
+        .bind(token)
         .bind(id)
         .bind(old_version)
         .execute(tx.tx.lock().await.as_mut())
