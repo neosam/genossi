@@ -61,6 +61,7 @@ pub fn InventurRackMeasure(inventur_id: String, rack_id: String) -> Element {
     let mut selected_custom_entry = use_signal(|| None::<InventurCustomEntryTO>);
     let mut show_custom_entry_form = use_signal(|| false);
     let mut entry_to_delete = use_signal(|| None::<InventurCustomEntryTO>);
+    let mut filter_query = use_signal(|| String::new());
 
     // Load data
     use_effect(move || {
@@ -202,6 +203,22 @@ pub fn InventurRackMeasure(inventur_id: String, rack_id: String) -> Element {
         .read()
         .iter()
         .filter(|e| e.rack_id == Some(rack_uuid) && e.deleted.is_none())
+        .cloned()
+        .collect();
+
+    // Filter products by search query
+    let filtered_products: Vec<ProductTO> = rack_products
+        .read()
+        .iter()
+        .filter(|p| {
+            if filter_query().is_empty() {
+                return true;
+            }
+            let query = filter_query().to_lowercase();
+            p.name.to_lowercase().contains(&query)
+                || p.ean.to_lowercase().contains(&query)
+                || p.short_name.to_lowercase().contains(&query)
+        })
         .cloned()
         .collect();
 
@@ -375,9 +392,32 @@ pub fn InventurRackMeasure(inventur_id: String, rack_id: String) -> Element {
                             }
                         }
 
+                        // Product filter
+                        div { class: "mb-4",
+                            div { class: "relative",
+                                input {
+                                    r#type: "text",
+                                    class: "w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500",
+                                    placeholder: "{i18n.t(Key::FilterProducts)}",
+                                    value: "{filter_query}",
+                                    oninput: move |evt| {
+                                        filter_query.set(evt.value());
+                                    },
+                                }
+                                if !filter_query().is_empty() {
+                                    button {
+                                        class: "absolute right-2 top-1/2 -translate-y-1/2 px-3 py-1 text-gray-500 hover:text-gray-700",
+                                        onclick: move |_| filter_query.set(String::new()),
+                                        title: "{i18n.t(Key::ClearFilter)}",
+                                        "✕"
+                                    }
+                                }
+                            }
+                        }
+
                         // Product list
                         RackProductMeasureList {
-                            products: rack_products.read().clone(),
+                            products: filtered_products.clone(),
                             measurements: rack_measurements.clone(),
                             rack_id: rack_uuid,
                             on_measure: move |product| {
@@ -411,9 +451,32 @@ pub fn InventurRackMeasure(inventur_id: String, rack_id: String) -> Element {
                             }
                         }
                     } else {
+                        // Product filter
+                        div { class: "mb-4",
+                            div { class: "relative",
+                                input {
+                                    r#type: "text",
+                                    class: "w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500",
+                                    placeholder: "{i18n.t(Key::FilterProducts)}",
+                                    value: "{filter_query}",
+                                    oninput: move |evt| {
+                                        filter_query.set(evt.value());
+                                    },
+                                }
+                                if !filter_query().is_empty() {
+                                    button {
+                                        class: "absolute right-2 top-1/2 -translate-y-1/2 px-3 py-1 text-gray-500 hover:text-gray-700",
+                                        onclick: move |_| filter_query.set(String::new()),
+                                        title: "{i18n.t(Key::ClearFilter)}",
+                                        "✕"
+                                    }
+                                }
+                            }
+                        }
+
                         // Show product list but without ability to measure
                         RackProductMeasureList {
-                            products: rack_products.read().clone(),
+                            products: filtered_products.clone(),
                             measurements: rack_measurements.clone(),
                             rack_id: rack_uuid,
                             on_measure: move |_| {
