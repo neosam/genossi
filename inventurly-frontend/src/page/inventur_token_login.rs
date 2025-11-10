@@ -9,7 +9,6 @@ use crate::service::config::CONFIG;
 #[component]
 pub fn InventurTokenLogin(token: String) -> Element {
     let i18n = use_i18n();
-    let nav = navigator();
 
     let mut name = use_signal(|| String::new());
     let loading = use_signal(|| false);
@@ -25,7 +24,6 @@ pub fn InventurTokenLogin(token: String) -> Element {
             let mut error = error.clone();
             let name_value = name.read().clone();
             let token_value = token_clone.clone();
-            let nav = nav.clone();
             let i18n = i18n_error.clone();
 
             async move {
@@ -34,16 +32,24 @@ pub fn InventurTokenLogin(token: String) -> Element {
 
                 let config = CONFIG.read().clone();
 
-                match api::login_with_inventur_token(config.backend.clone(), &name_value, &token_value).await {
+                match api::login_with_inventur_token(
+                    config.backend.clone(),
+                    &name_value,
+                    &token_value,
+                )
+                .await
+                {
                     Ok(()) => {
-                        // Reload authentication info to get user data
-                        load_auth_info().await;
-
-                        // Navigate to home page
-                        nav.push(Route::Home {});
+                        // Reload page and redirect to home
+                        let window = web_sys::window().unwrap();
+                        window.location().set_href("/").unwrap();
                     }
                     Err(e) => {
-                        error.set(Some(format!("{}: {}", i18n.t(Key::InventurTokenLoginFailed), e)));
+                        error.set(Some(format!(
+                            "{}: {}",
+                            i18n.t(Key::InventurTokenLoginFailed),
+                            e
+                        )));
                         loading.set(false);
                     }
                 }
@@ -83,7 +89,9 @@ pub fn InventurTokenLogin(token: String) -> Element {
                             onkeydown: {
                                 let login = handle_login.clone();
                                 move |evt: Event<KeyboardData>| {
-                                    if evt.key().to_string() == "Enter" && !name.read().trim().is_empty() && !*loading.read() {
+                                    if evt.key().to_string() == "Enter" && !name.read().trim().is_empty()
+                                        && !*loading.read()
+                                    {
                                         login();
                                     }
                                 }

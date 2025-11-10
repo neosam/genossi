@@ -1,7 +1,5 @@
 use axum::{
-    extract::State,
-    response::{IntoResponse, Response},
-    Extension, Json,
+    Extension, Json, body::Body, extract::State, response::{IntoResponse, Response}
 };
 use inventurly_service::inventur::InventurService;
 use inventurly_service::permission::PermissionService;
@@ -219,7 +217,13 @@ async fn inventur_token_login_impl<RestState: RestStateDef>(
         message: format!("Logged in for inventur: {}. Session ID: {}", inventur.name, session.session_id),
     };
 
-    Ok(Json(response).into_response())
+    //Ok(Json(response).into_response())
+    Ok(Response::builder()
+        .status(200)
+        .header("Content-Type", "application/json")
+        .header("Set-Cookie", format!("app_session={}; HttpOnly; Secure; Path=/; Max-Age=86400", session.session_id))
+        .body(Body::new(serde_json::to_string(&response).unwrap()))
+        .unwrap())
 }
 
 pub fn generate_route<RestState: RestStateDef>() -> axum::Router<RestState> {

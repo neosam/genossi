@@ -1,7 +1,7 @@
 use crate::auth::Auth;
 use crate::component::dropdown_base::DropdownBase;
 use crate::component::TopBar;
-use crate::page::NotAuthenticated;
+use crate::page::{InventurTokenLogin, NotAuthenticated};
 use crate::router::Route;
 use crate::service;
 use crate::service::config::CONFIG;
@@ -15,12 +15,24 @@ pub fn App() -> Element {
     use_coroutine(service::product::product_service);
     service::rack::rack_service();
     let config = CONFIG.read();
-    if !config.backend.is_empty() {
+    let window = web_sys::window().unwrap();
+    let location = window.location();
+    let pathname = location.pathname().unwrap_or_default();
+
+    if pathname.starts_with("/login/") {
+        {
+            let token = pathname.strip_prefix("/login/").unwrap_or("").to_string();
+            rsx! {
+                InventurTokenLogin { token }
+            }
+        }
+    } else if !config.backend.is_empty() {
         let title = config.application_title.clone();
         let is_prod = config.is_prod;
+
         let env_short_description = config.env_short_description.clone();
         use_effect(move || {
-            let window = window().unwrap();
+            let window = web_sys::window().unwrap();
             let document = window.document().unwrap();
             if is_prod {
                 document.set_title(title.as_ref());

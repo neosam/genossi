@@ -288,10 +288,7 @@ pub async fn create_app<RestState: RestStateDef>(rest_state: RestState) -> Route
 
     let swagger_router = SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", api_doc);
 
-    #[allow(unused_mut)]
-    let mut app = Router::new().merge(swagger_router);
-
-    app = app.route("/authenticate", get(login));
+    let app = Router::new().route("/authenticate", get(login));
     
     #[cfg(feature = "oidc")]
     let app = {
@@ -312,6 +309,9 @@ pub async fn create_app<RestState: RestStateDef>(rest_state: RestState) -> Route
             .layer(OidcLoginLayer::<EmptyAdditionalClaims>::new());
         app.layer(oidc_login_service)
     };
+
+    #[allow(unused_mut)]
+    let mut app = app.merge(swagger_router);
 
     let app = app
         .nest("/auth", auth::generate_route())
