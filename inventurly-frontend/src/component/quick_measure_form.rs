@@ -2,7 +2,7 @@ use crate::api;
 use crate::i18n::{use_i18n, Key};
 use crate::service::config::CONFIG;
 use crate::service::inventur::MEASUREMENTS;
-use crate::service::tara;
+use crate::service::tara::{self, WeightUnit};
 use dioxus::prelude::*;
 use rest_types::{ContainerTO, InventurMeasurementTO, ProductTO};
 use uuid::Uuid;
@@ -20,10 +20,13 @@ pub fn QuickMeasureForm(
     let i18n = use_i18n();
 
     // Initialize form with existing measurement or defaults
+    let mut weight_unit = use_signal(|| tara::get_preferred_weight_unit());
     let mut value = use_signal(|| {
         if let Some(ref m) = existing_measurement {
             if product.requires_weighing {
-                m.weight_grams.unwrap_or(0).to_string()
+                // Convert existing grams to kg for display
+                let grams = m.weight_grams.unwrap_or(0);
+                (grams as f64 / 1000.0).to_string()
             } else {
                 m.count.unwrap_or(0).to_string()
             }
@@ -52,9 +55,21 @@ pub fn QuickMeasureForm(
     let is_valid = {
         let containers_clone = containers.clone();
         move || {
-            // Parse the value
-            let parsed_value = value.read().parse::<i64>().ok();
-            if parsed_value.is_none() {
+            // Parse the value - support both i64 and f64
+            let parsed_grams = if product.requires_weighing {
+                // For weight, parse as float and convert to grams
+                value.read().parse::<f64>().ok().map(|v| {
+                    match *weight_unit.read() {
+                        WeightUnit::Kilogram => (v * 1000.0) as i64,
+                        WeightUnit::Gram => v as i64,
+                    }
+                })
+            } else {
+                // For count, parse as integer
+                value.read().parse::<i64>().ok()
+            };
+
+            if parsed_grams.is_none() {
                 return false;
             }
 
@@ -63,7 +78,7 @@ pub fn QuickMeasureForm(
             if product.requires_weighing {
                 if let Some(container_id) = *selected_container.read() {
                     if let Some(container) = containers_clone.iter().find(|c| c.id == Some(container_id)) {
-                        if let Some(weight) = parsed_value {
+                        if let Some(weight) = parsed_grams {
                             let min_weight = tara::get_tara_grams() + container.weight_grams;
                             if weight > 0 && weight <= min_weight {
                                 return false;
@@ -99,9 +114,21 @@ pub fn QuickMeasureForm(
 
                     let config = CONFIG.read().clone();
 
-                    // Parse the value
-                    let parsed_value = value.read().parse::<i64>().ok();
-                    if parsed_value.is_none() {
+                    // Parse the value - support both i64 and f64 for weight
+                    let parsed_grams = if requires_weighing {
+                        // For weight, parse as float and convert to grams
+                        value.read().parse::<f64>().ok().map(|v| {
+                            match *weight_unit.read() {
+                                WeightUnit::Kilogram => (v * 1000.0) as i64,
+                                WeightUnit::Gram => v as i64,
+                            }
+                        })
+                    } else {
+                        // For count, parse as integer
+                        value.read().parse::<i64>().ok()
+                    };
+
+                    if parsed_grams.is_none() {
                         error.set(Some("Please enter a valid value".to_string()));
                         loading.set(false);
                         return;
@@ -109,7 +136,7 @@ pub fn QuickMeasureForm(
 
                     // Apply custom tara (body weight) subtraction for weight measurements
                     let final_weight = if requires_weighing {
-                        parsed_value.map(|w| w - tara::get_tara_grams())
+                        parsed_grams.map(|w| w - tara::get_tara_grams())
                     } else {
                         None
                     };
@@ -123,7 +150,7 @@ pub fn QuickMeasureForm(
                         count: if requires_weighing {
                             None
                         } else {
-                            parsed_value
+                            parsed_grams
                         },
                         weight_grams: if requires_weighing {
                             final_weight
@@ -237,8 +264,14 @@ pub fn QuickMeasureForm(
                     if product.requires_weighing {
                         if let Some(container_id) = *selected_container.read() {
                             if let Some(container) = containers.iter().find(|c| c.id == Some(container_id)) {
-                                if let Ok(weight) = value.read().parse::<i64>() {
-                                    if weight > 0 && weight <= (tara::get_tara_grams() + container.weight_grams) {
+                                if let Ok(weight_val) = value.read().parse::<f64>() {
+                                    if {
+                                        let weight_grams = match *weight_unit.read() {
+                                            WeightUnit::Kilogram => (weight_val * 1000.0) as i64,
+                                            WeightUnit::Gram => weight_val as i64,
+                                        };
+                                        weight_grams > 0 && weight_grams <= (tara::get_tara_grams() + container.weight_grams)
+                                    } {
                                         div { class: "bg-yellow-100 border border-yellow-400 text-yellow-700 px-3 py-2 rounded mb-4 text-sm",
                                             "Weight must be greater than container weight ("
                                             {container.weight_grams.to_string()}
@@ -263,6 +296,7 @@ pub fn QuickMeasureForm(
                             input {
                                 r#type: "number",
                                 inputmode: "decimal",
+                                step: if product.requires_weighing && *weight_unit.read() == WeightUnit::Kilogram { "0.001" } else { "1" },
                                 class: "w-full px-3 py-3 md:py-2 text-lg md:text-base border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500",
                                 value: "{value.read()}",
                                 onmounted: move |event| async move {
@@ -276,6 +310,37 @@ pub fn QuickMeasureForm(
                                         save_measurement();
                                     }
                                 },
+                            }
+                            // Unit selector for weighing products
+                            if product.requires_weighing {
+                                div { class: "flex gap-2 mt-2",
+                                    button {
+                                        r#type: "button",
+                                        class: if *weight_unit.read() == WeightUnit::Kilogram {
+                                            "flex-1 px-3 py-2 bg-blue-600 text-white rounded font-medium"
+                                        } else {
+                                            "flex-1 px-3 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+                                        },
+                                        onclick: move |_| {
+                                            weight_unit.set(WeightUnit::Kilogram);
+                                            tara::set_preferred_weight_unit(WeightUnit::Kilogram);
+                                        },
+                                        "kg"
+                                    }
+                                    button {
+                                        r#type: "button",
+                                        class: if *weight_unit.read() == WeightUnit::Gram {
+                                            "flex-1 px-3 py-2 bg-blue-600 text-white rounded font-medium"
+                                        } else {
+                                            "flex-1 px-3 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+                                        },
+                                        onclick: move |_| {
+                                            weight_unit.set(WeightUnit::Gram);
+                                            tara::set_preferred_weight_unit(WeightUnit::Gram);
+                                        },
+                                        "g"
+                                    }
+                                }
                             }
                         }
 

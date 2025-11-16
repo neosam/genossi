@@ -250,7 +250,7 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::MeasurementProgress => "Measurement Progress",
         Key::ViewRackProgress => "View Rack Progress",
         Key::EnterCount => "Enter Count",
-        Key::EnterWeight => "Enter Weight (grams)",
+        Key::EnterWeight => "Enter Weight",
 
         // Rack selection
         Key::MeasureByRack => "Measure by Rack",

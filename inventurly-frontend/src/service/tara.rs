@@ -1,7 +1,17 @@
 use dioxus::prelude::*;
+use serde::{Deserialize, Serialize};
 use tracing::info;
 
 const TARA_STORAGE_KEY: &str = "inventurly_custom_tara_grams";
+const WEIGHT_UNIT_KEY: &str = "inventurly_preferred_weight_unit";
+
+/// Weight unit for measurements
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
+pub enum WeightUnit {
+    Kilogram,
+    Gram,
+    // Future units can be added here (e.g., Pound, Ounce)
+}
 
 #[derive(Clone, Default)]
 pub struct TaraStore {
@@ -77,4 +87,31 @@ pub fn apply_tara(gross_weight_grams: i64) -> i64 {
 /// Check if a custom tara is set
 pub fn has_tara() -> bool {
     get_tara_grams() > 0
+}
+
+/// Load preferred weight unit from browser localStorage
+pub fn get_preferred_weight_unit() -> WeightUnit {
+    if let Some(window) = web_sys::window() {
+        if let Ok(Some(storage)) = window.local_storage() {
+            if let Ok(Some(value)) = storage.get_item(WEIGHT_UNIT_KEY) {
+                if let Ok(unit) = serde_json::from_str::<WeightUnit>(&value) {
+                    info!("Loaded preferred weight unit from localStorage: {:?}", unit);
+                    return unit;
+                }
+            }
+        }
+    }
+    WeightUnit::Kilogram // Default to kg
+}
+
+/// Save preferred weight unit to browser localStorage
+pub fn set_preferred_weight_unit(unit: WeightUnit) {
+    if let Some(window) = web_sys::window() {
+        if let Ok(Some(storage)) = window.local_storage() {
+            if let Ok(json) = serde_json::to_string(&unit) {
+                let _ = storage.set_item(WEIGHT_UNIT_KEY, &json);
+                info!("Saved preferred weight unit to localStorage: {:?}", unit);
+            }
+        }
+    }
 }
