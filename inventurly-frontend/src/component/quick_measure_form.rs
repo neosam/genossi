@@ -43,9 +43,16 @@ pub fn QuickMeasureForm(
     });
 
     let mut selected_container = use_signal(|| {
-        existing_measurement
-            .as_ref()
-            .and_then(|m| m.container_id)
+        // Use existing measurement's container if editing, otherwise try localStorage
+        if let Some(container_id) = existing_measurement.as_ref().and_then(|m| m.container_id) {
+            Some(container_id)
+        } else {
+            // Try to load last used container from localStorage
+            // Only use it if it exists in the available containers list
+            tara::get_last_container_id().filter(|id| {
+                containers.iter().any(|c| c.id == Some(*id) && c.deleted.is_none())
+            })
+        }
     });
 
     let loading = use_signal(|| false);
@@ -358,8 +365,10 @@ pub fn QuickMeasureForm(
                                     onchange: move |e| {
                                         if e.value().is_empty() {
                                             selected_container.set(None);
+                                            tara::clear_last_container_id();
                                         } else if let Ok(uuid) = Uuid::parse_str(&e.value()) {
                                             selected_container.set(Some(uuid));
+                                            tara::set_last_container_id(uuid);
                                         }
                                     },
                                     option { value: "", "No container" }

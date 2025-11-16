@@ -1,9 +1,11 @@
 use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
 use tracing::info;
+use uuid::Uuid;
 
 const TARA_STORAGE_KEY: &str = "inventurly_custom_tara_grams";
 const WEIGHT_UNIT_KEY: &str = "inventurly_preferred_weight_unit";
+const LAST_CONTAINER_KEY: &str = "inventurly_last_container_id";
 
 /// Weight unit for measurements
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
@@ -112,6 +114,41 @@ pub fn set_preferred_weight_unit(unit: WeightUnit) {
                 let _ = storage.set_item(WEIGHT_UNIT_KEY, &json);
                 info!("Saved preferred weight unit to localStorage: {:?}", unit);
             }
+        }
+    }
+}
+
+/// Load last used container ID from browser localStorage
+pub fn get_last_container_id() -> Option<Uuid> {
+    if let Some(window) = web_sys::window() {
+        if let Ok(Some(storage)) = window.local_storage() {
+            if let Ok(Some(value)) = storage.get_item(LAST_CONTAINER_KEY) {
+                if let Ok(uuid) = Uuid::parse_str(&value) {
+                    info!("Loaded last container ID from localStorage: {}", uuid);
+                    return Some(uuid);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Save last used container ID to browser localStorage
+pub fn set_last_container_id(id: Uuid) {
+    if let Some(window) = web_sys::window() {
+        if let Ok(Some(storage)) = window.local_storage() {
+            let _ = storage.set_item(LAST_CONTAINER_KEY, &id.to_string());
+            info!("Saved last container ID to localStorage: {}", id);
+        }
+    }
+}
+
+/// Clear last used container ID from browser localStorage
+pub fn clear_last_container_id() {
+    if let Some(window) = web_sys::window() {
+        if let Ok(Some(storage)) = window.local_storage() {
+            let _ = storage.remove_item(LAST_CONTAINER_KEY);
+            info!("Cleared last container ID from localStorage");
         }
     }
 }
