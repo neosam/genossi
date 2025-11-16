@@ -278,6 +278,14 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::LoginQRCode => "Anmelde-QR-Code",
         Key::RackQRCode => "Regal-QR-Code",
         Key::Rack => "Regal",
+
+        // Custom Tara
+        Key::CustomTara => "Eigene Tara",
+        Key::TaraWeight => "Tara-Gewicht",
+        Key::TaraDescription => "Legen Sie eine eigene Tara fest (z.B. Körpergewicht), die automatisch von allen Gewichtsmessungen abgezogen wird. Dieser Wert wird nur lokal in Ihrem Browser gespeichert und nie an den Server gesendet.",
+        Key::TaraHint => "Leer lassen um die Tara zu löschen",
+        Key::CurrentTara => "Aktuelle Tara:",
+        Key::ClearTara => "Tara löschen",
     }
     .into()
 }

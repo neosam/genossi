@@ -29,6 +29,7 @@ pub mod rack_list;
 pub mod rack_products;
 pub mod searchable_product_selector;
 pub mod similarity_score_bar;
+pub mod tara_modal;
 pub mod top_bar;
 
 pub use barcode_scanner::{BarcodeScanner, ScanResult};
@@ -57,4 +58,5 @@ pub use rack_list::RackList;
 pub use rack_products::RackProducts;
 pub use searchable_product_selector::SearchableProductSelector;
 pub use similarity_score_bar::SimilarityScoreBar;
+pub use tara_modal::TaraModal;
 pub use top_bar::TopBar;

@@ -61,6 +61,7 @@ features = [
     "CssStyleDeclaration",
     "Node",
     "ImageData",
+    "Storage",
 ]
 
 [profile]

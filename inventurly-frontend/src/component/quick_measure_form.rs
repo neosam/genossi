@@ -2,6 +2,7 @@ use crate::api;
 use crate::i18n::{use_i18n, Key};
 use crate::service::config::CONFIG;
 use crate::service::inventur::MEASUREMENTS;
+use crate::service::tara;
 use dioxus::prelude::*;
 use rest_types::{ContainerTO, InventurMeasurementTO, ProductTO};
 use uuid::Uuid;
@@ -57,13 +58,14 @@ pub fn QuickMeasureForm(
                 return false;
             }
 
-            // If product requires weighing and container is selected, check weight > container weight
+            // If product requires weighing and container is selected, check weight > (user_tara + container_weight)
             // Skip validation for 0 (assume 0 = empty container)
             if product.requires_weighing {
                 if let Some(container_id) = *selected_container.read() {
                     if let Some(container) = containers_clone.iter().find(|c| c.id == Some(container_id)) {
                         if let Some(weight) = parsed_value {
-                            if weight > 0 && weight <= container.weight_grams {
+                            let min_weight = tara::get_tara_grams() + container.weight_grams;
+                            if weight > 0 && weight <= min_weight {
                                 return false;
                             }
                         }
@@ -105,6 +107,13 @@ pub fn QuickMeasureForm(
                         return;
                     }
 
+                    // Apply custom tara (body weight) subtraction for weight measurements
+                    let final_weight = if requires_weighing {
+                        parsed_value.map(|w| w - tara::get_tara_grams())
+                    } else {
+                        None
+                    };
+
                     let measurement = InventurMeasurementTO {
                         id: existing_id,
                         inventur_id,
@@ -117,7 +126,7 @@ pub fn QuickMeasureForm(
                             parsed_value
                         },
                         weight_grams: if requires_weighing {
-                            parsed_value
+                            final_weight
                         } else {
                             None
                         },
@@ -229,7 +238,7 @@ pub fn QuickMeasureForm(
                         if let Some(container_id) = *selected_container.read() {
                             if let Some(container) = containers.iter().find(|c| c.id == Some(container_id)) {
                                 if let Ok(weight) = value.read().parse::<i64>() {
-                                    if weight > 0 && weight <= container.weight_grams {
+                                    if weight > 0 && weight <= (tara::get_tara_grams() + container.weight_grams) {
                                         div { class: "bg-yellow-100 border border-yellow-400 text-yellow-700 px-3 py-2 rounded mb-4 text-sm",
                                             "Weight must be greater than container weight ("
                                             {container.weight_grams.to_string()}

@@ -1,9 +1,10 @@
 use dioxus::prelude::*;
 
 use crate::{
+    component::TaraModal,
     i18n::{use_i18n, Key},
     router::Route,
-    service::{auth::AUTH, config::CONFIG},
+    service::{auth::AUTH, config::CONFIG, tara::TARA},
 };
 
 #[component]
@@ -13,6 +14,8 @@ pub fn TopBar() -> Element {
     let config = CONFIG.read().clone();
     let backend_url = config.backend.clone();
     let mut visible = use_signal(|| false);
+    let mut show_tara_modal = use_signal(|| false);
+    let tara_grams = TARA.read().tara_grams;
 
     let show_products = auth_info
         .as_ref()
@@ -83,7 +86,19 @@ pub fn TopBar() -> Element {
                         div { class: "mb-6 md:mb-0" }
                     }
                 }
-                ul { class: "ml-1",
+                ul { class: "ml-1 flex items-center space-x-4",
+                    // Tara button
+                    li {
+                        button {
+                            class: "flex items-center hover:text-gray-300 relative",
+                            onclick: move |_| show_tara_modal.set(true),
+                            title: "{i18n.t(Key::CustomTara)}",
+                            span { "⚖️" }
+                            if tara_grams > 0 {
+                                span { class: "absolute -top-1 -right-1 w-2 h-2 bg-yellow-400 rounded-full" }
+                            }
+                        }
+                    }
                     li { class: "flex",
                         if let Some(auth_info) = auth_info {
                             a { href: "{backend_url}/logout",
@@ -96,6 +111,14 @@ pub fn TopBar() -> Element {
                 }
             }
         }
+
+        // Tara Modal
+        if *show_tara_modal.read() {
+            TaraModal {
+                on_close: move |_| show_tara_modal.set(false)
+            }
+        }
+
         div {
         }
     }

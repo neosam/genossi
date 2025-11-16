@@ -330,6 +330,14 @@ pub enum Key {
     LoginQRCode,
     RackQRCode,
     Rack,
+
+    // Custom Tara
+    CustomTara,
+    TaraWeight,
+    TaraDescription,
+    TaraHint,
+    CurrentTara,
+    ClearTara,
 }
 
 pub struct I18n {
