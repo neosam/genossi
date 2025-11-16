@@ -29,6 +29,10 @@ gloo-timers = { version = "0.3.0", features = ["futures"] }
 [dependencies.rest-types]
 path = "rest-types"
 
+[dependencies.fast_qr]
+version = "0.13"
+features = ["svg"]
+
 [dependencies.uuid]
 version = "1.18"
 features = ["v4", "js"]

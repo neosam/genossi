@@ -322,6 +322,14 @@ pub enum Key {
     Notes,
     DeleteCustomEntry,
     ConfirmDeleteCustomEntry,
+
+    // QR Codes
+    PrintQRCodes,
+    ScanToLogin,
+    ScanToMeasure,
+    LoginQRCode,
+    RackQRCode,
+    Rack,
 }
 
 pub struct I18n {

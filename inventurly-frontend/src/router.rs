@@ -6,6 +6,7 @@ pub use crate::page::DuplicateDetection;
 pub use crate::page::Home;
 pub use crate::page::InventurDetails;
 pub use crate::page::InventurMeasurements;
+pub use crate::page::InventurQRCodes;
 pub use crate::page::InventurRackMeasure;
 pub use crate::page::InventurRackSelection;
 pub use crate::page::InventurTokenLogin;
@@ -34,6 +35,8 @@ pub enum Route {
     InventurDetails { id: String },
     #[route("/inventurs/:id/measurements")]
     InventurMeasurements { id: String },
+    #[route("/inventurs/:id/qr-codes")]
+    InventurQRCodes { id: String },
     #[route("/inventurs/:id/select-rack")]
     InventurRackSelection { id: String },
     #[route("/inventurs/:inventur_id/rack/:rack_id/measure")]

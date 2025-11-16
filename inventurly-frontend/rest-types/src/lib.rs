@@ -334,6 +334,8 @@ pub struct InventurTO {
     pub deleted: Option<PrimitiveDateTime>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub token: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

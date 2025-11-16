@@ -24,6 +24,7 @@ pub fn InventurForm(inventur_id: Option<Uuid>) -> Element {
         created: None,
         deleted: None,
         version: None,
+        token: None,
     });
 
     let loading = use_signal(|| false);

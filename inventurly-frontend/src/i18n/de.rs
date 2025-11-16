@@ -270,6 +270,14 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::Notes => "Notizen",
         Key::DeleteCustomEntry => "Löschen",
         Key::ConfirmDeleteCustomEntry => "Löschen bestätigen",
+
+        // QR Codes
+        Key::PrintQRCodes => "QR-Codes drucken",
+        Key::ScanToLogin => "Zum Anmelden scannen",
+        Key::ScanToMeasure => "Zum Messen scannen",
+        Key::LoginQRCode => "Anmelde-QR-Code",
+        Key::RackQRCode => "Regal-QR-Code",
+        Key::Rack => "Regal",
     }
     .into()
 }

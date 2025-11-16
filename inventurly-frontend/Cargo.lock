@@ -809,6 +809,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "fast_qr"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1f5ea9788036fedaf55f43a2db0ba01eedf47d26fd6852f01e5cf51952571d57"
+
+[[package]]
 name = "fastrand"
 version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1335,6 +1341,7 @@ dependencies = [
  "async-recursion",
  "dioxus",
  "dioxus-logger",
+ "fast_qr",
  "futures",
  "futures-channel",
  "futures-util",
