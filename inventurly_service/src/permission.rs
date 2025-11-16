@@ -3,6 +3,7 @@ use crate::{
         PrivilegeResponseTO, PrivilegeTO, RolePrivilege, RoleResponseTO, RoleTO, UserResponseTO,
         UserRole, UserTO,
     },
+    claim_context::ClaimContext,
     ServiceError,
 };
 use async_trait::async_trait;
@@ -29,7 +30,7 @@ pub const ADMIN_PRIVILEGE: &str = "admin";
 #[automock(type Context=();)]
 #[async_trait]
 pub trait PermissionService {
-    type Context: Clone + Debug + Send + Sync + 'static;
+    type Context: Clone + Debug + Send + Sync + ClaimContext + 'static;
 
     // Core authentication methods
     async fn check_permission(
@@ -140,6 +141,28 @@ pub trait PermissionService {
         username: String,
         context: Authentication<Self::Context>,
     ) -> Result<Arc<[PrivilegeResponseTO]>, ServiceError>;
+
+    /// Check if user has permission and verify inventur access via claims
+    ///
+    /// Returns Ok if:
+    /// - User has Full authentication, OR
+    /// - User has the global privilege AND (no claims OR claims match inventur_id), OR
+    /// - User has claims that match the inventur_id (for token-based access)
+    async fn check_inventur_permission(
+        &self,
+        privilege: &str,
+        inventur_id: uuid::Uuid,
+        context: Authentication<Self::Context>,
+    ) -> Result<(), ServiceError>;
+
+    /// Extract the inventur_id from claims if present
+    async fn get_claimed_inventur_id(
+        &self,
+        context: &Self::Context,
+    ) -> Result<Option<uuid::Uuid>, ServiceError>;
+
+    /// Check if context has claims (i.e., is using token-based auth)
+    async fn has_claims(&self, context: &Self::Context) -> Result<bool, ServiceError>;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

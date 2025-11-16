@@ -3,7 +3,7 @@ macro_rules! gen_service_impl {
     // Helper to generate the trait
     (@generate_trait $dependencies:ident, $($field_name:ident : $field_type:path),*) => {
         pub trait $dependencies {
-            type Context: Send + Sync + Clone + Eq + std::fmt::Debug + 'static;
+            type Context: Send + Sync + Clone + Eq + std::fmt::Debug + inventurly_service::claim_context::ClaimContext + 'static;
             type Transaction: inventurly_dao::Transaction + Send + Sync + Clone + std::fmt::Debug + 'static;
 
             $(

@@ -5,11 +5,13 @@ use inventurly_service::{
         PrivilegeResponseTO, PrivilegeTO, RolePrivilege, RoleResponseTO, RoleTO, UserResponseTO,
         UserRole, UserTO,
     },
+    claim_context::ClaimContext,
     permission::{Authentication, PermissionService, ADMIN_PRIVILEGE},
     user_service::UserService,
     ServiceError,
 };
 use std::sync::Arc;
+use uuid::Uuid;
 
 use crate::gen_service_impl;
 
@@ -337,6 +339,51 @@ impl<Deps: PermissionServiceDeps> PermissionService for PermissionServiceImpl<De
             .collect();
 
         Ok(Arc::from(response_privileges))
+    }
+
+    async fn check_inventur_permission(
+        &self,
+        privilege: &str,
+        inventur_id: Uuid,
+        context: Authentication<Self::Context>,
+    ) -> Result<(), ServiceError> {
+        match context {
+            Authentication::Full => Ok(()),
+            Authentication::Context(ctx) => {
+                // First check if user has claims - if so, verify inventur access
+                if ctx.has_claims() {
+                    // User has claims, must have access to this specific inventur
+                    if !ctx.has_inventur_access(&inventur_id) {
+                        return Err(ServiceError::PermissionDenied);
+                    }
+                    // Claims match, permission granted for token-based access
+                    Ok(())
+                } else {
+                    // No claims, check global privilege via roles
+                    let current_user = self.user_service.current_user(ctx).await?;
+                    if self
+                        .permission_dao
+                        .has_privilege(&current_user, privilege)
+                        .await?
+                    {
+                        Ok(())
+                    } else {
+                        Err(ServiceError::PermissionDenied)
+                    }
+                }
+            }
+        }
+    }
+
+    async fn get_claimed_inventur_id(
+        &self,
+        context: &Self::Context,
+    ) -> Result<Option<Uuid>, ServiceError> {
+        Ok(context.get_inventur_id())
+    }
+
+    async fn has_claims(&self, context: &Self::Context) -> Result<bool, ServiceError> {
+        Ok(context.has_claims())
     }
 }
 

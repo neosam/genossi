@@ -35,9 +35,18 @@ impl<Deps: ProductServiceDeps> ProductService for ProductServiceImpl<Deps> {
     ) -> Result<Arc<[Product]>, ServiceError> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
 
-        self.permission_service
-            .check_permission(ADMIN_PRIVILEGE, context)
-            .await?;
+        // Allow access if user has claims (inventur token) or admin privilege
+        match &context {
+            Authentication::Full => {}
+            Authentication::Context(ctx) => {
+                if !self.permission_service.has_claims(ctx).await? {
+                    // No claims, check for admin privilege
+                    self.permission_service
+                        .check_permission(ADMIN_PRIVILEGE, context)
+                        .await?;
+                }
+            }
+        }
 
         let products = self
             .product_dao
@@ -59,9 +68,18 @@ impl<Deps: ProductServiceDeps> ProductService for ProductServiceImpl<Deps> {
     ) -> Result<Product, ServiceError> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
 
-        self.permission_service
-            .check_permission(ADMIN_PRIVILEGE, context)
-            .await?;
+        // Allow access if user has claims (inventur token) or admin privilege
+        match &context {
+            Authentication::Full => {}
+            Authentication::Context(ctx) => {
+                if !self.permission_service.has_claims(ctx).await? {
+                    // No claims, check for admin privilege
+                    self.permission_service
+                        .check_permission(ADMIN_PRIVILEGE, context)
+                        .await?;
+                }
+            }
+        }
 
         let product = self
             .product_dao
@@ -82,9 +100,18 @@ impl<Deps: ProductServiceDeps> ProductService for ProductServiceImpl<Deps> {
     ) -> Result<Product, ServiceError> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
 
-        self.permission_service
-            .check_permission(ADMIN_PRIVILEGE, context)
-            .await?;
+        // Allow access if user has claims (inventur token) or admin privilege
+        match &context {
+            Authentication::Full => {}
+            Authentication::Context(ctx) => {
+                if !self.permission_service.has_claims(ctx).await? {
+                    // No claims, check for admin privilege
+                    self.permission_service
+                        .check_permission(ADMIN_PRIVILEGE, context)
+                        .await?;
+                }
+            }
+        }
 
         let product = self
             .product_dao
@@ -319,9 +346,18 @@ impl<Deps: ProductServiceDeps> ProductService for ProductServiceImpl<Deps> {
     ) -> Result<Arc<[Product]>, ServiceError> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
 
-        self.permission_service
-            .check_permission(ADMIN_PRIVILEGE, context)
-            .await?;
+        // Allow access if user has claims (inventur token) or admin privilege
+        match &context {
+            Authentication::Full => {}
+            Authentication::Context(ctx) => {
+                if !self.permission_service.has_claims(ctx).await? {
+                    // No claims, check for admin privilege
+                    self.permission_service
+                        .check_permission(ADMIN_PRIVILEGE, context)
+                        .await?;
+                }
+            }
+        }
 
         let entities = self.product_dao.search(query, limit, tx.clone()).await?;
         let products: Vec<Product> = entities.iter().map(Product::from).collect();

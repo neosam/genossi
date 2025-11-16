@@ -718,6 +718,29 @@ impl PermissionService for MockPermissionService {
     ) -> Result<Option<String>, inventurly_service::ServiceError> {
         Ok(Some("testuser".to_string()))
     }
+
+    async fn check_inventur_permission(
+        &self,
+        _privilege: &str,
+        _inventur_id: uuid::Uuid,
+        _context: Authentication<Self::Context>,
+    ) -> Result<(), inventurly_service::ServiceError> {
+        Ok(()) // Always allow in tests
+    }
+
+    async fn get_claimed_inventur_id(
+        &self,
+        _context: &Self::Context,
+    ) -> Result<Option<uuid::Uuid>, inventurly_service::ServiceError> {
+        Ok(None) // No claims by default in tests
+    }
+
+    async fn has_claims(
+        &self,
+        _context: &Self::Context,
+    ) -> Result<bool, inventurly_service::ServiceError> {
+        Ok(false) // No claims by default in tests
+    }
 }
 
 #[derive(Clone)]

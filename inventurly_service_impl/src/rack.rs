@@ -35,9 +35,18 @@ impl<Deps: RackServiceDeps> RackService for RackServiceImpl<Deps> {
     ) -> Result<Arc<[Rack]>, ServiceError> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
 
-        self.permission_service
-            .check_permission(ADMIN_PRIVILEGE, context)
-            .await?;
+        // Allow access if user has claims (inventur token) or admin privilege
+        match &context {
+            Authentication::Full => {}
+            Authentication::Context(ctx) => {
+                if !self.permission_service.has_claims(ctx).await? {
+                    // No claims, check for admin privilege
+                    self.permission_service
+                        .check_permission(ADMIN_PRIVILEGE, context)
+                        .await?;
+                }
+            }
+        }
 
         let entities = self.rack_dao.all(tx.clone()).await?;
         let racks: Vec<Rack> = entities.iter().map(Rack::from).collect();
@@ -54,9 +63,18 @@ impl<Deps: RackServiceDeps> RackService for RackServiceImpl<Deps> {
     ) -> Result<Option<Rack>, ServiceError> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
 
-        self.permission_service
-            .check_permission(ADMIN_PRIVILEGE, context)
-            .await?;
+        // Allow access if user has claims (inventur token) or admin privilege
+        match &context {
+            Authentication::Full => {}
+            Authentication::Context(ctx) => {
+                if !self.permission_service.has_claims(ctx).await? {
+                    // No claims, check for admin privilege
+                    self.permission_service
+                        .check_permission(ADMIN_PRIVILEGE, context)
+                        .await?;
+                }
+            }
+        }
 
         let entity = self.rack_dao.find_by_id(id, tx.clone()).await?;
         let result = entity.map(|e| Rack::from(&e));

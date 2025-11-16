@@ -81,16 +81,33 @@ impl<Deps: InventurServiceDeps> InventurService for InventurServiceImpl<Deps> {
     ) -> Result<Arc<[Inventur]>, ServiceError> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
 
-        self.permission_service
-            .check_permission(VIEW_INVENTUR_PRIVILEGE, context)
-            .await?;
+        // Check if user has claims (token-based auth)
+        let claimed_inventur_id = match &context {
+            Authentication::Full => None,
+            Authentication::Context(ctx) => self.permission_service.get_claimed_inventur_id(ctx).await?,
+        };
 
-        let inventurs = self
+        // If user has claims, filter to only their claimed inventur
+        // If no claims, check global permission
+        if claimed_inventur_id.is_none() {
+            self.permission_service
+                .check_permission(VIEW_INVENTUR_PRIVILEGE, context)
+                .await?;
+        }
+
+        let inventurs: Arc<[Inventur]> = self
             .inventur_dao
             .all(tx.clone())
             .await?
             .iter()
             .map(Inventur::from)
+            .filter(|inv| {
+                // Filter based on claims if present
+                match claimed_inventur_id {
+                    Some(id) => inv.id == id,
+                    None => true, // Global access
+                }
+            })
             .collect();
 
         self.transaction_dao.commit(tx).await?;
@@ -106,7 +123,7 @@ impl<Deps: InventurServiceDeps> InventurService for InventurServiceImpl<Deps> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
 
         self.permission_service
-            .check_permission(VIEW_INVENTUR_PRIVILEGE, context)
+            .check_inventur_permission(VIEW_INVENTUR_PRIVILEGE, id, context)
             .await?;
 
         let inventur = self
@@ -128,16 +145,33 @@ impl<Deps: InventurServiceDeps> InventurService for InventurServiceImpl<Deps> {
     ) -> Result<Arc<[Inventur]>, ServiceError> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
 
-        self.permission_service
-            .check_permission(VIEW_INVENTUR_PRIVILEGE, context)
-            .await?;
+        // Check if user has claims (token-based auth)
+        let claimed_inventur_id = match &context {
+            Authentication::Full => None,
+            Authentication::Context(ctx) => self.permission_service.get_claimed_inventur_id(ctx).await?,
+        };
 
-        let inventurs = self
+        // If user has claims, filter to only their claimed inventur
+        // If no claims, check global permission
+        if claimed_inventur_id.is_none() {
+            self.permission_service
+                .check_permission(VIEW_INVENTUR_PRIVILEGE, context)
+                .await?;
+        }
+
+        let inventurs: Arc<[Inventur]> = self
             .inventur_dao
             .find_by_status(status, tx.clone())
             .await?
             .iter()
             .map(Inventur::from)
+            .filter(|inv| {
+                // Filter based on claims if present
+                match claimed_inventur_id {
+                    Some(id) => inv.id == id,
+                    None => true, // Global access
+                }
+            })
             .collect();
 
         self.transaction_dao.commit(tx).await?;
@@ -199,7 +233,7 @@ impl<Deps: InventurServiceDeps> InventurService for InventurServiceImpl<Deps> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
 
         self.permission_service
-            .check_permission(MANAGE_INVENTUR_PRIVILEGE, context)
+            .check_inventur_permission(MANAGE_INVENTUR_PRIVILEGE, item.id, context)
             .await?;
 
         // Check if the entity exists and get current status
@@ -247,7 +281,7 @@ impl<Deps: InventurServiceDeps> InventurService for InventurServiceImpl<Deps> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
 
         self.permission_service
-            .check_permission(MANAGE_INVENTUR_PRIVILEGE, context)
+            .check_inventur_permission(MANAGE_INVENTUR_PRIVILEGE, id, context)
             .await?;
 
         // Get existing entity
@@ -300,7 +334,7 @@ impl<Deps: InventurServiceDeps> InventurService for InventurServiceImpl<Deps> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
 
         self.permission_service
-            .check_permission(MANAGE_INVENTUR_PRIVILEGE, context)
+            .check_inventur_permission(MANAGE_INVENTUR_PRIVILEGE, id, context)
             .await?;
 
         let existing = self

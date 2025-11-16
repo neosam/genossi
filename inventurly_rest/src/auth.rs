@@ -5,6 +5,7 @@ use inventurly_service::inventur::InventurService;
 use inventurly_service::permission::PermissionService;
 use inventurly_service::session::SessionService;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use tracing::instrument;
 use utoipa::OpenApi;
 
@@ -31,6 +32,7 @@ pub struct AuthInfoResponse {
     pub username: String,
     pub roles: Vec<String>,
     pub privileges: Vec<String>,
+    pub claims: HashMap<String, String>,
 }
 
 /// Request for inventur token login
@@ -104,21 +106,43 @@ async fn get_auth_info_impl<RestState: RestStateDef>(
             username,
             roles,
             privileges,
+            claims: HashMap::new(), // Mock context has no claims
         };
 
         Ok(Json(response).into_response())
     }
-    
+
     #[cfg(feature = "oidc")]
     {
         match context {
             Some(auth_context) => {
                 let username = auth_context.user_id.to_string();
+
+                // Extract claims from auth context, filtering out "type" key
+                let claims: HashMap<String, String> = auth_context.claims
+                    .as_ref()
+                    .and_then(|json_str| serde_json::from_str::<HashMap<String, serde_json::Value>>(json_str).ok())
+                    .map(|map| {
+                        map.into_iter()
+                            .filter(|(key, _)| key != "type") // Filter out metadata
+                            .filter_map(|(key, value)| {
+                                // Convert JSON value to string
+                                match value {
+                                    serde_json::Value::String(s) => Some((key, s)),
+                                    serde_json::Value::Number(n) => Some((key, n.to_string())),
+                                    serde_json::Value::Bool(b) => Some((key, b.to_string())),
+                                    _ => None, // Skip complex values
+                                }
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
                 let auth = inventurly_service::permission::Authentication::Context(auth_context);
-                
+
                 // Get actual roles and privileges from permission service
                 let permission_service = rest_state.permission_service();
-                
+
                 // Get user's roles
                 let roles = match permission_service
                     .get_user_roles(username.clone(), auth.clone())
@@ -127,7 +151,7 @@ async fn get_auth_info_impl<RestState: RestStateDef>(
                     Ok(roles) => roles.iter().map(|r| r.name.to_string()).collect(),
                     Err(_) => vec![], // If we can't get roles, return empty list
                 };
-                
+
                 // Get user's privileges
                 let privileges = match permission_service
                     .get_user_privileges(username.clone(), auth.clone())
@@ -141,6 +165,7 @@ async fn get_auth_info_impl<RestState: RestStateDef>(
                     username,
                     roles,
                     privileges,
+                    claims,
                 };
 
                 Ok(Json(response).into_response())

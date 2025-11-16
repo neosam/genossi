@@ -36,9 +36,18 @@ impl<Deps: ContainerServiceDeps> ContainerService for ContainerServiceImpl<Deps>
     ) -> Result<Arc<[Container]>, ServiceError> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
 
-        self.permission_service
-            .check_permission(ADMIN_PRIVILEGE, context)
-            .await?;
+        // Allow access if user has claims (inventur token) or admin privilege
+        match &context {
+            Authentication::Full => {}
+            Authentication::Context(ctx) => {
+                if !self.permission_service.has_claims(ctx).await? {
+                    // No claims, check for admin privilege
+                    self.permission_service
+                        .check_permission(ADMIN_PRIVILEGE, context)
+                        .await?;
+                }
+            }
+        }
 
         let entities = self.container_dao.all(tx.clone()).await?;
         let containers: Vec<Container> = entities.iter().map(Container::from).collect();
@@ -55,9 +64,18 @@ impl<Deps: ContainerServiceDeps> ContainerService for ContainerServiceImpl<Deps>
     ) -> Result<Container, ServiceError> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
 
-        self.permission_service
-            .check_permission(ADMIN_PRIVILEGE, context)
-            .await?;
+        // Allow access if user has claims (inventur token) or admin privilege
+        match &context {
+            Authentication::Full => {}
+            Authentication::Context(ctx) => {
+                if !self.permission_service.has_claims(ctx).await? {
+                    // No claims, check for admin privilege
+                    self.permission_service
+                        .check_permission(ADMIN_PRIVILEGE, context)
+                        .await?;
+                }
+            }
+        }
 
         let entity = self
             .container_dao
@@ -77,9 +95,18 @@ impl<Deps: ContainerServiceDeps> ContainerService for ContainerServiceImpl<Deps>
     ) -> Result<Container, ServiceError> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
 
-        self.permission_service
-            .check_permission(ADMIN_PRIVILEGE, context)
-            .await?;
+        // Allow access if user has claims (inventur token) or admin privilege
+        match &context {
+            Authentication::Full => {}
+            Authentication::Context(ctx) => {
+                if !self.permission_service.has_claims(ctx).await? {
+                    // No claims, check for admin privilege
+                    self.permission_service
+                        .check_permission(ADMIN_PRIVILEGE, context)
+                        .await?;
+                }
+            }
+        }
 
         let entity = self
             .container_dao
@@ -252,9 +279,18 @@ impl<Deps: ContainerServiceDeps> ContainerService for ContainerServiceImpl<Deps>
     ) -> Result<Arc<[Container]>, ServiceError> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
 
-        self.permission_service
-            .check_permission(ADMIN_PRIVILEGE, context)
-            .await?;
+        // Allow access if user has claims (inventur token) or admin privilege
+        match &context {
+            Authentication::Full => {}
+            Authentication::Context(ctx) => {
+                if !self.permission_service.has_claims(ctx).await? {
+                    // No claims, check for admin privilege
+                    self.permission_service
+                        .check_permission(ADMIN_PRIVILEGE, context)
+                        .await?;
+                }
+            }
+        }
 
         let entities = self.container_dao.search(query, limit, tx.clone()).await?;
         let containers: Vec<Container> = entities.iter().map(Container::from).collect();

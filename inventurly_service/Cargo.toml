@@ -10,6 +10,7 @@ mockall = { workspace = true }
 time = { workspace = true }
 uuid = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 strsim = { workspace = true }
 utoipa = { workspace = true, optional = true }
 
