@@ -23,6 +23,7 @@ pub async fn fetch_auth_info(backend_url: Rc<str>) -> Result<Option<AuthInfo>, r
         roles: user.roles.into_iter().map(|r| r.into()).collect(),
         privileges: user.privileges.into_iter().map(|p| p.into()).collect(),
         authenticated: true,
+        claims: user.claims.into(),
     };
     info!("Auth info fetched");
     Ok(Some(auth_info))

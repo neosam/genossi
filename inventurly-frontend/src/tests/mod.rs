@@ -6,6 +6,7 @@ pub mod week_tests;
 mod unit_tests {
     use crate::state::auth_info::AuthInfo;
     use crate::state::config::Config;
+    use std::collections::HashMap;
     use std::rc::Rc;
 
     #[test]
@@ -15,14 +16,17 @@ mod unit_tests {
         assert_eq!(auth_info.user.as_ref(), "");
         assert_eq!(auth_info.privileges.len(), 0);
         assert!(!auth_info.authenticated);
+        assert_eq!(auth_info.claims.len(), 0);
     }
 
     #[test]
     fn test_auth_info_with_privileges() {
         let auth_info = AuthInfo {
             user: "test_user".into(),
+            roles: Rc::new([]),
             privileges: Rc::new(["admin".into(), "planner".into()]),
             authenticated: true,
+            claims: Rc::new(HashMap::new()),
         };
 
         assert_eq!(auth_info.user.as_ref(), "test_user");
@@ -30,6 +34,38 @@ mod unit_tests {
         assert!(auth_info.has_privilege("admin"));
         assert!(auth_info.has_privilege("planner"));
         assert!(!auth_info.has_privilege("sales"));
+    }
+
+    #[test]
+    fn test_auth_info_with_inventur_id_claim() {
+        let mut claims = HashMap::new();
+        claims.insert("inventur_id".to_string(), "550e8400-e29b-41d4-a716-446655440000".to_string());
+
+        let auth_info = AuthInfo {
+            user: "token_user".into(),
+            roles: Rc::new([]),
+            privileges: Rc::new([]),
+            authenticated: true,
+            claims: Rc::new(claims),
+        };
+
+        assert_eq!(
+            auth_info.get_inventur_id(),
+            Some("550e8400-e29b-41d4-a716-446655440000".to_string())
+        );
+    }
+
+    #[test]
+    fn test_auth_info_without_inventur_id_claim() {
+        let auth_info = AuthInfo {
+            user: "regular_user".into(),
+            roles: Rc::new([]),
+            privileges: Rc::new(["admin".into()]),
+            authenticated: true,
+            claims: Rc::new(HashMap::new()),
+        };
+
+        assert_eq!(auth_info.get_inventur_id(), None);
     }
 
     #[test]

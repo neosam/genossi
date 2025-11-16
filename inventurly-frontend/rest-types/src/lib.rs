@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use time::PrimitiveDateTime;
+use std::collections::HashMap;
 
 // Custom serialization module for ISO8601 datetime format
 mod iso8601_datetime {
@@ -136,6 +137,8 @@ pub struct UserTO {
     pub username: String,
     pub roles: Vec<String>,
     pub privileges: Vec<String>,
+    #[serde(default)]
+    pub claims: HashMap<String, String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

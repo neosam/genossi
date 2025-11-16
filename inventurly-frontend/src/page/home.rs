@@ -1,12 +1,23 @@
 use crate::component::TopBar;
 use crate::i18n::{use_i18n, Key};
 use crate::router::Route;
+use crate::service::auth::AUTH;
 use dioxus::prelude::*;
 
 #[component]
 pub fn Home() -> Element {
     let i18n = use_i18n();
     let nav = navigator();
+
+    // Auto-redirect if user has inventur_id claim
+    use_effect(move || {
+        let auth = AUTH.read();
+        if let Some(ref auth_info) = auth.auth_info {
+            if let Some(inventur_id) = auth_info.get_inventur_id() {
+                nav.push(Route::InventurRackSelection { id: inventur_id });
+            }
+        }
+    });
 
     rsx! {
         div { class: "flex flex-col min-h-screen",

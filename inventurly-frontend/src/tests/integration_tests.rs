@@ -2,6 +2,7 @@
 mod integration_tests {
     use crate::i18n::{I18n, Key, Locale};
     use crate::state::{AuthInfo, Config};
+    use std::collections::HashMap;
     use std::rc::Rc;
     use time::{Date, Month};
 
@@ -10,12 +11,14 @@ mod integration_tests {
         // Test complete user authentication flow
         let auth_info = AuthInfo {
             user: "manager@company.com".into(),
+            roles: Rc::new([]),
             privileges: Rc::new([
                 "shift_planner".into(),
                 "employee_manager".into(),
                 "report_viewer".into(),
             ]),
             authenticated: true,
+            claims: Rc::new(HashMap::new()),
         };
 
         // User should be able to access shift planning
@@ -97,8 +100,10 @@ mod integration_tests {
 
         let auth_info = AuthInfo {
             user: "german.user@company.de".into(),
+            roles: Rc::new([]),
             privileges: Rc::new(["inventory_manager".into()]),
             authenticated: true,
+            claims: Rc::new(HashMap::new()),
         };
 
         // Test with German locale
@@ -156,8 +161,10 @@ mod integration_tests {
         // Both should support the same core functionality
         let auth_info = AuthInfo {
             user: "production.user@company.com".into(),
+            roles: Rc::new([]),
             privileges: Rc::new(["inventory_manager".into()]),
             authenticated: true,
+            claims: Rc::new(HashMap::new()),
         };
 
         assert!(auth_info.has_privilege("inventory_manager"));
@@ -222,12 +229,15 @@ mod integration_tests {
         // Test that privilege checks prevent unauthorized access
         let regular_user = AuthInfo {
             user: "regular.user@company.com".into(),
+            roles: Rc::new([]),
             privileges: Rc::new(["report_viewer".into()]),
             authenticated: true,
+            claims: Rc::new(HashMap::new()),
         };
 
         let admin_user = AuthInfo {
             user: "admin@company.com".into(),
+            roles: Rc::new([]),
             privileges: Rc::new([
                 "report_viewer".into(),
                 "inventory_manager".into(),
@@ -235,6 +245,7 @@ mod integration_tests {
                 "admin".into(),
             ]),
             authenticated: true,
+            claims: Rc::new(HashMap::new()),
         };
 
         // Regular user should have limited access
