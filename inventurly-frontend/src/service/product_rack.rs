@@ -111,3 +111,42 @@ pub async fn get_products_in_rack_action(rack_id: Uuid) -> Result<Vec<ProductRac
         }
     }
 }
+
+pub async fn set_product_position_action(
+    product_id: Uuid,
+    rack_id: Uuid,
+    position: i32,
+) -> Result<ProductRackTO, String> {
+    let config = CONFIG.read().clone();
+
+    match api::set_product_position(&config, product_id, rack_id, position).await {
+        Ok(updated_relationship) => {
+            PRODUCT_RACKS.write().error = None;
+            Ok(updated_relationship)
+        }
+        Err(e) => {
+            let error_msg = format!("Failed to update product position: {}", e);
+            PRODUCT_RACKS.write().error = Some(error_msg.clone());
+            Err(error_msg)
+        }
+    }
+}
+
+pub async fn reorder_products_in_rack_action(
+    rack_id: Uuid,
+    product_order: Vec<Uuid>,
+) -> Result<Vec<ProductRackTO>, String> {
+    let config = CONFIG.read().clone();
+
+    match api::reorder_products_in_rack(&config, rack_id, product_order).await {
+        Ok(updated_relationships) => {
+            PRODUCT_RACKS.write().error = None;
+            Ok(updated_relationships)
+        }
+        Err(e) => {
+            let error_msg = format!("Failed to reorder products: {}", e);
+            PRODUCT_RACKS.write().error = Some(error_msg.clone());
+            Err(error_msg)
+        }
+    }
+}

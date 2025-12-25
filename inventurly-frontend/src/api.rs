@@ -3,7 +3,8 @@ use std::rc::Rc;
 use rest_types::{
     AddProductToRackRequestTO, ChangeInventurStatusRequestTO, CheckDuplicateRequestTO, ContainerTO,
     DuplicateDetectionResultTO, DuplicateMatchTO, InventurCustomEntryTO, InventurMeasurementTO,
-    InventurTO, InventurTokenLoginRequest, ProductRackTO, ProductTO, RackTO, UserTO,
+    InventurTO, InventurTokenLoginRequest, ProductRackTO, ProductTO, RackTO,
+    ReorderProductsInRackRequestTO, SetProductPositionRequestTO, UserTO,
 };
 use tracing::info;
 use uuid::Uuid;
@@ -464,6 +465,46 @@ pub async fn get_all_product_rack_relationships(
     response.error_for_status_ref()?;
     let res = response.json().await?;
     info!("All product-rack relationships fetched");
+    Ok(res)
+}
+
+pub async fn set_product_position(
+    config: &Config,
+    product_id: Uuid,
+    rack_id: Uuid,
+    position: i32,
+) -> Result<ProductRackTO, reqwest::Error> {
+    info!("Setting product {product_id} position to {position} in rack {rack_id}");
+    let url = format!("{}/product-racks/position", config.backend);
+    let request = SetProductPositionRequestTO {
+        product_id,
+        rack_id,
+        position,
+    };
+    let client = reqwest::Client::new();
+    let response = client.put(url).json(&request).send().await?;
+    response.error_for_status_ref()?;
+    let res = response.json().await?;
+    info!("Product position updated");
+    Ok(res)
+}
+
+pub async fn reorder_products_in_rack(
+    config: &Config,
+    rack_id: Uuid,
+    product_order: Vec<Uuid>,
+) -> Result<Vec<ProductRackTO>, reqwest::Error> {
+    info!("Reordering products in rack {rack_id}");
+    let url = format!("{}/product-racks/reorder", config.backend);
+    let request = ReorderProductsInRackRequestTO {
+        rack_id,
+        product_order,
+    };
+    let client = reqwest::Client::new();
+    let response = client.put(url).json(&request).send().await?;
+    response.error_for_status_ref()?;
+    let res = response.json().await?;
+    info!("Products reordered");
     Ok(res)
 }
 

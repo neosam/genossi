@@ -2,9 +2,10 @@ use crate::api;
 use crate::component::{modal::Modal, ProductRackForm};
 use crate::i18n::{use_i18n, Key};
 use crate::service::config::CONFIG;
-use crate::service::product_rack::{get_products_in_rack_action, remove_product_from_rack_action};
+use crate::service::product_rack::{get_products_in_rack_action, reorder_products_in_rack_action, remove_product_from_rack_action, set_product_position_action};
 use dioxus::prelude::*;
 use rest_types::{ProductRackTO, ProductTO};
+use std::collections::HashSet;
 use uuid::Uuid;
 
 #[component]
@@ -16,6 +17,7 @@ pub fn RackProducts(rack_id: Uuid) -> Element {
     let loading = use_signal(|| false);
     let error = use_signal(|| None::<String>);
     let mut show_add_form = use_signal(|| false);
+    let mut selected_products = use_signal(|| HashSet::<Uuid>::new());
 
     // Load products in rack
     let load_products = use_callback({
@@ -105,6 +107,150 @@ pub fn RackProducts(rack_id: Uuid) -> Element {
         load_products.call(());
     };
 
+    let handle_move_up = move |product_id: Uuid, current_position: i32| {
+        spawn({
+            let mut error = error.clone();
+            let load_products = load_products.clone();
+
+            async move {
+                error.set(None);
+
+                match set_product_position_action(product_id, rack_id, current_position - 1).await {
+                    Ok(_) => {
+                        load_products.call(());
+                    }
+                    Err(e) => {
+                        error.set(Some(e));
+                    }
+                }
+            }
+        });
+    };
+
+    let handle_move_down = move |product_id: Uuid, current_position: i32| {
+        spawn({
+            let mut error = error.clone();
+            let load_products = load_products.clone();
+
+            async move {
+                error.set(None);
+
+                match set_product_position_action(product_id, rack_id, current_position + 1).await {
+                    Ok(_) => {
+                        load_products.call(());
+                    }
+                    Err(e) => {
+                        error.set(Some(e));
+                    }
+                }
+            }
+        });
+    };
+
+    // Handler to toggle product selection
+    let mut handle_toggle_selection = move |product_id: Uuid| {
+        let mut selection = selected_products.write();
+        if selection.contains(&product_id) {
+            selection.remove(&product_id);
+        } else {
+            selection.insert(product_id);
+        }
+    };
+
+    // Handler for bulk move above
+    let handle_move_selected_above = move |target_idx: usize| {
+        spawn({
+            let mut error = error.clone();
+            let mut selected_products = selected_products.clone();
+            let load_products = load_products.clone();
+            let products = products_in_rack.read().clone();
+            let selected = selected_products.read().clone();
+
+            async move {
+                error.set(None);
+
+                // Build new order: non-selected items up to target, then selected items (in their original order), then target and rest
+                let mut new_order: Vec<Uuid> = Vec::new();
+                let mut selected_in_order: Vec<Uuid> = Vec::new();
+
+                // Collect selected items in their original order
+                for pr in products.iter() {
+                    if selected.contains(&pr.product_id) {
+                        selected_in_order.push(pr.product_id);
+                    }
+                }
+
+                // Build the new order
+                for (idx, pr) in products.iter().enumerate() {
+                    if idx == target_idx {
+                        // Insert selected items before the target
+                        new_order.extend(selected_in_order.iter().cloned());
+                    }
+                    if !selected.contains(&pr.product_id) {
+                        new_order.push(pr.product_id);
+                    }
+                }
+
+                match reorder_products_in_rack_action(rack_id, new_order).await {
+                    Ok(_) => {
+                        selected_products.set(HashSet::new());
+                        load_products.call(());
+                    }
+                    Err(e) => {
+                        error.set(Some(e));
+                    }
+                }
+            }
+        });
+    };
+
+    // Handler for bulk move below
+    let handle_move_selected_below = move |target_idx: usize| {
+        spawn({
+            let mut error = error.clone();
+            let mut selected_products = selected_products.clone();
+            let load_products = load_products.clone();
+            let products = products_in_rack.read().clone();
+            let selected = selected_products.read().clone();
+
+            async move {
+                error.set(None);
+
+                // Build new order: non-selected items up to and including target, then selected items, then rest
+                let mut new_order: Vec<Uuid> = Vec::new();
+                let mut selected_in_order: Vec<Uuid> = Vec::new();
+
+                // Collect selected items in their original order
+                for pr in products.iter() {
+                    if selected.contains(&pr.product_id) {
+                        selected_in_order.push(pr.product_id);
+                    }
+                }
+
+                // Build the new order
+                for (idx, pr) in products.iter().enumerate() {
+                    if !selected.contains(&pr.product_id) {
+                        new_order.push(pr.product_id);
+                    }
+                    if idx == target_idx {
+                        // Insert selected items after the target
+                        new_order.extend(selected_in_order.iter().cloned());
+                    }
+                }
+
+                match reorder_products_in_rack_action(rack_id, new_order).await {
+                    Ok(_) => {
+                        selected_products.set(HashSet::new());
+                        load_products.call(());
+                    }
+                    Err(e) => {
+                        error.set(Some(e));
+                    }
+                }
+            }
+        });
+    };
+
     rsx! {
         div { class: "space-y-4",
             div { class: "flex justify-between items-center",
@@ -137,6 +283,9 @@ pub fn RackProducts(rack_id: Uuid) -> Element {
                     table { class: "min-w-full bg-white border border-gray-200",
                         thead { class: "bg-gray-50",
                             tr {
+                                th { class: "px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-b w-10",
+                                    // Empty header for checkbox column
+                                }
                                 th { class: "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b",
                                     {i18n.t(Key::ProductName)}
                                 }
@@ -144,30 +293,109 @@ pub fn RackProducts(rack_id: Uuid) -> Element {
                                     {i18n.t(Key::ProductEan)}
                                 }
                                 th { class: "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b",
+                                    {i18n.t(Key::Order)}
+                                }
+                                th { class: "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b",
                                     {i18n.t(Key::Actions)}
                                 }
                             }
                         }
                         tbody { class: "bg-white divide-y divide-gray-200",
-                            for (idx, product_rack) in products_in_rack().iter().enumerate() {
-                                if let Some(product) = products_map().get(&product_rack.product_id) {
-                                    tr {
-                                        key: "{idx}",
-                                        class: "hover:bg-gray-50",
-                                        td { class: "px-6 py-4 whitespace-nowrap text-sm text-gray-900",
-                                            {product.name.clone()}
-                                        }
-                                        td { class: "px-6 py-4 whitespace-nowrap text-sm text-gray-500",
-                                            {product.ean.clone()}
-                                        }
-                                        td { class: "px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2",
-                                            button {
-                                                class: "text-red-600 hover:text-red-900",
-                                                onclick: {
-                                                    let product_id = product_rack.product_id;
-                                                    move |_| handle_remove_product(product_id)
-                                                },
-                                                {i18n.t(Key::RemoveProductFromRack)}
+                            {
+                                let products = products_in_rack();
+                                let total_count = products.len();
+                                let selection = selected_products();
+                                let has_selection = !selection.is_empty();
+                                rsx! {
+                                    for (idx, product_rack) in products.iter().enumerate() {
+                                        if let Some(product) = products_map().get(&product_rack.product_id) {
+                                            {
+                                                let is_selected = selection.contains(&product_rack.product_id);
+                                                let row_class = if is_selected {
+                                                    "bg-blue-50 hover:bg-blue-100"
+                                                } else {
+                                                    "hover:bg-gray-50"
+                                                };
+                                                rsx! {
+                                                    tr {
+                                                        key: "{idx}",
+                                                        class: "{row_class}",
+                                                        td { class: "px-3 py-4 text-center",
+                                                            input {
+                                                                r#type: "checkbox",
+                                                                class: "h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500",
+                                                                checked: is_selected,
+                                                                onchange: {
+                                                                    let product_id = product_rack.product_id;
+                                                                    move |_| handle_toggle_selection(product_id)
+                                                                },
+                                                            }
+                                                        }
+                                                        td { class: "px-6 py-4 whitespace-nowrap text-sm text-gray-900",
+                                                            {product.name.clone()}
+                                                        }
+                                                        td { class: "px-6 py-4 whitespace-nowrap text-sm text-gray-500",
+                                                            {product.ean.clone()}
+                                                        }
+                                                        td { class: "px-6 py-4 whitespace-nowrap text-sm font-medium space-x-1",
+                                                            button {
+                                                                class: if idx == 0 {
+                                                                    "px-2 py-1 text-gray-300 cursor-not-allowed"
+                                                                } else {
+                                                                    "px-2 py-1 text-gray-600 hover:text-blue-600"
+                                                                },
+                                                                disabled: idx == 0,
+                                                                title: i18n.t(Key::MoveUp).to_string(),
+                                                                onclick: {
+                                                                    let product_id = product_rack.product_id;
+                                                                    let current_position = product_rack.sort_order.unwrap_or(idx as i32 + 1);
+                                                                    move |_| handle_move_up(product_id, current_position)
+                                                                },
+                                                                "↑"
+                                                            }
+                                                            button {
+                                                                class: if idx == total_count - 1 {
+                                                                    "px-2 py-1 text-gray-300 cursor-not-allowed"
+                                                                } else {
+                                                                    "px-2 py-1 text-gray-600 hover:text-blue-600"
+                                                                },
+                                                                disabled: idx == total_count - 1,
+                                                                title: i18n.t(Key::MoveDown).to_string(),
+                                                                onclick: {
+                                                                    let product_id = product_rack.product_id;
+                                                                    let current_position = product_rack.sort_order.unwrap_or(idx as i32 + 1);
+                                                                    move |_| handle_move_down(product_id, current_position)
+                                                                },
+                                                                "↓"
+                                                            }
+                                                            // Show move here buttons only for unselected rows when there's a selection
+                                                            if has_selection && !is_selected {
+                                                                button {
+                                                                    class: "px-2 py-1 text-green-600 hover:text-green-800",
+                                                                    title: i18n.t(Key::MoveAbove).to_string(),
+                                                                    onclick: move |_| handle_move_selected_above(idx),
+                                                                    "▲"
+                                                                }
+                                                                button {
+                                                                    class: "px-2 py-1 text-green-600 hover:text-green-800",
+                                                                    title: i18n.t(Key::MoveBelow).to_string(),
+                                                                    onclick: move |_| handle_move_selected_below(idx),
+                                                                    "▼"
+                                                                }
+                                                            }
+                                                        }
+                                                        td { class: "px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2",
+                                                            button {
+                                                                class: "text-red-600 hover:text-red-900",
+                                                                onclick: {
+                                                                    let product_id = product_rack.product_id;
+                                                                    move |_| handle_remove_product(product_id)
+                                                                },
+                                                                {i18n.t(Key::RemoveProductFromRack)}
+                                                            }
+                                                        }
+                                                    }
+                                                }
                                             }
                                         }
                                     }

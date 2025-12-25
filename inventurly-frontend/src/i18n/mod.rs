@@ -145,6 +145,11 @@ pub enum Key {
     Quantity,
     RacksForProduct,
     ProductsInRack,
+    MoveUp,
+    MoveDown,
+    MoveAbove,
+    MoveBelow,
+    Order,
 
     // Person fields
     PersonName,
