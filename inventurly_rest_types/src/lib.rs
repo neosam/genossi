@@ -462,6 +462,9 @@ pub struct ProductRackTO {
     pub product_id: Uuid,
     #[schema(example = "456e7890-e89b-12d3-a456-426614174000")]
     pub rack_id: Uuid,
+    #[schema(example = 1)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sort_order: Option<i32>,
     #[serde(
         skip_serializing_if = "Option::is_none",
         serialize_with = "iso8601_datetime::serialize",
@@ -487,6 +490,7 @@ impl From<&inventurly_service::product_rack::ProductRack> for ProductRackTO {
         Self {
             product_id: product_rack.product_id,
             rack_id: product_rack.rack_id,
+            sort_order: Some(product_rack.sort_order),
             created: Some(product_rack.created),
             deleted: product_rack.deleted,
             version: Some(product_rack.version),
@@ -499,6 +503,7 @@ impl From<&ProductRackTO> for inventurly_service::product_rack::ProductRack {
         Self {
             product_id: to.product_id,
             rack_id: to.rack_id,
+            sort_order: to.sort_order.unwrap_or(0),
             created: to.created.unwrap_or_else(|| {
                 let now = time::OffsetDateTime::now_utc();
                 time::PrimitiveDateTime::new(now.date(), now.time())
@@ -578,6 +583,24 @@ pub struct AddProductToRackRequestTO {
     pub product_id: Uuid,
     #[schema(example = "456e7890-e89b-12d3-a456-426614174000")]
     pub rack_id: Uuid,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct ReorderProductsInRackRequestTO {
+    #[schema(example = "456e7890-e89b-12d3-a456-426614174000")]
+    pub rack_id: Uuid,
+    /// List of product IDs in desired order
+    pub product_order: Vec<Uuid>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct SetProductPositionRequestTO {
+    #[schema(example = "123e4567-e89b-12d3-a456-426614174000")]
+    pub product_id: Uuid,
+    #[schema(example = "456e7890-e89b-12d3-a456-426614174000")]
+    pub rack_id: Uuid,
+    #[schema(example = 3)]
+    pub position: i32,
 }
 
 /// Inventur (Inventory counting session)

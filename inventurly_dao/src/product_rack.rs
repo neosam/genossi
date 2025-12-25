@@ -9,6 +9,7 @@ use crate::DaoError;
 pub struct ProductRackEntity {
     pub product_id: Uuid,
     pub rack_id: Uuid,
+    pub sort_order: i32,
     pub created: PrimitiveDateTime,
     pub deleted: Option<PrimitiveDateTime>,
     pub version: Uuid,
@@ -69,4 +70,11 @@ pub trait ProductRackDao {
             .collect();
         Ok(active_entities.into())
     }
+
+    /// Get the next available sort_order for a rack
+    async fn get_next_sort_order(
+        &self,
+        rack_id: Uuid,
+        tx: Self::Transaction,
+    ) -> Result<i32, DaoError>;
 }

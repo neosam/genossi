@@ -9,6 +9,7 @@ use crate::{permission::Authentication, ServiceError};
 pub struct ProductRack {
     pub product_id: Uuid,
     pub rack_id: Uuid,
+    pub sort_order: i32,
     pub created: PrimitiveDateTime,
     pub deleted: Option<PrimitiveDateTime>,
     pub version: Uuid,
@@ -19,6 +20,7 @@ impl From<&inventurly_dao::product_rack::ProductRackEntity> for ProductRack {
         Self {
             product_id: entity.product_id,
             rack_id: entity.rack_id,
+            sort_order: entity.sort_order,
             created: entity.created,
             deleted: entity.deleted,
             version: entity.version,
@@ -31,6 +33,7 @@ impl From<&ProductRack> for inventurly_dao::product_rack::ProductRackEntity {
         Self {
             product_id: domain.product_id,
             rack_id: domain.rack_id,
+            sort_order: domain.sort_order,
             created: domain.created,
             deleted: domain.deleted,
             version: domain.version,
@@ -92,4 +95,24 @@ pub trait ProductRackService {
         context: Authentication<Self::Context>,
         tx: Option<Self::Transaction>,
     ) -> Result<Arc<[ProductRack]>, ServiceError>;
+
+    /// Reorder products within a rack
+    /// Takes a list of product_ids in the desired order
+    async fn reorder_products_in_rack(
+        &self,
+        rack_id: Uuid,
+        product_order: Vec<Uuid>,
+        context: Authentication<Self::Context>,
+        tx: Option<Self::Transaction>,
+    ) -> Result<Arc<[ProductRack]>, ServiceError>;
+
+    /// Set a product's position within a rack
+    async fn set_product_position_in_rack(
+        &self,
+        product_id: Uuid,
+        rack_id: Uuid,
+        new_position: i32,
+        context: Authentication<Self::Context>,
+        tx: Option<Self::Transaction>,
+    ) -> Result<ProductRack, ServiceError>;
 }

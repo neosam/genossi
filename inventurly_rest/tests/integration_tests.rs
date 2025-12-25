@@ -415,6 +415,7 @@ impl ProductRackService for MockProductRackService {
         Ok(ProductRack {
             product_id,
             rack_id,
+            sort_order: 1,
             created: time::PrimitiveDateTime::new(
                 time::Date::from_calendar_date(2024, time::Month::January, 1).unwrap(),
                 time::Time::from_hms(0, 0, 0).unwrap(),
@@ -468,6 +469,37 @@ impl ProductRackService for MockProductRackService {
         _transaction: Option<Self::Transaction>,
     ) -> Result<Arc<[ProductRack]>, inventurly_service::ServiceError> {
         Ok(Arc::from([]))
+    }
+
+    async fn reorder_products_in_rack(
+        &self,
+        _rack_id: Uuid,
+        _product_order: Vec<Uuid>,
+        _auth: Authentication<Self::Context>,
+        _transaction: Option<Self::Transaction>,
+    ) -> Result<Arc<[ProductRack]>, inventurly_service::ServiceError> {
+        Ok(Arc::from([]))
+    }
+
+    async fn set_product_position_in_rack(
+        &self,
+        product_id: Uuid,
+        rack_id: Uuid,
+        sort_order: i32,
+        _auth: Authentication<Self::Context>,
+        _transaction: Option<Self::Transaction>,
+    ) -> Result<ProductRack, inventurly_service::ServiceError> {
+        Ok(ProductRack {
+            product_id,
+            rack_id,
+            sort_order,
+            created: time::PrimitiveDateTime::new(
+                time::Date::from_calendar_date(2024, time::Month::January, 1).unwrap(),
+                time::Time::from_hms(0, 0, 0).unwrap(),
+            ),
+            deleted: None,
+            version: Uuid::new_v4(),
+        })
     }
 }
 

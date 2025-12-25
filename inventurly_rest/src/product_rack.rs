@@ -2,10 +2,13 @@ use std::sync::Arc;
 
 use axum::body::Body;
 use axum::extract::Path;
-use axum::routing::{delete, get, post};
+use axum::routing::{delete, get, post, put};
 use axum::{extract::State, response::Response};
 use axum::{Extension, Json, Router};
-use inventurly_rest_types::{AddProductToRackRequestTO, ProductRackTO};
+use inventurly_rest_types::{
+    AddProductToRackRequestTO, ProductRackTO, ReorderProductsInRackRequestTO,
+    SetProductPositionRequestTO,
+};
 use inventurly_service::product_rack::ProductRackService;
 use tracing::instrument;
 use utoipa::OpenApi;
@@ -16,6 +19,8 @@ use crate::{error_handler, Context, RestStateDef};
 pub fn generate_route<RestState: RestStateDef>() -> Router<RestState> {
     Router::new()
         .route("/", post(add_product_to_rack::<RestState>))
+        .route("/reorder", put(reorder_products_in_rack::<RestState>))
+        .route("/position", put(set_product_position::<RestState>))
         .route(
             "/{product_id}/{rack_id}",
             delete(remove_product_from_rack::<RestState>),
@@ -249,6 +254,88 @@ pub async fn get_all_relationships<RestState: RestStateDef>(
     )
 }
 
+#[instrument(skip(rest_state))]
+#[utoipa::path(
+    put,
+    tag = "Product-Rack",
+    path = "/reorder",
+    request_body = ReorderProductsInRackRequestTO,
+    responses(
+        (status = 200, description = "Products reordered successfully", body = [ProductRackTO]),
+        (status = 400, description = "Bad request"),
+        (status = 404, description = "Rack or product not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
+pub async fn reorder_products_in_rack<RestState: RestStateDef>(
+    rest_state: State<RestState>,
+    Extension(context): Extension<Context>,
+    Json(request): Json<ReorderProductsInRackRequestTO>,
+) -> Response {
+    error_handler(
+        (async {
+            let product_racks: Arc<[ProductRackTO]> = rest_state
+                .product_rack_service()
+                .reorder_products_in_rack(
+                    request.rack_id,
+                    request.product_order,
+                    crate::extract_auth_context(Some(context))?,
+                    None,
+                )
+                .await?
+                .iter()
+                .map(ProductRackTO::from)
+                .collect();
+            Ok(Response::builder()
+                .status(200)
+                .header("Content-Type", "application/json")
+                .body(Body::new(serde_json::to_string(&product_racks).unwrap()))
+                .unwrap())
+        })
+        .await,
+    )
+}
+
+#[instrument(skip(rest_state))]
+#[utoipa::path(
+    put,
+    tag = "Product-Rack",
+    path = "/position",
+    request_body = SetProductPositionRequestTO,
+    responses(
+        (status = 200, description = "Product position updated", body = ProductRackTO),
+        (status = 404, description = "Product-rack relationship not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
+pub async fn set_product_position<RestState: RestStateDef>(
+    rest_state: State<RestState>,
+    Extension(context): Extension<Context>,
+    Json(request): Json<SetProductPositionRequestTO>,
+) -> Response {
+    error_handler(
+        (async {
+            let product_rack = rest_state
+                .product_rack_service()
+                .set_product_position_in_rack(
+                    request.product_id,
+                    request.rack_id,
+                    request.position,
+                    crate::extract_auth_context(Some(context))?,
+                    None,
+                )
+                .await?;
+            let product_rack_to = ProductRackTO::from(&product_rack);
+            Ok(Response::builder()
+                .status(200)
+                .header("Content-Type", "application/json")
+                .body(Body::new(serde_json::to_string(&product_rack_to).unwrap()))
+                .unwrap())
+        })
+        .await,
+    )
+}
+
 #[derive(OpenApi)]
 #[openapi(
     paths(
@@ -257,8 +344,10 @@ pub async fn get_all_relationships<RestState: RestStateDef>(
         get_product_rack_relationship,
         get_racks_for_product,
         get_products_in_rack,
-        get_all_relationships
+        get_all_relationships,
+        reorder_products_in_rack,
+        set_product_position
     ),
-    components(schemas(ProductRackTO, AddProductToRackRequestTO))
+    components(schemas(ProductRackTO, AddProductToRackRequestTO, ReorderProductsInRackRequestTO, SetProductPositionRequestTO))
 )]
 pub struct ApiDoc;

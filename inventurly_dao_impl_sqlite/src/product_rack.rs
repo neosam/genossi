@@ -14,6 +14,7 @@ use inventurly_dao::{
 struct ProductRackDb {
     product_id: Vec<u8>,
     rack_id: Vec<u8>,
+    sort_order: i32,
     created: String,
     deleted: Option<String>,
     version: Vec<u8>,
@@ -55,6 +56,7 @@ impl TryFrom<&ProductRackDb> for ProductRackEntity {
         Ok(ProductRackEntity {
             product_id,
             rack_id,
+            sort_order: db_row.sort_order,
             created,
             deleted,
             version,
@@ -79,7 +81,7 @@ impl ProductRackDao for ProductRackDaoImpl {
 
     async fn dump_all(&self, tx: Self::Transaction) -> Result<Arc<[ProductRackEntity]>, DaoError> {
         let rows = sqlx::query_as::<_, ProductRackDb>(
-            "SELECT product_id, rack_id, created, deleted, version FROM product_rack ORDER BY created"
+            "SELECT product_id, rack_id, sort_order, created, deleted, version FROM product_rack ORDER BY rack_id, sort_order"
         )
         .fetch_all(tx.tx.lock().await.as_mut())
         .await
@@ -108,10 +110,11 @@ impl ProductRackDao for ProductRackDaoImpl {
             .map_err(|e| DaoError::ParseError(Arc::from(e.to_string())))?;
 
         sqlx::query(
-            "INSERT INTO product_rack (product_id, rack_id, created, version) VALUES (?, ?, ?, ?)",
+            "INSERT INTO product_rack (product_id, rack_id, sort_order, created, version) VALUES (?, ?, ?, ?, ?)",
         )
         .bind(product_id)
         .bind(rack_id)
+        .bind(entity.sort_order)
         .bind(created)
         .bind(version)
         .execute(tx.tx.lock().await.as_mut())
@@ -160,9 +163,10 @@ impl ProductRackDao for ProductRackDaoImpl {
         }
 
         let rows_affected = sqlx::query(
-            "UPDATE product_rack SET deleted = ?, version = ? WHERE product_id = ? AND rack_id = ? AND version = ? AND deleted IS NULL"
+            "UPDATE product_rack SET deleted = ?, sort_order = ?, version = ? WHERE product_id = ? AND rack_id = ? AND version = ? AND deleted IS NULL"
         )
         .bind(deleted)
+        .bind(entity.sort_order)
         .bind(new_version)
         .bind(product_id)
         .bind(rack_id)
@@ -188,7 +192,7 @@ impl ProductRackDao for ProductRackDaoImpl {
         let rack_id_bytes = rack_id.as_bytes().to_vec();
 
         let row = sqlx::query_as::<_, ProductRackDb>(
-            "SELECT product_id, rack_id, created, deleted, version FROM product_rack WHERE product_id = ? AND rack_id = ?"
+            "SELECT product_id, rack_id, sort_order, created, deleted, version FROM product_rack WHERE product_id = ? AND rack_id = ?"
         )
         .bind(product_id_bytes)
         .bind(rack_id_bytes)
@@ -210,7 +214,7 @@ impl ProductRackDao for ProductRackDaoImpl {
         let product_id_bytes = product_id.as_bytes().to_vec();
 
         let rows = sqlx::query_as::<_, ProductRackDb>(
-            "SELECT product_id, rack_id, created, deleted, version FROM product_rack WHERE product_id = ? AND deleted IS NULL ORDER BY created"
+            "SELECT product_id, rack_id, sort_order, created, deleted, version FROM product_rack WHERE product_id = ? AND deleted IS NULL ORDER BY sort_order"
         )
         .bind(product_id_bytes)
         .fetch_all(tx.tx.lock().await.as_mut())
@@ -231,7 +235,7 @@ impl ProductRackDao for ProductRackDaoImpl {
         let rack_id_bytes = rack_id.as_bytes().to_vec();
 
         let rows = sqlx::query_as::<_, ProductRackDb>(
-            "SELECT product_id, rack_id, created, deleted, version FROM product_rack WHERE rack_id = ? AND deleted IS NULL ORDER BY created"
+            "SELECT product_id, rack_id, sort_order, created, deleted, version FROM product_rack WHERE rack_id = ? AND deleted IS NULL ORDER BY sort_order"
         )
         .bind(rack_id_bytes)
         .fetch_all(tx.tx.lock().await.as_mut())
@@ -242,5 +246,23 @@ impl ProductRackDao for ProductRackDaoImpl {
             .map(ProductRackEntity::try_from)
             .collect::<Result<Vec<_>, _>>()
             .map(|v| v.into())
+    }
+
+    async fn get_next_sort_order(
+        &self,
+        rack_id: Uuid,
+        tx: Self::Transaction,
+    ) -> Result<i32, DaoError> {
+        let rack_id_bytes = rack_id.as_bytes().to_vec();
+
+        let max_order = sqlx::query_scalar::<_, Option<i32>>(
+            "SELECT MAX(sort_order) FROM product_rack WHERE rack_id = ? AND deleted IS NULL"
+        )
+        .bind(rack_id_bytes)
+        .fetch_one(tx.tx.lock().await.as_mut())
+        .await
+        .map_err(|e| DaoError::DatabaseError(Arc::from(e.to_string())))?;
+
+        Ok(max_order.unwrap_or(0) + 1)
     }
 }
