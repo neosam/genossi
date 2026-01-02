@@ -19,6 +19,7 @@ pub fn ProductForm(product_id: Option<Uuid>) -> Element {
         sales_unit: String::new(),
         requires_weighing: false,
         price: Price::from_cents(0),
+        rack_count: None,
         created: None,
         deleted: None,
         version: None,

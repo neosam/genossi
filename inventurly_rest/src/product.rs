@@ -8,6 +8,7 @@ use axum::{extract::State, response::Response};
 use axum::{Extension, Json, Router};
 use inventurly_rest_types::ProductTO;
 use inventurly_service::product::ProductService;
+use inventurly_service::product_rack::ProductRackService;
 use serde::Deserialize;
 use tracing::instrument;
 use utoipa::OpenApi;
@@ -51,13 +52,24 @@ pub async fn get_all_products<RestState: RestStateDef>(
 ) -> Response {
     error_handler(
         (async {
-            let products: Arc<[ProductTO]> = rest_state
+            let auth = crate::extract_auth_context(Some(context))?;
+            let service_products = rest_state
                 .product_service()
-                .get_all(crate::extract_auth_context(Some(context))?, None)
-                .await?
-                .iter()
-                .map(ProductTO::from)
-                .collect();
+                .get_all(auth.clone(), None)
+                .await?;
+
+            // Enrich products with rack counts
+            let mut products: Vec<ProductTO> = Vec::with_capacity(service_products.len());
+            for product in service_products.iter() {
+                let mut product_to = ProductTO::from(product);
+                let racks = rest_state
+                    .product_rack_service()
+                    .get_racks_for_product(product.id, auth.clone(), None)
+                    .await?;
+                product_to.rack_count = Some(racks.len() as i64);
+                products.push(product_to);
+            }
+
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")

@@ -100,6 +100,14 @@ pub fn Products() -> Element {
                 }
             }
 
+            // Apply rack assignment filter
+            if let Some(assigned) = products_read.filter_rack_assignment {
+                let is_assigned = p.rack_count.unwrap_or(0) > 0;
+                if is_assigned != assigned {
+                    return false;
+                }
+            }
+
             true
         })
         .map(|p| p.sales_unit.clone())
@@ -139,6 +147,11 @@ pub fn Products() -> Element {
         PRODUCTS.write().filter_requires_weighing = value;
     };
 
+    // Handler to update rack assignment filter
+    let set_rack_assignment = move |value: Option<bool>| {
+        PRODUCTS.write().filter_rack_assignment = value;
+    };
+
     // Handler to update price min filter
     let update_price_min = move |evt: Event<FormData>| {
         let value = evt.value();
@@ -175,6 +188,7 @@ pub fn Products() -> Element {
         products.filter_requires_weighing = None;
         products.filter_price_min = None;
         products.filter_price_max = None;
+        products.filter_rack_assignment = None;
     };
 
     rsx! {
@@ -319,6 +333,42 @@ pub fn Products() -> Element {
                                                     onchange: move |_| set_requires_weighing(Some(false)),
                                                 }
                                                 span { class: "text-sm", {i18n.t(Key::No)} }
+                                            }
+                                        }
+                                    }
+
+                                    // Rack Assignment filter
+                                    div {
+                                        label { class: "block text-sm font-medium text-gray-700 mb-2",
+                                            {i18n.t(Key::RackAssignment)}
+                                        }
+                                        div { class: "space-y-2",
+                                            label { class: "flex items-center space-x-2 cursor-pointer",
+                                                input {
+                                                    r#type: "radio",
+                                                    name: "rack_assignment",
+                                                    checked: products_read.filter_rack_assignment.is_none(),
+                                                    onchange: move |_| set_rack_assignment(None),
+                                                }
+                                                span { class: "text-sm", {i18n.t(Key::Both)} }
+                                            }
+                                            label { class: "flex items-center space-x-2 cursor-pointer",
+                                                input {
+                                                    r#type: "radio",
+                                                    name: "rack_assignment",
+                                                    checked: products_read.filter_rack_assignment == Some(true),
+                                                    onchange: move |_| set_rack_assignment(Some(true)),
+                                                }
+                                                span { class: "text-sm", {i18n.t(Key::Assigned)} }
+                                            }
+                                            label { class: "flex items-center space-x-2 cursor-pointer",
+                                                input {
+                                                    r#type: "radio",
+                                                    name: "rack_assignment",
+                                                    checked: products_read.filter_rack_assignment == Some(false),
+                                                    onchange: move |_| set_rack_assignment(Some(false)),
+                                                }
+                                                span { class: "text-sm", {i18n.t(Key::Unassigned)} }
                                             }
                                         }
                                     }

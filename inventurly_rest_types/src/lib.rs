@@ -181,6 +181,9 @@ pub struct ProductTO {
     pub deleted: Option<time::PrimitiveDateTime>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(example = 3)]
+    pub rack_count: Option<i64>,
 }
 
 impl From<&inventurly_service::product::Product> for ProductTO {
@@ -196,6 +199,7 @@ impl From<&inventurly_service::product::Product> for ProductTO {
             created: Some(product.created),
             deleted: product.deleted,
             version: Some(product.version),
+            rack_count: None,
         }
     }
 }

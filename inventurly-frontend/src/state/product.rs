@@ -13,6 +13,7 @@ pub struct Product {
     pub filter_requires_weighing: Option<bool>,
     pub filter_price_min: Option<i64>,
     pub filter_price_max: Option<i64>,
+    pub filter_rack_assignment: Option<bool>, // None=all, Some(true)=assigned, Some(false)=unassigned
 }
 
 impl Default for Product {
@@ -29,6 +30,7 @@ impl Default for Product {
             filter_requires_weighing: None,
             filter_price_min: None,
             filter_price_max: None,
+            filter_rack_assignment: None,
         }
     }
 }

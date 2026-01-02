@@ -51,6 +51,14 @@ pub fn ProductList() -> Element {
                 }
             }
 
+            // Rack assignment filter
+            if let Some(assigned) = products.filter_rack_assignment {
+                let is_assigned = p.rack_count.unwrap_or(0) > 0;
+                if is_assigned != assigned {
+                    return false;
+                }
+            }
+
             true
         })
         .collect();

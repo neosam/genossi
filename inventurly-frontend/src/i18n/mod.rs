@@ -120,6 +120,9 @@ pub enum Key {
     ClearAllFilters,
     SelectAll,
     DeselectAll,
+    RackAssignment,
+    Assigned,
+    Unassigned,
 
     // Rack fields
     RackName,

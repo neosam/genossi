@@ -68,6 +68,9 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::ClearAllFilters => "Clear All Filters",
         Key::SelectAll => "Select All",
         Key::DeselectAll => "Deselect All",
+        Key::RackAssignment => "Rack Assignment",
+        Key::Assigned => "Assigned",
+        Key::Unassigned => "Unassigned",
 
         // Rack fields
         Key::RackName => "Name",
