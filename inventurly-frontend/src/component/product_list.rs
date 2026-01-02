@@ -68,6 +68,9 @@ pub fn ProductList() -> Element {
             div { class: "px-6 py-4 border-b flex justify-between items-center",
                 h2 { class: "text-xl font-semibold",
                     {i18n.t(Key::Products)}
+                    span { class: "ml-2 text-gray-500 font-normal text-base",
+                        "({filtered_products.len()})"
+                    }
                 }
                 button {
                     class: "px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700",
