@@ -1,13 +1,21 @@
 use axum::body::Body;
-use axum::extract::{Multipart, State};
+use axum::extract::{Multipart, Query, State};
 use axum::response::Response;
 use axum::routing::post;
 use axum::{Extension, Router};
 use inventurly_service::csv_import::{CsvImportError, CsvImportResult, CsvImportService};
+use serde::Deserialize;
 use tracing::instrument;
-use utoipa::OpenApi;
+use utoipa::{IntoParams, OpenApi};
 
 use crate::{error_handler, Context, RestError, RestStateDef};
+
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct CsvImportQuery {
+    /// If true, products not in the CSV will be soft-deleted
+    #[serde(default)]
+    pub remove_unlisted: bool,
+}
 
 /// Schema for CSV file upload in multipart form
 #[derive(utoipa::ToSchema)]
@@ -27,6 +35,7 @@ pub fn generate_route<RestState: RestStateDef>() -> Router<RestState> {
     post,
     tag = "CSV Import",
     path = "/products",
+    params(CsvImportQuery),
     request_body(
         content = inline(CsvFileUpload),
         description = "CSV file upload",
@@ -41,6 +50,7 @@ pub fn generate_route<RestState: RestStateDef>() -> Router<RestState> {
 pub async fn import_products_csv<RestState: RestStateDef>(
     rest_state: State<RestState>,
     Extension(context): Extension<Context>,
+    Query(query): Query<CsvImportQuery>,
     mut multipart: Multipart,
 ) -> Response {
     error_handler(
@@ -76,7 +86,12 @@ pub async fn import_products_csv<RestState: RestStateDef>(
             // Import the CSV content
             let result: CsvImportResult = rest_state
                 .csv_import_service()
-                .import_products_csv(&csv_content, crate::extract_auth_context(Some(context))?, None)
+                .import_products_csv(
+                    &csv_content,
+                    query.remove_unlisted,
+                    crate::extract_auth_context(Some(context))?,
+                    None,
+                )
                 .await
                 .map_err(RestError::from)?;
 

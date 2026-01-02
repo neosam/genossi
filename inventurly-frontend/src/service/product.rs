@@ -8,6 +8,28 @@ use uuid::Uuid;
 
 pub static PRODUCTS: GlobalSignal<Product> = GlobalSignal::new(Product::default);
 
+/// Refresh products from the backend
+pub async fn refresh_products() {
+    let config = CONFIG.read().clone();
+    if !config.backend.is_empty() {
+        tracing::info!("Refreshing products from backend: {}", config.backend);
+        PRODUCTS.write().loading = true;
+        match api::get_products(&config).await {
+            Ok(products) => {
+                tracing::info!("Refreshed {} products successfully", products.len());
+                PRODUCTS.write().items = products;
+                PRODUCTS.write().error = None;
+            }
+            Err(e) => {
+                let error_msg = format!("Failed to refresh products: {}", e);
+                tracing::error!("{}", error_msg);
+                PRODUCTS.write().error = Some(error_msg);
+            }
+        }
+        PRODUCTS.write().loading = false;
+    }
+}
+
 #[derive(Debug)]
 #[allow(dead_code)]
 pub enum ProductService {

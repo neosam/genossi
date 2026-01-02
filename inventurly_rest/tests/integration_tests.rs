@@ -517,6 +517,7 @@ impl CsvImportService for MockCsvImportService {
     async fn import_products_csv(
         &self,
         _csv_content: &str,
+        _remove_unlisted: bool,
         _auth: Authentication<Self::Context>,
         _transaction: Option<Self::Transaction>,
     ) -> Result<CsvImportResult, inventurly_service::ServiceError> {
@@ -524,6 +525,8 @@ impl CsvImportService for MockCsvImportService {
             total_rows: 0,
             created: 0,
             updated: 0,
+            reactivated: 0,
+            deleted: 0,
             errors: vec![],
         })
     }

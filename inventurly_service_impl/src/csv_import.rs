@@ -1,8 +1,9 @@
 use async_trait::async_trait;
 use csv::ReaderBuilder;
+use std::collections::HashSet;
 use std::sync::Arc;
 
-use inventurly_dao::TransactionDao;
+use inventurly_dao::{product::ProductDao, TransactionDao};
 use inventurly_service::{
     csv_import::{CsvImportError, CsvImportResult, CsvImportService, CsvProductRow, ImportAction},
     permission::{Authentication, PermissionService, ADMIN_PRIVILEGE},
@@ -15,6 +16,7 @@ use crate::gen_service_impl;
 gen_service_impl! {
     struct CsvImportServiceImpl: CsvImportService = CsvImportServiceDeps {
         ProductService: ProductService<Context = Self::Context, Transaction = Self::Transaction> = product_service,
+        ProductDao: ProductDao<Transaction = Self::Transaction> = product_dao,
         PermissionService: PermissionService<Context = Self::Context> = permission_service,
         TransactionDao: TransactionDao<Transaction = Self::Transaction> = transaction_dao,
     }
@@ -107,6 +109,7 @@ impl<Deps: CsvImportServiceDeps> CsvImportService for CsvImportServiceImpl<Deps>
     async fn import_products_csv(
         &self,
         csv_content: &str,
+        remove_unlisted: bool,
         context: Authentication<Self::Context>,
         tx: Option<Self::Transaction>,
     ) -> Result<CsvImportResult, ServiceError> {
@@ -128,12 +131,17 @@ impl<Deps: CsvImportServiceDeps> CsvImportService for CsvImportServiceImpl<Deps>
         let total_rows = rows.len();
         let mut created = 0;
         let mut updated = 0;
+        let mut reactivated = 0;
         let mut errors = Vec::new();
+
+        // Track all EANs from CSV for removal logic
+        let mut processed_eans: HashSet<String> = HashSet::new();
 
         // Process each row
         for (index, row) in rows.into_iter().enumerate() {
             let row_number = index + 2; // +2 because CSV has header and is 1-indexed
             let ean = row.ean.clone();
+            processed_eans.insert(ean.clone());
 
             match self
                 .import_product_row(row, context.clone(), Some(tx.clone()))
@@ -141,6 +149,7 @@ impl<Deps: CsvImportServiceDeps> CsvImportService for CsvImportServiceImpl<Deps>
             {
                 Ok(ImportAction::Created) => created += 1,
                 Ok(ImportAction::Updated) => updated += 1,
+                Ok(ImportAction::Reactivated) => reactivated += 1,
                 Err(e) => {
                     errors.push(CsvImportError {
                         row: row_number,
@@ -166,12 +175,37 @@ impl<Deps: CsvImportServiceDeps> CsvImportService for CsvImportServiceImpl<Deps>
             ]));
         }
 
+        // Remove unlisted products if requested
+        let mut deleted = 0;
+        if remove_unlisted {
+            // Get all active products
+            let all_products = self.product_dao.all(tx.clone()).await?;
+
+            let now = time::OffsetDateTime::now_utc();
+            let deleted_timestamp = time::PrimitiveDateTime::new(now.date(), now.time());
+
+            for product in all_products.iter() {
+                if !processed_eans.contains(product.ean.as_ref()) {
+                    // Soft delete this product
+                    let mut deleted_entity = product.clone();
+                    deleted_entity.deleted = Some(deleted_timestamp);
+
+                    self.product_dao
+                        .update(&deleted_entity, CSV_IMPORT_SERVICE_PROCESS, tx.clone())
+                        .await?;
+                    deleted += 1;
+                }
+            }
+        }
+
         self.transaction_dao.commit(tx).await?;
 
         Ok(CsvImportResult {
             total_rows,
             created,
             updated,
+            reactivated,
+            deleted,
             errors,
         })
     }
@@ -192,19 +226,21 @@ impl<Deps: CsvImportServiceDeps> CsvImportService for CsvImportServiceImpl<Deps>
             }])
         })?;
 
-        // Check if product already exists
+        // Check if product already exists (including deleted products)
         match self
-            .product_service
-            .get_by_ean(&product.ean, context.clone(), Some(tx.clone()))
-            .await
+            .product_dao
+            .find_by_ean_include_deleted(&product.ean, tx.clone())
+            .await?
         {
-            Ok(existing) => {
-                // Update existing product
+            Some(existing) => {
+                let was_deleted = existing.deleted.is_some();
+
+                // Update existing product (reactivate if deleted)
                 let updated_product = inventurly_service::product::Product {
                     id: existing.id,
                     version: existing.version,
                     created: existing.created,
-                    deleted: existing.deleted,
+                    deleted: None, // Clear deleted flag to reactivate
                     ..product
                 };
 
@@ -213,9 +249,14 @@ impl<Deps: CsvImportServiceDeps> CsvImportService for CsvImportServiceImpl<Deps>
                     .await?;
 
                 self.transaction_dao.commit(tx).await?;
-                Ok(ImportAction::Updated)
+
+                if was_deleted {
+                    Ok(ImportAction::Reactivated)
+                } else {
+                    Ok(ImportAction::Updated)
+                }
             }
-            Err(ServiceError::EntityNotFound(_)) => {
+            None => {
                 // Create new product
                 self.product_service
                     .create(&product, context, Some(tx.clone()))
@@ -223,10 +264,6 @@ impl<Deps: CsvImportServiceDeps> CsvImportService for CsvImportServiceImpl<Deps>
 
                 self.transaction_dao.commit(tx).await?;
                 Ok(ImportAction::Created)
-            }
-            Err(e) => {
-                // Don't commit the transaction (rollback by not committing)
-                Err(e)
             }
         }
     }

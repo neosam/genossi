@@ -1,11 +1,14 @@
+use crate::api;
 use crate::auth::RequirePrivilege;
 use crate::component::{BarcodeScanner, ProductList, ScanResult, TopBar};
 use crate::i18n::{use_i18n, Key};
 use crate::page::AccessDeniedPage;
 use crate::router::Route;
+use crate::service::config::CONFIG;
 use crate::service::product::PRODUCTS;
 use dioxus::prelude::*;
 use dioxus_router::prelude::use_navigator;
+use rest_types::CsvImportResultTO;
 
 #[component]
 pub fn Products() -> Element {
@@ -23,6 +26,15 @@ pub fn Products() -> Element {
     let mut filters_expanded = use_signal(|| false);
     let mut price_min_input = use_signal(|| String::new());
     let mut price_max_input = use_signal(|| String::new());
+
+    // CSV Import state
+    let mut show_import_panel = use_signal(|| false);
+    let mut import_file_data = use_signal(|| None::<Vec<u8>>);
+    let mut import_file_name = use_signal(|| None::<String>);
+    let mut remove_unlisted = use_signal(|| false);
+    let mut import_loading = use_signal(|| false);
+    let mut import_result = use_signal(|| None::<CsvImportResultTO>);
+    let mut import_error = use_signal(|| None::<String>);
 
     // Debounced filter update effect
     use_effect(move || {
@@ -191,6 +203,61 @@ pub fn Products() -> Element {
         products.filter_rack_assignment = None;
     };
 
+    // Handle CSV file selection
+    let handle_file_select = {
+        move |evt: Event<FormData>| {
+            // Get the file from the input element via DOM
+            if let Some(file_engine) = evt.files() {
+                let files = file_engine.files();
+                if !files.is_empty() {
+                    let file_name = files[0].clone();
+                    import_file_name.set(Some(file_name.clone()));
+
+                    spawn(async move {
+                        if let Some(bytes) = file_engine.read_file(&file_name).await {
+                            import_file_data.set(Some(bytes));
+                        }
+                    });
+                }
+            }
+        }
+    };
+
+    // Handle CSV import
+    let do_import = move |_| {
+        if let Some(data) = import_file_data.read().clone() {
+            let remove = *remove_unlisted.read();
+            spawn(async move {
+                import_loading.set(true);
+                import_error.set(None);
+                import_result.set(None);
+
+                let config = CONFIG.read().clone();
+                match api::import_csv(&config, data, remove).await {
+                    Ok(result) => {
+                        import_result.set(Some(result));
+                        // Refresh the products list
+                        crate::service::product::refresh_products().await;
+                    }
+                    Err(e) => {
+                        import_error.set(Some(format!("{}", e)));
+                    }
+                }
+
+                import_loading.set(false);
+            });
+        }
+    };
+
+    // Reset import state
+    let mut reset_import = move || {
+        import_file_data.set(None);
+        import_file_name.set(None);
+        import_result.set(None);
+        import_error.set(None);
+        remove_unlisted.set(false);
+    };
+
     rsx! {
         RequirePrivilege {
             privilege: "view_inventory",
@@ -204,11 +271,144 @@ pub fn Products() -> Element {
                         }
                         div { class: "flex space-x-3",
                             button {
+                                class: "px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm font-medium",
+                                onclick: move |_| {
+                                    show_import_panel.set(!show_import_panel());
+                                    if !show_import_panel() {
+                                        reset_import();
+                                    }
+                                },
+                                {i18n.t(Key::CsvImport)}
+                            }
+                            button {
                                 class: "px-4 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700 text-sm font-medium",
                                 onclick: move |_| {
                                     navigator.push(Route::DuplicateDetection {});
                                 },
                                 {i18n.t(Key::CheckDuplicates)}
+                            }
+                        }
+                    }
+
+                    // CSV Import Panel
+                    if show_import_panel() {
+                        div { class: "mb-4 p-4 bg-gray-50 rounded-lg border border-gray-200",
+                            h3 { class: "text-lg font-semibold mb-4", {i18n.t(Key::CsvImport)} }
+
+                            if *import_loading.read() {
+                                // Loading state
+                                div { class: "flex items-center justify-center py-8",
+                                    div { class: "flex flex-col items-center",
+                                        div { class: "animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mb-4" }
+                                        p { class: "text-gray-600", {i18n.t(Key::ImportInProgress)} }
+                                    }
+                                }
+                            } else if let Some(result) = import_result.read().as_ref() {
+                                // Results display
+                                div { class: "bg-green-50 border border-green-200 rounded-lg p-4",
+                                    h4 { class: "text-green-800 font-semibold mb-3", {i18n.t(Key::ImportSuccess)} }
+                                    div { class: "grid grid-cols-2 md:grid-cols-4 gap-4 mb-4",
+                                        div { class: "text-center",
+                                            div { class: "text-2xl font-bold text-green-600", "{result.created}" }
+                                            div { class: "text-sm text-gray-600", {i18n.t(Key::ProductsCreated)} }
+                                        }
+                                        div { class: "text-center",
+                                            div { class: "text-2xl font-bold text-blue-600", "{result.updated}" }
+                                            div { class: "text-sm text-gray-600", {i18n.t(Key::ProductsUpdated)} }
+                                        }
+                                        div { class: "text-center",
+                                            div { class: "text-2xl font-bold text-red-600", "{result.deleted}" }
+                                            div { class: "text-sm text-gray-600", {i18n.t(Key::ProductsDeleted)} }
+                                        }
+                                        div { class: "text-center",
+                                            div { class: "text-2xl font-bold text-orange-600", "{result.errors.len()}" }
+                                            div { class: "text-sm text-gray-600", {i18n.t(Key::ImportErrors)} }
+                                        }
+                                    }
+                                    if !result.errors.is_empty() {
+                                        div { class: "mt-4 p-3 bg-orange-50 border border-orange-200 rounded",
+                                            h5 { class: "font-medium text-orange-800 mb-2", {i18n.t(Key::ImportErrors)} ":" }
+                                            ul { class: "list-disc list-inside text-sm text-orange-700",
+                                                for error in result.errors.iter() {
+                                                    li { {error.clone()} }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    button {
+                                        class: "mt-4 px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700",
+                                        onclick: move |_| reset_import(),
+                                        {i18n.t(Key::Back)}
+                                    }
+                                }
+                            } else if let Some(error) = import_error.read().as_ref() {
+                                // Error display
+                                div { class: "bg-red-50 border border-red-200 rounded-lg p-4",
+                                    h4 { class: "text-red-800 font-semibold mb-2", {i18n.t(Key::ImportError)} }
+                                    p { class: "text-red-700 text-sm", {error.clone()} }
+                                    button {
+                                        class: "mt-4 px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700",
+                                        onclick: move |_| reset_import(),
+                                        {i18n.t(Key::Back)}
+                                    }
+                                }
+                            } else {
+                                // File selection form
+                                div { class: "space-y-4",
+                                    // File input
+                                    div {
+                                        label { class: "block text-sm font-medium text-gray-700 mb-2",
+                                            {i18n.t(Key::SelectFile)}
+                                        }
+                                        div { class: "flex items-center gap-4",
+                                            input {
+                                                r#type: "file",
+                                                accept: ".csv",
+                                                class: "block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100",
+                                                onchange: handle_file_select,
+                                            }
+                                            if let Some(name) = import_file_name.read().as_ref() {
+                                                span { class: "text-sm text-gray-600", "{name}" }
+                                            }
+                                        }
+                                    }
+
+                                    // Remove unlisted checkbox
+                                    div { class: "flex items-start gap-3",
+                                        input {
+                                            r#type: "checkbox",
+                                            id: "remove_unlisted",
+                                            class: "mt-1",
+                                            checked: *remove_unlisted.read(),
+                                            oninput: move |evt| remove_unlisted.set(evt.checked()),
+                                        }
+                                        div {
+                                            label {
+                                                r#for: "remove_unlisted",
+                                                class: "text-sm font-medium text-gray-700 cursor-pointer",
+                                                {i18n.t(Key::RemoveUnlisted)}
+                                            }
+                                            p { class: "text-xs text-gray-500 mt-1",
+                                                {i18n.t(Key::RemoveUnlistedDescription)}
+                                            }
+                                        }
+                                    }
+
+                                    // Import button
+                                    div { class: "flex gap-3",
+                                        button {
+                                            class: "px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed",
+                                            disabled: import_file_data.read().is_none(),
+                                            onclick: do_import,
+                                            {i18n.t(Key::ImportButton)}
+                                        }
+                                        button {
+                                            class: "px-4 py-2 bg-gray-300 text-gray-700 rounded hover:bg-gray-400",
+                                            onclick: move |_| show_import_panel.set(false),
+                                            {i18n.t(Key::Cancel)}
+                                        }
+                                    }
+                                }
                             }
                         }
                     }

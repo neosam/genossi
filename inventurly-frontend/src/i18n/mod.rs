@@ -180,6 +180,13 @@ pub enum Key {
     ImportButton,
     ImportSuccess,
     ImportError,
+    ImportInProgress,
+    RemoveUnlisted,
+    RemoveUnlistedDescription,
+    ProductsCreated,
+    ProductsUpdated,
+    ProductsDeleted,
+    ImportErrors,
 
     // Duplicate Detection
     CheckDuplicates,

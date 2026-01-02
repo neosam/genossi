@@ -446,3 +446,11 @@ pub struct InventurCustomEntryTO {
     pub version: Option<Uuid>,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CsvImportResultTO {
+    pub created: i64,
+    pub updated: i64,
+    pub deleted: i64,
+    pub errors: Vec<String>,
+}
+

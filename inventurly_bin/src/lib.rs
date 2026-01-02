@@ -204,6 +204,7 @@ impl CsvImportServiceDeps for CsvImportServiceDependencies {
     type Context = Context;
     type Transaction = Transaction;
     type ProductService = ProductService;
+    type ProductDao = ProductDao;
     type PermissionService = PermissionService;
     type TransactionDao = TransactionDao;
 }
@@ -368,6 +369,7 @@ impl RestStateImpl {
         // Create CsvImportService using struct literal syntax
         let csv_import_service = Arc::new(CsvImportServiceImpl {
             product_service: product_service.clone(),
+            product_dao: product_dao.clone(),
             permission_service: permission_service.clone(),
             transaction_dao: transaction_dao.clone(),
         });

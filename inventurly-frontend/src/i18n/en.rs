@@ -128,6 +128,13 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::ImportButton => "Import",
         Key::ImportSuccess => "Import successful",
         Key::ImportError => "Import failed",
+        Key::ImportInProgress => "Importing... This may take several minutes.",
+        Key::RemoveUnlisted => "Remove unlisted products",
+        Key::RemoveUnlistedDescription => "Delete products from the database that are not in the CSV file",
+        Key::ProductsCreated => "Created",
+        Key::ProductsUpdated => "Updated",
+        Key::ProductsDeleted => "Deleted",
+        Key::ImportErrors => "Errors",
 
         // Duplicate Detection
         Key::CheckDuplicates => "Check for Duplicates",

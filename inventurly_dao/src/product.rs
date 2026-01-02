@@ -63,6 +63,19 @@ pub trait ProductDao: Send + Sync {
             .cloned())
     }
 
+    // Default implementation that finds by EAN including deleted products
+    async fn find_by_ean_include_deleted(
+        &self,
+        ean: &str,
+        tx: Self::Transaction,
+    ) -> Result<Option<ProductEntity>, DaoError> {
+        let all_entities = self.dump_all(tx).await?;
+        Ok(all_entities
+            .iter()
+            .find(|e| e.ean.as_ref() == ean)
+            .cloned())
+    }
+
     // Default implementation that finds by ID from dump_all results
     async fn find_by_id(
         &self,

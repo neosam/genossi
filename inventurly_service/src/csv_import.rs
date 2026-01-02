@@ -10,6 +10,8 @@ pub struct CsvImportResult {
     pub total_rows: usize,
     pub created: usize,
     pub updated: usize,
+    pub reactivated: usize,
+    pub deleted: usize,
     pub errors: Vec<CsvImportError>,
 }
 
@@ -112,6 +114,7 @@ impl TryFrom<CsvProductRow> for Product {
 pub enum ImportAction {
     Created,
     Updated,
+    Reactivated,
 }
 
 #[automock(type Context = MockContext; type Transaction = MockTransaction;)]
@@ -121,9 +124,11 @@ pub trait CsvImportService: Send + Sync {
     type Transaction: Send + Sync;
 
     /// Import products from CSV content
+    /// If `remove_unlisted` is true, products not in the CSV will be soft-deleted
     async fn import_products_csv(
         &self,
         csv_content: &str,
+        remove_unlisted: bool,
         context: Authentication<Self::Context>,
         tx: Option<Self::Transaction>,
     ) -> Result<CsvImportResult, ServiceError>;

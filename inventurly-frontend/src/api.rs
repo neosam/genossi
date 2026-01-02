@@ -2,8 +2,8 @@ use std::rc::Rc;
 
 use rest_types::{
     AddProductToRackRequestTO, ChangeInventurStatusRequestTO, CheckDuplicateRequestTO, ContainerTO,
-    DuplicateDetectionResultTO, DuplicateMatchTO, InventurCustomEntryTO, InventurMeasurementTO,
-    InventurTO, InventurTokenLoginRequest, ProductRackTO, ProductTO, RackTO,
+    CsvImportResultTO, DuplicateDetectionResultTO, DuplicateMatchTO, InventurCustomEntryTO,
+    InventurMeasurementTO, InventurTO, InventurTokenLoginRequest, ProductRackTO, ProductTO, RackTO,
     ReorderProductsInRackRequestTO, SetProductPositionRequestTO, UserTO,
 };
 use tracing::info;
@@ -227,13 +227,16 @@ pub async fn find_duplicates_by_ean(
 }
 
 // CSV Import
-#[allow(dead_code)]
 pub async fn import_csv(
     config: &Config,
-    csv_data: String,
-) -> Result<Vec<ProductTO>, reqwest::Error> {
-    info!("Importing CSV data");
-    let url = format!("{}/csv-import/products", config.backend);
+    csv_data: Vec<u8>,
+    remove_unlisted: bool,
+) -> Result<CsvImportResultTO, reqwest::Error> {
+    info!("Importing CSV data (remove_unlisted: {})", remove_unlisted);
+    let url = format!(
+        "{}/csv-import/products?remove_unlisted={}",
+        config.backend, remove_unlisted
+    );
     let client = reqwest::Client::new();
     let response = client
         .post(url)
