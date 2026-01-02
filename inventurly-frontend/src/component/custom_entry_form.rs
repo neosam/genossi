@@ -1,9 +1,18 @@
 use crate::api;
+use crate::component::barcode_scanner::{BarcodeScanner, ScanResult};
+use crate::component::searchable_product_selector::SearchableProductSelector;
 use crate::i18n::{use_i18n, Key};
 use crate::service::config::CONFIG;
+use crate::service::product::PRODUCTS;
 use dioxus::prelude::*;
-use rest_types::{ContainerTO, InventurCustomEntryTO};
+use rest_types::{ContainerTO, InventurCustomEntryTO, ProductTO};
 use uuid::Uuid;
+
+#[derive(Clone, Copy, PartialEq)]
+enum EntryMode {
+    Custom,
+    SelectProduct,
+}
 
 #[component]
 pub fn CustomEntryForm(
@@ -15,6 +24,20 @@ pub fn CustomEntryForm(
     on_cancel: EventHandler<()>,
 ) -> Element {
     let i18n = use_i18n();
+
+    // Determine initial mode based on existing entry
+    let initial_mode = if existing_entry
+        .as_ref()
+        .and_then(|e| e.ean.as_ref())
+        .is_some()
+    {
+        EntryMode::SelectProduct
+    } else {
+        EntryMode::Custom
+    };
+
+    let mut entry_mode = use_signal(|| initial_mode);
+    let mut show_scanner = use_signal(|| false);
 
     // Initialize form with existing entry or defaults
     let mut product_name = use_signal(|| {
@@ -47,37 +70,81 @@ pub fn CustomEntryForm(
             .unwrap_or_default()
     });
 
-    let mut selected_container = use_signal(|| {
-        existing_entry
-            .as_ref()
-            .and_then(|e| e.container_id)
+    let mut selected_container = use_signal(|| existing_entry.as_ref().and_then(|e| e.container_id));
+
+    // Selected product state - try to load from existing entry's EAN
+    let mut selected_product = use_signal(|| None::<ProductTO>);
+    let mut selected_product_id = use_signal(|| None::<Uuid>);
+
+    // Load product from existing entry's EAN on mount
+    use_effect({
+        let existing_entry = existing_entry.clone();
+        move || {
+            if let Some(ean) = existing_entry.as_ref().and_then(|e| e.ean.clone()) {
+                let products = PRODUCTS.read();
+                if let Some(product) = products.items.iter().find(|p| p.ean == ean) {
+                    selected_product.set(Some(product.clone()));
+                    selected_product_id.set(product.id);
+                }
+            }
+        }
     });
 
     let loading = use_signal(|| false);
-    let error = use_signal(|| None::<String>);
+    let mut error = use_signal(|| None::<String>);
 
     // Calculate if the entry is valid
     let is_valid = {
         let containers_clone = containers.clone();
         move || {
-            // Must have a product name
+            let mode = *entry_mode.read();
+
+            // Must have a product name (either manually entered or from selected product)
             if product_name.read().trim().is_empty() {
                 return false;
             }
 
-            // Must have at least count or weight
             let parsed_count = count.read().parse::<i64>().ok();
             let parsed_weight = weight.read().parse::<i64>().ok();
 
-            if parsed_count.is_none() && parsed_weight.is_none() {
-                return false;
+            // Validation based on mode
+            match mode {
+                EntryMode::Custom => {
+                    // Custom mode: must have at least count or weight
+                    if parsed_count.is_none() && parsed_weight.is_none() {
+                        return false;
+                    }
+                }
+                EntryMode::SelectProduct => {
+                    // Must have a product selected
+                    if selected_product.read().is_none() {
+                        return false;
+                    }
+
+                    // Check product's requires_weighing flag
+                    if let Some(product) = selected_product.read().as_ref() {
+                        if product.requires_weighing {
+                            // Require weight
+                            if parsed_weight.is_none() || parsed_weight == Some(0) {
+                                return false;
+                            }
+                        } else {
+                            // Require count
+                            if parsed_count.is_none() {
+                                return false;
+                            }
+                        }
+                    }
+                }
             }
 
             // If weight is provided with container, weight must be > container weight
             if let Some(weight_val) = parsed_weight {
                 if weight_val > 0 {
                     if let Some(container_id) = *selected_container.read() {
-                        if let Some(container) = containers_clone.iter().find(|c| c.id == Some(container_id)) {
+                        if let Some(container) =
+                            containers_clone.iter().find(|c| c.id == Some(container_id))
+                        {
                             if weight_val <= container.weight_grams {
                                 return false;
                             }
@@ -105,6 +172,8 @@ pub fn CustomEntryForm(
                 let weight = weight.clone();
                 let notes = notes.clone();
                 let selected_container = selected_container.clone();
+                let entry_mode = entry_mode.clone();
+                let selected_product = selected_product.clone();
 
                 async move {
                     loading.set(true);
@@ -123,16 +192,18 @@ pub fn CustomEntryForm(
                     let parsed_count = count.read().parse::<i64>().ok();
                     let parsed_weight = weight.read().parse::<i64>().ok();
 
-                    if parsed_count.is_none() && parsed_weight.is_none() {
-                        error.set(Some("Please enter at least count or weight".to_string()));
-                        loading.set(false);
-                        return;
-                    }
+                    // Get EAN if in SelectProduct mode
+                    let ean = if *entry_mode.read() == EntryMode::SelectProduct {
+                        selected_product.read().as_ref().map(|p| p.ean.clone())
+                    } else {
+                        None
+                    };
 
                     let entry = InventurCustomEntryTO {
                         id: existing_id,
                         inventur_id,
                         custom_product_name: product_name.read().trim().to_string(),
+                        ean,
                         rack_id: Some(rack_id),
                         container_id: *selected_container.read(),
                         count: parsed_count,
@@ -170,7 +241,80 @@ pub fn CustomEntryForm(
         }
     };
 
+    // Handle barcode scan result
+    let handle_scan = move |result: ScanResult| {
+        let products = PRODUCTS.read();
+        if let Some(product) = products.items.iter().find(|p| p.ean == result.barcode) {
+            selected_product.set(Some(product.clone()));
+            selected_product_id.set(product.id);
+            product_name.set(product.name.clone());
+            // Clear fields that don't apply to this product type
+            if product.requires_weighing {
+                count.set(String::new());
+            } else {
+                weight.set(String::new());
+                selected_container.set(None);
+            }
+        } else {
+            // Product not found - show error briefly
+            error.set(Some(format!(
+                "Product with EAN {} not found",
+                result.barcode
+            )));
+        }
+        show_scanner.set(false);
+    };
+
+    // Handle product selection from dropdown
+    let handle_product_selected = move |product_id: Option<Uuid>| {
+        if let Some(id) = product_id {
+            let products = PRODUCTS.read();
+            if let Some(product) = products.items.iter().find(|p| p.id == Some(id)) {
+                selected_product.set(Some(product.clone()));
+                selected_product_id.set(Some(id));
+                product_name.set(product.name.clone());
+                // Clear fields that don't apply to this product type
+                if product.requires_weighing {
+                    count.set(String::new());
+                } else {
+                    weight.set(String::new());
+                    selected_container.set(None);
+                }
+            }
+        } else {
+            selected_product.set(None);
+            selected_product_id.set(None);
+            product_name.set(String::new());
+        }
+    };
+
+    // Determine which fields to show based on mode and product
+    let (show_count, show_weight, show_container) = {
+        match *entry_mode.read() {
+            EntryMode::Custom => (true, true, true), // Show all in custom mode
+            EntryMode::SelectProduct => {
+                if let Some(product) = selected_product.read().as_ref() {
+                    if product.requires_weighing {
+                        (false, true, true) // Weighing: show weight + container
+                    } else {
+                        (true, false, false) // Counting: show only count
+                    }
+                } else {
+                    (false, false, false) // No product selected yet, hide all
+                }
+            }
+        }
+    };
+
     rsx! {
+        // Barcode scanner modal
+        if *show_scanner.read() {
+            BarcodeScanner {
+                on_scan: handle_scan,
+                on_close: move |_| show_scanner.set(false),
+            }
+        }
+
         // Modal backdrop
         div {
             class: "fixed inset-0 bg-black bg-opacity-50 z-40 flex items-center justify-center p-4",
@@ -188,6 +332,37 @@ pub fn CustomEntryForm(
                 if let Some(err) = error.read().as_ref() {
                     div { class: "bg-red-100 border border-red-400 text-red-700 px-3 py-2 rounded mb-4 text-sm",
                         {err.clone()}
+                    }
+                }
+
+                // Tab buttons
+                div { class: "flex border-b mb-4",
+                    button {
+                        r#type: "button",
+                        class: if *entry_mode.read() == EntryMode::Custom {
+                            "px-4 py-2 border-b-2 border-blue-500 text-blue-600 font-medium"
+                        } else {
+                            "px-4 py-2 border-b-2 border-transparent text-gray-500 hover:text-gray-700"
+                        },
+                        onclick: move |_| {
+                            entry_mode.set(EntryMode::Custom);
+                            // Clear product selection when switching to custom
+                            selected_product.set(None);
+                            selected_product_id.set(None);
+                        },
+                        {i18n.t(Key::CustomEntry)}
+                    }
+                    button {
+                        r#type: "button",
+                        class: if *entry_mode.read() == EntryMode::SelectProduct {
+                            "px-4 py-2 border-b-2 border-blue-500 text-blue-600 font-medium"
+                        } else {
+                            "px-4 py-2 border-b-2 border-transparent text-gray-500 hover:text-gray-700"
+                        },
+                        onclick: move |_| {
+                            entry_mode.set(EntryMode::SelectProduct);
+                        },
+                        {i18n.t(Key::SelectProduct)}
                     }
                 }
 
@@ -209,88 +384,143 @@ pub fn CustomEntryForm(
                 }
 
                 div { class: "space-y-4",
-                    // Product name
-                    div {
-                        label {
-                            class: "block text-sm font-medium text-gray-700 mb-1",
-                            {i18n.t(Key::CustomProductName)}
-                        }
-                        input {
-                            r#type: "text",
-                            class: "w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500",
-                            value: "{product_name.read()}",
-                            onmounted: move |event| async move {
-                                let _ = event.set_focus(true).await;
-                            },
-                            oninput: move |e| {
-                                product_name.set(e.value());
-                            },
-                            placeholder: "Unknown Product",
-                        }
-                    }
-
-                    // Count
-                    div {
-                        label {
-                            class: "block text-sm font-medium text-gray-700 mb-1",
-                            {i18n.t(Key::Count)}
-                            " (optional)"
-                        }
-                        input {
-                            r#type: "number",
-                            class: "w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500",
-                            value: "{count.read()}",
-                            oninput: move |e| {
-                                count.set(e.value());
-                            },
-                            placeholder: "0",
-                        }
-                    }
-
-                    // Weight
-                    div {
-                        label {
-                            class: "block text-sm font-medium text-gray-700 mb-1",
-                            {i18n.t(Key::WeightGrams)}
-                            " (optional)"
-                        }
-                        input {
-                            r#type: "number",
-                            class: "w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500",
-                            value: "{weight.read()}",
-                            oninput: move |e| {
-                                weight.set(e.value());
-                            },
-                            placeholder: "0",
-                        }
-                    }
-
-                    // Container selection
-                    div {
-                        label {
-                            class: "block text-sm font-medium text-gray-700 mb-1",
-                            {i18n.t(Key::ContainerName)}
-                            " (optional)"
-                        }
-                        select {
-                            class: "w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500",
-                            value: "{selected_container.read().as_ref().map(|id| id.to_string()).unwrap_or_default()}",
-                            onchange: move |e| {
-                                if e.value().is_empty() {
-                                    selected_container.set(None);
-                                } else if let Ok(uuid) = Uuid::parse_str(&e.value()) {
-                                    selected_container.set(Some(uuid));
+                    // Product name / Product selection based on mode
+                    match *entry_mode.read() {
+                        EntryMode::Custom => rsx! {
+                            div {
+                                label {
+                                    class: "block text-sm font-medium text-gray-700 mb-1",
+                                    {i18n.t(Key::CustomProductName)}
                                 }
-                            },
-                            option { value: "", "No container" }
-                            for container in containers.iter().filter(|c| c.deleted.is_none()) {
-                                option {
-                                    value: "{container.id.unwrap_or(Uuid::nil())}",
-                                    selected: selected_container.read().as_ref().map(|id| *id == container.id.unwrap_or(Uuid::nil())).unwrap_or(false),
-                                    {container.name.clone()}
-                                    " ("
-                                    {container.weight_grams.to_string()}
-                                    "g)"
+                                input {
+                                    r#type: "text",
+                                    class: "w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500",
+                                    value: "{product_name.read()}",
+                                    onmounted: move |event| async move {
+                                        let _ = event.set_focus(true).await;
+                                    },
+                                    oninput: move |e| {
+                                        product_name.set(e.value());
+                                    },
+                                    placeholder: "Unknown Product",
+                                }
+                            }
+                        },
+                        EntryMode::SelectProduct => rsx! {
+                            div {
+                                label {
+                                    class: "block text-sm font-medium text-gray-700 mb-1",
+                                    {i18n.t(Key::SelectProduct)}
+                                }
+                                div { class: "flex gap-2",
+                                    div { class: "flex-1",
+                                        SearchableProductSelector {
+                                            selected_product_id: *selected_product_id.read(),
+                                            disabled: false,
+                                            on_product_selected: handle_product_selected,
+                                        }
+                                    }
+                                    button {
+                                        r#type: "button",
+                                        class: "px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-md text-gray-700 flex items-center gap-1",
+                                        onclick: move |_| show_scanner.set(true),
+                                        title: i18n.t(Key::ScanToSelectProduct).to_string(),
+                                        "📷"
+                                    }
+                                }
+                                // Show selected product info
+                                if let Some(product) = selected_product.read().as_ref() {
+                                    div { class: "mt-2 text-sm text-gray-600",
+                                        "EAN: {product.ean}"
+                                        if product.requires_weighing {
+                                            span { class: "ml-2 text-orange-600",
+                                                "(Requires weighing)"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                    }
+
+                    // Count (shown in custom mode, or for non-weighing products)
+                    if show_count {
+                        div {
+                            label {
+                                class: "block text-sm font-medium text-gray-700 mb-1",
+                                {i18n.t(Key::Count)}
+                                // In custom mode, show (optional); in product mode, it's required
+                                if *entry_mode.read() == EntryMode::Custom {
+                                    " (optional)"
+                                } else {
+                                    span { class: "text-red-500 ml-1", "*" }
+                                }
+                            }
+                            input {
+                                r#type: "number",
+                                class: "w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500",
+                                value: "{count.read()}",
+                                oninput: move |e| {
+                                    count.set(e.value());
+                                },
+                                placeholder: "0",
+                            }
+                        }
+                    }
+
+                    // Weight (shown in custom mode, or for weighing products)
+                    if show_weight {
+                        div {
+                            label {
+                                class: "block text-sm font-medium text-gray-700 mb-1",
+                                {i18n.t(Key::WeightGrams)}
+                                // In custom mode, show (optional); in product mode, it's required
+                                if *entry_mode.read() == EntryMode::Custom {
+                                    " (optional)"
+                                } else {
+                                    span { class: "text-red-500 ml-1", "*" }
+                                }
+                            }
+                            input {
+                                r#type: "number",
+                                class: "w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500",
+                                value: "{weight.read()}",
+                                oninput: move |e| {
+                                    weight.set(e.value());
+                                },
+                                placeholder: "0",
+                            }
+                        }
+                    }
+
+                    // Container selection (only for weighing products or custom mode)
+                    if show_container {
+                        div {
+                            label {
+                                class: "block text-sm font-medium text-gray-700 mb-1",
+                                {i18n.t(Key::ContainerName)}
+                                " (optional)"
+                            }
+                            select {
+                                class: "w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500",
+                                value: "{selected_container.read().as_ref().map(|id| id.to_string()).unwrap_or_default()}",
+                                onchange: move |e| {
+                                    if e.value().is_empty() {
+                                        selected_container.set(None);
+                                    } else if let Ok(uuid) = Uuid::parse_str(&e.value()) {
+                                        selected_container.set(Some(uuid));
+                                    }
+                                },
+                                option { value: "", "No container" }
+                                for container in containers.iter().filter(|c| c.deleted.is_none()) {
+                                    option {
+                                        value: "{container.id.unwrap_or(Uuid::nil())}",
+                                        selected: selected_container.read().as_ref().map(|id| *id == container.id.unwrap_or(Uuid::nil())).unwrap_or(false),
+                                        {container.name.clone()}
+                                        " ("
+                                        {container.weight_grams.to_string()}
+                                        "g)"
+                                    }
                                 }
                             }
                         }

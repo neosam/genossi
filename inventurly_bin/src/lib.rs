@@ -258,6 +258,7 @@ impl InventurCustomEntryServiceDeps for InventurCustomEntryServiceDependencies {
     type Transaction = Transaction;
     type InventurCustomEntryDao = InventurCustomEntryDao;
     type InventurDao = InventurDao;
+    type ProductDao = ProductDao;
     type PermissionService = PermissionService;
     type UuidService = UuidService;
     type TransactionDao = TransactionDao;
@@ -392,6 +393,7 @@ impl RestStateImpl {
         let inventur_custom_entry_service = Arc::new(InventurCustomEntryServiceImpl {
             inventur_custom_entry_dao: inventur_custom_entry_dao,
             inventur_dao: inventur_dao,
+            product_dao: product_dao.clone(),
             permission_service: permission_service.clone(),
             uuid_service: uuid_service,
             transaction_dao: transaction_dao,

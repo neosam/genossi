@@ -327,6 +327,9 @@ pub enum Key {
     Notes,
     DeleteCustomEntry,
     ConfirmDeleteCustomEntry,
+    CustomEntry,
+    ScanToSelectProduct,
+    ProductNotFound,
 
     // QR Codes
     PrintQRCodes,

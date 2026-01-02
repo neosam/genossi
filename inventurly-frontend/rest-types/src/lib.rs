@@ -406,6 +406,8 @@ pub struct InventurCustomEntryTO {
     pub inventur_id: Uuid,
     pub custom_product_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub ean: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub rack_id: Option<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub container_id: Option<Uuid>,

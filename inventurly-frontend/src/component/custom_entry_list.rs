@@ -81,6 +81,15 @@ pub fn CustomEntryList(
                                         tr { class: "border-b hover:bg-gray-50",
                                             td { class: "px-6 py-4 text-sm font-medium",
                                                 {name}
+                                                if let Some(ean) = &entry.ean {
+                                                    div { class: "text-xs text-green-600 mt-1",
+                                                        "EAN: {ean}"
+                                                    }
+                                                } else {
+                                                    div { class: "text-xs text-gray-400 mt-1 italic",
+                                                        "Custom"
+                                                    }
+                                                }
                                             }
                                             td { class: "px-6 py-4 text-sm text-gray-700",
                                                 {value}

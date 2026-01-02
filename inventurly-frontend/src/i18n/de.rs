@@ -275,6 +275,9 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::Notes => "Notizen",
         Key::DeleteCustomEntry => "Löschen",
         Key::ConfirmDeleteCustomEntry => "Löschen bestätigen",
+        Key::CustomEntry => "Eigener Eintrag",
+        Key::ScanToSelectProduct => "Scannen um Produkt auszuwählen",
+        Key::ProductNotFound => "Produkt nicht gefunden",
 
         // QR Codes
         Key::PrintQRCodes => "QR-Codes drucken",

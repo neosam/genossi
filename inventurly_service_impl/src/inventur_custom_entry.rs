@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use inventurly_dao::{
-    inventur::InventurDao, inventur_custom_entry::InventurCustomEntryDao, TransactionDao
+    inventur::InventurDao, inventur_custom_entry::InventurCustomEntryDao,
+    product::ProductDao, TransactionDao
 };
 use inventurly_service::{
     inventur_custom_entry::{InventurCustomEntry, InventurCustomEntryService},
@@ -18,6 +19,7 @@ gen_service_impl! {
     struct InventurCustomEntryServiceImpl: InventurCustomEntryService = InventurCustomEntryServiceDeps {
         InventurCustomEntryDao: InventurCustomEntryDao<Transaction = Self::Transaction> = inventur_custom_entry_dao,
         InventurDao: InventurDao<Transaction = Self::Transaction> = inventur_dao,
+        ProductDao: ProductDao<Transaction = Self::Transaction> = product_dao,
         PermissionService: inventurly_service::permission::PermissionService<Context = Self::Context> = permission_service,
         UuidService: UuidService = uuid_service,
         TransactionDao: TransactionDao<Transaction = Self::Transaction> = transaction_dao,
@@ -185,6 +187,17 @@ impl<Deps: InventurCustomEntryServiceDeps> InventurCustomEntryService
             });
         }
 
+        // Validate: if EAN is provided, it must reference an existing product
+        if let Some(ref ean) = item.ean {
+            let product = self.product_dao.find_by_ean(ean.as_ref(), tx.clone()).await?;
+            if product.is_none() {
+                validation_errors.push(ValidationFailureItem {
+                    field: Arc::from("ean"),
+                    message: Arc::from(format!("No product found with EAN '{}'", ean)),
+                });
+            }
+        }
+
         if !validation_errors.is_empty() {
             return Err(ServiceError::ValidationError(validation_errors));
         }
@@ -270,6 +283,17 @@ impl<Deps: InventurCustomEntryServiceDeps> InventurCustomEntryService
                 field: Arc::from("custom_product_name"),
                 message: Arc::from("Product name cannot be empty"),
             });
+        }
+
+        // Validate: if EAN is provided, it must reference an existing product
+        if let Some(ref ean) = item.ean {
+            let product = self.product_dao.find_by_ean(ean.as_ref(), tx.clone()).await?;
+            if product.is_none() {
+                validation_errors.push(ValidationFailureItem {
+                    field: Arc::from("ean"),
+                    message: Arc::from(format!("No product found with EAN '{}'", ean)),
+                });
+            }
         }
 
         if !validation_errors.is_empty() {
