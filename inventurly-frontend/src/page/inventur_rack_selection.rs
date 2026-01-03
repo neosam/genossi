@@ -8,7 +8,7 @@ use crate::service::product::PRODUCTS;
 use crate::service::product_rack::get_products_in_rack_action;
 use crate::service::rack::RACKS;
 use dioxus::prelude::*;
-use rest_types::{InventurTO, RackTO};
+use rest_types::{InventurCustomEntryTO, InventurTO, RackTO};
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
@@ -37,6 +37,7 @@ pub fn InventurRackSelection(id: String) -> Element {
     // Local state
     let mut inventur = use_signal(|| None::<InventurTO>);
     let mut rack_product_counts = use_signal(|| HashMap::<Uuid, usize>::new());
+    let mut rack_custom_entry_counts = use_signal(|| HashMap::<Uuid, usize>::new());
     let mut loading = use_signal(|| true);
     let mut error = use_signal(|| None::<String>);
 
@@ -108,6 +109,25 @@ pub fn InventurRackSelection(id: String) -> Element {
                 }
             }
             MEASUREMENTS.write().loading = false;
+
+            // Load custom entries for this inventur
+            let custom_entries: Vec<InventurCustomEntryTO> =
+                match api::get_custom_entries_by_inventur(&config, inventur_uuid).await {
+                    Ok(entries) => entries,
+                    Err(_) => {
+                        // Non-fatal - continue even if custom entries fail to load
+                        Vec::new()
+                    }
+                };
+
+            // Calculate custom entry counts for each rack
+            let mut custom_counts: HashMap<Uuid, usize> = HashMap::new();
+            for entry in custom_entries.iter().filter(|e| e.deleted.is_none()) {
+                if let Some(rack_id) = entry.rack_id {
+                    *custom_counts.entry(rack_id).or_insert(0) += 1;
+                }
+            }
+            rack_custom_entry_counts.set(custom_counts);
 
             // Calculate product counts for each rack
             let mut counts = HashMap::new();
@@ -286,6 +306,20 @@ pub fn InventurRackSelection(id: String) -> Element {
                                                         ": "
                                                     }
                                                     {total.to_string()}
+                                                    {
+                                                        let custom_count = rack_custom_entry_counts.read().get(&rack_id).copied().unwrap_or(0);
+                                                        if custom_count > 0 {
+                                                            rsx! {
+                                                                span { class: "ml-4 font-medium",
+                                                                    {i18n.t(Key::CustomEntries)}
+                                                                    ": "
+                                                                }
+                                                                {custom_count.to_string()}
+                                                            }
+                                                        } else {
+                                                            rsx! {}
+                                                        }
+                                                    }
                                                     if total > 0 {
                                                         span { class: "ml-4 font-medium",
                                                             {i18n.t(Key::ProductsMeasured)}
