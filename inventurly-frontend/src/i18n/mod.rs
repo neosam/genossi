@@ -131,6 +131,7 @@ pub enum Key {
     RackDeleted,
 
     // Container fields
+    Container,
     ContainerName,
     ContainerWeightGrams,
     ContainerDescription,
@@ -193,7 +194,7 @@ pub enum Key {
     DuplicatesFound,
     NoDuplicatesFound,
     SimilarityScore,
-    
+
     // Duplicate Detection Page
     DetectionMode,
     ScanAllProducts,
@@ -209,7 +210,7 @@ pub enum Key {
     CategoryAwareDescription,
     ResetToDefaults,
     ThresholdDescription,
-    
+
     // Duplicate Detection Actions
     StartScan,
     Scanning,
@@ -217,20 +218,20 @@ pub enum Key {
     Checking,
     CheckForDuplicates,
     Processing,
-    
+
     // Duplicate Detection Messages
     NoScanPerformed,
     ClickStartScanDescription,
     NoProductChecked,
     SelectProductDescription,
     EnterProductDescription,
-    
+
     // Product Form
     ProductNamePlaceholder,
     SalesUnitPlaceholder,
     RequiresWeighing,
     SelectProductOption,
-    
+
     // Algorithm Names
     ExactMatch,
     WordOrder,
@@ -238,25 +239,25 @@ pub enum Key {
     JaroWinkler,
     Category,
     AlgorithmBreakdown,
-    
+
     // Confidence Levels
     VeryHigh,
     High,
     Medium,
     Low,
-    
+
     // Actions
     ViewProduct,
     SuggestMerge,
-    
+
     // Results
     PotentialDuplicateMatches,
     OriginalProduct,
     PotentialDuplicatesFound,
-    
+
     // Page Description
     DuplicateDetectionDescription,
-    
+
     // Expandable UI
     ShowDetails,
     HideDetails,

@@ -79,6 +79,7 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::RackDeleted => "Gelöscht",
 
         // Container fields
+        Key::Container => "Gefäß",
         Key::ContainerName => "Name",
         Key::ContainerWeightGrams => "Gewicht (Gramm)",
         Key::ContainerDescription => "Beschreibung",
@@ -220,8 +221,8 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::CreateInventur => "Inventur erstellen",
         Key::EditInventur => "Inventur bearbeiten",
         Key::DeleteInventur => "Inventur löschen",
-        Key::ViewMeasurements => "Messungen anzeigen",
-        Key::RecordMeasurement => "Messung erfassen",
+        Key::ViewMeasurements => "Erfassungen anzeigen",
+        Key::RecordMeasurement => "Erfassen",
         Key::StartInventur => "Inventur starten",
         Key::CompleteInventur => "Inventur abschließen",
         Key::CancelInventur => "Inventur abbrechen",
@@ -241,14 +242,14 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::StatusCancelled => "Abgebrochen",
 
         // Measurements
-        Key::Measurements => "Messungen",
+        Key::Measurements => "Erfassungen",
         Key::MeasurementCount => "Anzahl",
         Key::MeasurementWeight => "Gewicht",
         Key::MeasurementWeightGrams => "Gewicht (Gramm)",
         Key::MeasurementNotes => "Notizen",
-        Key::MeasuredBy => "Gemessen von",
-        Key::MeasuredAt => "Gemessen am",
-        Key::NoMeasurementsFound => "Keine Messungen gefunden",
+        Key::MeasuredBy => "Erfasst von",
+        Key::MeasuredAt => "Erfasst am",
+        Key::NoMeasurementsFound => "Keine Erfassung gefunden",
         Key::NoInventursFound => "Keine Inventuren gefunden",
 
         // Date filtering
@@ -257,18 +258,18 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::DateTo => "Bis",
 
         // Rack measurement
-        Key::MeasureRack => "Regal messen",
-        Key::ProductsMeasured => "Produkte gemessen",
-        Key::NotMeasured => "Nicht gemessen",
-        Key::Measured => "Gemessen",
-        Key::QuickMeasure => "Schnellmessung",
-        Key::MeasurementProgress => "Messfortschritt",
+        Key::MeasureRack => "Regal erfassen",
+        Key::ProductsMeasured => "Produkte erfasst",
+        Key::NotMeasured => "Nicht erfasst",
+        Key::Measured => "Erfasst",
+        Key::QuickMeasure => "Schnellerfassung",
+        Key::MeasurementProgress => "Erfassungsfortschritt",
         Key::ViewRackProgress => "Regalfortschritt anzeigen",
         Key::EnterCount => "Anzahl eingeben",
         Key::EnterWeight => "Gewicht eingeben",
 
         // Rack selection
-        Key::MeasureByRack => "Nach Regal messen",
+        Key::MeasureByRack => "Nach Regal erfassen",
         Key::ProductCount => "Produkte",
         Key::NotStarted => "Nicht begonnen",
         Key::InProgress => "In Bearbeitung",
@@ -292,7 +293,7 @@ pub fn translate(key: Key) -> Rc<str> {
         // QR Codes
         Key::PrintQRCodes => "QR-Codes drucken",
         Key::ScanToLogin => "Zum Anmelden scannen",
-        Key::ScanToMeasure => "Zum Messen scannen",
+        Key::ScanToMeasure => "Zum Erfassen scannen",
         Key::LoginQRCode => "Anmelde-QR-Code",
         Key::RackQRCode => "Regal-QR-Code",
         Key::Rack => "Regal",
@@ -300,7 +301,7 @@ pub fn translate(key: Key) -> Rc<str> {
         // Custom Tara
         Key::CustomTara => "Eigene Tara",
         Key::TaraWeight => "Tara-Gewicht",
-        Key::TaraDescription => "Legen Sie eine eigene Tara fest (z.B. Körpergewicht), die automatisch von allen Gewichtsmessungen abgezogen wird. Dieser Wert wird nur lokal in Ihrem Browser gespeichert und nie an den Server gesendet.",
+        Key::TaraDescription => "Legen Sie eine eigene Tara fest (z.B. Körpergewicht), die automatisch von allen Gewichtserfassungen abgezogen wird. Dieser Wert wird nur lokal in Ihrem Browser gespeichert und nie an den Server gesendet.",
         Key::TaraHint => "Leer lassen um die Tara zu löschen",
         Key::CurrentTara => "Aktuelle Tara:",
         Key::ClearTara => "Tara löschen",

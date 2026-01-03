@@ -79,6 +79,7 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::RackDeleted => "Deleted",
 
         // Container fields
+        Key::Container => "Container",
         Key::ContainerName => "Name",
         Key::ContainerWeightGrams => "Weight (grams)",
         Key::ContainerDescription => "Description",

@@ -70,7 +70,8 @@ pub fn CustomEntryForm(
             .unwrap_or_default()
     });
 
-    let mut selected_container = use_signal(|| existing_entry.as_ref().and_then(|e| e.container_id));
+    let mut selected_container =
+        use_signal(|| existing_entry.as_ref().and_then(|e| e.container_id));
 
     // Selected product state - try to load from existing entry's EAN
     let mut selected_product = use_signal(|| None::<ProductTO>);
@@ -326,7 +327,15 @@ pub fn CustomEntryForm(
                 onclick: move |e| e.stop_propagation(),
 
                 h3 { class: "text-xl font-semibold mb-4",
-                    {i18n.t(if existing_entry.is_some() { Key::EditCustomEntry } else { Key::AddCustomEntry })}
+                    {
+                        i18n.t(
+                            if existing_entry.is_some() {
+                                Key::EditCustomEntry
+                            } else {
+                                Key::AddCustomEntry
+                            },
+                        )
+                    }
                 }
 
                 if let Some(err) = error.read().as_ref() {
@@ -339,11 +348,7 @@ pub fn CustomEntryForm(
                 div { class: "flex border-b mb-4",
                     button {
                         r#type: "button",
-                        class: if *entry_mode.read() == EntryMode::Custom {
-                            "px-4 py-2 border-b-2 border-blue-500 text-blue-600 font-medium"
-                        } else {
-                            "px-4 py-2 border-b-2 border-transparent text-gray-500 hover:text-gray-700"
-                        },
+                        class: if *entry_mode.read() == EntryMode::Custom { "px-4 py-2 border-b-2 border-blue-500 text-blue-600 font-medium" } else { "px-4 py-2 border-b-2 border-transparent text-gray-500 hover:text-gray-700" },
                         onclick: move |_| {
                             entry_mode.set(EntryMode::Custom);
                             // Clear product selection when switching to custom
@@ -354,11 +359,7 @@ pub fn CustomEntryForm(
                     }
                     button {
                         r#type: "button",
-                        class: if *entry_mode.read() == EntryMode::SelectProduct {
-                            "px-4 py-2 border-b-2 border-blue-500 text-blue-600 font-medium"
-                        } else {
-                            "px-4 py-2 border-b-2 border-transparent text-gray-500 hover:text-gray-700"
-                        },
+                        class: if *entry_mode.read() == EntryMode::SelectProduct { "px-4 py-2 border-b-2 border-blue-500 text-blue-600 font-medium" } else { "px-4 py-2 border-b-2 border-transparent text-gray-500 hover:text-gray-700" },
                         onclick: move |_| {
                             entry_mode.set(EntryMode::SelectProduct);
                         },
@@ -388,10 +389,8 @@ pub fn CustomEntryForm(
                     match *entry_mode.read() {
                         EntryMode::Custom => rsx! {
                             div {
-                                label {
-                                    class: "block text-sm font-medium text-gray-700 mb-1",
-                                    {i18n.t(Key::CustomProductName)}
-                                }
+                                // Show selected product info
+                                label { class: "block text-sm font-medium text-gray-700 mb-1", {i18n.t(Key::CustomProductName)} }
                                 input {
                                     r#type: "text",
                                     class: "w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500",
@@ -408,10 +407,7 @@ pub fn CustomEntryForm(
                         },
                         EntryMode::SelectProduct => rsx! {
                             div {
-                                label {
-                                    class: "block text-sm font-medium text-gray-700 mb-1",
-                                    {i18n.t(Key::SelectProduct)}
-                                }
+                                label { class: "block text-sm font-medium text-gray-700 mb-1", {i18n.t(Key::SelectProduct)} }
                                 div { class: "flex gap-2",
                                     div { class: "flex-1",
                                         SearchableProductSelector {
@@ -428,14 +424,11 @@ pub fn CustomEntryForm(
                                         "📷"
                                     }
                                 }
-                                // Show selected product info
                                 if let Some(product) = selected_product.read().as_ref() {
                                     div { class: "mt-2 text-sm text-gray-600",
                                         "EAN: {product.ean}"
                                         if product.requires_weighing {
-                                            span { class: "ml-2 text-orange-600",
-                                                "(Requires weighing)"
-                                            }
+                                            span { class: "ml-2 text-orange-600", "(Requires weighing)" }
                                         }
                                     }
                                 }
@@ -446,8 +439,7 @@ pub fn CustomEntryForm(
                     // Count (shown in custom mode, or for non-weighing products)
                     if show_count {
                         div {
-                            label {
-                                class: "block text-sm font-medium text-gray-700 mb-1",
+                            label { class: "block text-sm font-medium text-gray-700 mb-1",
                                 {i18n.t(Key::Count)}
                                 // In custom mode, show (optional); in product mode, it's required
                                 if *entry_mode.read() == EntryMode::Custom {
@@ -471,8 +463,7 @@ pub fn CustomEntryForm(
                     // Weight (shown in custom mode, or for weighing products)
                     if show_weight {
                         div {
-                            label {
-                                class: "block text-sm font-medium text-gray-700 mb-1",
+                            label { class: "block text-sm font-medium text-gray-700 mb-1",
                                 {i18n.t(Key::WeightGrams)}
                                 // In custom mode, show (optional); in product mode, it's required
                                 if *entry_mode.read() == EntryMode::Custom {
@@ -496,9 +487,8 @@ pub fn CustomEntryForm(
                     // Container selection (only for weighing products or custom mode)
                     if show_container {
                         div {
-                            label {
-                                class: "block text-sm font-medium text-gray-700 mb-1",
-                                {i18n.t(Key::ContainerName)}
+                            label { class: "block text-sm font-medium text-gray-700 mb-1",
+                                {i18n.t(Key::Container)}
                                 " (optional)"
                             }
                             select {
@@ -515,7 +505,11 @@ pub fn CustomEntryForm(
                                 for container in containers.iter().filter(|c| c.deleted.is_none()) {
                                     option {
                                         value: "{container.id.unwrap_or(Uuid::nil())}",
-                                        selected: selected_container.read().as_ref().map(|id| *id == container.id.unwrap_or(Uuid::nil())).unwrap_or(false),
+                                        selected: selected_container
+                                            .read()
+                                            .as_ref()
+                                            .map(|id| *id == container.id.unwrap_or(Uuid::nil()))
+                                            .unwrap_or(false),
                                         {container.name.clone()}
                                         " ("
                                         {container.weight_grams.to_string()}
@@ -528,8 +522,7 @@ pub fn CustomEntryForm(
 
                     // Notes
                     div {
-                        label {
-                            class: "block text-sm font-medium text-gray-700 mb-1",
+                        label { class: "block text-sm font-medium text-gray-700 mb-1",
                             {i18n.t(Key::Notes)}
                         }
                         textarea {
