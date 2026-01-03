@@ -301,29 +301,27 @@ pub fn InventurRackSelection(id: String) -> Element {
                                                         }
                                                     }
                                                 }
-                                                if total > 0 {
-                                                    if is_inventur_active {
-                                                        button {
-                                                            class: "px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors",
-                                                            onclick: {
-                                                                let rack_id_str = rack_id.to_string();
-                                                                let inventur_id = id.clone();
-                                                                move |_| {
-                                                                    nav.push(Route::InventurRackMeasure {
-                                                                        inventur_id: inventur_id.clone(),
-                                                                        rack_id: rack_id_str.clone(),
-                                                                    });
-                                                                }
-                                                            },
-                                                            {i18n.t(Key::MeasureRack)}
-                                                        }
-                                                    } else {
-                                                        button {
-                                                            class: "px-4 py-2 bg-gray-400 text-white rounded cursor-not-allowed",
-                                                            disabled: true,
-                                                            title: "Inventur must be active",
-                                                            {i18n.t(Key::MeasureRack)}
-                                                        }
+                                                if is_inventur_active {
+                                                    button {
+                                                        class: "px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors",
+                                                        onclick: {
+                                                            let rack_id_str = rack_id.to_string();
+                                                            let inventur_id = id.clone();
+                                                            move |_| {
+                                                                nav.push(Route::InventurRackMeasure {
+                                                                    inventur_id: inventur_id.clone(),
+                                                                    rack_id: rack_id_str.clone(),
+                                                                });
+                                                            }
+                                                        },
+                                                        {i18n.t(Key::MeasureRack)}
+                                                    }
+                                                } else {
+                                                    button {
+                                                        class: "px-4 py-2 bg-gray-400 text-white rounded cursor-not-allowed",
+                                                        disabled: true,
+                                                        title: "Inventur must be active",
+                                                        {i18n.t(Key::MeasureRack)}
                                                     }
                                                 }
                                             }
