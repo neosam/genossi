@@ -77,4 +77,12 @@ pub trait ProductRackDao {
         rack_id: Uuid,
         tx: Self::Transaction,
     ) -> Result<i32, DaoError>;
+
+    /// Reactivate a soft-deleted product-rack relationship
+    async fn reactivate(
+        &self,
+        entity: &ProductRackEntity,
+        process: &str,
+        tx: Self::Transaction,
+    ) -> Result<(), DaoError>;
 }

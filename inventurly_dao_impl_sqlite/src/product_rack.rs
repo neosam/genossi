@@ -265,4 +265,52 @@ impl ProductRackDao for ProductRackDaoImpl {
 
         Ok(max_order.unwrap_or(0) + 1)
     }
+
+    async fn reactivate(
+        &self,
+        entity: &ProductRackEntity,
+        _process: &str,
+        tx: Self::Transaction,
+    ) -> Result<(), DaoError> {
+        let product_id = entity.product_id.as_bytes().to_vec();
+        let rack_id = entity.rack_id.as_bytes().to_vec();
+        let new_version = entity.version.as_bytes().to_vec();
+
+        // Format created timestamp
+        let format = &time::format_description::well_known::Iso8601::DEFAULT;
+        let created = entity
+            .created
+            .assume_utc()
+            .format(format)
+            .map_err(|e| DaoError::ParseError(Arc::from(e.to_string())))?;
+
+        // Check if a deleted record exists
+        let exists = sqlx::query_scalar::<_, i32>(
+            "SELECT COUNT(*) FROM product_rack WHERE product_id = ? AND rack_id = ? AND deleted IS NOT NULL"
+        )
+        .bind(product_id.clone())
+        .bind(rack_id.clone())
+        .fetch_one(tx.tx.lock().await.as_mut())
+        .await
+        .map_err(|e| DaoError::DatabaseError(Arc::from(e.to_string())))?;
+
+        if exists == 0 {
+            return Err(DaoError::NotFound);
+        }
+
+        // Reactivate by clearing deleted and updating other fields
+        sqlx::query(
+            "UPDATE product_rack SET deleted = NULL, created = ?, sort_order = ?, version = ? WHERE product_id = ? AND rack_id = ? AND deleted IS NOT NULL"
+        )
+        .bind(created)
+        .bind(entity.sort_order)
+        .bind(new_version)
+        .bind(product_id)
+        .bind(rack_id)
+        .execute(tx.tx.lock().await.as_mut())
+        .await
+        .map_err(|e| DaoError::DatabaseError(Arc::from(e.to_string())))?;
+
+        Ok(())
+    }
 }

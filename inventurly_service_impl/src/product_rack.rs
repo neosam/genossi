@@ -83,6 +83,30 @@ impl<Deps: ProductRackServiceDependencies> ProductRackService for ProductRackSer
                     message: Arc::from("Product is already assigned to this rack"),
                 }]));
             }
+
+            // Reactivate the soft-deleted relationship
+            let next_sort_order = self
+                .product_rack_dao
+                .get_next_sort_order(rack_id, tx.clone())
+                .await?;
+
+            let now = OffsetDateTime::now_utc();
+            let reactivated = ProductRack {
+                product_id,
+                rack_id,
+                sort_order: next_sort_order,
+                created: time::PrimitiveDateTime::new(now.date(), now.time()),
+                deleted: None,
+                version: self.uuid_service.new_v4().await,
+            };
+
+            let entity = ProductRackEntity::from(&reactivated);
+            self.product_rack_dao
+                .reactivate(&entity, PRODUCT_RACK_SERVICE_PROCESS, tx.clone())
+                .await?;
+
+            self.transaction_dao.commit(tx).await?;
+            return Ok(reactivated);
         }
 
         // Get next sort_order for this rack
