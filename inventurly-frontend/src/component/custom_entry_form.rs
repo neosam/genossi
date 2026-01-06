@@ -4,6 +4,7 @@ use crate::component::searchable_product_selector::SearchableProductSelector;
 use crate::i18n::{use_i18n, Key};
 use crate::service::config::CONFIG;
 use crate::service::product::PRODUCTS;
+use crate::service::tara::{self, WeightUnit};
 use dioxus::prelude::*;
 use rest_types::{ContainerTO, InventurCustomEntryTO, ProductTO};
 use uuid::Uuid;
@@ -28,12 +29,14 @@ pub fn CustomEntryForm(
     // Determine initial mode based on existing entry
     let initial_mode = if existing_entry
         .as_ref()
-        .and_then(|e| e.ean.as_ref())
-        .is_some()
+        .map(|e| e.ean.is_none())
+        .unwrap_or(false)
     {
-        EntryMode::SelectProduct
-    } else {
+        // Only use Custom mode if editing an entry that has no EAN (truly custom)
         EntryMode::Custom
+    } else {
+        // Default to SelectProduct mode for new entries or entries with EAN
+        EntryMode::SelectProduct
     };
 
     let mut entry_mode = use_signal(|| initial_mode);
@@ -63,6 +66,8 @@ pub fn CustomEntryForm(
             .unwrap_or_default()
     });
 
+    let mut weight_unit = use_signal(|| tara::get_preferred_weight_unit());
+
     let mut notes = use_signal(|| {
         existing_entry
             .as_ref()
@@ -70,8 +75,18 @@ pub fn CustomEntryForm(
             .unwrap_or_default()
     });
 
-    let mut selected_container =
-        use_signal(|| existing_entry.as_ref().and_then(|e| e.container_id));
+    let mut selected_container = use_signal(|| {
+        // Use existing entry's container if editing, otherwise try localStorage
+        if let Some(container_id) = existing_entry.as_ref().and_then(|e| e.container_id) {
+            Some(container_id)
+        } else {
+            // Try to load last used container from localStorage
+            // Only use it if it exists in the available containers list
+            tara::get_last_container_id().filter(|id| {
+                containers.iter().any(|c| c.id == Some(*id) && c.deleted.is_none())
+            })
+        }
+    });
 
     // Selected product state - try to load from existing entry's EAN
     let mut selected_product = use_signal(|| None::<ProductTO>);
@@ -106,7 +121,12 @@ pub fn CustomEntryForm(
             }
 
             let parsed_count = count.read().parse::<i64>().ok();
-            let parsed_weight = weight.read().parse::<i64>().ok();
+            let parsed_weight = weight.read().parse::<f64>().ok().map(|v| {
+                match *weight_unit.read() {
+                    WeightUnit::Kilogram => (v * 1000.0) as i64,
+                    WeightUnit::Gram => v as i64,
+                }
+            });
 
             // Validation based on mode
             match mode {
@@ -171,6 +191,7 @@ pub fn CustomEntryForm(
                 let product_name = product_name.clone();
                 let count = count.clone();
                 let weight = weight.clone();
+                let weight_unit = weight_unit.clone();
                 let notes = notes.clone();
                 let selected_container = selected_container.clone();
                 let entry_mode = entry_mode.clone();
@@ -191,7 +212,12 @@ pub fn CustomEntryForm(
 
                     // Parse values
                     let parsed_count = count.read().parse::<i64>().ok();
-                    let parsed_weight = weight.read().parse::<i64>().ok();
+                    let parsed_weight = weight.read().parse::<f64>().ok().map(|v| {
+                        match *weight_unit.read() {
+                            WeightUnit::Kilogram => (v * 1000.0) as i64,
+                            WeightUnit::Gram => v as i64,
+                        }
+                    });
 
                     // Get EAN if in SelectProduct mode
                     let ean = if *entry_mode.read() == EntryMode::SelectProduct {
@@ -348,6 +374,14 @@ pub fn CustomEntryForm(
                 div { class: "flex border-b mb-4",
                     button {
                         r#type: "button",
+                        class: if *entry_mode.read() == EntryMode::SelectProduct { "px-4 py-2 border-b-2 border-blue-500 text-blue-600 font-medium" } else { "px-4 py-2 border-b-2 border-transparent text-gray-500 hover:text-gray-700" },
+                        onclick: move |_| {
+                            entry_mode.set(EntryMode::SelectProduct);
+                        },
+                        {i18n.t(Key::SelectProduct)}
+                    }
+                    button {
+                        r#type: "button",
                         class: if *entry_mode.read() == EntryMode::Custom { "px-4 py-2 border-b-2 border-blue-500 text-blue-600 font-medium" } else { "px-4 py-2 border-b-2 border-transparent text-gray-500 hover:text-gray-700" },
                         onclick: move |_| {
                             entry_mode.set(EntryMode::Custom);
@@ -356,14 +390,6 @@ pub fn CustomEntryForm(
                             selected_product_id.set(None);
                         },
                         {i18n.t(Key::CustomEntry)}
-                    }
-                    button {
-                        r#type: "button",
-                        class: if *entry_mode.read() == EntryMode::SelectProduct { "px-4 py-2 border-b-2 border-blue-500 text-blue-600 font-medium" } else { "px-4 py-2 border-b-2 border-transparent text-gray-500 hover:text-gray-700" },
-                        onclick: move |_| {
-                            entry_mode.set(EntryMode::SelectProduct);
-                        },
-                        {i18n.t(Key::SelectProduct)}
                     }
                 }
 
@@ -464,7 +490,7 @@ pub fn CustomEntryForm(
                     if show_weight {
                         div {
                             label { class: "block text-sm font-medium text-gray-700 mb-1",
-                                {i18n.t(Key::WeightGrams)}
+                                {i18n.t(Key::MeasurementWeight)}
                                 // In custom mode, show (optional); in product mode, it's required
                                 if *entry_mode.read() == EntryMode::Custom {
                                     " (optional)"
@@ -474,12 +500,43 @@ pub fn CustomEntryForm(
                             }
                             input {
                                 r#type: "number",
+                                inputmode: "decimal",
+                                step: if *weight_unit.read() == WeightUnit::Kilogram { "0.001" } else { "1" },
                                 class: "w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500",
                                 value: "{weight.read()}",
                                 oninput: move |e| {
                                     weight.set(e.value());
                                 },
                                 placeholder: "0",
+                            }
+                            // Unit selector (kg/g toggle)
+                            div { class: "flex gap-2 mt-2",
+                                button {
+                                    r#type: "button",
+                                    class: if *weight_unit.read() == WeightUnit::Kilogram {
+                                        "flex-1 px-3 py-2 bg-blue-600 text-white rounded font-medium"
+                                    } else {
+                                        "flex-1 px-3 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+                                    },
+                                    onclick: move |_| {
+                                        weight_unit.set(WeightUnit::Kilogram);
+                                        tara::set_preferred_weight_unit(WeightUnit::Kilogram);
+                                    },
+                                    "kg"
+                                }
+                                button {
+                                    r#type: "button",
+                                    class: if *weight_unit.read() == WeightUnit::Gram {
+                                        "flex-1 px-3 py-2 bg-blue-600 text-white rounded font-medium"
+                                    } else {
+                                        "flex-1 px-3 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+                                    },
+                                    onclick: move |_| {
+                                        weight_unit.set(WeightUnit::Gram);
+                                        tara::set_preferred_weight_unit(WeightUnit::Gram);
+                                    },
+                                    "g"
+                                }
                             }
                         }
                     }
@@ -497,8 +554,10 @@ pub fn CustomEntryForm(
                                 onchange: move |e| {
                                     if e.value().is_empty() {
                                         selected_container.set(None);
+                                        tara::clear_last_container_id();
                                     } else if let Ok(uuid) = Uuid::parse_str(&e.value()) {
                                         selected_container.set(Some(uuid));
+                                        tara::set_last_container_id(uuid);
                                     }
                                 },
                                 option { value: "", "No container" }

@@ -6,6 +6,7 @@ pub mod duplicate_detection;
 pub mod inventur;
 pub mod inventur_custom_entry;
 pub mod inventur_measurement;
+pub mod inventur_report;
 pub mod permission;
 pub mod person;
 pub mod product;
@@ -156,6 +157,10 @@ pub trait RestStateDef: Clone + Send + Sync + 'static {
         + Send
         + Sync
         + 'static;
+    type InventurReportService: inventurly_service::inventur_report::InventurReportService<Context = ContextType>
+        + Send
+        + Sync
+        + 'static;
     type SessionService: inventurly_service::session::SessionService + Send + Sync + 'static;
 
     fn person_service(&self) -> Arc<Self::PersonService>;
@@ -166,6 +171,7 @@ pub trait RestStateDef: Clone + Send + Sync + 'static {
     fn inventur_service(&self) -> Arc<Self::InventurService>;
     fn inventur_measurement_service(&self) -> Arc<Self::InventurMeasurementService>;
     fn inventur_custom_entry_service(&self) -> Arc<Self::InventurCustomEntryService>;
+    fn inventur_report_service(&self) -> Arc<Self::InventurReportService>;
     fn csv_import_service(&self) -> Arc<Self::CsvImportService>;
     fn duplicate_detection_service(&self) -> Arc<Self::DuplicateDetectionService>;
     fn permission_service(&self) -> Arc<Self::PermissionService>;
@@ -184,6 +190,7 @@ pub trait RestStateDef: Clone + Send + Sync + 'static {
         (path = "/inventur", api = inventur::ApiDoc),
         (path = "/inventur-measurement", api = inventur_measurement::ApiDoc),
         (path = "/inventur-custom-entry", api = inventur_custom_entry::ApiDoc),
+        (path = "/inventur-report", api = inventur_report::ApiDoc),
         (path = "/csv-import", api = csv_import::CsvImportApiDoc),
         (path = "/duplicate-detection", api = duplicate_detection::DuplicateDetectionApiDoc),
         (path = "/permission", api = permission::ApiDoc)
@@ -323,6 +330,7 @@ pub async fn create_app<RestState: RestStateDef>(rest_state: RestState) -> Route
         .nest("/inventur", inventur::generate_route())
         .nest("/inventur-measurement", inventur_measurement::generate_route())
         .nest("/inventur-custom-entry", inventur_custom_entry::generate_route())
+        .nest("/inventur-report", inventur_report::generate_route())
         .nest("/csv-import", csv_import::generate_route())
         .nest(
             "/duplicate-detection",

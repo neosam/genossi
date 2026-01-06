@@ -12,6 +12,7 @@ use inventurly_service::duplicate_detection::{
 use inventurly_service::inventur::{Inventur, InventurService};
 use inventurly_service::inventur_custom_entry::{InventurCustomEntry, InventurCustomEntryService};
 use inventurly_service::inventur_measurement::{InventurMeasurement, InventurMeasurementService};
+use inventurly_service::inventur_report::{InventurProductReportItem, InventurReportService};
 use inventurly_service::permission::PermissionService;
 use inventurly_service::permission::{Authentication, MockContext};
 use inventurly_service::person::{Person, PersonService};
@@ -38,6 +39,7 @@ struct TestRestState {
     inventur_service: Arc<MockInventurService>,
     inventur_measurement_service: Arc<MockInventurMeasurementService>,
     inventur_custom_entry_service: Arc<MockInventurCustomEntryService>,
+    inventur_report_service: Arc<MockInventurReportService>,
 }
 
 impl RestStateDef for TestRestState {
@@ -53,6 +55,7 @@ impl RestStateDef for TestRestState {
     type InventurService = MockInventurService;
     type InventurMeasurementService = MockInventurMeasurementService;
     type InventurCustomEntryService = MockInventurCustomEntryService;
+    type InventurReportService = MockInventurReportService;
 
     fn person_service(&self) -> Arc<Self::PersonService> {
         self.person_service.clone()
@@ -100,6 +103,10 @@ impl RestStateDef for TestRestState {
 
     fn inventur_custom_entry_service(&self) -> Arc<Self::InventurCustomEntryService> {
         self.inventur_custom_entry_service.clone()
+    }
+
+    fn inventur_report_service(&self) -> Arc<Self::InventurReportService> {
+        self.inventur_report_service.clone()
     }
 }
 
@@ -1251,6 +1258,36 @@ impl InventurCustomEntryService for MockInventurCustomEntryService {
     }
 }
 
+#[derive(Clone)]
+struct MockInventurReportService;
+
+#[async_trait::async_trait]
+impl InventurReportService for MockInventurReportService {
+    #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
+    type Context = MockContext;
+    #[cfg(feature = "oidc")]
+    type Context = inventurly_service::auth_types::AuthenticatedContext;
+    type Transaction = inventurly_dao::MockTransaction;
+
+    async fn get_product_report(
+        &self,
+        _inventur_id: Uuid,
+        _context: Authentication<Self::Context>,
+        _tx: Option<Self::Transaction>,
+    ) -> Result<Arc<[InventurProductReportItem]>, inventurly_service::ServiceError> {
+        Ok(Arc::from([]))
+    }
+
+    async fn get_product_report_csv(
+        &self,
+        _inventur_id: Uuid,
+        _context: Authentication<Self::Context>,
+        _tx: Option<Self::Transaction>,
+    ) -> Result<String, inventurly_service::ServiceError> {
+        Ok("EAN,Product Name,Short Name,Count,Weight (g),Measurements,Racks\n".to_string())
+    }
+}
+
 fn create_test_app() -> axum::Router {
     let rest_state = TestRestState {
         person_service: Arc::new(MockPersonService),
@@ -1265,6 +1302,7 @@ fn create_test_app() -> axum::Router {
         inventur_service: Arc::new(MockInventurService),
         inventur_measurement_service: Arc::new(MockInventurMeasurementService),
         inventur_custom_entry_service: Arc::new(MockInventurCustomEntryService),
+        inventur_report_service: Arc::new(MockInventurReportService),
     };
 
     axum::Router::new()

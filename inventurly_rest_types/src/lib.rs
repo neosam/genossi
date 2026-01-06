@@ -908,3 +908,47 @@ pub struct ChangeInventurStatusRequestTO {
     #[schema(example = "active")]
     pub status: String,
 }
+
+/// Aggregated product data for an inventur report
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct InventurProductReportItemTO {
+    /// Product EAN code
+    #[schema(example = "4260474470041")]
+    pub ean: String,
+    /// Full product name
+    #[schema(example = "Macadamia süss salzig")]
+    pub product_name: String,
+    /// Short product name
+    #[schema(example = "Macadamia süss")]
+    pub short_name: String,
+    /// Total count of units measured (summed across all measurements)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(example = 15)]
+    pub total_count: Option<i64>,
+    /// Total weight in grams measured (summed across all measurements)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(example = 2850)]
+    pub total_weight_grams: Option<i64>,
+    /// Number of individual measurements for this product
+    #[schema(example = 3)]
+    pub measurement_count: usize,
+    /// List of rack names where this product was measured
+    #[schema(example = json!(["Regal A", "Regal B"]))]
+    pub racks_measured: Vec<String>,
+}
+
+impl From<&inventurly_service::inventur_report::InventurProductReportItem>
+    for InventurProductReportItemTO
+{
+    fn from(item: &inventurly_service::inventur_report::InventurProductReportItem) -> Self {
+        Self {
+            ean: item.ean.to_string(),
+            product_name: item.product_name.to_string(),
+            short_name: item.short_name.to_string(),
+            total_count: item.total_count,
+            total_weight_grams: item.total_weight_grams,
+            measurement_count: item.measurement_count,
+            racks_measured: item.racks_measured.iter().map(|r| r.to_string()).collect(),
+        }
+    }
+}

@@ -20,6 +20,7 @@ use inventurly_service_impl::{
     inventur::{InventurServiceDeps, InventurServiceImpl},
     inventur_custom_entry::{InventurCustomEntryServiceDeps, InventurCustomEntryServiceImpl},
     inventur_measurement::{InventurMeasurementServiceDeps, InventurMeasurementServiceImpl},
+    inventur_report::{InventurReportServiceDeps, InventurReportServiceImpl},
     permission::PermissionServiceDeps,
     person::{PersonServiceDeps, PersonServiceImpl},
     product::{ProductServiceDeps, ProductServiceImpl},
@@ -269,6 +270,26 @@ type InventurCustomEntryService = inventurly_service_impl::inventur_custom_entry
     InventurCustomEntryServiceDependencies,
 >;
 
+pub struct InventurReportServiceDependencies;
+
+unsafe impl Send for InventurReportServiceDependencies {}
+unsafe impl Sync for InventurReportServiceDependencies {}
+
+impl InventurReportServiceDeps for InventurReportServiceDependencies {
+    type Context = Context;
+    type Transaction = Transaction;
+    type InventurMeasurementDao = InventurMeasurementDao;
+    type InventurCustomEntryDao = InventurCustomEntryDao;
+    type ProductDao = ProductDao;
+    type RackDao = RackDao;
+    type PermissionService = PermissionService;
+    type TransactionDao = TransactionDao;
+}
+
+type InventurReportService = inventurly_service_impl::inventur_report::InventurReportServiceImpl<
+    InventurReportServiceDependencies,
+>;
+
 // RestStateImpl with all services
 #[derive(Clone)]
 pub struct RestStateImpl {
@@ -280,6 +301,7 @@ pub struct RestStateImpl {
     inventur_service: Arc<InventurService>,
     inventur_measurement_service: Arc<InventurMeasurementService>,
     inventur_custom_entry_service: Arc<InventurCustomEntryService>,
+    inventur_report_service: Arc<InventurReportService>,
     csv_import_service: Arc<CsvImportService>,
     duplicate_detection_service: Arc<DuplicateDetectionService>,
     permission_service: Arc<PermissionService>,
@@ -384,7 +406,7 @@ impl RestStateImpl {
 
         // Create InventurMeasurementService using struct literal syntax
         let inventur_measurement_service = Arc::new(InventurMeasurementServiceImpl {
-            inventur_measurement_dao: inventur_measurement_dao,
+            inventur_measurement_dao: inventur_measurement_dao.clone(),
             inventur_dao: inventur_dao.clone(),
             product_dao: product_dao.clone(),
             permission_service: permission_service.clone(),
@@ -393,11 +415,20 @@ impl RestStateImpl {
         });
 
         let inventur_custom_entry_service = Arc::new(InventurCustomEntryServiceImpl {
-            inventur_custom_entry_dao: inventur_custom_entry_dao,
+            inventur_custom_entry_dao: inventur_custom_entry_dao.clone(),
             inventur_dao: inventur_dao,
             product_dao: product_dao.clone(),
             permission_service: permission_service.clone(),
             uuid_service: uuid_service,
+            transaction_dao: transaction_dao.clone(),
+        });
+
+        let inventur_report_service = Arc::new(InventurReportServiceImpl {
+            inventur_measurement_dao: inventur_measurement_dao.clone(),
+            inventur_custom_entry_dao: inventur_custom_entry_dao,
+            product_dao: product_dao,
+            rack_dao: rack_dao,
+            permission_service: permission_service.clone(),
             transaction_dao: transaction_dao,
         });
 
@@ -419,6 +450,7 @@ impl RestStateImpl {
             inventur_service,
             inventur_measurement_service,
             inventur_custom_entry_service,
+            inventur_report_service,
             csv_import_service,
             duplicate_detection_service,
             permission_service,
@@ -436,6 +468,7 @@ impl inventurly_rest::RestStateDef for RestStateImpl {
     type InventurService = InventurService;
     type InventurMeasurementService = InventurMeasurementService;
     type InventurCustomEntryService = InventurCustomEntryService;
+    type InventurReportService = InventurReportService;
     type CsvImportService = CsvImportService;
     type DuplicateDetectionService = DuplicateDetectionService;
     type PermissionService = PermissionService;
@@ -471,6 +504,10 @@ impl inventurly_rest::RestStateDef for RestStateImpl {
 
     fn inventur_custom_entry_service(&self) -> Arc<Self::InventurCustomEntryService> {
         self.inventur_custom_entry_service.clone()
+    }
+
+    fn inventur_report_service(&self) -> Arc<Self::InventurReportService> {
+        self.inventur_report_service.clone()
     }
 
     fn csv_import_service(&self) -> Arc<Self::CsvImportService> {
