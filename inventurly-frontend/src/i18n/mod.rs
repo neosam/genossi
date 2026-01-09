@@ -357,6 +357,18 @@ pub enum Key {
     TaraHint,
     CurrentTara,
     ClearTara,
+
+    // Container-Rack Management
+    ContainersInRack,
+    AddContainerToRack,
+    RemoveContainerFromRack,
+    NoContainersInRack,
+    ConfirmRemoveContainerFromRack,
+    SelectContainerToAdd,
+
+    // Tab Labels
+    ProductsTab,
+    ContainersTab,
 }
 
 pub struct I18n {

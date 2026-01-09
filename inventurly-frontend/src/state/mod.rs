@@ -1,6 +1,7 @@
 pub mod auth_info;
 pub mod config;
 pub mod container;
+pub mod container_rack;
 pub mod dropdown;
 pub mod duplicate_detection;
 pub mod inventur;
@@ -11,6 +12,7 @@ pub mod rack;
 pub use auth_info::AuthInfo;
 pub use config::Config;
 pub use container::Container;
+pub use container_rack::ContainerRack;
 pub use duplicate_detection::DuplicateDetection;
 pub use inventur::{Inventur, InventurMeasurement};
 pub use product::Product;

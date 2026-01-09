@@ -305,6 +305,18 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::TaraHint => "Leer lassen um die Tara zu löschen",
         Key::CurrentTara => "Aktuelle Tara:",
         Key::ClearTara => "Tara löschen",
+
+        // Container-Rack Management
+        Key::ContainersInRack => "Gefäße im Regal",
+        Key::AddContainerToRack => "Gefäß hinzufügen",
+        Key::RemoveContainerFromRack => "Entfernen",
+        Key::NoContainersInRack => "Keine Gefäße in diesem Regal",
+        Key::ConfirmRemoveContainerFromRack => "Sind Sie sicher, dass Sie dieses Gefäß aus dem Regal entfernen möchten?",
+        Key::SelectContainerToAdd => "Gefäß zum Hinzufügen auswählen",
+
+        // Tab Labels
+        Key::ProductsTab => "Produkte",
+        Key::ContainersTab => "Gefäße",
     }
     .into()
 }

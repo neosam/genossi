@@ -1,10 +1,12 @@
 use std::rc::Rc;
 
 use rest_types::{
-    AddProductToRackRequestTO, ChangeInventurStatusRequestTO, CheckDuplicateRequestTO, ContainerTO,
-    CsvImportResultTO, DuplicateDetectionResultTO, DuplicateMatchTO, InventurCustomEntryTO,
-    InventurMeasurementTO, InventurTO, InventurTokenLoginRequest, ProductRackTO, ProductTO, RackTO,
-    ReorderProductsInRackRequestTO, SetProductPositionRequestTO, UserTO,
+    AddContainerToRackRequestTO, AddProductToRackRequestTO, ChangeInventurStatusRequestTO,
+    CheckDuplicateRequestTO, ContainerRackTO, ContainerTO, CsvImportResultTO,
+    DuplicateDetectionResultTO, DuplicateMatchTO, InventurCustomEntryTO, InventurMeasurementTO,
+    InventurTO, InventurTokenLoginRequest, ProductRackTO, ProductTO, RackTO,
+    ReorderContainersInRackRequestTO, ReorderProductsInRackRequestTO, SetContainerPositionRequestTO,
+    SetProductPositionRequestTO, UserTO,
 };
 use tracing::info;
 use uuid::Uuid;
@@ -699,4 +701,142 @@ pub async fn delete_custom_entry(config: &Config, id: Uuid) -> Result<(), reqwes
     response.error_for_status_ref()?;
     info!("Custom entry deleted");
     Ok(())
+}
+
+// Container-Rack API
+pub async fn add_container_to_rack(
+    config: &Config,
+    container_id: Uuid,
+    rack_id: Uuid,
+) -> Result<ContainerRackTO, reqwest::Error> {
+    info!("Adding container {container_id} to rack {rack_id}");
+    let url = format!("{}/container-racks", config.backend);
+    let request = AddContainerToRackRequestTO {
+        container_id,
+        rack_id,
+    };
+    let client = reqwest::Client::new();
+    let response = client.post(url).json(&request).send().await?;
+    response.error_for_status_ref()?;
+    let res = response.json().await?;
+    info!("Container added to rack");
+    Ok(res)
+}
+
+pub async fn remove_container_from_rack(
+    config: &Config,
+    container_id: Uuid,
+    rack_id: Uuid,
+) -> Result<(), reqwest::Error> {
+    info!("Removing container {container_id} from rack {rack_id}");
+    let url = format!(
+        "{}/container-racks/{}/{}",
+        config.backend, container_id, rack_id
+    );
+    let client = reqwest::Client::new();
+    let response = client.delete(url).send().await?;
+    response.error_for_status_ref()?;
+    info!("Container removed from rack");
+    Ok(())
+}
+
+#[allow(dead_code)]
+pub async fn get_container_rack_relationship(
+    config: &Config,
+    container_id: Uuid,
+    rack_id: Uuid,
+) -> Result<Option<ContainerRackTO>, reqwest::Error> {
+    info!("Fetching container-rack relationship {container_id}-{rack_id}");
+    let url = format!(
+        "{}/container-racks/{}/{}",
+        config.backend, container_id, rack_id
+    );
+    let response = reqwest::get(url).await?;
+    if response.status() == 404 {
+        return Ok(None);
+    }
+    response.error_for_status_ref()?;
+    let res = response.json().await?;
+    info!("Container-rack relationship fetched");
+    Ok(Some(res))
+}
+
+#[allow(dead_code)]
+pub async fn get_racks_for_container(
+    config: &Config,
+    container_id: Uuid,
+) -> Result<Vec<ContainerRackTO>, reqwest::Error> {
+    info!("Fetching racks for container {container_id}");
+    let url = format!("{}/container-racks/container/{}", config.backend, container_id);
+    let response = reqwest::get(url).await?;
+    response.error_for_status_ref()?;
+    let res = response.json().await?;
+    info!("Racks for container fetched");
+    Ok(res)
+}
+
+pub async fn get_containers_in_rack(
+    config: &Config,
+    rack_id: Uuid,
+) -> Result<Vec<ContainerRackTO>, reqwest::Error> {
+    info!("Fetching containers in rack {rack_id}");
+    let url = format!("{}/container-racks/rack/{}", config.backend, rack_id);
+    let response = reqwest::get(url).await?;
+    response.error_for_status_ref()?;
+    let res = response.json().await?;
+    info!("Containers in rack fetched");
+    Ok(res)
+}
+
+#[allow(dead_code)]
+pub async fn get_all_container_rack_relationships(
+    config: &Config,
+) -> Result<Vec<ContainerRackTO>, reqwest::Error> {
+    info!("Fetching all container-rack relationships");
+    let url = format!("{}/container-racks/all", config.backend);
+    let response = reqwest::get(url).await?;
+    response.error_for_status_ref()?;
+    let res = response.json().await?;
+    info!("All container-rack relationships fetched");
+    Ok(res)
+}
+
+pub async fn set_container_position(
+    config: &Config,
+    container_id: Uuid,
+    rack_id: Uuid,
+    position: i32,
+) -> Result<ContainerRackTO, reqwest::Error> {
+    info!("Setting container {container_id} position to {position} in rack {rack_id}");
+    let url = format!("{}/container-racks/position", config.backend);
+    let request = SetContainerPositionRequestTO {
+        container_id,
+        rack_id,
+        position,
+    };
+    let client = reqwest::Client::new();
+    let response = client.put(url).json(&request).send().await?;
+    response.error_for_status_ref()?;
+    let res = response.json().await?;
+    info!("Container position updated");
+    Ok(res)
+}
+
+pub async fn reorder_containers_in_rack(
+    config: &Config,
+    rack_id: Uuid,
+    container_order: Vec<Uuid>,
+) -> Result<Vec<ContainerRackTO>, reqwest::Error> {
+    info!("Reordering containers in rack {rack_id}");
+    let url = format!("{}/container-racks/reorder", config.backend);
+    let request = ReorderContainersInRackRequestTO {
+        rack_id,
+        container_order,
+    };
+    let client = reqwest::Client::new();
+    let response = client.put(url).json(&request).send().await?;
+    response.error_for_status_ref()?;
+    let res = response.json().await?;
+    info!("Containers reordered");
+    Ok(res)
 }

@@ -454,3 +454,47 @@ pub struct CsvImportResultTO {
     pub errors: Vec<String>,
 }
 
+// Container-Rack relationship types
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ContainerRackTO {
+    pub container_id: Uuid,
+    pub rack_id: Uuid,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub sort_order: Option<i32>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    pub created: Option<PrimitiveDateTime>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    pub deleted: Option<PrimitiveDateTime>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<Uuid>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AddContainerToRackRequestTO {
+    pub container_id: Uuid,
+    pub rack_id: Uuid,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SetContainerPositionRequestTO {
+    pub container_id: Uuid,
+    pub rack_id: Uuid,
+    pub position: i32,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ReorderContainersInRackRequestTO {
+    pub rack_id: Uuid,
+    pub container_order: Vec<Uuid>,
+}
+

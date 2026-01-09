@@ -305,6 +305,18 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::TaraHint => "Leave empty to clear the tara",
         Key::CurrentTara => "Current Tara:",
         Key::ClearTara => "Clear Tara",
+
+        // Container-Rack Management
+        Key::ContainersInRack => "Containers in Rack",
+        Key::AddContainerToRack => "Add Container",
+        Key::RemoveContainerFromRack => "Remove",
+        Key::NoContainersInRack => "No containers in this rack",
+        Key::ConfirmRemoveContainerFromRack => "Are you sure you want to remove this container from the rack?",
+        Key::SelectContainerToAdd => "Select Container to Add",
+
+        // Tab Labels
+        Key::ProductsTab => "Products",
+        Key::ContainersTab => "Containers",
     }
     .into()
 }

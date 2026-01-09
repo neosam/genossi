@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod config;
 pub mod container;
+pub mod container_rack;
 pub mod dropdown;
 pub mod duplicate_detection;
 pub mod error;
