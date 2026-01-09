@@ -1,4 +1,5 @@
 pub mod container;
+pub mod container_rack;
 pub mod csv_import;
 pub mod duplicate_detection;
 pub mod inventur;

@@ -3,6 +3,7 @@ use axum::http::{Method, Request, StatusCode};
 use inventurly_rest::RestStateDef;
 use inventurly_rest_types::{ContainerTO, PersonTO, ProductRackTO, RackTO};
 use inventurly_service::container::{Container, ContainerService};
+use inventurly_service::container_rack::{ContainerRack, ContainerRackService};
 use inventurly_service::csv_import::{
     CsvImportResult, CsvImportService, CsvProductRow, ImportAction,
 };
@@ -36,6 +37,7 @@ struct TestRestState {
     permission_service: Arc<MockPermissionService>,
     session_service: Arc<MockSessionService>,
     container_service: Arc<MockContainerService>,
+    container_rack_service: Arc<MockContainerRackService>,
     inventur_service: Arc<MockInventurService>,
     inventur_measurement_service: Arc<MockInventurMeasurementService>,
     inventur_custom_entry_service: Arc<MockInventurCustomEntryService>,
@@ -52,6 +54,7 @@ impl RestStateDef for TestRestState {
     type PermissionService = MockPermissionService;
     type SessionService = MockSessionService;
     type ContainerService = MockContainerService;
+    type ContainerRackService = MockContainerRackService;
     type InventurService = MockInventurService;
     type InventurMeasurementService = MockInventurMeasurementService;
     type InventurCustomEntryService = MockInventurCustomEntryService;
@@ -91,6 +94,10 @@ impl RestStateDef for TestRestState {
 
     fn container_service(&self) -> Arc<Self::ContainerService> {
         self.container_service.clone()
+    }
+
+    fn container_rack_service(&self) -> Arc<Self::ContainerRackService> {
+        self.container_rack_service.clone()
     }
 
     fn inventur_service(&self) -> Arc<Self::InventurService> {
@@ -1016,6 +1023,115 @@ impl ContainerService for MockContainerService {
 }
 
 #[derive(Clone)]
+struct MockContainerRackService;
+
+#[async_trait::async_trait]
+impl ContainerRackService for MockContainerRackService {
+    #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
+    type Context = MockContext;
+    #[cfg(feature = "oidc")]
+    type Context = inventurly_service::auth_types::AuthenticatedContext;
+    type Transaction = inventurly_dao::MockTransaction;
+
+    async fn add_container_to_rack(
+        &self,
+        container_id: Uuid,
+        rack_id: Uuid,
+        _auth: Authentication<Self::Context>,
+        _transaction: Option<Self::Transaction>,
+    ) -> Result<ContainerRack, inventurly_service::ServiceError> {
+        Ok(ContainerRack {
+            container_id,
+            rack_id,
+            sort_order: 1,
+            created: time::PrimitiveDateTime::new(
+                time::Date::from_calendar_date(2024, time::Month::January, 1).unwrap(),
+                time::Time::from_hms(0, 0, 0).unwrap(),
+            ),
+            deleted: None,
+            version: Uuid::new_v4(),
+        })
+    }
+
+    async fn remove_container_from_rack(
+        &self,
+        _container_id: Uuid,
+        _rack_id: Uuid,
+        _auth: Authentication<Self::Context>,
+        _transaction: Option<Self::Transaction>,
+    ) -> Result<(), inventurly_service::ServiceError> {
+        Ok(())
+    }
+
+    async fn get_racks_for_container(
+        &self,
+        _container_id: Uuid,
+        _auth: Authentication<Self::Context>,
+        _transaction: Option<Self::Transaction>,
+    ) -> Result<Arc<[ContainerRack]>, inventurly_service::ServiceError> {
+        Ok(Arc::from([]))
+    }
+
+    async fn get_containers_in_rack(
+        &self,
+        _rack_id: Uuid,
+        _auth: Authentication<Self::Context>,
+        _transaction: Option<Self::Transaction>,
+    ) -> Result<Arc<[ContainerRack]>, inventurly_service::ServiceError> {
+        Ok(Arc::from([]))
+    }
+
+    async fn get_container_rack_relationship(
+        &self,
+        _container_id: Uuid,
+        _rack_id: Uuid,
+        _auth: Authentication<Self::Context>,
+        _transaction: Option<Self::Transaction>,
+    ) -> Result<Option<ContainerRack>, inventurly_service::ServiceError> {
+        Ok(None)
+    }
+
+    async fn get_all_relationships(
+        &self,
+        _auth: Authentication<Self::Context>,
+        _transaction: Option<Self::Transaction>,
+    ) -> Result<Arc<[ContainerRack]>, inventurly_service::ServiceError> {
+        Ok(Arc::from([]))
+    }
+
+    async fn reorder_containers_in_rack(
+        &self,
+        _rack_id: Uuid,
+        _container_order: Vec<Uuid>,
+        _auth: Authentication<Self::Context>,
+        _transaction: Option<Self::Transaction>,
+    ) -> Result<Arc<[ContainerRack]>, inventurly_service::ServiceError> {
+        Ok(Arc::from([]))
+    }
+
+    async fn set_container_position_in_rack(
+        &self,
+        container_id: Uuid,
+        rack_id: Uuid,
+        sort_order: i32,
+        _auth: Authentication<Self::Context>,
+        _transaction: Option<Self::Transaction>,
+    ) -> Result<ContainerRack, inventurly_service::ServiceError> {
+        Ok(ContainerRack {
+            container_id,
+            rack_id,
+            sort_order,
+            created: time::PrimitiveDateTime::new(
+                time::Date::from_calendar_date(2024, time::Month::January, 1).unwrap(),
+                time::Time::from_hms(0, 0, 0).unwrap(),
+            ),
+            deleted: None,
+            version: Uuid::new_v4(),
+        })
+    }
+}
+
+#[derive(Clone)]
 struct MockInventurService;
 
 #[async_trait::async_trait]
@@ -1299,6 +1415,7 @@ fn create_test_app() -> axum::Router {
         permission_service: Arc::new(MockPermissionService),
         session_service: Arc::new(MockSessionService),
         container_service: Arc::new(MockContainerService),
+        container_rack_service: Arc::new(MockContainerRackService),
         inventur_service: Arc::new(MockInventurService),
         inventur_measurement_service: Arc::new(MockInventurMeasurementService),
         inventur_custom_entry_service: Arc::new(MockInventurCustomEntryService),

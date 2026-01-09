@@ -2,6 +2,7 @@ pub mod auth_types;
 pub mod claim_context;
 pub mod claim_utils;
 pub mod container;
+pub mod container_rack;
 pub mod csv_import;
 pub mod duplicate_detection;
 pub mod inventur;

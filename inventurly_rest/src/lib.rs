@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod auth_middleware;
 pub mod container;
+pub mod container_rack;
 pub mod csv_import;
 pub mod duplicate_detection;
 pub mod inventur;
@@ -145,6 +146,10 @@ pub trait RestStateDef: Clone + Send + Sync + 'static {
         + Send
         + Sync
         + 'static;
+    type ContainerRackService: inventurly_service::container_rack::ContainerRackService<Context = ContextType>
+        + Send
+        + Sync
+        + 'static;
     type InventurService: inventurly_service::inventur::InventurService<Context = ContextType>
         + Send
         + Sync
@@ -168,6 +173,7 @@ pub trait RestStateDef: Clone + Send + Sync + 'static {
     fn rack_service(&self) -> Arc<Self::RackService>;
     fn product_rack_service(&self) -> Arc<Self::ProductRackService>;
     fn container_service(&self) -> Arc<Self::ContainerService>;
+    fn container_rack_service(&self) -> Arc<Self::ContainerRackService>;
     fn inventur_service(&self) -> Arc<Self::InventurService>;
     fn inventur_measurement_service(&self) -> Arc<Self::InventurMeasurementService>;
     fn inventur_custom_entry_service(&self) -> Arc<Self::InventurCustomEntryService>;
@@ -187,6 +193,7 @@ pub trait RestStateDef: Clone + Send + Sync + 'static {
         (path = "/racks", api = rack::ApiDoc),
         (path = "/containers", api = container::ApiDoc),
         (path = "/product-racks", api = product_rack::ApiDoc),
+        (path = "/container-racks", api = container_rack::ApiDoc),
         (path = "/inventur", api = inventur::ApiDoc),
         (path = "/inventur-measurement", api = inventur_measurement::ApiDoc),
         (path = "/inventur-custom-entry", api = inventur_custom_entry::ApiDoc),
@@ -327,6 +334,7 @@ pub async fn create_app<RestState: RestStateDef>(rest_state: RestState) -> Route
         .nest("/racks", rack::generate_route())
         .nest("/containers", container::generate_route())
         .nest("/product-racks", product_rack::generate_route())
+        .nest("/container-racks", container_rack::generate_route())
         .nest("/inventur", inventur::generate_route())
         .nest("/inventur-measurement", inventur_measurement::generate_route())
         .nest("/inventur-custom-entry", inventur_custom_entry::generate_route())

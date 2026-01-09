@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use inventurly_dao_impl_sqlite::{
-    container::SqliteContainerDao, inventur::InventurDaoImpl,
+    container::SqliteContainerDao, container_rack::ContainerRackDaoImpl, inventur::InventurDaoImpl,
     inventur_custom_entry::InventurCustomEntryDaoImpl,
     inventur_measurement::InventurMeasurementDaoImpl, person::PersonDaoImpl,
     product::ProductDaoImpl, product_rack::ProductRackDaoImpl, rack::RackDaoImpl,
@@ -15,6 +15,7 @@ use inventurly_service::user_service::MockUserService;
 use inventurly_service::auth_types::AuthenticatedContext;
 use inventurly_service_impl::{
     container::{ContainerServiceDeps, ContainerServiceImpl},
+    container_rack::ContainerRackServiceImpl,
     csv_import::{CsvImportServiceDeps, CsvImportServiceImpl},
     duplicate_detection::{DuplicateDetectionServiceDeps, DuplicateDetectionServiceImpl},
     inventur::{InventurServiceDeps, InventurServiceImpl},
@@ -41,6 +42,7 @@ type ProductDao = ProductDaoImpl;
 type RackDao = RackDaoImpl;
 type ProductRackDao = ProductRackDaoImpl;
 type ContainerDao = SqliteContainerDao;
+type ContainerRackDao = ContainerRackDaoImpl;
 type InventurDao = InventurDaoImpl;
 type InventurMeasurementDao = InventurMeasurementDaoImpl;
 type InventurCustomEntryDao = InventurCustomEntryDaoImpl;
@@ -160,6 +162,27 @@ impl ContainerServiceDeps for ContainerServiceDependencies {
 
 type ContainerService =
     inventurly_service_impl::container::ContainerServiceImpl<ContainerServiceDependencies>;
+
+pub struct ContainerRackServiceDependencies;
+
+unsafe impl Send for ContainerRackServiceDependencies {}
+unsafe impl Sync for ContainerRackServiceDependencies {}
+
+impl inventurly_service_impl::container_rack::ContainerRackServiceDependencies
+    for ContainerRackServiceDependencies
+{
+    type Context = Context;
+    type Transaction = Transaction;
+    type ContainerRackDao = ContainerRackDao;
+    type ContainerDao = ContainerDao;
+    type RackDao = RackDao;
+    type TransactionDao = TransactionDao;
+    type PermissionService = PermissionService;
+    type UuidService = UuidService;
+}
+
+type ContainerRackService =
+    inventurly_service_impl::container_rack::ContainerRackServiceImpl<ContainerRackServiceDependencies>;
 
 pub struct ProductServiceDependencies;
 
@@ -298,6 +321,7 @@ pub struct RestStateImpl {
     rack_service: Arc<RackService>,
     product_rack_service: Arc<ProductRackService>,
     container_service: Arc<ContainerService>,
+    container_rack_service: Arc<ContainerRackService>,
     inventur_service: Arc<InventurService>,
     inventur_measurement_service: Arc<InventurMeasurementService>,
     inventur_custom_entry_service: Arc<InventurCustomEntryService>,
@@ -317,6 +341,7 @@ impl RestStateImpl {
         let rack_dao = Arc::new(RackDao::new(pool.clone()));
         let product_rack_dao = Arc::new(ProductRackDao::new(pool.clone()));
         let container_dao = Arc::new(ContainerDao::new(pool.as_ref().clone()));
+        let container_rack_dao = Arc::new(ContainerRackDao::new(pool.clone()));
         let inventur_dao = Arc::new(InventurDao::new(pool.clone()));
         let inventur_measurement_dao = Arc::new(InventurMeasurementDao::new(pool.clone()));
         let inventur_custom_entry_dao = Arc::new(InventurCustomEntryDao::new(pool.clone()));
@@ -375,10 +400,20 @@ impl RestStateImpl {
 
         // Create ContainerService using struct literal syntax
         let container_service = Arc::new(ContainerServiceImpl {
-            container_dao: container_dao,
+            container_dao: container_dao.clone(),
             permission_service: permission_service.clone(),
             uuid_service: uuid_service.clone(),
             transaction_dao: transaction_dao.clone(),
+        });
+
+        // Create ContainerRackService using struct literal syntax
+        let container_rack_service = Arc::new(ContainerRackServiceImpl {
+            container_rack_dao: container_rack_dao,
+            container_dao: container_dao,
+            rack_dao: rack_dao.clone(),
+            transaction_dao: transaction_dao.clone(),
+            permission_service: permission_service.clone(),
+            uuid_service: uuid_service.clone(),
         });
 
         // Create DuplicateDetectionService using struct literal syntax
@@ -447,6 +482,7 @@ impl RestStateImpl {
             rack_service,
             product_rack_service,
             container_service,
+            container_rack_service,
             inventur_service,
             inventur_measurement_service,
             inventur_custom_entry_service,
@@ -465,6 +501,7 @@ impl inventurly_rest::RestStateDef for RestStateImpl {
     type RackService = RackService;
     type ProductRackService = ProductRackService;
     type ContainerService = ContainerService;
+    type ContainerRackService = ContainerRackService;
     type InventurService = InventurService;
     type InventurMeasurementService = InventurMeasurementService;
     type InventurCustomEntryService = InventurCustomEntryService;
@@ -492,6 +529,10 @@ impl inventurly_rest::RestStateDef for RestStateImpl {
 
     fn container_service(&self) -> Arc<Self::ContainerService> {
         self.container_service.clone()
+    }
+
+    fn container_rack_service(&self) -> Arc<Self::ContainerRackService> {
+        self.container_rack_service.clone()
     }
 
     fn inventur_service(&self) -> Arc<Self::InventurService> {

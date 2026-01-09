@@ -1,4 +1,5 @@
 pub mod container;
+pub mod container_rack;
 pub mod inventur;
 pub mod inventur_custom_entry;
 pub mod inventur_measurement;

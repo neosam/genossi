@@ -607,6 +607,90 @@ pub struct SetProductPositionRequestTO {
     pub position: i32,
 }
 
+/// Container-Rack relationship (junction between containers and racks)
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct ContainerRackTO {
+    #[schema(example = "123e4567-e89b-12d3-a456-426614174000")]
+    pub container_id: Uuid,
+    #[schema(example = "456e7890-e89b-12d3-a456-426614174000")]
+    pub rack_id: Uuid,
+    #[schema(example = 1)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sort_order: Option<i32>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    #[schema(example = "2024-01-15T10:30:00Z")]
+    pub created: Option<time::PrimitiveDateTime>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    pub deleted: Option<time::PrimitiveDateTime>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<Uuid>,
+}
+
+impl From<&inventurly_service::container_rack::ContainerRack> for ContainerRackTO {
+    fn from(container_rack: &inventurly_service::container_rack::ContainerRack) -> Self {
+        Self {
+            container_id: container_rack.container_id,
+            rack_id: container_rack.rack_id,
+            sort_order: Some(container_rack.sort_order),
+            created: Some(container_rack.created),
+            deleted: container_rack.deleted,
+            version: Some(container_rack.version),
+        }
+    }
+}
+
+impl From<&ContainerRackTO> for inventurly_service::container_rack::ContainerRack {
+    fn from(to: &ContainerRackTO) -> Self {
+        Self {
+            container_id: to.container_id,
+            rack_id: to.rack_id,
+            sort_order: to.sort_order.unwrap_or(0),
+            created: to.created.unwrap_or_else(|| {
+                let now = time::OffsetDateTime::now_utc();
+                time::PrimitiveDateTime::new(now.date(), now.time())
+            }),
+            deleted: to.deleted,
+            version: to.version.unwrap_or_else(uuid::Uuid::nil),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct AddContainerToRackRequestTO {
+    #[schema(example = "123e4567-e89b-12d3-a456-426614174000")]
+    pub container_id: Uuid,
+    #[schema(example = "456e7890-e89b-12d3-a456-426614174000")]
+    pub rack_id: Uuid,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct ReorderContainersInRackRequestTO {
+    #[schema(example = "456e7890-e89b-12d3-a456-426614174000")]
+    pub rack_id: Uuid,
+    /// List of container IDs in desired order
+    pub container_order: Vec<Uuid>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct SetContainerPositionRequestTO {
+    #[schema(example = "123e4567-e89b-12d3-a456-426614174000")]
+    pub container_id: Uuid,
+    #[schema(example = "456e7890-e89b-12d3-a456-426614174000")]
+    pub rack_id: Uuid,
+    #[schema(example = 3)]
+    pub position: i32,
+}
+
 /// Inventur (Inventory counting session)
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct InventurTO {
