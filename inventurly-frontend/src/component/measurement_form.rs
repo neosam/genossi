@@ -2,9 +2,10 @@ use crate::api;
 use crate::component::SearchableProductSelector;
 use crate::i18n::{use_i18n, Key};
 use crate::service::config::CONFIG;
+use crate::service::container::CONTAINERS;
+use crate::service::container_rack::get_containers_in_rack_action;
 use crate::service::inventur::MEASUREMENTS;
 use crate::service::rack::RACKS;
-use crate::service::container::CONTAINERS;
 use dioxus::prelude::*;
 use rest_types::InventurMeasurementTO;
 use uuid::Uuid;
@@ -38,6 +39,31 @@ pub fn MeasurementForm(
 
     let loading = use_signal(|| false);
     let error = use_signal(|| None::<String>);
+
+    // Load rack-assigned container IDs for sorting (updates when rack_id changes)
+    let rack_container_ids = use_signal(|| Vec::<Uuid>::new());
+    let current_rack_id = use_memo(move || measurement.read().rack_id);
+    use_effect({
+        let mut rack_container_ids = rack_container_ids.clone();
+        move || {
+            if let Some(rack_id) = current_rack_id() {
+                spawn(async move {
+                    match get_containers_in_rack_action(rack_id).await {
+                        Ok(container_racks) => {
+                            let mut sorted: Vec<_> = container_racks.into_iter().collect();
+                            sorted.sort_by_key(|cr| cr.sort_order.unwrap_or(i32::MAX));
+                            rack_container_ids.set(sorted.iter().map(|cr| cr.container_id).collect());
+                        }
+                        Err(_) => {
+                            rack_container_ids.set(vec![]);
+                        }
+                    }
+                });
+            } else {
+                rack_container_ids.set(vec![]);
+            }
+        }
+    });
 
     // Load existing measurement data if editing
     use_effect(move || {
@@ -219,11 +245,59 @@ pub fn MeasurementForm(
                                 };
                             },
                             option { value: "", "- None -" }
-                            for container in active_containers.iter() {
-                                option {
-                                    value: "{container.id.unwrap_or(Uuid::nil())}",
-                                    selected: measurement.read().container_id == container.id,
-                                    {container.name.clone()}
+
+                            // Containers assigned to selected rack (sorted by sort_order)
+                            {
+                                let rack_ids = rack_container_ids();
+                                let rack_containers: Vec<_> = rack_ids.iter()
+                                    .filter_map(|id| active_containers.iter().find(|c| c.id == Some(*id)))
+                                    .collect();
+
+                                rsx! {
+                                    for container in rack_containers.iter() {
+                                        option {
+                                            value: "{container.id.unwrap_or(Uuid::nil())}",
+                                            selected: measurement.read().container_id == container.id,
+                                            {container.name.clone()}
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Separator (only if there are rack containers and other containers)
+                            {
+                                let rack_ids = rack_container_ids();
+                                let has_rack_containers = rack_ids.iter()
+                                    .any(|id| active_containers.iter().any(|c| c.id == Some(*id)));
+                                let has_other_containers = active_containers.iter()
+                                    .any(|c| !rack_ids.contains(&c.id.unwrap_or(Uuid::nil())));
+
+                                if has_rack_containers && has_other_containers {
+                                    rsx! {
+                                        option { disabled: true, "───────────────" }
+                                    }
+                                } else {
+                                    rsx! {}
+                                }
+                            }
+
+                            // Other containers (alphabetically sorted)
+                            {
+                                let rack_ids = rack_container_ids();
+                                let mut other_containers: Vec<_> = active_containers.iter()
+                                    .filter(|c| !rack_ids.contains(&c.id.unwrap_or(Uuid::nil())))
+                                    .cloned()
+                                    .collect();
+                                other_containers.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+
+                                rsx! {
+                                    for container in other_containers.iter() {
+                                        option {
+                                            value: "{container.id.unwrap_or(Uuid::nil())}",
+                                            selected: measurement.read().container_id == container.id,
+                                            {container.name.clone()}
+                                        }
+                                    }
                                 }
                             }
                         }
