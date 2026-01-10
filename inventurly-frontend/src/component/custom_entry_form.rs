@@ -3,6 +3,7 @@ use crate::component::barcode_scanner::{BarcodeScanner, ScanResult};
 use crate::component::searchable_product_selector::SearchableProductSelector;
 use crate::i18n::{use_i18n, Key};
 use crate::service::config::CONFIG;
+use crate::service::container_rack::get_containers_in_rack_action;
 use crate::service::product::PRODUCTS;
 use crate::service::tara::{self, WeightUnit};
 use dioxus::prelude::*;
@@ -108,6 +109,26 @@ pub fn CustomEntryForm(
 
     let loading = use_signal(|| false);
     let mut error = use_signal(|| None::<String>);
+
+    // Load rack-assigned container IDs for sorting
+    let rack_container_ids = use_signal(|| Vec::<Uuid>::new());
+    use_effect({
+        let mut rack_container_ids = rack_container_ids.clone();
+        move || {
+            spawn(async move {
+                match get_containers_in_rack_action(rack_id).await {
+                    Ok(container_racks) => {
+                        let mut sorted: Vec<_> = container_racks.into_iter().collect();
+                        sorted.sort_by_key(|cr| cr.sort_order.unwrap_or(i32::MAX));
+                        rack_container_ids.set(sorted.iter().map(|cr| cr.container_id).collect());
+                    }
+                    Err(_) => {
+                        rack_container_ids.set(vec![]);
+                    }
+                }
+            });
+        }
+    });
 
     // Calculate if the entry is valid
     let is_valid = {
@@ -561,18 +582,64 @@ pub fn CustomEntryForm(
                                     }
                                 },
                                 option { value: "", "No container" }
-                                for container in containers.iter().filter(|c| c.deleted.is_none()) {
-                                    option {
-                                        value: "{container.id.unwrap_or(Uuid::nil())}",
-                                        selected: selected_container
-                                            .read()
-                                            .as_ref()
-                                            .map(|id| *id == container.id.unwrap_or(Uuid::nil()))
-                                            .unwrap_or(false),
-                                        {container.name.clone()}
-                                        " ("
-                                        {container.weight_grams.to_string()}
-                                        "g)"
+
+                                // Containers assigned to this rack (sorted by sort_order)
+                                {
+                                    let rack_ids = rack_container_ids();
+                                    let rack_containers: Vec<_> = rack_ids.iter()
+                                        .filter_map(|id| containers.iter().find(|c| c.id == Some(*id) && c.deleted.is_none()))
+                                        .collect();
+
+                                    rsx! {
+                                        for container in rack_containers.iter() {
+                                            option {
+                                                value: "{container.id.unwrap_or(Uuid::nil())}",
+                                                selected: selected_container.read().as_ref().map(|id| *id == container.id.unwrap_or(Uuid::nil())).unwrap_or(false),
+                                                {container.name.clone()}
+                                                " ("
+                                                {container.weight_grams.to_string()}
+                                                "g)"
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Separator (only if there are rack containers and other containers)
+                                {
+                                    let rack_ids = rack_container_ids();
+                                    let has_rack_containers = rack_ids.iter()
+                                        .any(|id| containers.iter().any(|c| c.id == Some(*id) && c.deleted.is_none()));
+                                    let has_other_containers = containers.iter()
+                                        .any(|c| c.deleted.is_none() && !rack_ids.contains(&c.id.unwrap_or(Uuid::nil())));
+
+                                    if has_rack_containers && has_other_containers {
+                                        rsx! {
+                                            option { disabled: true, "───────────────" }
+                                        }
+                                    } else {
+                                        rsx! {}
+                                    }
+                                }
+
+                                // Other containers (alphabetically sorted)
+                                {
+                                    let rack_ids = rack_container_ids();
+                                    let mut other_containers: Vec<_> = containers.iter()
+                                        .filter(|c| c.deleted.is_none() && !rack_ids.contains(&c.id.unwrap_or(Uuid::nil())))
+                                        .collect();
+                                    other_containers.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+
+                                    rsx! {
+                                        for container in other_containers.iter() {
+                                            option {
+                                                value: "{container.id.unwrap_or(Uuid::nil())}",
+                                                selected: selected_container.read().as_ref().map(|id| *id == container.id.unwrap_or(Uuid::nil())).unwrap_or(false),
+                                                {container.name.clone()}
+                                                " ("
+                                                {container.weight_grams.to_string()}
+                                                "g)"
+                                            }
+                                        }
                                     }
                                 }
                             }
