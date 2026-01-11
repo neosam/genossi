@@ -247,6 +247,9 @@ pub fn CustomEntryForm(
                         None
                     };
 
+                    // Subtract global tara (body weight) from weight measurement
+                    let final_weight = parsed_weight.map(|w| w - tara::get_tara_grams());
+
                     let entry = InventurCustomEntryTO {
                         id: existing_id,
                         inventur_id,
@@ -255,7 +258,7 @@ pub fn CustomEntryForm(
                         rack_id: Some(rack_id),
                         container_id: *selected_container.read(),
                         count: parsed_count,
-                        weight_grams: parsed_weight,
+                        weight_grams: final_weight,
                         measured_by: None,
                         measured_at: None,
                         notes: if notes.read().is_empty() {
