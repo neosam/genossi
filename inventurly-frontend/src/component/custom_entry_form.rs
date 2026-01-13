@@ -203,8 +203,14 @@ pub fn CustomEntryForm(
         let existing_id = existing_entry.as_ref().and_then(|e| e.id);
         let existing_created = existing_entry.as_ref().and_then(|e| e.created);
         let existing_version = existing_entry.as_ref().and_then(|e| e.version);
+        let existing_measured_by = existing_entry.as_ref().and_then(|e| e.measured_by.clone());
+        let existing_measured_at = existing_entry.as_ref().and_then(|e| e.measured_at);
+        let existing_review_state = existing_entry.as_ref().and_then(|e| e.review_state.clone());
 
         move || {
+            let existing_measured_by = existing_measured_by.clone();
+            let existing_measured_at = existing_measured_at;
+            let existing_review_state = existing_review_state.clone();
             spawn({
                 let mut loading = loading.clone();
                 let mut error = error.clone();
@@ -259,8 +265,8 @@ pub fn CustomEntryForm(
                         container_id: *selected_container.read(),
                         count: parsed_count,
                         weight_grams: final_weight,
-                        measured_by: None,
-                        measured_at: None,
+                        measured_by: existing_measured_by.clone(), // Preserve when editing
+                        measured_at: existing_measured_at, // Preserve when editing
                         notes: if notes.read().is_empty() {
                             None
                         } else {
@@ -269,7 +275,7 @@ pub fn CustomEntryForm(
                         created: existing_created,
                         deleted: None,
                         version: existing_version,
-                        review_state: None, // Will use default 'unreviewed' on server
+                        review_state: existing_review_state.clone(), // Preserve when editing
                     };
 
                     let result = if entry.id.is_some() {
