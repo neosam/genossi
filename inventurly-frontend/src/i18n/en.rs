@@ -327,6 +327,14 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::FilterByRack => "Filter by Rack",
         Key::FilterByMeasuredBy => "Measured by",
         Key::All => "All",
+
+        // Review State
+        Key::ReviewState => "Review State",
+        Key::Unreviewed => "Unreviewed",
+        Key::Reviewed => "Reviewed",
+        Key::FilterByReviewState => "Filter by Review State",
+        Key::MarkAsReviewed => "Mark as Reviewed",
+        Key::MarkAsUnreviewed => "Mark as Unreviewed",
     }
     .into()
 }

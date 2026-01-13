@@ -819,6 +819,9 @@ pub struct InventurMeasurementTO {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(example = "Counted in storage area A")]
     pub notes: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(example = "unreviewed")]
+    pub review_state: Option<String>,
     #[serde(
         skip_serializing_if = "Option::is_none",
         serialize_with = "iso8601_datetime::serialize",
@@ -851,6 +854,7 @@ impl From<&inventurly_service::inventur_measurement::InventurMeasurement> for In
             measured_by: Some(measurement.measured_by.to_string()),
             measured_at: Some(measurement.measured_at),
             notes: measurement.notes.as_ref().map(|n| n.to_string()),
+            review_state: Some(measurement.review_state.to_string()),
             created: Some(measurement.created),
             deleted: measurement.deleted,
             version: Some(measurement.version),
@@ -876,6 +880,7 @@ impl From<&InventurMeasurementTO> for inventurly_service::inventur_measurement::
             measured_by: Arc::from(to.measured_by.as_deref().unwrap_or("UNKNOWN")),
             measured_at: to.measured_at.unwrap_or(now_primitive),
             notes: to.notes.as_ref().map(|n| Arc::from(n.as_str())),
+            review_state: Arc::from(to.review_state.as_deref().unwrap_or("unreviewed")),
             created: to.created.unwrap_or(now_primitive),
             deleted: to.deleted,
             version: to.version.unwrap_or_else(Uuid::nil),
@@ -920,6 +925,9 @@ pub struct InventurCustomEntryTO {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(example = "4006381333931")]
     pub ean: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(example = "unreviewed")]
+    pub review_state: Option<String>,
     #[serde(
         skip_serializing_if = "Option::is_none",
         serialize_with = "iso8601_datetime::serialize",
@@ -953,6 +961,7 @@ impl From<&inventurly_service::inventur_custom_entry::InventurCustomEntry> for I
             measured_at: Some(entry.measured_at),
             notes: entry.notes.as_ref().map(|n| n.to_string()),
             ean: entry.ean.as_ref().map(|e| e.to_string()),
+            review_state: Some(entry.review_state.to_string()),
             created: Some(entry.created),
             deleted: entry.deleted,
             version: Some(entry.version),
@@ -979,6 +988,7 @@ impl From<&InventurCustomEntryTO> for inventurly_service::inventur_custom_entry:
             measured_at: to.measured_at.unwrap_or(now_primitive),
             notes: to.notes.as_ref().map(|n| Arc::from(n.as_str())),
             ean: to.ean.as_ref().map(|e| Arc::from(e.as_str())),
+            review_state: Arc::from(to.review_state.as_deref().unwrap_or("unreviewed")),
             created: to.created.unwrap_or(now_primitive),
             deleted: to.deleted,
             version: to.version.unwrap_or_else(Uuid::nil),

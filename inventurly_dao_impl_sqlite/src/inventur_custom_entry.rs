@@ -23,6 +23,7 @@ struct InventurCustomEntryDb {
     measured_at: String,
     notes: Option<String>,
     ean: Option<String>,
+    review_state: String,
     created: String,
     deleted: Option<String>,
     version: Vec<u8>,
@@ -77,6 +78,7 @@ impl TryFrom<&InventurCustomEntryDb> for InventurCustomEntryEntity {
             measured_at: parse_datetime(&db.measured_at)?,
             notes: db.notes.as_ref().map(|n| Arc::from(n.as_str())),
             ean: db.ean.as_ref().map(|e| Arc::from(e.as_str())),
+            review_state: Arc::from(db.review_state.as_str()),
             created: parse_datetime(&db.created)?,
             deleted: db.deleted.as_ref().map(|d| parse_datetime(d)).transpose()?,
             version: Uuid::from_slice(&db.version)?,
@@ -104,7 +106,7 @@ impl InventurCustomEntryDao for InventurCustomEntryDaoImpl {
     ) -> Result<Arc<[InventurCustomEntryEntity]>, DaoError> {
         let rows = sqlx::query_as::<_, InventurCustomEntryDb>(
             "SELECT id, inventur_id, custom_product_name, rack_id, container_id, count, weight_grams,
-                    measured_by, measured_at, notes, ean, created, deleted, version
+                    measured_by, measured_at, notes, ean, review_state, created, deleted, version
              FROM inventur_custom_entry ORDER BY measured_at DESC"
         )
         .fetch_all(tx.tx.lock().await.as_mut())
@@ -143,12 +145,13 @@ impl InventurCustomEntryDao for InventurCustomEntryDaoImpl {
         let measured_by = entity.measured_by.to_string();
         let notes = entity.notes.as_ref().map(|n| n.to_string());
         let ean = entity.ean.as_ref().map(|e| e.to_string());
+        let review_state = entity.review_state.to_string();
 
         sqlx::query(
             "INSERT INTO inventur_custom_entry
              (id, inventur_id, custom_product_name, rack_id, container_id, count, weight_grams,
-              measured_by, measured_at, notes, ean, created, version)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+              measured_by, measured_at, notes, ean, review_state, created, version)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )
         .bind(id)
         .bind(inventur_id)
@@ -161,6 +164,7 @@ impl InventurCustomEntryDao for InventurCustomEntryDaoImpl {
         .bind(measured_at)
         .bind(notes)
         .bind(ean)
+        .bind(review_state)
         .bind(created)
         .bind(version)
         .execute(tx.tx.lock().await.as_mut())
@@ -192,6 +196,7 @@ impl InventurCustomEntryDao for InventurCustomEntryDaoImpl {
         let measured_by = entity.measured_by.to_string();
         let notes = entity.notes.as_ref().map(|n| n.to_string());
         let ean = entity.ean.as_ref().map(|e| e.to_string());
+        let review_state = entity.review_state.to_string();
 
         // Format deleted timestamp if present
         let deleted = match entity.deleted {
@@ -220,7 +225,7 @@ impl InventurCustomEntryDao for InventurCustomEntryDaoImpl {
             "UPDATE inventur_custom_entry
              SET inventur_id = ?, custom_product_name = ?, rack_id = ?, container_id = ?,
                  count = ?, weight_grams = ?, measured_by = ?, measured_at = ?,
-                 notes = ?, ean = ?, deleted = ?, version = ?
+                 notes = ?, ean = ?, review_state = ?, deleted = ?, version = ?
              WHERE id = ? AND version = ? AND deleted IS NULL",
         )
         .bind(inventur_id)
@@ -233,6 +238,7 @@ impl InventurCustomEntryDao for InventurCustomEntryDaoImpl {
         .bind(measured_at)
         .bind(notes)
         .bind(ean)
+        .bind(review_state)
         .bind(deleted)
         .bind(new_version)
         .bind(id)

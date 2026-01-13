@@ -379,6 +379,14 @@ pub enum Key {
     FilterByRack,
     FilterByMeasuredBy,
     All,
+
+    // Review State
+    ReviewState,
+    Unreviewed,
+    Reviewed,
+    FilterByReviewState,
+    MarkAsReviewed,
+    MarkAsUnreviewed,
 }
 
 pub struct I18n {

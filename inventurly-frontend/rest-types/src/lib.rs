@@ -379,6 +379,8 @@ pub struct InventurMeasurementTO {
     pub measured_at: Option<PrimitiveDateTime>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub review_state: Option<String>,
     #[serde(
         skip_serializing_if = "Option::is_none",
         serialize_with = "iso8601_datetime::serialize",
@@ -428,6 +430,8 @@ pub struct InventurCustomEntryTO {
     pub measured_at: Option<PrimitiveDateTime>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub review_state: Option<String>,
     #[serde(
         skip_serializing_if = "Option::is_none",
         serialize_with = "iso8601_datetime::serialize",

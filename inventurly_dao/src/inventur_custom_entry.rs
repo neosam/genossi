@@ -18,6 +18,7 @@ pub struct InventurCustomEntryEntity {
     pub measured_at: PrimitiveDateTime,
     pub notes: Option<Arc<str>>,
     pub ean: Option<Arc<str>>,
+    pub review_state: Arc<str>,
     pub created: PrimitiveDateTime,
     pub deleted: Option<PrimitiveDateTime>,
     pub version: Uuid,

@@ -17,6 +17,7 @@ pub struct InventurMeasurementEntity {
     pub measured_by: Arc<str>,
     pub measured_at: PrimitiveDateTime,
     pub notes: Option<Arc<str>>,
+    pub review_state: Arc<str>,
     pub created: PrimitiveDateTime,
     pub deleted: Option<PrimitiveDateTime>,
     pub version: Uuid,

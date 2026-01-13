@@ -269,6 +269,7 @@ pub fn CustomEntryForm(
                         created: existing_created,
                         deleted: None,
                         version: existing_version,
+                        review_state: None, // Will use default 'unreviewed' on server
                     };
 
                     let result = if entry.id.is_some() {

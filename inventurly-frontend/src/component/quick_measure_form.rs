@@ -196,6 +196,7 @@ pub fn QuickMeasureForm(
                         created: existing_created,
                         deleted: None,
                         version: existing_version,
+                        review_state: None, // Will use default 'unreviewed' on server
                     };
 
                 let result = if measurement.id.is_some() {

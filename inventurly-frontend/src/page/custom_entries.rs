@@ -154,11 +154,74 @@ pub fn CustomEntries(id: String) -> Element {
         entries.filter_has_ean = None;
         entries.filter_rack_ids.clear();
         entries.filter_measured_by.clear();
+        entries.filter_review_state = None;
+    };
+
+    let set_review_state_filter = move |value: Option<String>| {
+        CUSTOM_ENTRIES.write().filter_review_state = value;
     };
 
     // Edit handler
     let handle_edit = move |entry: InventurCustomEntryTO| {
         editing_entry.set(Some(entry));
+    };
+
+    // Mark as reviewed handler
+    let handle_mark_reviewed = move |entry: InventurCustomEntryTO| {
+        spawn(async move {
+            let config = CONFIG.read().clone();
+            // Create updated entry with review_state = "reviewed"
+            let updated_entry = InventurCustomEntryTO {
+                review_state: Some("reviewed".to_string()),
+                ..entry
+            };
+            match api::update_custom_entry(&config, updated_entry).await {
+                Ok(_) => {
+                    // Reload entries to reflect the change
+                    match api::get_custom_entries_by_inventur(&config, inventur_id).await {
+                        Ok(entries) => {
+                            CUSTOM_ENTRIES.write().items = entries;
+                            CUSTOM_ENTRIES.write().error = None;
+                        }
+                        Err(e) => {
+                            CUSTOM_ENTRIES.write().error = Some(format!("Failed to reload: {}", e));
+                        }
+                    }
+                }
+                Err(e) => {
+                    CUSTOM_ENTRIES.write().error = Some(format!("Failed to mark as reviewed: {}", e));
+                }
+            }
+        });
+    };
+
+    // Mark as unreviewed handler
+    let handle_mark_unreviewed = move |entry: InventurCustomEntryTO| {
+        spawn(async move {
+            let config = CONFIG.read().clone();
+            // Create updated entry with review_state = "unreviewed"
+            let updated_entry = InventurCustomEntryTO {
+                review_state: Some("unreviewed".to_string()),
+                ..entry
+            };
+            match api::update_custom_entry(&config, updated_entry).await {
+                Ok(_) => {
+                    // Reload entries to reflect the change
+                    match api::get_custom_entries_by_inventur(&config, inventur_id).await {
+                        Ok(entries) => {
+                            CUSTOM_ENTRIES.write().items = entries;
+                            CUSTOM_ENTRIES.write().error = None;
+                        }
+                        Err(e) => {
+                            CUSTOM_ENTRIES.write().error = Some(format!("Failed to reload: {}", e));
+                        }
+                    }
+                }
+                Err(e) => {
+                    CUSTOM_ENTRIES.write().error = Some(format!("Failed to mark as unreviewed: {}", e));
+                }
+            }
+        });
     };
 
     // Reload custom entries helper
@@ -336,6 +399,42 @@ pub fn CustomEntries(id: String) -> Element {
                                             }
                                         }
                                     }
+
+                                    // Review state filter
+                                    div {
+                                        label { class: "block text-sm font-medium text-gray-700 mb-2",
+                                            {i18n.t(Key::FilterByReviewState)}
+                                        }
+                                        div { class: "space-y-2",
+                                            label { class: "flex items-center space-x-2 cursor-pointer",
+                                                input {
+                                                    r#type: "radio",
+                                                    name: "review_state",
+                                                    checked: custom_entries.filter_review_state.is_none(),
+                                                    onchange: move |_| set_review_state_filter(None),
+                                                }
+                                                span { class: "text-sm", {i18n.t(Key::All)} }
+                                            }
+                                            label { class: "flex items-center space-x-2 cursor-pointer",
+                                                input {
+                                                    r#type: "radio",
+                                                    name: "review_state",
+                                                    checked: custom_entries.filter_review_state.as_deref() == Some("unreviewed"),
+                                                    onchange: move |_| set_review_state_filter(Some("unreviewed".to_string())),
+                                                }
+                                                span { class: "text-sm", {i18n.t(Key::Unreviewed)} }
+                                            }
+                                            label { class: "flex items-center space-x-2 cursor-pointer",
+                                                input {
+                                                    r#type: "radio",
+                                                    name: "review_state",
+                                                    checked: custom_entries.filter_review_state.as_deref() == Some("reviewed"),
+                                                    onchange: move |_| set_review_state_filter(Some("reviewed".to_string())),
+                                                }
+                                                span { class: "text-sm", {i18n.t(Key::Reviewed)} }
+                                            }
+                                        }
+                                    }
                                 }
 
                                 // Clear all filters button
@@ -353,6 +452,8 @@ pub fn CustomEntries(id: String) -> Element {
                     // List component
                     CustomEntryManagementList {
                         on_edit: handle_edit,
+                        on_mark_reviewed: handle_mark_reviewed,
+                        on_mark_unreviewed: handle_mark_unreviewed,
                     }
                 }
             }

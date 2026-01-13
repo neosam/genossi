@@ -8,6 +8,8 @@ use uuid::Uuid;
 #[component]
 pub fn CustomEntryManagementList(
     on_edit: EventHandler<InventurCustomEntryTO>,
+    on_mark_reviewed: EventHandler<InventurCustomEntryTO>,
+    on_mark_unreviewed: EventHandler<InventurCustomEntryTO>,
 ) -> Element {
     let i18n = use_i18n();
     let custom_entries = CUSTOM_ENTRIES.read();
@@ -87,6 +89,13 @@ pub fn CustomEntryManagementList(
                 .map(|m| custom_entries.filter_measured_by.contains(m))
                 .unwrap_or(false)
         })
+        // Review state filter
+        .filter(|e| {
+            match &custom_entries.filter_review_state {
+                None => true,
+                Some(state) => e.review_state.as_deref().unwrap_or("unreviewed") == state.as_str(),
+            }
+        })
         .cloned()
         .collect();
 
@@ -133,6 +142,9 @@ pub fn CustomEntryManagementList(
                                     {i18n.t(Key::MeasuredAt)}
                                 }
                                 th { class: "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider",
+                                    {i18n.t(Key::ReviewState)}
+                                }
+                                th { class: "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider",
                                     {i18n.t(Key::Actions)}
                                 }
                             }
@@ -141,6 +153,8 @@ pub fn CustomEntryManagementList(
                             for entry in filtered_entries.iter() {
                                 {
                                     let entry_clone = entry.clone();
+                                    let entry_clone_review = entry.clone();
+                                    let entry_clone_unreview = entry.clone();
                                     let name = entry.custom_product_name.clone();
                                     let ean_display = entry.ean.clone().unwrap_or_else(|| "-".to_string());
                                     let has_ean = entry.ean.is_some();
@@ -150,6 +164,8 @@ pub fn CustomEntryManagementList(
                                     let measured_at = entry.measured_at
                                         .map(|dt| i18n.format_datetime(dt))
                                         .unwrap_or_else(|| "-".to_string());
+                                    let review_state = entry.review_state.clone().unwrap_or_else(|| "unreviewed".to_string());
+                                    let is_reviewed = review_state == "reviewed";
 
                                     rsx! {
                                         tr { class: "border-b hover:bg-gray-50",
@@ -179,13 +195,42 @@ pub fn CustomEntryManagementList(
                                             td { class: "px-6 py-4 text-sm text-gray-600",
                                                 {measured_at}
                                             }
-                                            td { class: "px-6 py-4 whitespace-nowrap text-sm",
+                                            td { class: "px-6 py-4 text-sm",
+                                                if is_reviewed {
+                                                    span { class: "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800",
+                                                        {i18n.t(Key::Reviewed)}
+                                                    }
+                                                } else {
+                                                    span { class: "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800",
+                                                        {i18n.t(Key::Unreviewed)}
+                                                    }
+                                                }
+                                            }
+                                            td { class: "px-6 py-4 whitespace-nowrap text-sm space-x-2",
                                                 button {
                                                     class: "text-blue-600 hover:text-blue-800",
                                                     onclick: move |_| {
                                                         on_edit.call(entry_clone.clone());
                                                     },
                                                     {i18n.t(Key::Edit)}
+                                                }
+                                                if !is_reviewed {
+                                                    button {
+                                                        class: "text-green-600 hover:text-green-800 ml-2",
+                                                        onclick: move |_| {
+                                                            on_mark_reviewed.call(entry_clone_review.clone());
+                                                        },
+                                                        {i18n.t(Key::MarkAsReviewed)}
+                                                    }
+                                                }
+                                                if is_reviewed {
+                                                    button {
+                                                        class: "text-orange-600 hover:text-orange-800 ml-2",
+                                                        onclick: move |_| {
+                                                            on_mark_unreviewed.call(entry_clone_unreview.clone());
+                                                        },
+                                                        {i18n.t(Key::MarkAsUnreviewed)}
+                                                    }
                                                 }
                                             }
                                         }

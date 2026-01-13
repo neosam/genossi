@@ -11,6 +11,7 @@ pub struct CustomEntry {
     pub filter_has_ean: Option<bool>, // None=all, Some(true)=has EAN, Some(false)=no EAN
     pub filter_rack_ids: Vec<Uuid>,
     pub filter_measured_by: Vec<String>,
+    pub filter_review_state: Option<String>, // None=all, Some("unreviewed"), Some("reviewed")
 }
 
 impl Default for CustomEntry {
@@ -23,6 +24,7 @@ impl Default for CustomEntry {
             filter_has_ean: None,
             filter_rack_ids: vec![],
             filter_measured_by: vec![],
+            filter_review_state: None,
         }
     }
 }

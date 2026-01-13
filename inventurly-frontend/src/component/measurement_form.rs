@@ -35,6 +35,7 @@ pub fn MeasurementForm(
         created: None,
         deleted: None,
         version: None,
+        review_state: None,
     });
 
     let loading = use_signal(|| false);

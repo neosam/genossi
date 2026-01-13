@@ -32,6 +32,8 @@ const PERFORM_INVENTUR_PRIVILEGE: &str = "perform_inventur";
 
 const STATUS_ACTIVE: &str = "active";
 const STATUS_POST_PROCESSING: &str = "post_processing";
+const REVIEW_STATE_UNREVIEWED: &str = "unreviewed";
+const ADMIN_PRIVILEGE: &str = "admin";
 
 #[async_trait]
 impl<Deps: InventurCustomEntryServiceDeps> InventurCustomEntryService
@@ -224,6 +226,7 @@ impl<Deps: InventurCustomEntryServiceDeps> InventurCustomEntryService
         entry.id = self.uuid_service.new_v4().await;
         entry.version = self.uuid_service.new_v4().await;
         entry.measured_by = user_id; // Set from authenticated user
+        entry.review_state = Arc::from(REVIEW_STATE_UNREVIEWED); // Default review state
         let now = time::OffsetDateTime::now_utc();
         entry.created = time::PrimitiveDateTime::new(now.date(), now.time());
 
@@ -255,11 +258,18 @@ impl<Deps: InventurCustomEntryServiceDeps> InventurCustomEntryService
             .await?;
 
         // Check if the entity exists
-        let _existing = self
+        let existing = self
             .inventur_custom_entry_dao
             .find_by_id(item.id, tx.clone())
             .await?
             .ok_or(ServiceError::EntityNotFound(item.id))?;
+
+        // Check admin permission if review_state is being changed
+        if item.review_state.as_ref() != existing.review_state.as_ref() {
+            self.permission_service
+                .check_permission(ADMIN_PRIVILEGE, context.clone())
+                .await?;
+        }
 
         // Validate: inventur must still be in active or post_processing status
         let inventur = self
