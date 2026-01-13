@@ -2,6 +2,7 @@ use crate::api;
 use crate::component::TopBar;
 use crate::i18n::{use_i18n, Key};
 use crate::router::Route;
+use crate::service::auth::AUTH;
 use crate::service::config::CONFIG;
 use crate::service::inventur::MEASUREMENTS;
 use crate::service::product::PRODUCTS;
@@ -162,8 +163,13 @@ pub fn InventurRackSelection(id: String) -> Element {
         .cloned()
         .collect();
 
-    // Check if inventur is active
-    let is_inventur_active = inventur.read().as_ref().map(|inv| inv.status == "active").unwrap_or(false);
+    // Check if editing is allowed
+    let auth = AUTH.read();
+    let can_edit = inventur.read().as_ref()
+        .map(|inv| auth.auth_info.as_ref()
+            .map(|a| a.can_edit_inventur(&inv.status))
+            .unwrap_or(false))
+        .unwrap_or(false);
 
     // Helper to calculate measurement progress for a rack
     let get_rack_progress = |rack_id: Uuid| -> (usize, usize) {
@@ -223,9 +229,9 @@ pub fn InventurRackSelection(id: String) -> Element {
                     }
                 }
 
-                // Warning if inventur is not active
+                // Warning if editing is not allowed
                 if let Some(inv) = inventur.read().as_ref() {
-                    if inv.status != "active" {
+                    if !can_edit {
                         div { class: "bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-3 rounded mb-6",
                             p { class: "font-semibold", "Cannot measure - Inventur is not active" }
                             p { class: "text-sm mt-1",
@@ -335,7 +341,7 @@ pub fn InventurRackSelection(id: String) -> Element {
                                                         }
                                                     }
                                                 }
-                                                if is_inventur_active {
+                                                if can_edit {
                                                     button {
                                                         class: "px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors",
                                                         onclick: {

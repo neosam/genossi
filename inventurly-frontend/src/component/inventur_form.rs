@@ -208,8 +208,10 @@ pub fn InventurForm(inventur_id: Option<Uuid>) -> Element {
         }
     };
 
-    // Determine if fields should be locked (when inventur is active or completed)
-    let is_locked = inventur.read().status == "active" || inventur.read().status == "completed";
+    // Determine if fields should be locked (when inventur is active, post_processing, or completed)
+    let is_locked = inventur.read().status == "active"
+        || inventur.read().status == "post_processing"
+        || inventur.read().status == "completed";
 
     // Calculate progress percentage
     let percentage = if total_products() > 0 {
@@ -396,6 +398,7 @@ pub fn InventurForm(inventur_id: Option<Uuid>) -> Element {
                         },
                         option { value: "draft", {i18n.t(Key::StatusDraft)} }
                         option { value: "active", {i18n.t(Key::StatusActive)} }
+                        option { value: "post_processing", {i18n.t(Key::StatusPostProcessing)} }
                         option { value: "completed", {i18n.t(Key::StatusCompleted)} }
                         option { value: "cancelled", {i18n.t(Key::StatusCancelled)} }
                     }

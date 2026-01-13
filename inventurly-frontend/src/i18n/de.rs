@@ -238,6 +238,7 @@ pub fn translate(key: Key) -> Rc<str> {
         // Inventur status
         Key::StatusDraft => "Entwurf",
         Key::StatusActive => "Aktiv",
+        Key::StatusPostProcessing => "Nachbearbeitung",
         Key::StatusCompleted => "Abgeschlossen",
         Key::StatusCancelled => "Abgebrochen",
 

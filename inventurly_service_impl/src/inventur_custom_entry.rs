@@ -31,6 +31,7 @@ const VIEW_INVENTUR_PRIVILEGE: &str = "view_inventur";
 const PERFORM_INVENTUR_PRIVILEGE: &str = "perform_inventur";
 
 const STATUS_ACTIVE: &str = "active";
+const STATUS_POST_PROCESSING: &str = "post_processing";
 
 #[async_trait]
 impl<Deps: InventurCustomEntryServiceDeps> InventurCustomEntryService
@@ -138,22 +139,17 @@ impl<Deps: InventurCustomEntryServiceDeps> InventurCustomEntryService
             .check_inventur_permission(PERFORM_INVENTUR_PRIVILEGE, item.inventur_id, context.clone())
             .await?;
 
-        // Extract user_id from authentication context
-        let user_id = self
-            .permission_service
-            .current_user_id(context)
-            .await?
-            .map(|id| Arc::from(id.as_str()))
-            .unwrap_or_else(|| Arc::from("SYSTEM"));
-
-        // Validate: inventur must be in active status
+        // Validate: inventur must be in active or post_processing status
         let inventur = self
             .inventur_dao
             .find_by_id(item.inventur_id, tx.clone())
             .await?
             .ok_or(ServiceError::EntityNotFound(item.inventur_id))?;
 
-        if inventur.status.as_ref() != STATUS_ACTIVE {
+        let is_active = inventur.status.as_ref() == STATUS_ACTIVE;
+        let is_post_processing = inventur.status.as_ref() == STATUS_POST_PROCESSING;
+
+        if !is_active && !is_post_processing {
             return Err(ServiceError::ValidationError(vec![
                 ValidationFailureItem {
                     field: Arc::from("inventur_id"),
@@ -164,6 +160,27 @@ impl<Deps: InventurCustomEntryServiceDeps> InventurCustomEntryService
                 },
             ]));
         }
+
+        // In post_processing state, only role-based users can create (not token-based)
+        if is_post_processing {
+            let has_claims = match &context {
+                Authentication::Full => false,
+                Authentication::Context(ctx) => {
+                    self.permission_service.has_claims(ctx).await?
+                }
+            };
+            if has_claims {
+                return Err(ServiceError::PermissionDenied);
+            }
+        }
+
+        // Extract user_id from authentication context
+        let user_id = self
+            .permission_service
+            .current_user_id(context)
+            .await?
+            .map(|id| Arc::from(id.as_str()))
+            .unwrap_or_else(|| Arc::from("SYSTEM"));
 
         // Validate: at least one of count or weight_grams must be provided
         let mut validation_errors = Vec::new();
@@ -234,7 +251,7 @@ impl<Deps: InventurCustomEntryServiceDeps> InventurCustomEntryService
         let tx = self.transaction_dao.use_transaction(tx).await?;
 
         self.permission_service
-            .check_inventur_permission(PERFORM_INVENTUR_PRIVILEGE, item.inventur_id, context)
+            .check_inventur_permission(PERFORM_INVENTUR_PRIVILEGE, item.inventur_id, context.clone())
             .await?;
 
         // Check if the entity exists
@@ -244,14 +261,17 @@ impl<Deps: InventurCustomEntryServiceDeps> InventurCustomEntryService
             .await?
             .ok_or(ServiceError::EntityNotFound(item.id))?;
 
-        // Validate: inventur must still be in active status
+        // Validate: inventur must still be in active or post_processing status
         let inventur = self
             .inventur_dao
             .find_by_id(item.inventur_id, tx.clone())
             .await?
             .ok_or(ServiceError::EntityNotFound(item.inventur_id))?;
 
-        if inventur.status.as_ref() != STATUS_ACTIVE {
+        let is_active = inventur.status.as_ref() == STATUS_ACTIVE;
+        let is_post_processing = inventur.status.as_ref() == STATUS_POST_PROCESSING;
+
+        if !is_active && !is_post_processing {
             return Err(ServiceError::ValidationError(vec![
                 ValidationFailureItem {
                     field: Arc::from("inventur_id"),
@@ -261,6 +281,19 @@ impl<Deps: InventurCustomEntryServiceDeps> InventurCustomEntryService
                     )),
                 },
             ]));
+        }
+
+        // In post_processing state, only role-based users can update (not token-based)
+        if is_post_processing {
+            let has_claims = match &context {
+                Authentication::Full => false,
+                Authentication::Context(ctx) => {
+                    self.permission_service.has_claims(ctx).await?
+                }
+            };
+            if has_claims {
+                return Err(ServiceError::PermissionDenied);
+            }
         }
 
         // Validate: at least one of count or weight_grams must be provided
@@ -326,8 +359,43 @@ impl<Deps: InventurCustomEntryServiceDeps> InventurCustomEntryService
 
         // Check permission based on the entry's inventur_id
         self.permission_service
-            .check_inventur_permission(PERFORM_INVENTUR_PRIVILEGE, existing.inventur_id, context)
+            .check_inventur_permission(PERFORM_INVENTUR_PRIVILEGE, existing.inventur_id, context.clone())
             .await?;
+
+        // Validate: inventur must be in active or post_processing status
+        let inventur = self
+            .inventur_dao
+            .find_by_id(existing.inventur_id, tx.clone())
+            .await?
+            .ok_or(ServiceError::EntityNotFound(existing.inventur_id))?;
+
+        let is_active = inventur.status.as_ref() == STATUS_ACTIVE;
+        let is_post_processing = inventur.status.as_ref() == STATUS_POST_PROCESSING;
+
+        if !is_active && !is_post_processing {
+            return Err(ServiceError::ValidationError(vec![
+                ValidationFailureItem {
+                    field: Arc::from("inventur_id"),
+                    message: Arc::from(format!(
+                        "Cannot delete custom entries for inventur with status '{}'",
+                        inventur.status
+                    )),
+                },
+            ]));
+        }
+
+        // In post_processing state, only role-based users can delete (not token-based)
+        if is_post_processing {
+            let has_claims = match &context {
+                Authentication::Full => false,
+                Authentication::Context(ctx) => {
+                    self.permission_service.has_claims(ctx).await?
+                }
+            };
+            if has_claims {
+                return Err(ServiceError::PermissionDenied);
+            }
+        }
 
         let mut entry = InventurCustomEntry::from(&existing);
         let now = time::OffsetDateTime::now_utc();

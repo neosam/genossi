@@ -2,6 +2,7 @@ use crate::api;
 use crate::component::{BarcodeScanner, CustomEntryForm, CustomEntryList, QuickMeasureForm, RackProductMeasureList, ScanResult, TopBar};
 use crate::i18n::{use_i18n, Key};
 use crate::router::Route;
+use crate::service::auth::AUTH;
 use crate::service::config::CONFIG;
 use crate::service::container::CONTAINERS;
 use crate::service::inventur::MEASUREMENTS;
@@ -259,8 +260,13 @@ pub fn InventurRackMeasure(inventur_id: String, rack_id: String) -> Element {
         show_scanner.set(false);
     };
 
-    // Check if inventur is active
-    let is_inventur_active = inventur.read().as_ref().map(|inv| inv.status == "active").unwrap_or(false);
+    // Check if editing is allowed
+    let auth = AUTH.read();
+    let can_edit = inventur.read().as_ref()
+        .map(|inv| auth.auth_info.as_ref()
+            .map(|a| a.can_edit_inventur(&inv.status))
+            .unwrap_or(false))
+        .unwrap_or(false);
 
     rsx! {
         div { class: "flex flex-col min-h-screen",
@@ -309,9 +315,9 @@ pub fn InventurRackMeasure(inventur_id: String, rack_id: String) -> Element {
                     }
                 }
 
-                // Warning if inventur is not active
+                // Warning if editing is not allowed
                 if let Some(inv) = inventur.read().as_ref() {
-                    if inv.status != "active" {
+                    if !can_edit {
                         div { class: "bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-3 rounded mb-6",
                             p { class: "font-semibold", "Cannot measure - Inventur is not active" }
                             p { class: "text-sm mt-1",
@@ -402,7 +408,7 @@ pub fn InventurRackMeasure(inventur_id: String, rack_id: String) -> Element {
                         }
                     }
 
-                    if is_inventur_active {
+                    if can_edit {
                         if let Some(product) = selected_product.read().as_ref() {
                             // Show measurement form (as modal overlay)
                             QuickMeasureForm {

@@ -290,6 +290,7 @@ pub enum Key {
     // Inventur status
     StatusDraft,
     StatusActive,
+    StatusPostProcessing,
     StatusCompleted,
     StatusCancelled,
 

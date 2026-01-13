@@ -8,6 +8,7 @@ pub fn InventurStatusBadge(status: String) -> Element {
     let (status_text, status_class) = match status.as_str() {
         "draft" => (i18n.t(Key::StatusDraft), "bg-gray-200 text-gray-800"),
         "active" => (i18n.t(Key::StatusActive), "bg-green-200 text-green-800"),
+        "post_processing" => (i18n.t(Key::StatusPostProcessing), "bg-yellow-200 text-yellow-800"),
         "completed" => (i18n.t(Key::StatusCompleted), "bg-blue-200 text-blue-800"),
         "cancelled" => (i18n.t(Key::StatusCancelled), "bg-red-200 text-red-800"),
         _ => (status.clone().into(), "bg-gray-200 text-gray-800"),

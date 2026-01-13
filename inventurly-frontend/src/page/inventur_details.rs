@@ -2,6 +2,7 @@ use crate::api;
 use crate::component::{InventurForm, TopBar};
 use crate::i18n::{use_i18n, Key};
 use crate::router::Route;
+use crate::service::auth::AUTH;
 use crate::service::config::CONFIG;
 use dioxus::prelude::*;
 use rest_types::InventurTO;
@@ -50,23 +51,33 @@ pub fn InventurDetails(id: String) -> Element {
                     if inventur_id.is_some() {
                         if let Some(inv) = inventur.read().as_ref() {
                             div { class: "flex gap-2",
-                                if inv.status == "active" {
-                                    button {
-                                        class: "px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors",
-                                        onclick: {
-                                            let inventur_id_str = id.clone();
-                                            move |_| {
-                                                nav.push(Route::InventurRackSelection { id: inventur_id_str.clone() });
+                                {
+                                    let auth = AUTH.read();
+                                    let can_edit = auth.auth_info.as_ref()
+                                        .map(|a| a.can_edit_inventur(&inv.status))
+                                        .unwrap_or(false);
+                                    if can_edit {
+                                        rsx! {
+                                            button {
+                                                class: "px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors",
+                                                onclick: {
+                                                    let inventur_id_str = id.clone();
+                                                    move |_| {
+                                                        nav.push(Route::InventurRackSelection { id: inventur_id_str.clone() });
+                                                    }
+                                                },
+                                                {i18n.t(Key::MeasureByRack)}
                                             }
-                                        },
-                                        {i18n.t(Key::MeasureByRack)}
-                                    }
-                                } else {
-                                    button {
-                                        class: "px-4 py-2 bg-gray-400 text-white rounded cursor-not-allowed",
-                                        disabled: true,
-                                        title: "Inventur must be active to measure",
-                                        {i18n.t(Key::MeasureByRack)}
+                                        }
+                                    } else {
+                                        rsx! {
+                                            button {
+                                                class: "px-4 py-2 bg-gray-400 text-white rounded cursor-not-allowed",
+                                                disabled: true,
+                                                title: "Inventur must be active to measure",
+                                                {i18n.t(Key::MeasureByRack)}
+                                            }
+                                        }
                                     }
                                 }
                                 button {

@@ -29,6 +29,7 @@ const MANAGE_INVENTUR_PRIVILEGE: &str = "manage_inventur";
 // Valid status transitions
 const STATUS_DRAFT: &str = "draft";
 const STATUS_ACTIVE: &str = "active";
+const STATUS_POST_PROCESSING: &str = "post_processing";
 const STATUS_COMPLETED: &str = "completed";
 
 /// Generate a random 32-character token for inventur access
@@ -49,7 +50,9 @@ fn generate_token() -> String {
 fn validate_status_transition(current: &str, new: &str) -> Result<(), ServiceError> {
     let valid = match (current, new) {
         (STATUS_DRAFT, STATUS_ACTIVE) => true,
-        (STATUS_ACTIVE, STATUS_COMPLETED) => true,
+        (STATUS_ACTIVE, STATUS_POST_PROCESSING) => true,
+        (STATUS_POST_PROCESSING, STATUS_COMPLETED) => true,
+        (STATUS_COMPLETED, STATUS_POST_PROCESSING) => true, // Bidirectional
         (current, new) if current == new => true, // No change is OK
         _ => false,
     };
@@ -233,7 +236,7 @@ impl<Deps: InventurServiceDeps> InventurService for InventurServiceImpl<Deps> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
 
         self.permission_service
-            .check_inventur_permission(MANAGE_INVENTUR_PRIVILEGE, item.id, context)
+            .check_inventur_permission(MANAGE_INVENTUR_PRIVILEGE, item.id, context.clone())
             .await?;
 
         // Check if the entity exists and get current status
@@ -242,6 +245,19 @@ impl<Deps: InventurServiceDeps> InventurService for InventurServiceImpl<Deps> {
             .find_by_id(item.id, tx.clone())
             .await?
             .ok_or(ServiceError::EntityNotFound(item.id))?;
+
+        // In post_processing state, only role-based users can edit (not token-based)
+        if existing.status.as_ref() == STATUS_POST_PROCESSING {
+            let has_claims = match &context {
+                Authentication::Full => false,
+                Authentication::Context(ctx) => {
+                    self.permission_service.has_claims(ctx).await?
+                }
+            };
+            if has_claims {
+                return Err(ServiceError::PermissionDenied);
+            }
+        }
 
         // Validate status transition
         validate_status_transition(existing.status.as_ref(), item.status.as_ref())?;
@@ -281,7 +297,7 @@ impl<Deps: InventurServiceDeps> InventurService for InventurServiceImpl<Deps> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
 
         self.permission_service
-            .check_inventur_permission(MANAGE_INVENTUR_PRIVILEGE, id, context)
+            .check_inventur_permission(MANAGE_INVENTUR_PRIVILEGE, id, context.clone())
             .await?;
 
         // Get existing entity
@@ -290,6 +306,19 @@ impl<Deps: InventurServiceDeps> InventurService for InventurServiceImpl<Deps> {
             .find_by_id(id, tx.clone())
             .await?
             .ok_or(ServiceError::EntityNotFound(id))?;
+
+        // In post_processing state, only role-based users can change status (not token-based)
+        if existing.status.as_ref() == STATUS_POST_PROCESSING {
+            let has_claims = match &context {
+                Authentication::Full => false,
+                Authentication::Context(ctx) => {
+                    self.permission_service.has_claims(ctx).await?
+                }
+            };
+            if has_claims {
+                return Err(ServiceError::PermissionDenied);
+            }
+        }
 
         // Validate status transition
         validate_status_transition(existing.status.as_ref(), new_status)?;

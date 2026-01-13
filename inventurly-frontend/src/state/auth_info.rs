@@ -36,4 +36,16 @@ impl AuthInfo {
     pub fn get_inventur_id(&self) -> Option<String> {
         self.claims.get("inventur_id").cloned()
     }
+
+    /// Check if user logged in with inventur token (has claims)
+    pub fn is_token_based(&self) -> bool {
+        self.claims.contains_key("inventur_id")
+    }
+
+    /// Check if user can edit inventur data (measurements, custom entries)
+    /// - active: everyone can edit
+    /// - post_processing: only role-based users (not token-based)
+    pub fn can_edit_inventur(&self, status: &str) -> bool {
+        status == "active" || (status == "post_processing" && !self.is_token_based())
+    }
 }
