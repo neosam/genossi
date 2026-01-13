@@ -318,6 +318,15 @@ pub fn translate(key: Key) -> Rc<str> {
         // Tab Labels
         Key::ProductsTab => "Products",
         Key::ContainersTab => "Containers",
+
+        // Custom Entry Management
+        Key::ManageCustomEntries => "Manage Custom Entries",
+        Key::FilterByEan => "Filter by EAN",
+        Key::HasEan => "Has EAN",
+        Key::NoEan => "No EAN",
+        Key::FilterByRack => "Filter by Rack",
+        Key::FilterByMeasuredBy => "Measured by",
+        Key::All => "All",
     }
     .into()
 }

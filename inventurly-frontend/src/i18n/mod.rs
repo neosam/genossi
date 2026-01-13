@@ -370,6 +370,15 @@ pub enum Key {
     // Tab Labels
     ProductsTab,
     ContainersTab,
+
+    // Custom Entry Management
+    ManageCustomEntries,
+    FilterByEan,
+    HasEan,
+    NoEan,
+    FilterByRack,
+    FilterByMeasuredBy,
+    All,
 }
 
 pub struct I18n {

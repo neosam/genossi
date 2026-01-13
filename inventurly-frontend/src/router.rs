@@ -2,6 +2,7 @@ use dioxus::prelude::*;
 
 pub use crate::page::ContainerDetails;
 pub use crate::page::Containers;
+pub use crate::page::CustomEntries;
 pub use crate::page::DuplicateDetection;
 pub use crate::page::Home;
 pub use crate::page::InventurDetails;
@@ -39,6 +40,8 @@ pub enum Route {
     InventurQRCodes { id: String },
     #[route("/inventurs/:id/select-rack")]
     InventurRackSelection { id: String },
+    #[route("/inventurs/:id/custom-entries")]
+    CustomEntries { id: String },
     #[route("/inventurs/:inventur_id/rack/:rack_id/measure")]
     InventurRackMeasure { inventur_id: String, rack_id: String },
     #[route("/rack-management")]

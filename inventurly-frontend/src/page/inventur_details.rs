@@ -90,6 +90,28 @@ pub fn InventurDetails(id: String) -> Element {
                                     },
                                     {i18n.t(Key::PrintQRCodes)}
                                 }
+                                {
+                                    let auth = AUTH.read();
+                                    let is_admin = auth.auth_info.as_ref()
+                                        .map(|a| a.has_privilege("admin"))
+                                        .unwrap_or(false);
+                                    if is_admin {
+                                        rsx! {
+                                            button {
+                                                class: "px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors",
+                                                onclick: {
+                                                    let inventur_id_str = id.clone();
+                                                    move |_| {
+                                                        nav.push(Route::CustomEntries { id: inventur_id_str.clone() });
+                                                    }
+                                                },
+                                                {i18n.t(Key::ManageCustomEntries)}
+                                            }
+                                        }
+                                    } else {
+                                        rsx! {}
+                                    }
+                                }
                             }
                         }
                     }

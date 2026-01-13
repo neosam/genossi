@@ -1,6 +1,7 @@
 pub mod access_denied;
 pub mod container_details;
 pub mod containers;
+pub mod custom_entries;
 pub mod duplicate_detection;
 pub mod home;
 pub mod inventur_details;
@@ -20,6 +21,7 @@ pub mod racks;
 pub use access_denied::AccessDeniedPage;
 pub use container_details::ContainerDetails;
 pub use containers::Containers;
+pub use custom_entries::CustomEntries;
 pub use duplicate_detection::DuplicateDetection;
 pub use home::Home;
 pub use inventur_details::InventurDetails;
