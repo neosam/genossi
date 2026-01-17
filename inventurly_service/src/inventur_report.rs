@@ -17,6 +17,17 @@ pub struct InventurProductReportItem {
     pub racks_measured: Vec<Arc<str>>,
 }
 
+/// Statistics summary for an inventur
+#[derive(Debug, Clone)]
+pub struct InventurStatistics {
+    /// Total monetary value in cents
+    pub total_value_cents: i64,
+    /// Total number of measurements + custom entries
+    pub total_entries: usize,
+    /// Number of distinct products with at least one positive entry
+    pub products_with_entries: usize,
+}
+
 #[automock(type Context = MockContext; type Transaction = MockTransaction;)]
 #[async_trait]
 pub trait InventurReportService: Send + Sync {
@@ -39,6 +50,14 @@ pub trait InventurReportService: Send + Sync {
         context: Authentication<Self::Context>,
         tx: Option<Self::Transaction>,
     ) -> Result<String, ServiceError>;
+
+    /// Get statistics summary for an inventur
+    async fn get_statistics(
+        &self,
+        inventur_id: Uuid,
+        context: Authentication<Self::Context>,
+        tx: Option<Self::Transaction>,
+    ) -> Result<InventurStatistics, ServiceError>;
 }
 
 mockall::mock! {

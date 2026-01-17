@@ -387,6 +387,12 @@ pub enum Key {
     FilterByReviewState,
     MarkAsReviewed,
     MarkAsUnreviewed,
+
+    // Statistics
+    Statistics,
+    TotalValue,
+    TotalEntries,
+    ProductsWithEntries,
 }
 
 pub struct I18n {

@@ -1,5 +1,5 @@
 use crate::api;
-use crate::component::{InventurForm, TopBar};
+use crate::component::{InventurForm, InventurStatistics, TopBar};
 use crate::i18n::{use_i18n, Key};
 use crate::router::Route;
 use crate::service::auth::AUTH;
@@ -117,6 +117,13 @@ pub fn InventurDetails(id: String) -> Element {
                     }
                 }
                 InventurForm { inventur_id }
+
+                // Show statistics for existing inventurs
+                if let Some(inv_id) = inventur_id {
+                    div { class: "mt-6",
+                        InventurStatistics { inventur_id: inv_id }
+                    }
+                }
             }
         }
     }

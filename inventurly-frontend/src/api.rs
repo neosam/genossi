@@ -4,7 +4,7 @@ use rest_types::{
     AddContainerToRackRequestTO, AddProductToRackRequestTO, ChangeInventurStatusRequestTO,
     CheckDuplicateRequestTO, ContainerRackTO, ContainerTO, CsvImportResultTO,
     DuplicateDetectionResultTO, DuplicateMatchTO, InventurCustomEntryTO, InventurMeasurementTO,
-    InventurTO, InventurTokenLoginRequest, ProductRackTO, ProductTO, RackTO,
+    InventurStatisticsTO, InventurTO, InventurTokenLoginRequest, ProductRackTO, ProductTO, RackTO,
     ReorderContainersInRackRequestTO, ReorderProductsInRackRequestTO, SetContainerPositionRequestTO,
     SetProductPositionRequestTO, UserTO,
 };
@@ -585,6 +585,19 @@ pub async fn change_inventur_status(
     response.error_for_status_ref()?;
     let res = response.json().await?;
     info!("Inventur status changed");
+    Ok(res)
+}
+
+pub async fn get_inventur_statistics(
+    config: &Config,
+    inventur_id: Uuid,
+) -> Result<InventurStatisticsTO, reqwest::Error> {
+    info!("Fetching statistics for inventur {inventur_id}");
+    let url = format!("{}/inventur-report/{}/statistics", config.backend, inventur_id);
+    let response = reqwest::get(url).await?;
+    response.error_for_status_ref()?;
+    let res = response.json().await?;
+    info!("Inventur statistics fetched");
     Ok(res)
 }
 

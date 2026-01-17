@@ -502,3 +502,14 @@ pub struct ReorderContainersInRackRequestTO {
     pub container_order: Vec<Uuid>,
 }
 
+/// Statistics summary for an inventur
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct InventurStatisticsTO {
+    /// Total monetary value in cents
+    pub total_value_cents: i64,
+    /// Total number of measurements + custom entries
+    pub total_entries: usize,
+    /// Number of distinct products with at least one positive entry
+    pub products_with_entries: usize,
+}
+

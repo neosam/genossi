@@ -1046,3 +1046,27 @@ impl From<&inventurly_service::inventur_report::InventurProductReportItem>
         }
     }
 }
+
+/// Statistics summary for an inventur
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct InventurStatisticsTO {
+    /// Total monetary value in cents
+    #[schema(example = 125000)]
+    pub total_value_cents: i64,
+    /// Total number of measurements + custom entries
+    #[schema(example = 150)]
+    pub total_entries: usize,
+    /// Number of distinct products with at least one positive entry
+    #[schema(example = 45)]
+    pub products_with_entries: usize,
+}
+
+impl From<&inventurly_service::inventur_report::InventurStatistics> for InventurStatisticsTO {
+    fn from(stats: &inventurly_service::inventur_report::InventurStatistics) -> Self {
+        Self {
+            total_value_cents: stats.total_value_cents,
+            total_entries: stats.total_entries,
+            products_with_entries: stats.products_with_entries,
+        }
+    }
+}

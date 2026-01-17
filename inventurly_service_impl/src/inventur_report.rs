@@ -9,7 +9,7 @@ use inventurly_dao::{
     product::ProductDao, rack::RackDao, TransactionDao,
 };
 use inventurly_service::{
-    inventur_report::{InventurProductReportItem, InventurReportService},
+    inventur_report::{InventurProductReportItem, InventurReportService, InventurStatistics},
     permission::{Authentication, PermissionService, ADMIN_PRIVILEGE},
     ServiceError,
 };
@@ -234,4 +234,164 @@ impl<Deps: InventurReportServiceDeps> InventurReportService for InventurReportSe
         String::from_utf8(data)
             .map_err(|e| ServiceError::InternalError(Arc::from(format!("UTF-8 error: {}", e))))
     }
+
+    async fn get_statistics(
+        &self,
+        inventur_id: Uuid,
+        context: Authentication<Self::Context>,
+        tx: Option<Self::Transaction>,
+    ) -> Result<InventurStatistics, ServiceError> {
+        let tx = self.transaction_dao.use_transaction(tx).await?;
+
+        // Check permission - must have access via claims or be admin
+        self.permission_service
+            .check_inventur_permission(ADMIN_PRIVILEGE, inventur_id, context)
+            .await?;
+
+        // Load all data
+        let measurements = self
+            .inventur_measurement_dao
+            .find_by_inventur_id(inventur_id, tx.clone())
+            .await?;
+
+        let custom_entries = self
+            .inventur_custom_entry_dao
+            .find_by_inventur_id(inventur_id, tx.clone())
+            .await?;
+
+        let products = self.product_dao.all(tx.clone()).await?;
+
+        // Build lookup maps
+        let product_by_id: HashMap<Uuid, _> = products.iter().map(|p| (p.id, p)).collect();
+        let product_by_ean: HashMap<&str, _> =
+            products.iter().map(|p| (p.ean.as_ref(), p)).collect();
+
+        let mut total_value_cents: i64 = 0;
+        let mut total_entries: usize = 0;
+        let mut products_with_positive_entries: std::collections::HashSet<Arc<str>> =
+            std::collections::HashSet::new();
+
+        // Process measurements
+        for measurement in measurements.iter() {
+            if measurement.deleted.is_some() {
+                continue;
+            }
+            total_entries += 1;
+
+            if let Some(product) = product_by_id.get(&measurement.product_id) {
+                // Check if this is a positive entry
+                let has_positive_count = measurement.count.map(|c| c > 0).unwrap_or(false);
+                let has_positive_weight = measurement.weight_grams.map(|w| w > 0).unwrap_or(false);
+
+                if has_positive_count || has_positive_weight {
+                    products_with_positive_entries.insert(product.ean.clone());
+                }
+
+                // Calculate value
+                if product.requires_weighing {
+                    // Weight-based: parse sales_unit to get reference weight
+                    if let Some(weight_grams) = measurement.weight_grams {
+                        if let Some(ref_weight_grams) = parse_sales_unit_to_grams(&product.sales_unit) {
+                            if ref_weight_grams > 0 {
+                                // value = (weight / ref_weight) * price
+                                let value = (weight_grams as f64 / ref_weight_grams as f64) * product.price as f64;
+                                total_value_cents += value.round() as i64;
+                            }
+                        }
+                    }
+                } else {
+                    // Count-based: count * price
+                    if let Some(count) = measurement.count {
+                        total_value_cents += count * product.price;
+                    }
+                }
+            }
+        }
+
+        // Process custom entries (only those with EAN for value calculation)
+        for custom_entry in custom_entries.iter() {
+            if custom_entry.deleted.is_some() {
+                continue;
+            }
+            total_entries += 1;
+
+            if let Some(ean) = &custom_entry.ean {
+                // Check if this is a positive entry
+                let has_positive_count = custom_entry.count.map(|c| c > 0).unwrap_or(false);
+                let has_positive_weight = custom_entry.weight_grams.map(|w| w > 0).unwrap_or(false);
+
+                if has_positive_count || has_positive_weight {
+                    products_with_positive_entries.insert(ean.clone());
+                }
+
+                // Calculate value if product exists
+                if let Some(product) = product_by_ean.get(ean.as_ref()) {
+                    if product.requires_weighing {
+                        // Weight-based
+                        if let Some(weight_grams) = custom_entry.weight_grams {
+                            if let Some(ref_weight_grams) = parse_sales_unit_to_grams(&product.sales_unit) {
+                                if ref_weight_grams > 0 {
+                                    let value = (weight_grams as f64 / ref_weight_grams as f64) * product.price as f64;
+                                    total_value_cents += value.round() as i64;
+                                }
+                            }
+                        }
+                    } else {
+                        // Count-based
+                        if let Some(count) = custom_entry.count {
+                            total_value_cents += count * product.price;
+                        }
+                    }
+                }
+            }
+        }
+
+        self.transaction_dao.commit(tx).await?;
+
+        Ok(InventurStatistics {
+            total_value_cents,
+            total_entries,
+            products_with_entries: products_with_positive_entries.len(),
+        })
+    }
+}
+
+/// Parse sales_unit string (e.g., "100g", "1kg", "250g") to grams
+fn parse_sales_unit_to_grams(sales_unit: &str) -> Option<i64> {
+    let sales_unit = sales_unit.trim().to_lowercase();
+
+    // Try to extract number and unit
+    let mut num_str = String::new();
+    let mut unit_str = String::new();
+    let mut found_digit = false;
+
+    for c in sales_unit.chars() {
+        if c.is_ascii_digit() || c == '.' || c == ',' {
+            if !unit_str.is_empty() {
+                // Digit after unit, invalid format
+                return None;
+            }
+            num_str.push(if c == ',' { '.' } else { c });
+            found_digit = true;
+        } else if c.is_alphabetic() {
+            unit_str.push(c);
+        }
+        // Skip whitespace and other characters
+    }
+
+    if !found_digit {
+        return None;
+    }
+
+    let number: f64 = num_str.parse().ok()?;
+
+    // Convert to grams based on unit
+    let grams = match unit_str.as_str() {
+        "g" | "gr" | "gram" | "grams" => number,
+        "kg" | "kilo" | "kilogram" | "kilograms" => number * 1000.0,
+        "" => number, // Assume grams if no unit
+        _ => return None, // Unknown unit
+    };
+
+    Some(grams.round() as i64)
 }
