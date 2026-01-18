@@ -13,7 +13,7 @@ use inventurly_service::duplicate_detection::{
 use inventurly_service::inventur::{Inventur, InventurService};
 use inventurly_service::inventur_custom_entry::{InventurCustomEntry, InventurCustomEntryService};
 use inventurly_service::inventur_measurement::{InventurMeasurement, InventurMeasurementService};
-use inventurly_service::inventur_report::{InventurProductReportItem, InventurReportService};
+use inventurly_service::inventur_report::{InventurProductReportItem, InventurReportService, InventurStatistics};
 use inventurly_service::permission::PermissionService;
 use inventurly_service::permission::{Authentication, MockContext};
 use inventurly_service::person::{Person, PersonService};
@@ -1401,6 +1401,19 @@ impl InventurReportService for MockInventurReportService {
         _tx: Option<Self::Transaction>,
     ) -> Result<String, inventurly_service::ServiceError> {
         Ok("EAN,Product Name,Short Name,Count,Weight (g),Measurements,Racks\n".to_string())
+    }
+
+    async fn get_statistics(
+        &self,
+        _inventur_id: Uuid,
+        _context: Authentication<Self::Context>,
+        _tx: Option<Self::Transaction>,
+    ) -> Result<InventurStatistics, inventurly_service::ServiceError> {
+        Ok(InventurStatistics {
+            total_value_cents: 0,
+            total_entries: 0,
+            products_with_entries: 0,
+        })
     }
 }
 
