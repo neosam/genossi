@@ -513,3 +513,22 @@ pub struct InventurStatisticsTO {
     pub products_with_entries: usize,
 }
 
+/// Aggregated product data for an inventur report
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct InventurProductReportItemTO {
+    /// Product EAN code
+    pub ean: String,
+    /// Full product name
+    pub product_name: String,
+    /// Short product name
+    pub short_name: String,
+    /// Total count of units measured (summed across all measurements)
+    pub total_count: Option<i64>,
+    /// Total weight in grams measured (summed across all measurements)
+    pub total_weight_grams: Option<i64>,
+    /// Number of individual measurements for this product
+    pub measurement_count: usize,
+    /// List of rack names where this product was measured
+    pub racks_measured: Vec<String>,
+}
+

@@ -393,6 +393,17 @@ pub enum Key {
     TotalValue,
     TotalEntries,
     ProductsWithEntries,
+
+    // Inventur Results
+    InventurResults,
+    ViewResults,
+    TotalCount,
+    TotalWeight,
+    MeasurementCountHeader,
+    RacksMeasured,
+    HasCount,
+    HasWeight,
+    NoResultsFound,
 }
 
 pub struct I18n {

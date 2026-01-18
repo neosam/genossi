@@ -90,6 +90,16 @@ pub fn InventurDetails(id: String) -> Element {
                                     },
                                     {i18n.t(Key::PrintQRCodes)}
                                 }
+                                button {
+                                    class: "px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 transition-colors",
+                                    onclick: {
+                                        let inventur_id_str = id.clone();
+                                        move |_| {
+                                            nav.push(Route::InventurResults { id: inventur_id_str.clone() });
+                                        }
+                                    },
+                                    {i18n.t(Key::ViewResults)}
+                                }
                                 {
                                     let auth = AUTH.read();
                                     let is_admin = auth.auth_info.as_ref()

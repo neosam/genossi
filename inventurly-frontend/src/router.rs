@@ -10,6 +10,7 @@ pub use crate::page::InventurMeasurements;
 pub use crate::page::InventurQRCodes;
 pub use crate::page::InventurRackMeasure;
 pub use crate::page::InventurRackSelection;
+pub use crate::page::InventurResults;
 pub use crate::page::InventurTokenLogin;
 pub use crate::page::Inventurs;
 pub use crate::page::Permissions;
@@ -42,6 +43,8 @@ pub enum Route {
     InventurRackSelection { id: String },
     #[route("/inventurs/:id/custom-entries")]
     CustomEntries { id: String },
+    #[route("/inventurs/:id/results")]
+    InventurResults { id: String },
     #[route("/inventurs/:inventur_id/rack/:rack_id/measure")]
     InventurRackMeasure { inventur_id: String, rack_id: String },
     #[route("/rack-management")]

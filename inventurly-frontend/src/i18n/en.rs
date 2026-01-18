@@ -341,6 +341,17 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::TotalValue => "Total Value",
         Key::TotalEntries => "Total Entries",
         Key::ProductsWithEntries => "Products with Entries",
+
+        // Inventur Results
+        Key::InventurResults => "Inventory Results",
+        Key::ViewResults => "View Results",
+        Key::TotalCount => "Total Count",
+        Key::TotalWeight => "Total Weight",
+        Key::MeasurementCountHeader => "Measurements",
+        Key::RacksMeasured => "Racks",
+        Key::HasCount => "Has Count",
+        Key::HasWeight => "Has Weight",
+        Key::NoResultsFound => "No results found",
     }
     .into()
 }

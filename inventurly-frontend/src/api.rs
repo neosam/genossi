@@ -4,9 +4,10 @@ use rest_types::{
     AddContainerToRackRequestTO, AddProductToRackRequestTO, ChangeInventurStatusRequestTO,
     CheckDuplicateRequestTO, ContainerRackTO, ContainerTO, CsvImportResultTO,
     DuplicateDetectionResultTO, DuplicateMatchTO, InventurCustomEntryTO, InventurMeasurementTO,
-    InventurStatisticsTO, InventurTO, InventurTokenLoginRequest, ProductRackTO, ProductTO, RackTO,
-    ReorderContainersInRackRequestTO, ReorderProductsInRackRequestTO, SetContainerPositionRequestTO,
-    SetProductPositionRequestTO, UserTO,
+    InventurProductReportItemTO, InventurStatisticsTO, InventurTO, InventurTokenLoginRequest,
+    ProductRackTO, ProductTO, RackTO, ReorderContainersInRackRequestTO,
+    ReorderProductsInRackRequestTO, SetContainerPositionRequestTO, SetProductPositionRequestTO,
+    UserTO,
 };
 use tracing::info;
 use uuid::Uuid;
@@ -598,6 +599,19 @@ pub async fn get_inventur_statistics(
     response.error_for_status_ref()?;
     let res = response.json().await?;
     info!("Inventur statistics fetched");
+    Ok(res)
+}
+
+pub async fn get_inventur_product_report(
+    config: &Config,
+    inventur_id: Uuid,
+) -> Result<Vec<InventurProductReportItemTO>, reqwest::Error> {
+    info!("Fetching product report for inventur {inventur_id}");
+    let url = format!("{}/inventur-report/{}/report", config.backend, inventur_id);
+    let response = reqwest::get(url).await?;
+    response.error_for_status_ref()?;
+    let res = response.json().await?;
+    info!("Inventur product report fetched");
     Ok(res)
 }
 
