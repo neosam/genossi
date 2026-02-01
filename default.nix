@@ -10,7 +10,7 @@ let
 in
   rustPlatform.buildRustPackage {
     pname = "inventurly-service";
-    version = "1.2.2";
+    version = "1.3.0-dev";
     src = src;
     nativeBuildInputs = with specificPkgs; [curl pkg-config openssl];
     buildInputs = with specificPkgs; [sqlite openssl];
