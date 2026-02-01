@@ -322,6 +322,7 @@ impl InventurReportServiceDeps for InventurReportServiceDependencies {
     type InventurCustomEntryDao = InventurCustomEntryDao;
     type ProductDao = ProductDao;
     type RackDao = RackDao;
+    type ContainerDao = ContainerDao;
     type PermissionService = PermissionService;
     type TransactionDao = TransactionDao;
 }
@@ -427,7 +428,7 @@ impl RestStateImpl {
         // Create ContainerRackService using struct literal syntax
         let container_rack_service = Arc::new(ContainerRackServiceImpl {
             container_rack_dao: container_rack_dao,
-            container_dao: container_dao,
+            container_dao: container_dao.clone(),
             rack_dao: rack_dao.clone(),
             transaction_dao: transaction_dao.clone(),
             permission_service: permission_service.clone(),
@@ -488,6 +489,7 @@ impl RestStateImpl {
             inventur_custom_entry_dao: inventur_custom_entry_dao,
             product_dao: product_dao,
             rack_dao: rack_dao,
+            container_dao: container_dao.clone(),
             permission_service: permission_service.clone(),
             transaction_dao: transaction_dao,
         });

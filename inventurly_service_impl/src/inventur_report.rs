@@ -5,8 +5,9 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use inventurly_dao::{
-    inventur_custom_entry::InventurCustomEntryDao, inventur_measurement::InventurMeasurementDao,
-    product::ProductDao, rack::RackDao, TransactionDao,
+    container::ContainerDao, inventur_custom_entry::InventurCustomEntryDao,
+    inventur_measurement::InventurMeasurementDao, product::ProductDao, rack::RackDao,
+    TransactionDao,
 };
 use inventurly_service::{
     inventur_report::{InventurProductReportItem, InventurReportService, InventurStatistics},
@@ -22,6 +23,7 @@ gen_service_impl! {
         InventurCustomEntryDao: InventurCustomEntryDao<Transaction = Self::Transaction> = inventur_custom_entry_dao,
         ProductDao: ProductDao<Transaction = Self::Transaction> = product_dao,
         RackDao: RackDao<Transaction = Self::Transaction> = rack_dao,
+        ContainerDao: ContainerDao<Transaction = Self::Transaction> = container_dao,
         PermissionService: PermissionService<Context = Self::Context> = permission_service,
         TransactionDao: TransactionDao<Transaction = Self::Transaction> = transaction_dao,
     }
@@ -110,12 +112,33 @@ impl<Deps: InventurReportServiceDeps> InventurReportService for InventurReportSe
 
         let products = self.product_dao.all(tx.clone()).await?;
         let racks = self.rack_dao.all(tx.clone()).await?;
+        let containers = self.container_dao.all(tx.clone()).await?;
 
         // Build lookup maps
         let product_by_id: HashMap<Uuid, _> = products.iter().map(|p| (p.id, p)).collect();
         let rack_by_id: HashMap<Uuid, _> = racks.iter().map(|r| (r.id, r)).collect();
         let product_by_ean: HashMap<&str, _> =
             products.iter().map(|p| (p.ean.as_ref(), p)).collect();
+        let container_by_id: HashMap<Uuid, _> = containers.iter().map(|c| (c.id, c)).collect();
+
+        // Helper to adjust weight by subtracting container weight
+        let adjust_weight = |weight_grams: Option<i64>, container_id: Option<Uuid>| -> Option<i64> {
+            weight_grams.map(|w| {
+                // Don't subtract container weight from explicit zero
+                if w == 0 {
+                    return 0;
+                }
+                if let Some(cid) = container_id {
+                    if let Some(container) = container_by_id.get(&cid) {
+                        w - container.weight_grams
+                    } else {
+                        w
+                    }
+                } else {
+                    w
+                }
+            })
+        };
 
         // Aggregate by EAN
         let mut aggregated: HashMap<Arc<str>, AggregatedData> = HashMap::new();
@@ -132,9 +155,12 @@ impl<Deps: InventurReportServiceDeps> InventurReportService for InventurReportSe
                     ..Default::default()
                 });
 
+                // Adjust weight by subtracting container weight
+                let adjusted_weight = adjust_weight(measurement.weight_grams, measurement.container_id);
+
                 entry.add_count(measurement.count);
-                entry.add_weight(measurement.weight_grams);
-                entry.add_value(measurement.count, measurement.weight_grams);
+                entry.add_weight(adjusted_weight);
+                entry.add_value(measurement.count, adjusted_weight);
                 entry.measurement_count += 1;
 
                 if let Some(rack_id) = measurement.rack_id {
@@ -177,9 +203,12 @@ impl<Deps: InventurReportServiceDeps> InventurReportService for InventurReportSe
                     ..Default::default()
                 });
 
+                // Adjust weight by subtracting container weight
+                let adjusted_weight = adjust_weight(custom_entry.weight_grams, custom_entry.container_id);
+
                 entry.add_count(custom_entry.count);
-                entry.add_weight(custom_entry.weight_grams);
-                entry.add_value(custom_entry.count, custom_entry.weight_grams);
+                entry.add_weight(adjusted_weight);
+                entry.add_value(custom_entry.count, adjusted_weight);
                 entry.measurement_count += 1;
 
                 if let Some(rack_id) = custom_entry.rack_id {
@@ -311,11 +340,32 @@ impl<Deps: InventurReportServiceDeps> InventurReportService for InventurReportSe
             .await?;
 
         let products = self.product_dao.all(tx.clone()).await?;
+        let containers = self.container_dao.all(tx.clone()).await?;
 
         // Build lookup maps
         let product_by_id: HashMap<Uuid, _> = products.iter().map(|p| (p.id, p)).collect();
         let product_by_ean: HashMap<&str, _> =
             products.iter().map(|p| (p.ean.as_ref(), p)).collect();
+        let container_by_id: HashMap<Uuid, _> = containers.iter().map(|c| (c.id, c)).collect();
+
+        // Helper to adjust weight by subtracting container weight
+        let adjust_weight = |weight_grams: Option<i64>, container_id: Option<Uuid>| -> Option<i64> {
+            weight_grams.map(|w| {
+                // Don't subtract container weight from explicit zero
+                if w == 0 {
+                    return 0;
+                }
+                if let Some(cid) = container_id {
+                    if let Some(container) = container_by_id.get(&cid) {
+                        w - container.weight_grams
+                    } else {
+                        w
+                    }
+                } else {
+                    w
+                }
+            })
+        };
 
         let mut total_value_cents: i64 = 0;
         let mut total_entries: usize = 0;
@@ -330,9 +380,12 @@ impl<Deps: InventurReportServiceDeps> InventurReportService for InventurReportSe
             total_entries += 1;
 
             if let Some(product) = product_by_id.get(&measurement.product_id) {
+                // Adjust weight by subtracting container weight
+                let adjusted_weight = adjust_weight(measurement.weight_grams, measurement.container_id);
+
                 // Check if this is a positive entry
                 let has_positive_count = measurement.count.map(|c| c > 0).unwrap_or(false);
-                let has_positive_weight = measurement.weight_grams.map(|w| w > 0).unwrap_or(false);
+                let has_positive_weight = adjusted_weight.map(|w| w > 0).unwrap_or(false);
 
                 if has_positive_count || has_positive_weight {
                     products_with_positive_entries.insert(product.ean.clone());
@@ -341,7 +394,7 @@ impl<Deps: InventurReportServiceDeps> InventurReportService for InventurReportSe
                 // Calculate value
                 if product.requires_weighing {
                     // Price is always per kg (1000g), measurement is always in grams
-                    if let Some(weight_grams) = measurement.weight_grams {
+                    if let Some(weight_grams) = adjusted_weight {
                         let value = (weight_grams as f64 / 1000.0) * product.price as f64;
                         total_value_cents += value.round() as i64;
                     }
@@ -362,9 +415,12 @@ impl<Deps: InventurReportServiceDeps> InventurReportService for InventurReportSe
             total_entries += 1;
 
             if let Some(ean) = &custom_entry.ean {
+                // Adjust weight by subtracting container weight
+                let adjusted_weight = adjust_weight(custom_entry.weight_grams, custom_entry.container_id);
+
                 // Check if this is a positive entry
                 let has_positive_count = custom_entry.count.map(|c| c > 0).unwrap_or(false);
-                let has_positive_weight = custom_entry.weight_grams.map(|w| w > 0).unwrap_or(false);
+                let has_positive_weight = adjusted_weight.map(|w| w > 0).unwrap_or(false);
 
                 if has_positive_count || has_positive_weight {
                     products_with_positive_entries.insert(ean.clone());
@@ -374,7 +430,7 @@ impl<Deps: InventurReportServiceDeps> InventurReportService for InventurReportSe
                 if let Some(product) = product_by_ean.get(ean.as_ref()) {
                     if product.requires_weighing {
                         // Price is always per kg (1000g), measurement is always in grams
-                        if let Some(weight_grams) = custom_entry.weight_grams {
+                        if let Some(weight_grams) = adjusted_weight {
                             let value = (weight_grams as f64 / 1000.0) * product.price as f64;
                             total_value_cents += value.round() as i64;
                         }

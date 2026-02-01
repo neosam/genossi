@@ -102,14 +102,21 @@ pub fn QuickMeasureForm(
                 return false;
             }
 
-            // If product requires weighing and container is selected, check weight > (user_tara + container_weight)
-            // Skip validation for 0 (assume 0 = empty container)
+            // Reject negative values
+            if let Some(val) = parsed_grams {
+                if val < 0 {
+                    return false;
+                }
+            }
+
+            // If product requires weighing and container is selected, check weight >= (user_tara + container_weight)
+            // Skip validation for 0 (assume 0 = empty/no product)
             if product.requires_weighing {
                 if let Some(container_id) = *selected_container.read() {
                     if let Some(container) = containers_clone.iter().find(|c| c.id == Some(container_id)) {
                         if let Some(weight) = parsed_grams {
                             let min_weight = tara::get_tara_grams() + container.weight_grams;
-                            if weight > 0 && weight <= min_weight {
+                            if weight > 0 && weight < min_weight {
                                 return false;
                             }
                         }
@@ -164,8 +171,11 @@ pub fn QuickMeasureForm(
                     }
 
                     // Apply custom tara (body weight) subtraction for weight measurements
+                    // Skip tara subtraction for explicit zero (0 means "no product")
                     let final_weight = if requires_weighing {
-                        parsed_grams.map(|w| w - tara::get_tara_grams())
+                        parsed_grams.map(|w| {
+                            if w == 0 { 0 } else { w - tara::get_tara_grams() }
+                        })
                     } else {
                         None
                     };

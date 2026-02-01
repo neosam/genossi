@@ -149,6 +149,18 @@ pub fn CustomEntryForm(
                 }
             });
 
+            // Reject negative values
+            if let Some(c) = parsed_count {
+                if c < 0 {
+                    return false;
+                }
+            }
+            if let Some(w) = parsed_weight {
+                if w < 0 {
+                    return false;
+                }
+            }
+
             // Validation based on mode
             match mode {
                 EntryMode::Custom => {
@@ -166,8 +178,8 @@ pub fn CustomEntryForm(
                     // Check product's requires_weighing flag
                     if let Some(product) = selected_product.read().as_ref() {
                         if product.requires_weighing {
-                            // Require weight
-                            if parsed_weight.is_none() || parsed_weight == Some(0) {
+                            // Require weight (0 is valid - means "no product")
+                            if parsed_weight.is_none() {
                                 return false;
                             }
                         } else {
@@ -180,14 +192,15 @@ pub fn CustomEntryForm(
                 }
             }
 
-            // If weight is provided with container, weight must be > container weight
+            // If weight is provided with container, weight must be >= (tara + container weight)
             if let Some(weight_val) = parsed_weight {
                 if weight_val > 0 {
                     if let Some(container_id) = *selected_container.read() {
                         if let Some(container) =
                             containers_clone.iter().find(|c| c.id == Some(container_id))
                         {
-                            if weight_val <= container.weight_grams {
+                            let min_weight = tara::get_tara_grams() + container.weight_grams;
+                            if weight_val < min_weight {
                                 return false;
                             }
                         }
@@ -254,7 +267,10 @@ pub fn CustomEntryForm(
                     };
 
                     // Subtract global tara (body weight) from weight measurement
-                    let final_weight = parsed_weight.map(|w| w - tara::get_tara_grams());
+                    // Skip tara subtraction for explicit zero (0 means "no product")
+                    let final_weight = parsed_weight.map(|w| {
+                        if w == 0 { 0 } else { w - tara::get_tara_grams() }
+                    });
 
                     let entry = InventurCustomEntryTO {
                         id: existing_id,
