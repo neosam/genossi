@@ -208,6 +208,45 @@ impl ProductDao for ProductDaoImpl {
         Ok(())
     }
 
+    // Optimized find_by_ean using index lookup instead of full table scan
+    async fn find_by_ean(
+        &self,
+        ean: &str,
+        tx: Self::Transaction,
+    ) -> Result<Option<ProductEntity>, DaoError> {
+        let row = sqlx::query_as::<_, ProductDb>(
+            "SELECT id, ean, name, short_name, sales_unit, requires_weighing, price, created, deleted, version
+             FROM product
+             WHERE ean = ? AND deleted IS NULL"
+        )
+        .bind(ean)
+        .fetch_optional(tx.tx.lock().await.as_mut())
+        .await
+        .map_err(|e| DaoError::DatabaseError(Arc::from(e.to_string())))?;
+
+        row.as_ref().map(ProductEntity::try_from).transpose()
+    }
+
+    // Optimized find_by_id using primary key lookup instead of full table scan
+    async fn find_by_id(
+        &self,
+        id: Uuid,
+        tx: Self::Transaction,
+    ) -> Result<Option<ProductEntity>, DaoError> {
+        let id_bytes = id.as_bytes().to_vec();
+        let row = sqlx::query_as::<_, ProductDb>(
+            "SELECT id, ean, name, short_name, sales_unit, requires_weighing, price, created, deleted, version
+             FROM product
+             WHERE id = ? AND deleted IS NULL"
+        )
+        .bind(id_bytes)
+        .fetch_optional(tx.tx.lock().await.as_mut())
+        .await
+        .map_err(|e| DaoError::DatabaseError(Arc::from(e.to_string())))?;
+
+        row.as_ref().map(ProductEntity::try_from).transpose()
+    }
+
     // Optimized search implementation using SQL LIKE queries
     async fn search(
         &self,

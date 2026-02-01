@@ -244,8 +244,8 @@ in
               extraConfig = ''
                 rewrite ^/api/(.*)$ /$1 break;
                 proxy_connect_timeout 60s;
-                proxy_send_timeout 600s;
-                proxy_read_timeout 600s;
+                proxy_send_timeout 1200s;
+                proxy_read_timeout 1200s;
               '';
             };
             locations."= /config.json" = {
