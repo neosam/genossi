@@ -333,7 +333,7 @@ pub fn InventurResults(id: String) -> Element {
                 }
 
                 // Results table
-                div { class: "bg-white rounded-lg shadow",
+                div { class: "bg-white rounded-lg shadow overflow-auto max-h-[calc(100vh-300px)]",
                     if is_loading {
                         div { class: "p-6 text-center text-gray-500",
                             "{i18n.t(Key::Loading)}"
@@ -347,96 +347,94 @@ pub fn InventurResults(id: String) -> Element {
                             "{i18n.t(Key::NoResultsFound)}"
                         }
                     } else {
-                        div { class: "overflow-x-auto",
-                            table { class: "w-full",
-                                thead {
-                                    tr { class: "border-b bg-gray-50",
-                                        th { class: "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider",
-                                            "{i18n.t(Key::ProductEan)}"
-                                        }
-                                        th { class: "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider",
-                                            "{i18n.t(Key::ProductName)}"
-                                        }
-                                        th { class: "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider",
-                                            "{i18n.t(Key::ProductShortName)}"
-                                        }
-                                        th { class: "px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider",
-                                            "{i18n.t(Key::TotalCount)}"
-                                        }
-                                        th { class: "px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider",
-                                            "{i18n.t(Key::TotalWeight)} (g)"
-                                        }
-                                        th { class: "px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider",
-                                            "{i18n.t(Key::MeasurementCountHeader)}"
-                                        }
-                                        th { class: "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider",
-                                            "{i18n.t(Key::RacksMeasured)}"
-                                        }
-                                        th { class: "px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider",
-                                            "{i18n.t(Key::PricePerKg)}"
-                                        }
-                                        th { class: "px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider",
-                                            "{i18n.t(Key::TotalValue)}"
-                                        }
+                        table { class: "w-full",
+                            thead {
+                                tr { class: "border-b bg-gray-50",
+                                    th { class: "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider",
+                                        "{i18n.t(Key::ProductEan)}"
+                                    }
+                                    th { class: "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider",
+                                        "{i18n.t(Key::ProductName)}"
+                                    }
+                                    th { class: "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider",
+                                        "{i18n.t(Key::ProductShortName)}"
+                                    }
+                                    th { class: "px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider",
+                                        "{i18n.t(Key::TotalCount)}"
+                                    }
+                                    th { class: "px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider",
+                                        "{i18n.t(Key::TotalWeight)} (g)"
+                                    }
+                                    th { class: "px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider",
+                                        "{i18n.t(Key::MeasurementCountHeader)}"
+                                    }
+                                    th { class: "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider",
+                                        "{i18n.t(Key::RacksMeasured)}"
+                                    }
+                                    th { class: "px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider",
+                                        "{i18n.t(Key::PricePerKg)}"
+                                    }
+                                    th { class: "px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider",
+                                        "{i18n.t(Key::TotalValue)}"
                                     }
                                 }
-                                tbody {
-                                    for item in filtered_results.iter() {
-                                        tr { class: "border-b hover:bg-gray-50",
-                                            td { class: "px-6 py-4 whitespace-nowrap text-sm font-mono",
-                                                "{item.ean}"
+                            }
+                            tbody {
+                                for item in filtered_results.iter() {
+                                    tr { class: "border-b hover:bg-gray-50",
+                                        td { class: "px-6 py-4 whitespace-nowrap text-sm font-mono",
+                                            "{item.ean}"
+                                        }
+                                        td { class: "px-6 py-4 text-sm",
+                                            "{item.product_name}"
+                                        }
+                                        td { class: "px-6 py-4 text-sm text-gray-500",
+                                            "{item.short_name}"
+                                        }
+                                        td { class: "px-6 py-4 whitespace-nowrap text-sm text-right",
+                                            if let Some(count) = item.total_count {
+                                                "{count}"
+                                            } else {
+                                                "-"
                                             }
-                                            td { class: "px-6 py-4 text-sm",
-                                                "{item.product_name}"
+                                        }
+                                        td { class: "px-6 py-4 whitespace-nowrap text-sm text-right",
+                                            if let Some(weight) = item.total_weight_grams {
+                                                "{weight}"
+                                            } else {
+                                                "-"
                                             }
-                                            td { class: "px-6 py-4 text-sm text-gray-500",
-                                                "{item.short_name}"
-                                            }
-                                            td { class: "px-6 py-4 whitespace-nowrap text-sm text-right",
-                                                if let Some(count) = item.total_count {
-                                                    "{count}"
-                                                } else {
-                                                    "-"
+                                        }
+                                        td { class: "px-6 py-4 whitespace-nowrap text-sm text-right",
+                                            "{item.measurement_count}"
+                                        }
+                                        td { class: "px-6 py-4 text-sm",
+                                            for (i, rack) in item.racks_measured.iter().enumerate() {
+                                                if i > 0 {
+                                                    span { ", " }
+                                                }
+                                                Link {
+                                                    to: Route::InventurRackMeasure {
+                                                        inventur_id: id.clone(),
+                                                        rack_id: rack.id.to_string(),
+                                                    },
+                                                    class: "text-blue-600 hover:text-blue-800 hover:underline",
+                                                    "{rack.name}"
                                                 }
                                             }
-                                            td { class: "px-6 py-4 whitespace-nowrap text-sm text-right",
-                                                if let Some(weight) = item.total_weight_grams {
-                                                    "{weight}"
-                                                } else {
-                                                    "-"
-                                                }
+                                        }
+                                        td { class: "px-6 py-4 whitespace-nowrap text-sm text-right",
+                                            if let Some(price_cents) = item.price_cents {
+                                                "{i18n.format_price(price_cents)}"
+                                            } else {
+                                                "-"
                                             }
-                                            td { class: "px-6 py-4 whitespace-nowrap text-sm text-right",
-                                                "{item.measurement_count}"
-                                            }
-                                            td { class: "px-6 py-4 text-sm",
-                                                for (i, rack) in item.racks_measured.iter().enumerate() {
-                                                    if i > 0 {
-                                                        span { ", " }
-                                                    }
-                                                    Link {
-                                                        to: Route::InventurRackMeasure {
-                                                            inventur_id: id.clone(),
-                                                            rack_id: rack.id.to_string(),
-                                                        },
-                                                        class: "text-blue-600 hover:text-blue-800 hover:underline",
-                                                        "{rack.name}"
-                                                    }
-                                                }
-                                            }
-                                            td { class: "px-6 py-4 whitespace-nowrap text-sm text-right",
-                                                if let Some(price_cents) = item.price_cents {
-                                                    "{i18n.format_price(price_cents)}"
-                                                } else {
-                                                    "-"
-                                                }
-                                            }
-                                            td { class: "px-6 py-4 whitespace-nowrap text-sm text-right",
-                                                if let Some(total_value_cents) = item.total_value_cents {
-                                                    "{i18n.format_price(total_value_cents)}"
-                                                } else {
-                                                    "-"
-                                                }
+                                        }
+                                        td { class: "px-6 py-4 whitespace-nowrap text-sm text-right",
+                                            if let Some(total_value_cents) = item.total_value_cents {
+                                                "{i18n.format_price(total_value_cents)}"
+                                            } else {
+                                                "-"
                                             }
                                         }
                                     }
