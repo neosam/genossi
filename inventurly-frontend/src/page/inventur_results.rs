@@ -180,8 +180,15 @@ pub fn InventurResults(id: String) -> Element {
                             "{i18n.t(Key::InventurResults)}"
                         }
                     }
-                    span { class: "text-gray-500",
-                        "({filtered_results.len()} / {all_results.len()})"
+                    div { class: "flex items-center gap-4",
+                        a {
+                            class: "px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 text-sm font-medium",
+                            href: "{CONFIG.read().backend}/inventur-report/{inventur_id}/report/csv",
+                            "{i18n.t(Key::DownloadCsv)}"
+                        }
+                        span { class: "text-gray-500",
+                            "({filtered_results.len()} / {all_results.len()})"
+                        }
                     }
                 }
 
