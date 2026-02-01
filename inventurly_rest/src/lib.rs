@@ -10,6 +10,7 @@ pub mod inventur_measurement;
 pub mod inventur_report;
 pub mod permission;
 pub mod person;
+pub mod price_import;
 pub mod product;
 pub mod product_rack;
 pub mod rack;
@@ -166,6 +167,10 @@ pub trait RestStateDef: Clone + Send + Sync + 'static {
         + Send
         + Sync
         + 'static;
+    type PriceImportService: inventurly_service::price_import::PriceImportService<Context = ContextType>
+        + Send
+        + Sync
+        + 'static;
     type SessionService: inventurly_service::session::SessionService + Send + Sync + 'static;
 
     fn person_service(&self) -> Arc<Self::PersonService>;
@@ -181,6 +186,7 @@ pub trait RestStateDef: Clone + Send + Sync + 'static {
     fn csv_import_service(&self) -> Arc<Self::CsvImportService>;
     fn duplicate_detection_service(&self) -> Arc<Self::DuplicateDetectionService>;
     fn permission_service(&self) -> Arc<Self::PermissionService>;
+    fn price_import_service(&self) -> Arc<Self::PriceImportService>;
     fn session_service(&self) -> Arc<Self::SessionService>;
 }
 
@@ -199,6 +205,7 @@ pub trait RestStateDef: Clone + Send + Sync + 'static {
         (path = "/inventur-custom-entry", api = inventur_custom_entry::ApiDoc),
         (path = "/inventur-report", api = inventur_report::ApiDoc),
         (path = "/csv-import", api = csv_import::CsvImportApiDoc),
+        (path = "/price-import", api = price_import::PriceImportApiDoc),
         (path = "/duplicate-detection", api = duplicate_detection::DuplicateDetectionApiDoc),
         (path = "/permission", api = permission::ApiDoc)
     )
@@ -340,6 +347,7 @@ pub async fn create_app<RestState: RestStateDef>(rest_state: RestState) -> Route
         .nest("/inventur-custom-entry", inventur_custom_entry::generate_route())
         .nest("/inventur-report", inventur_report::generate_route())
         .nest("/csv-import", csv_import::generate_route())
+        .nest("/price-import", price_import::generate_route())
         .nest(
             "/duplicate-detection",
             duplicate_detection::generate_route(),

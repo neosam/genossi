@@ -7,6 +7,7 @@ use inventurly_service::container_rack::{ContainerRack, ContainerRackService};
 use inventurly_service::csv_import::{
     CsvImportResult, CsvImportService, CsvProductRow, ImportAction,
 };
+use inventurly_service::price_import::{PriceImportResult, PriceImportService};
 use inventurly_service::duplicate_detection::{
     DuplicateDetectionConfig, DuplicateDetectionResult, DuplicateDetectionService, DuplicateMatch,
 };
@@ -33,6 +34,7 @@ struct TestRestState {
     rack_service: Arc<MockRackService>,
     product_rack_service: Arc<MockProductRackService>,
     csv_import_service: Arc<MockCsvImportService>,
+    price_import_service: Arc<MockPriceImportService>,
     duplicate_detection_service: Arc<MockDuplicateDetectionService>,
     permission_service: Arc<MockPermissionService>,
     session_service: Arc<MockSessionService>,
@@ -50,6 +52,7 @@ impl RestStateDef for TestRestState {
     type RackService = MockRackService;
     type ProductRackService = MockProductRackService;
     type CsvImportService = MockCsvImportService;
+    type PriceImportService = MockPriceImportService;
     type DuplicateDetectionService = MockDuplicateDetectionService;
     type PermissionService = MockPermissionService;
     type SessionService = MockSessionService;
@@ -86,6 +89,10 @@ impl RestStateDef for TestRestState {
 
     fn permission_service(&self) -> Arc<Self::PermissionService> {
         self.permission_service.clone()
+    }
+
+    fn price_import_service(&self) -> Arc<Self::PriceImportService> {
+        self.price_import_service.clone()
     }
 
     fn session_service(&self) -> Arc<Self::SessionService> {
@@ -552,6 +559,32 @@ impl CsvImportService for MockCsvImportService {
         _transaction: Option<Self::Transaction>,
     ) -> Result<ImportAction, inventurly_service::ServiceError> {
         Ok(ImportAction::Created)
+    }
+}
+
+#[derive(Clone)]
+struct MockPriceImportService;
+
+#[async_trait::async_trait]
+impl PriceImportService for MockPriceImportService {
+    #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
+    type Context = MockContext;
+    #[cfg(feature = "oidc")]
+    type Context = inventurly_service::auth_types::AuthenticatedContext;
+    type Transaction = inventurly_dao::MockTransaction;
+
+    async fn import_prices_csv(
+        &self,
+        _csv_content: &str,
+        _auth: Authentication<Self::Context>,
+        _transaction: Option<Self::Transaction>,
+    ) -> Result<PriceImportResult, inventurly_service::ServiceError> {
+        Ok(PriceImportResult {
+            total_rows: 0,
+            updated: 0,
+            skipped: 0,
+            errors: vec![],
+        })
     }
 }
 
@@ -1424,6 +1457,7 @@ fn create_test_app() -> axum::Router {
         rack_service: Arc::new(MockRackService),
         product_rack_service: Arc::new(MockProductRackService),
         csv_import_service: Arc::new(MockCsvImportService),
+        price_import_service: Arc::new(MockPriceImportService),
         duplicate_detection_service: Arc::new(MockDuplicateDetectionService),
         permission_service: Arc::new(MockPermissionService),
         session_service: Arc::new(MockSessionService),

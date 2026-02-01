@@ -24,6 +24,7 @@ use inventurly_service_impl::{
     inventur_report::{InventurReportServiceDeps, InventurReportServiceImpl},
     permission::PermissionServiceDeps,
     person::{PersonServiceDeps, PersonServiceImpl},
+    price_import::{PriceImportServiceDeps, PriceImportServiceImpl},
     product::{ProductServiceDeps, ProductServiceImpl},
     product_rack::ProductRackServiceImpl,
     rack::{RackServiceDeps, RackServiceImpl},
@@ -236,6 +237,22 @@ impl CsvImportServiceDeps for CsvImportServiceDependencies {
 type CsvImportService =
     inventurly_service_impl::csv_import::CsvImportServiceImpl<CsvImportServiceDependencies>;
 
+pub struct PriceImportServiceDependencies;
+
+unsafe impl Send for PriceImportServiceDependencies {}
+unsafe impl Sync for PriceImportServiceDependencies {}
+
+impl PriceImportServiceDeps for PriceImportServiceDependencies {
+    type Context = Context;
+    type Transaction = Transaction;
+    type ProductService = ProductService;
+    type PermissionService = PermissionService;
+    type TransactionDao = TransactionDao;
+}
+
+type PriceImportService =
+    inventurly_service_impl::price_import::PriceImportServiceImpl<PriceImportServiceDependencies>;
+
 pub struct InventurServiceDependencies;
 
 unsafe impl Send for InventurServiceDependencies {}
@@ -327,6 +344,7 @@ pub struct RestStateImpl {
     inventur_custom_entry_service: Arc<InventurCustomEntryService>,
     inventur_report_service: Arc<InventurReportService>,
     csv_import_service: Arc<CsvImportService>,
+    price_import_service: Arc<PriceImportService>,
     duplicate_detection_service: Arc<DuplicateDetectionService>,
     permission_service: Arc<PermissionService>,
     session_service: Arc<SessionService>,
@@ -431,6 +449,13 @@ impl RestStateImpl {
             transaction_dao: transaction_dao.clone(),
         });
 
+        // Create PriceImportService using struct literal syntax
+        let price_import_service = Arc::new(PriceImportServiceImpl {
+            product_service: product_service.clone(),
+            permission_service: permission_service.clone(),
+            transaction_dao: transaction_dao.clone(),
+        });
+
         // Create InventurService using struct literal syntax
         let inventur_service = Arc::new(InventurServiceImpl {
             inventur_dao: inventur_dao.clone(),
@@ -488,6 +513,7 @@ impl RestStateImpl {
             inventur_custom_entry_service,
             inventur_report_service,
             csv_import_service,
+            price_import_service,
             duplicate_detection_service,
             permission_service,
             session_service,
@@ -507,6 +533,7 @@ impl inventurly_rest::RestStateDef for RestStateImpl {
     type InventurCustomEntryService = InventurCustomEntryService;
     type InventurReportService = InventurReportService;
     type CsvImportService = CsvImportService;
+    type PriceImportService = PriceImportService;
     type DuplicateDetectionService = DuplicateDetectionService;
     type PermissionService = PermissionService;
     type SessionService = SessionService;
@@ -561,6 +588,10 @@ impl inventurly_rest::RestStateDef for RestStateImpl {
 
     fn permission_service(&self) -> Arc<Self::PermissionService> {
         self.permission_service.clone()
+    }
+
+    fn price_import_service(&self) -> Arc<Self::PriceImportService> {
+        self.price_import_service.clone()
     }
 
     fn session_service(&self) -> Arc<Self::SessionService> {

@@ -9,6 +9,7 @@ pub mod inventur_report;
 pub mod macros;
 pub mod permission;
 pub mod person;
+pub mod price_import;
 pub mod product;
 pub mod product_rack;
 pub mod rack;
