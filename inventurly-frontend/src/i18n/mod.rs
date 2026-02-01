@@ -404,6 +404,7 @@ pub enum Key {
     HasCount,
     HasWeight,
     NoResultsFound,
+    PricePerKg,
 }
 
 pub struct I18n {

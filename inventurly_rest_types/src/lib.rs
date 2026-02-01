@@ -1029,6 +1029,14 @@ pub struct InventurProductReportItemTO {
     /// List of rack names where this product was measured
     #[schema(example = json!(["Regal A", "Regal B"]))]
     pub racks_measured: Vec<String>,
+    /// Unit price in cents (None if product not found in database)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(example = 539)]
+    pub price_cents: Option<i64>,
+    /// Calculated total value in cents based on count/weight (None if can't calculate)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(example = 8085)]
+    pub total_value_cents: Option<i64>,
 }
 
 impl From<&inventurly_service::inventur_report::InventurProductReportItem>
@@ -1043,6 +1051,8 @@ impl From<&inventurly_service::inventur_report::InventurProductReportItem>
             total_weight_grams: item.total_weight_grams,
             measurement_count: item.measurement_count,
             racks_measured: item.racks_measured.iter().map(|r| r.to_string()).collect(),
+            price_cents: item.price_cents,
+            total_value_cents: item.total_value_cents,
         }
     }
 }

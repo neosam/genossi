@@ -366,6 +366,12 @@ pub fn InventurResults(id: String) -> Element {
                                         th { class: "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider",
                                             "{i18n.t(Key::RacksMeasured)}"
                                         }
+                                        th { class: "px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider",
+                                            "{i18n.t(Key::PricePerKg)}"
+                                        }
+                                        th { class: "px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider",
+                                            "{i18n.t(Key::TotalValue)}"
+                                        }
                                     }
                                 }
                                 tbody {
@@ -399,6 +405,20 @@ pub fn InventurResults(id: String) -> Element {
                                             }
                                             td { class: "px-6 py-4 text-sm text-gray-500",
                                                 "{item.racks_measured.join(\", \")}"
+                                            }
+                                            td { class: "px-6 py-4 whitespace-nowrap text-sm text-right",
+                                                if let Some(price_cents) = item.price_cents {
+                                                    "{i18n.format_price(price_cents)}"
+                                                } else {
+                                                    "-"
+                                                }
+                                            }
+                                            td { class: "px-6 py-4 whitespace-nowrap text-sm text-right",
+                                                if let Some(total_value_cents) = item.total_value_cents {
+                                                    "{i18n.format_price(total_value_cents)}"
+                                                } else {
+                                                    "-"
+                                                }
                                             }
                                         }
                                     }

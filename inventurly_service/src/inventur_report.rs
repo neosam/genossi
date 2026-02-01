@@ -15,6 +15,10 @@ pub struct InventurProductReportItem {
     pub total_weight_grams: Option<i64>,
     pub measurement_count: usize,
     pub racks_measured: Vec<Arc<str>>,
+    /// Unit price in cents (None if product not found in database)
+    pub price_cents: Option<i64>,
+    /// Calculated total value in cents based on count/weight (None if can't calculate)
+    pub total_value_cents: Option<i64>,
 }
 
 /// Statistics summary for an inventur

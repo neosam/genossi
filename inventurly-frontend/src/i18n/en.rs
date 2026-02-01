@@ -352,6 +352,7 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::HasCount => "Has Count",
         Key::HasWeight => "Has Weight",
         Key::NoResultsFound => "No results found",
+        Key::PricePerKg => "Price / kg",
     }
     .into()
 }

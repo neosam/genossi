@@ -530,5 +530,11 @@ pub struct InventurProductReportItemTO {
     pub measurement_count: usize,
     /// List of rack names where this product was measured
     pub racks_measured: Vec<String>,
+    /// Unit price in cents (None if product not found in database)
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub price_cents: Option<i64>,
+    /// Calculated total value in cents based on count/weight (None if can't calculate)
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub total_value_cents: Option<i64>,
 }
 

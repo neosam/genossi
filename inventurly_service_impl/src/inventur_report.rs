@@ -36,6 +36,9 @@ struct AggregatedData {
     total_weight_grams: Option<i64>,
     measurement_count: usize,
     racks_measured: Vec<Arc<str>>,
+    price_cents: Option<i64>,
+    total_value_cents: Option<i64>,
+    requires_weighing: Option<bool>,
 }
 
 impl AggregatedData {
@@ -54,6 +57,24 @@ impl AggregatedData {
     fn add_rack(&mut self, rack_name: Arc<str>) {
         if !self.racks_measured.contains(&rack_name) {
             self.racks_measured.push(rack_name);
+        }
+    }
+
+    fn add_value(&mut self, count: Option<i64>, weight_grams: Option<i64>) {
+        if let (Some(price), Some(requires_weighing)) = (self.price_cents, self.requires_weighing) {
+            if requires_weighing {
+                // Price is always per kg (1000g), measurement is always in grams
+                if let Some(weight) = weight_grams {
+                    let value = (weight as f64 / 1000.0) * price as f64;
+                    self.total_value_cents = Some(
+                        self.total_value_cents.unwrap_or(0) + value.round() as i64
+                    );
+                }
+            } else if let Some(count) = count {
+                self.total_value_cents = Some(
+                    self.total_value_cents.unwrap_or(0) + count * price
+                );
+            }
         }
     }
 }
@@ -106,11 +127,14 @@ impl<Deps: InventurReportServiceDeps> InventurReportService for InventurReportSe
                 let entry = aggregated.entry(ean).or_insert_with(|| AggregatedData {
                     product_name: product.name.clone(),
                     short_name: product.short_name.clone(),
+                    price_cents: Some(product.price),
+                    requires_weighing: Some(product.requires_weighing),
                     ..Default::default()
                 });
 
                 entry.add_count(measurement.count);
                 entry.add_weight(measurement.weight_grams);
+                entry.add_value(measurement.count, measurement.weight_grams);
                 entry.measurement_count += 1;
 
                 if let Some(rack_id) = measurement.rack_id {
@@ -127,24 +151,35 @@ impl<Deps: InventurReportServiceDeps> InventurReportService for InventurReportSe
                 let ean: Arc<str> = ean.clone();
 
                 // Try to get product info from the EAN
-                let (product_name, short_name) = if let Some(product) = product_by_ean.get(ean.as_ref()) {
-                    (product.name.clone(), product.short_name.clone())
-                } else {
-                    // Use custom product name if no matching product
-                    (
-                        custom_entry.custom_product_name.clone(),
-                        custom_entry.custom_product_name.clone(),
-                    )
-                };
+                let (product_name, short_name, price_cents, requires_weighing) =
+                    if let Some(product) = product_by_ean.get(ean.as_ref()) {
+                        (
+                            product.name.clone(),
+                            product.short_name.clone(),
+                            Some(product.price),
+                            Some(product.requires_weighing),
+                        )
+                    } else {
+                        // Use custom product name if no matching product, no price available
+                        (
+                            custom_entry.custom_product_name.clone(),
+                            custom_entry.custom_product_name.clone(),
+                            None,
+                            None,
+                        )
+                    };
 
                 let entry = aggregated.entry(ean).or_insert_with(|| AggregatedData {
                     product_name,
                     short_name,
+                    price_cents,
+                    requires_weighing,
                     ..Default::default()
                 });
 
                 entry.add_count(custom_entry.count);
                 entry.add_weight(custom_entry.weight_grams);
+                entry.add_value(custom_entry.count, custom_entry.weight_grams);
                 entry.measurement_count += 1;
 
                 if let Some(rack_id) = custom_entry.rack_id {
@@ -166,6 +201,8 @@ impl<Deps: InventurReportServiceDeps> InventurReportService for InventurReportSe
                 total_weight_grams: data.total_weight_grams,
                 measurement_count: data.measurement_count,
                 racks_measured: data.racks_measured,
+                price_cents: data.price_cents,
+                total_value_cents: data.total_value_cents,
             })
             .collect();
 
@@ -197,11 +234,23 @@ impl<Deps: InventurReportServiceDeps> InventurReportService for InventurReportSe
             "Weight (g)",
             "Measurements",
             "Racks",
+            "Price / kg (EUR)",
+            "Total Value (EUR)",
         ])
         .map_err(|e| ServiceError::InternalError(Arc::from(format!("CSV write error: {}", e))))?;
 
         // Write data rows
         for item in items.iter() {
+            // Format prices as euros with 2 decimal places
+            let price_str = item
+                .price_cents
+                .map(|cents| format!("{:.2}", cents as f64 / 100.0))
+                .unwrap_or_default();
+            let total_value_str = item
+                .total_value_cents
+                .map(|cents| format!("{:.2}", cents as f64 / 100.0))
+                .unwrap_or_default();
+
             wtr.write_record([
                 item.ean.as_ref(),
                 item.product_name.as_ref(),
@@ -221,6 +270,8 @@ impl<Deps: InventurReportServiceDeps> InventurReportService for InventurReportSe
                     .map(|r| r.as_ref())
                     .collect::<Vec<&str>>()
                     .join(", "),
+                &price_str,
+                &total_value_str,
             ])
             .map_err(|e| {
                 ServiceError::InternalError(Arc::from(format!("CSV write error: {}", e)))
