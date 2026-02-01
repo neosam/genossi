@@ -10,7 +10,7 @@ use inventurly_dao::{
     TransactionDao,
 };
 use inventurly_service::{
-    inventur_report::{InventurProductReportItem, InventurReportService, InventurStatistics},
+    inventur_report::{InventurProductReportItem, InventurReportService, InventurStatistics, RackMeasured},
     permission::{Authentication, PermissionService, ADMIN_PRIVILEGE},
     ServiceError,
 };
@@ -37,7 +37,7 @@ struct AggregatedData {
     total_count: Option<i64>,
     total_weight_grams: Option<i64>,
     measurement_count: usize,
-    racks_measured: Vec<Arc<str>>,
+    racks_measured: Vec<RackMeasured>,
     price_cents: Option<i64>,
     total_value_cents: Option<i64>,
     requires_weighing: Option<bool>,
@@ -56,9 +56,12 @@ impl AggregatedData {
         }
     }
 
-    fn add_rack(&mut self, rack_name: Arc<str>) {
-        if !self.racks_measured.contains(&rack_name) {
-            self.racks_measured.push(rack_name);
+    fn add_rack(&mut self, rack_id: Uuid, rack_name: Arc<str>) {
+        if !self.racks_measured.iter().any(|r| r.id == rack_id) {
+            self.racks_measured.push(RackMeasured {
+                id: rack_id,
+                name: rack_name,
+            });
         }
     }
 
@@ -165,7 +168,7 @@ impl<Deps: InventurReportServiceDeps> InventurReportService for InventurReportSe
 
                 if let Some(rack_id) = measurement.rack_id {
                     if let Some(rack) = rack_by_id.get(&rack_id) {
-                        entry.add_rack(rack.name.clone());
+                        entry.add_rack(rack.id, rack.name.clone());
                     }
                 }
             }
@@ -213,7 +216,7 @@ impl<Deps: InventurReportServiceDeps> InventurReportService for InventurReportSe
 
                 if let Some(rack_id) = custom_entry.rack_id {
                     if let Some(rack) = rack_by_id.get(&rack_id) {
-                        entry.add_rack(rack.name.clone());
+                        entry.add_rack(rack.id, rack.name.clone());
                     }
                 }
             }
@@ -296,7 +299,7 @@ impl<Deps: InventurReportServiceDeps> InventurReportService for InventurReportSe
                 &item
                     .racks_measured
                     .iter()
-                    .map(|r| r.as_ref())
+                    .map(|r| r.name.as_ref())
                     .collect::<Vec<&str>>()
                     .join(", "),
                 &price_str,

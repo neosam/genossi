@@ -4,8 +4,8 @@ use crate::i18n::{use_i18n, Key};
 use crate::router::Route;
 use crate::service::config::CONFIG;
 use dioxus::prelude::*;
-use rest_types::InventurProductReportItemTO;
-use std::collections::HashSet;
+use rest_types::{InventurProductReportItemTO, RackMeasuredTO};
+use std::collections::HashMap;
 use uuid::Uuid;
 
 #[component]
@@ -35,10 +35,10 @@ pub fn InventurResults(id: String) -> Element {
     let mut loading = use_signal(|| true);
     let mut error = use_signal::<Option<String>>(|| None);
 
-    // Filter state
+    // Filter state - filter_racks now stores rack IDs as strings
     let mut filter_input = use_signal(String::new);
     let mut filter_query = use_signal(String::new);
-    let mut filter_racks = use_signal::<Vec<String>>(Vec::new);
+    let mut filter_rack_ids = use_signal::<Vec<Uuid>>(Vec::new);
     let mut filter_has_count = use_signal::<Option<bool>>(|| None);
     let mut filter_has_weight = use_signal::<Option<bool>>(|| None);
     let mut filters_expanded = use_signal(|| false);
@@ -78,22 +78,21 @@ pub fn InventurResults(id: String) -> Element {
         });
     });
 
-    // Get distinct rack names from results
+    // Get distinct racks from results (deduplicated by ID)
     let all_results = results.read();
-    let distinct_racks: Vec<String> = all_results
+    let distinct_racks: Vec<RackMeasuredTO> = all_results
         .iter()
         .flat_map(|r| r.racks_measured.iter().cloned())
-        .collect::<HashSet<_>>()
-        .into_iter()
-        .collect::<Vec<_>>()
-        .into_iter()
+        .map(|r| (r.id, r))
+        .collect::<HashMap<Uuid, RackMeasuredTO>>()
+        .into_values()
         .collect();
     let mut sorted_racks = distinct_racks.clone();
-    sorted_racks.sort();
+    sorted_racks.sort_by(|a, b| a.name.cmp(&b.name));
 
     // Apply filters
     let query = filter_query.read().to_lowercase();
-    let selected_racks = filter_racks.read();
+    let selected_rack_ids = filter_rack_ids.read();
     let has_count_filter = *filter_has_count.read();
     let has_weight_filter = *filter_has_weight.read();
 
@@ -110,9 +109,9 @@ pub fn InventurResults(id: String) -> Element {
                 }
             }
 
-            // Rack filter
-            if !selected_racks.is_empty() {
-                let has_matching_rack = r.racks_measured.iter().any(|rack| selected_racks.contains(rack));
+            // Rack filter (by ID)
+            if !selected_rack_ids.is_empty() {
+                let has_matching_rack = r.racks_measured.iter().any(|rack| selected_rack_ids.contains(&rack.id));
                 if !has_matching_rack {
                     return false;
                 }
@@ -139,19 +138,19 @@ pub fn InventurResults(id: String) -> Element {
         .collect();
 
     // Handlers
-    let mut toggle_rack = move |rack: String| {
-        let mut racks = filter_racks.write();
-        if racks.contains(&rack) {
-            racks.retain(|r| *r != rack);
+    let mut toggle_rack = move |rack_id: Uuid| {
+        let mut rack_ids = filter_rack_ids.write();
+        if rack_ids.contains(&rack_id) {
+            rack_ids.retain(|r| *r != rack_id);
         } else {
-            racks.push(rack);
+            rack_ids.push(rack_id);
         }
     };
 
     let clear_all_filters = move |_| {
         filter_input.set(String::new());
         filter_query.set(String::new());
-        filter_racks.write().clear();
+        filter_rack_ids.write().clear();
         filter_has_count.set(None);
         filter_has_weight.set(None);
     };
@@ -231,16 +230,16 @@ pub fn InventurResults(id: String) -> Element {
                                     div { class: "space-y-1 max-h-40 overflow-y-auto",
                                         for rack in sorted_racks.iter() {
                                             {
-                                                let rack_clone = rack.clone();
-                                                let rack_for_check = rack.clone();
+                                                let rack_id = rack.id;
+                                                let rack_name = rack.name.clone();
                                                 rsx! {
                                                     label { class: "flex items-center gap-2 cursor-pointer hover:bg-gray-100 p-1 rounded",
                                                         input {
                                                             r#type: "checkbox",
-                                                            checked: selected_racks.contains(&rack_for_check),
-                                                            onchange: move |_| toggle_rack(rack_clone.clone()),
+                                                            checked: selected_rack_ids.contains(&rack_id),
+                                                            onchange: move |_| toggle_rack(rack_id),
                                                         }
-                                                        span { "{rack}" }
+                                                        span { "{rack_name}" }
                                                     }
                                                 }
                                             }
@@ -410,8 +409,20 @@ pub fn InventurResults(id: String) -> Element {
                                             td { class: "px-6 py-4 whitespace-nowrap text-sm text-right",
                                                 "{item.measurement_count}"
                                             }
-                                            td { class: "px-6 py-4 text-sm text-gray-500",
-                                                "{item.racks_measured.join(\", \")}"
+                                            td { class: "px-6 py-4 text-sm",
+                                                for (i, rack) in item.racks_measured.iter().enumerate() {
+                                                    if i > 0 {
+                                                        span { ", " }
+                                                    }
+                                                    Link {
+                                                        to: Route::InventurRackMeasure {
+                                                            inventur_id: id.clone(),
+                                                            rack_id: rack.id.to_string(),
+                                                        },
+                                                        class: "text-blue-600 hover:text-blue-800 hover:underline",
+                                                        "{rack.name}"
+                                                    }
+                                                }
                                             }
                                             td { class: "px-6 py-4 whitespace-nowrap text-sm text-right",
                                                 if let Some(price_cents) = item.price_cents {

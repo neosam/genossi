@@ -513,6 +513,15 @@ pub struct InventurStatisticsTO {
     pub products_with_entries: usize,
 }
 
+/// Rack information with ID and name for report items
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct RackMeasuredTO {
+    /// Rack UUID
+    pub id: Uuid,
+    /// Rack name
+    pub name: String,
+}
+
 /// Aggregated product data for an inventur report
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct InventurProductReportItemTO {
@@ -528,8 +537,8 @@ pub struct InventurProductReportItemTO {
     pub total_weight_grams: Option<i64>,
     /// Number of individual measurements for this product
     pub measurement_count: usize,
-    /// List of rack names where this product was measured
-    pub racks_measured: Vec<String>,
+    /// List of racks where this product was measured (with ID and name)
+    pub racks_measured: Vec<RackMeasuredTO>,
     /// Unit price in cents (None if product not found in database)
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub price_cents: Option<i64>,

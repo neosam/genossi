@@ -5,7 +5,7 @@ use axum::extract::Path;
 use axum::routing::get;
 use axum::{extract::State, response::Response};
 use axum::{Extension, Router};
-use inventurly_rest_types::{InventurProductReportItemTO, InventurStatisticsTO};
+use inventurly_rest_types::{InventurProductReportItemTO, InventurStatisticsTO, RackMeasuredTO};
 use inventurly_service::inventur_report::InventurReportService;
 use tracing::instrument;
 use utoipa::OpenApi;
@@ -21,7 +21,7 @@ use crate::{error_handler, Context, RestStateDef};
         get_statistics
     ),
     components(
-        schemas(InventurProductReportItemTO, InventurStatisticsTO)
+        schemas(InventurProductReportItemTO, InventurStatisticsTO, RackMeasuredTO)
     ),
     tags(
         (name = "Inventur Report", description = "Cumulative inventory report endpoints")

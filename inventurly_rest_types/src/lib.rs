@@ -1003,6 +1003,26 @@ pub struct ChangeInventurStatusRequestTO {
     pub status: String,
 }
 
+/// Rack information with ID and name for report items
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct RackMeasuredTO {
+    /// Rack UUID
+    #[schema(example = "123e4567-e89b-12d3-a456-426614174000")]
+    pub id: Uuid,
+    /// Rack name
+    #[schema(example = "Regal A")]
+    pub name: String,
+}
+
+impl From<&inventurly_service::inventur_report::RackMeasured> for RackMeasuredTO {
+    fn from(rack: &inventurly_service::inventur_report::RackMeasured) -> Self {
+        Self {
+            id: rack.id,
+            name: rack.name.to_string(),
+        }
+    }
+}
+
 /// Aggregated product data for an inventur report
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct InventurProductReportItemTO {
@@ -1026,9 +1046,8 @@ pub struct InventurProductReportItemTO {
     /// Number of individual measurements for this product
     #[schema(example = 3)]
     pub measurement_count: usize,
-    /// List of rack names where this product was measured
-    #[schema(example = json!(["Regal A", "Regal B"]))]
-    pub racks_measured: Vec<String>,
+    /// List of racks where this product was measured (with ID and name)
+    pub racks_measured: Vec<RackMeasuredTO>,
     /// Unit price in cents (None if product not found in database)
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(example = 539)]
@@ -1050,7 +1069,7 @@ impl From<&inventurly_service::inventur_report::InventurProductReportItem>
             total_count: item.total_count,
             total_weight_grams: item.total_weight_grams,
             measurement_count: item.measurement_count,
-            racks_measured: item.racks_measured.iter().map(|r| r.to_string()).collect(),
+            racks_measured: item.racks_measured.iter().map(RackMeasuredTO::from).collect(),
             price_cents: item.price_cents,
             total_value_cents: item.total_value_cents,
         }

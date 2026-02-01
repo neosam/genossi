@@ -5,6 +5,13 @@ use uuid::Uuid;
 
 use crate::{permission::Authentication, ServiceError};
 
+/// Rack information for report items (ID and name)
+#[derive(Debug, Clone)]
+pub struct RackMeasured {
+    pub id: Uuid,
+    pub name: Arc<str>,
+}
+
 /// Aggregated product measurement data for an inventur report
 #[derive(Debug, Clone)]
 pub struct InventurProductReportItem {
@@ -14,7 +21,7 @@ pub struct InventurProductReportItem {
     pub total_count: Option<i64>,
     pub total_weight_grams: Option<i64>,
     pub measurement_count: usize,
-    pub racks_measured: Vec<Arc<str>>,
+    pub racks_measured: Vec<RackMeasured>,
     /// Unit price in cents (None if product not found in database)
     pub price_cents: Option<i64>,
     /// Calculated total value in cents based on count/weight (None if can't calculate)
