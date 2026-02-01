@@ -340,15 +340,10 @@ impl<Deps: InventurReportServiceDeps> InventurReportService for InventurReportSe
 
                 // Calculate value
                 if product.requires_weighing {
-                    // Weight-based: parse sales_unit to get reference weight
+                    // Price is always per kg (1000g), measurement is always in grams
                     if let Some(weight_grams) = measurement.weight_grams {
-                        if let Some(ref_weight_grams) = parse_sales_unit_to_grams(&product.sales_unit) {
-                            if ref_weight_grams > 0 {
-                                // value = (weight / ref_weight) * price
-                                let value = (weight_grams as f64 / ref_weight_grams as f64) * product.price as f64;
-                                total_value_cents += value.round() as i64;
-                            }
-                        }
+                        let value = (weight_grams as f64 / 1000.0) * product.price as f64;
+                        total_value_cents += value.round() as i64;
                     }
                 } else {
                     // Count-based: count * price
@@ -378,14 +373,10 @@ impl<Deps: InventurReportServiceDeps> InventurReportService for InventurReportSe
                 // Calculate value if product exists
                 if let Some(product) = product_by_ean.get(ean.as_ref()) {
                     if product.requires_weighing {
-                        // Weight-based
+                        // Price is always per kg (1000g), measurement is always in grams
                         if let Some(weight_grams) = custom_entry.weight_grams {
-                            if let Some(ref_weight_grams) = parse_sales_unit_to_grams(&product.sales_unit) {
-                                if ref_weight_grams > 0 {
-                                    let value = (weight_grams as f64 / ref_weight_grams as f64) * product.price as f64;
-                                    total_value_cents += value.round() as i64;
-                                }
-                            }
+                            let value = (weight_grams as f64 / 1000.0) * product.price as f64;
+                            total_value_cents += value.round() as i64;
                         }
                     } else {
                         // Count-based
@@ -405,44 +396,4 @@ impl<Deps: InventurReportServiceDeps> InventurReportService for InventurReportSe
             products_with_entries: products_with_positive_entries.len(),
         })
     }
-}
-
-/// Parse sales_unit string (e.g., "100g", "1kg", "250g") to grams
-fn parse_sales_unit_to_grams(sales_unit: &str) -> Option<i64> {
-    let sales_unit = sales_unit.trim().to_lowercase();
-
-    // Try to extract number and unit
-    let mut num_str = String::new();
-    let mut unit_str = String::new();
-    let mut found_digit = false;
-
-    for c in sales_unit.chars() {
-        if c.is_ascii_digit() || c == '.' || c == ',' {
-            if !unit_str.is_empty() {
-                // Digit after unit, invalid format
-                return None;
-            }
-            num_str.push(if c == ',' { '.' } else { c });
-            found_digit = true;
-        } else if c.is_alphabetic() {
-            unit_str.push(c);
-        }
-        // Skip whitespace and other characters
-    }
-
-    if !found_digit {
-        return None;
-    }
-
-    let number: f64 = num_str.parse().ok()?;
-
-    // Convert to grams based on unit
-    let grams = match unit_str.as_str() {
-        "g" | "gr" | "gram" | "grams" => number,
-        "kg" | "kilo" | "kilogram" | "kilograms" => number * 1000.0,
-        "" => number, // Assume grams if no unit
-        _ => return None, // Unknown unit
-    };
-
-    Some(grams.round() as i64)
 }
