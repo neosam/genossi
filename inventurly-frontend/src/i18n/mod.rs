@@ -294,6 +294,8 @@ pub enum Key {
     StatusPostProcessing,
     StatusCompleted,
     StatusCancelled,
+    ChangeStatus,
+    ChangeStatusTo,
 
     // Measurements
     Measurements,

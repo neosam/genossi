@@ -242,6 +242,8 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::StatusPostProcessing => "Post Processing",
         Key::StatusCompleted => "Completed",
         Key::StatusCancelled => "Cancelled",
+        Key::ChangeStatus => "Change Status",
+        Key::ChangeStatusTo => "Change status to",
 
         // Measurements
         Key::Measurements => "Measurements",

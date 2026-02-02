@@ -1,5 +1,6 @@
 pub mod barcode_scanner;
 pub mod base_components;
+pub mod change_status_modal;
 pub mod container_form;
 pub mod container_list;
 pub mod container_rack_form;
@@ -37,6 +38,7 @@ pub mod tara_modal;
 pub mod top_bar;
 
 pub use barcode_scanner::{BarcodeScanner, ScanResult};
+pub use change_status_modal::ChangeStatusModal;
 pub use container_form::ContainerForm;
 pub use container_list::ContainerList;
 pub use container_rack_form::ContainerRackForm;

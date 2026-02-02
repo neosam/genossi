@@ -1,4 +1,5 @@
 use crate::api;
+use crate::component::ChangeStatusModal;
 use crate::i18n::{use_i18n, Key};
 use crate::router::Route;
 use crate::service::config::CONFIG;
@@ -29,6 +30,7 @@ pub fn InventurForm(inventur_id: Option<Uuid>) -> Element {
 
     let loading = use_signal(|| false);
     let error = use_signal(|| None::<String>);
+    let mut show_status_modal = use_signal(|| false);
 
     // Store date strings separately for input fields
     let mut start_date_str = use_signal(|| String::new());
@@ -386,21 +388,37 @@ pub fn InventurForm(inventur_id: Option<Uuid>) -> Element {
                 div { class: "mb-4",
                     label {
                         class: "block text-sm font-medium text-gray-700 mb-2",
-                        r#for: "status",
                         {i18n.t(Key::InventurStatus)}
                     }
-                    select {
-                        id: "status",
-                        class: "w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500",
-                        value: "{inventur.read().status}",
-                        onchange: move |e| {
-                            inventur.write().status = e.value();
-                        },
-                        option { value: "draft", {i18n.t(Key::StatusDraft)} }
-                        option { value: "active", {i18n.t(Key::StatusActive)} }
-                        option { value: "post_processing", {i18n.t(Key::StatusPostProcessing)} }
-                        option { value: "completed", {i18n.t(Key::StatusCompleted)} }
-                        option { value: "cancelled", {i18n.t(Key::StatusCancelled)} }
+                    div { class: "flex items-center gap-4",
+                        // Current status badge
+                        span {
+                            class: match inventur.read().status.as_str() {
+                                "draft" => "inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-gray-200 text-gray-800",
+                                "active" => "inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-200 text-green-800",
+                                "post_processing" => "inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-yellow-200 text-yellow-800",
+                                "completed" => "inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-200 text-blue-800",
+                                "cancelled" => "inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-red-200 text-red-800",
+                                _ => "inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-gray-200 text-gray-800",
+                            },
+                            {match inventur.read().status.as_str() {
+                                "draft" => i18n.t(Key::StatusDraft),
+                                "active" => i18n.t(Key::StatusActive),
+                                "post_processing" => i18n.t(Key::StatusPostProcessing),
+                                "completed" => i18n.t(Key::StatusCompleted),
+                                "cancelled" => i18n.t(Key::StatusCancelled),
+                                _ => inventur.read().status.clone().into(),
+                            }}
+                        }
+                        // Change status button (only shown when editing existing inventur)
+                        if inventur_id.is_some() {
+                            button {
+                                r#type: "button",
+                                class: "px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 text-sm",
+                                onclick: move |_| show_status_modal.set(true),
+                                {i18n.t(Key::ChangeStatus)}
+                            }
+                        }
                     }
                 }
 
@@ -430,6 +448,21 @@ pub fn InventurForm(inventur_id: Option<Uuid>) -> Element {
                         class: "px-4 py-2 bg-gray-300 text-gray-700 rounded hover:bg-gray-400",
                         onclick: move |_| { nav.push(Route::Inventurs {}); },
                         {i18n.t(Key::Cancel)}
+                    }
+                }
+            }
+
+            // Status change modal
+            if *show_status_modal.read() {
+                if let Some(id) = inventur_id {
+                    ChangeStatusModal {
+                        inventur_id: id,
+                        current_status: inventur.read().status.clone(),
+                        on_close: move |_| show_status_modal.set(false),
+                        on_status_changed: move |new_status: String| {
+                            inventur.write().status = new_status;
+                            show_status_modal.set(false);
+                        }
                     }
                 }
             }
