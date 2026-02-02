@@ -108,4 +108,24 @@ pub trait InventurCustomEntryDao: Send + Sync {
             .collect();
         Ok(matching.into())
     }
+
+    // Find custom entries for a specific EAN within an inventur
+    async fn find_by_ean_and_inventur(
+        &self,
+        ean: &str,
+        inventur_id: Uuid,
+        tx: Self::Transaction,
+    ) -> Result<Arc<[InventurCustomEntryEntity]>, DaoError> {
+        let all_entities = self.dump_all(tx).await?;
+        let matching: Vec<InventurCustomEntryEntity> = all_entities
+            .iter()
+            .filter(|e| {
+                e.deleted.is_none()
+                    && e.inventur_id == inventur_id
+                    && e.ean.as_ref().map(|e| e.as_ref()) == Some(ean)
+            })
+            .cloned()
+            .collect();
+        Ok(matching.into())
+    }
 }

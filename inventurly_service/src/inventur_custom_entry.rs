@@ -101,6 +101,14 @@ pub trait InventurCustomEntryService: Send + Sync {
         tx: Option<Self::Transaction>,
     ) -> Result<Arc<[InventurCustomEntry]>, ServiceError>;
 
+    async fn get_by_ean_and_inventur_id(
+        &self,
+        ean: &str,
+        inventur_id: Uuid,
+        context: Authentication<Self::Context>,
+        tx: Option<Self::Transaction>,
+    ) -> Result<Arc<[InventurCustomEntry]>, ServiceError>;
+
     async fn create(
         &self,
         item: &InventurCustomEntry,

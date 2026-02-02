@@ -527,6 +527,9 @@ pub struct RackMeasuredTO {
 /// Aggregated product data for an inventur report
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct InventurProductReportItemTO {
+    /// Product UUID (None for custom entries without linked product)
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub product_id: Option<Uuid>,
     /// Product EAN code
     pub ean: String,
     /// Full product name

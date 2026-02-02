@@ -1031,6 +1031,9 @@ impl From<&inventurly_service::inventur_report::RackMeasured> for RackMeasuredTO
 /// Aggregated product data for an inventur report
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct InventurProductReportItemTO {
+    /// Product UUID (None for custom entries without linked product)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub product_id: Option<Uuid>,
     /// Product EAN code
     #[schema(example = "4260474470041")]
     pub ean: String,
@@ -1068,6 +1071,7 @@ impl From<&inventurly_service::inventur_report::InventurProductReportItem>
 {
     fn from(item: &inventurly_service::inventur_report::InventurProductReportItem) -> Self {
         Self {
+            product_id: item.product_id,
             ean: item.ean.to_string(),
             product_name: item.product_name.to_string(),
             short_name: item.short_name.to_string(),

@@ -730,6 +730,40 @@ pub async fn delete_custom_entry(config: &Config, id: Uuid) -> Result<(), reqwes
     Ok(())
 }
 
+pub async fn get_measurements_by_product_and_inventur(
+    config: &Config,
+    product_id: Uuid,
+    inventur_id: Uuid,
+) -> Result<Vec<InventurMeasurementTO>, reqwest::Error> {
+    info!("Fetching measurements for product {product_id} in inventur {inventur_id}");
+    let url = format!(
+        "{}/inventur-measurement/by-product/{}/inventur/{}",
+        config.backend, product_id, inventur_id
+    );
+    let response = reqwest::get(url).await?;
+    response.error_for_status_ref()?;
+    let res = response.json().await?;
+    info!("Measurements by product fetched");
+    Ok(res)
+}
+
+pub async fn get_custom_entries_by_ean_and_inventur(
+    config: &Config,
+    ean: &str,
+    inventur_id: Uuid,
+) -> Result<Vec<InventurCustomEntryTO>, reqwest::Error> {
+    info!("Fetching custom entries for EAN {ean} in inventur {inventur_id}");
+    let url = format!(
+        "{}/inventur-custom-entry/by-ean/{}/inventur/{}",
+        config.backend, ean, inventur_id
+    );
+    let response = reqwest::get(url).await?;
+    response.error_for_status_ref()?;
+    let res = response.json().await?;
+    info!("Custom entries by EAN fetched");
+    Ok(res)
+}
+
 // Container-Rack API
 pub async fn add_container_to_rack(
     config: &Config,

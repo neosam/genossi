@@ -32,6 +32,7 @@ gen_service_impl! {
 /// Intermediate structure for aggregating data by EAN
 #[derive(Debug, Default)]
 struct AggregatedData {
+    product_id: Option<Uuid>,
     product_name: Arc<str>,
     short_name: Arc<str>,
     total_count: Option<i64>,
@@ -151,6 +152,7 @@ impl<Deps: InventurReportServiceDeps> InventurReportService for InventurReportSe
             if let Some(product) = product_by_id.get(&measurement.product_id) {
                 let ean: Arc<str> = product.ean.clone();
                 let entry = aggregated.entry(ean).or_insert_with(|| AggregatedData {
+                    product_id: Some(product.id),
                     product_name: product.name.clone(),
                     short_name: product.short_name.clone(),
                     price_cents: Some(product.price),
@@ -180,9 +182,10 @@ impl<Deps: InventurReportServiceDeps> InventurReportService for InventurReportSe
                 let ean: Arc<str> = ean.clone();
 
                 // Try to get product info from the EAN
-                let (product_name, short_name, price_cents, requires_weighing) =
+                let (product_id, product_name, short_name, price_cents, requires_weighing) =
                     if let Some(product) = product_by_ean.get(ean.as_ref()) {
                         (
+                            Some(product.id),
                             product.name.clone(),
                             product.short_name.clone(),
                             Some(product.price),
@@ -191,6 +194,7 @@ impl<Deps: InventurReportServiceDeps> InventurReportService for InventurReportSe
                     } else {
                         // Use custom product name if no matching product, no price available
                         (
+                            None,
                             custom_entry.custom_product_name.clone(),
                             custom_entry.custom_product_name.clone(),
                             None,
@@ -199,6 +203,7 @@ impl<Deps: InventurReportServiceDeps> InventurReportService for InventurReportSe
                     };
 
                 let entry = aggregated.entry(ean).or_insert_with(|| AggregatedData {
+                    product_id,
                     product_name,
                     short_name,
                     price_cents,
@@ -226,6 +231,7 @@ impl<Deps: InventurReportServiceDeps> InventurReportService for InventurReportSe
         let mut items: Vec<InventurProductReportItem> = aggregated
             .into_iter()
             .map(|(ean, data)| InventurProductReportItem {
+                product_id: data.product_id,
                 ean,
                 product_name: data.product_name,
                 short_name: data.short_name,

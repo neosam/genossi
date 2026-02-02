@@ -129,6 +129,31 @@ impl<Deps: InventurCustomEntryServiceDeps> InventurCustomEntryService
         Ok(entries)
     }
 
+    async fn get_by_ean_and_inventur_id(
+        &self,
+        ean: &str,
+        inventur_id: Uuid,
+        context: Authentication<Self::Context>,
+        tx: Option<Self::Transaction>,
+    ) -> Result<Arc<[InventurCustomEntry]>, ServiceError> {
+        let tx = self.transaction_dao.use_transaction(tx).await?;
+
+        self.permission_service
+            .check_inventur_permission(VIEW_INVENTUR_PRIVILEGE, inventur_id, context)
+            .await?;
+
+        let entries = self
+            .inventur_custom_entry_dao
+            .find_by_ean_and_inventur(ean, inventur_id, tx.clone())
+            .await?
+            .iter()
+            .map(InventurCustomEntry::from)
+            .collect();
+
+        self.transaction_dao.commit(tx).await?;
+        Ok(entries)
+    }
+
     async fn create(
         &self,
         item: &InventurCustomEntry,

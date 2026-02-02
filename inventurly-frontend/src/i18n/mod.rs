@@ -409,6 +409,9 @@ pub enum Key {
     NoResultsFound,
     PricePerKg,
     DownloadCsv,
+    ShowMeasurements,
+    HideMeasurements,
+    LoadingMeasurements,
 }
 
 pub struct I18n {

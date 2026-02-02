@@ -19,6 +19,7 @@ use crate::{error_handler, Context, RestStateDef};
         get_all_custom_entries,
         get_custom_entry,
         get_custom_entries_by_inventur,
+        get_custom_entries_by_ean_and_inventur,
         create_custom_entry,
         update_custom_entry,
         delete_custom_entry
@@ -42,6 +43,10 @@ pub fn generate_route<RestState: RestStateDef>() -> Router<RestState> {
         .route(
             "/by-inventur/{inventur_id}",
             get(get_custom_entries_by_inventur::<RestState>),
+        )
+        .route(
+            "/by-ean/{ean}/inventur/{inventur_id}",
+            get(get_custom_entries_by_ean_and_inventur::<RestState>),
         )
 }
 
@@ -141,6 +146,51 @@ pub async fn get_custom_entries_by_inventur<RestState: RestStateDef>(
             let entries: Arc<[InventurCustomEntryTO]> = rest_state
                 .inventur_custom_entry_service()
                 .get_by_inventur_id(
+                    inventur_id,
+                    crate::extract_auth_context(Some(context))?,
+                    None,
+                )
+                .await?
+                .iter()
+                .map(InventurCustomEntryTO::from)
+                .collect();
+            Ok(Response::builder()
+                .status(200)
+                .header("Content-Type", "application/json")
+                .body(Body::new(
+                    serde_json::to_string(&entries).unwrap(),
+                ))
+                .unwrap())
+        })
+        .await,
+    )
+}
+
+#[instrument(skip(rest_state))]
+#[utoipa::path(
+    get,
+    tag = "InventurCustomEntry",
+    path = "/by-ean/{ean}/inventur/{inventur_id}",
+    params(
+        ("ean" = String, Path, description = "Product EAN"),
+        ("inventur_id" = Uuid, Path, description = "Inventur ID"),
+    ),
+    responses(
+        (status = 200, description = "Custom entries for EAN and inventur", body = [InventurCustomEntryTO]),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
+pub async fn get_custom_entries_by_ean_and_inventur<RestState: RestStateDef>(
+    rest_state: State<RestState>,
+    Extension(context): Extension<Context>,
+    Path((ean, inventur_id)): Path<(String, Uuid)>,
+) -> Response {
+    error_handler(
+        (async {
+            let entries: Arc<[InventurCustomEntryTO]> = rest_state
+                .inventur_custom_entry_service()
+                .get_by_ean_and_inventur_id(
+                    &ean,
                     inventur_id,
                     crate::extract_auth_context(Some(context))?,
                     None,

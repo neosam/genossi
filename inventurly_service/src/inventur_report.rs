@@ -15,6 +15,8 @@ pub struct RackMeasured {
 /// Aggregated product measurement data for an inventur report
 #[derive(Debug, Clone)]
 pub struct InventurProductReportItem {
+    /// Product UUID (None for custom entries without linked product)
+    pub product_id: Option<Uuid>,
     pub ean: Arc<str>,
     pub product_name: Arc<str>,
     pub short_name: Arc<str>,
