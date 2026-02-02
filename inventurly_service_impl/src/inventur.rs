@@ -31,6 +31,7 @@ const STATUS_DRAFT: &str = "draft";
 const STATUS_ACTIVE: &str = "active";
 const STATUS_POST_PROCESSING: &str = "post_processing";
 const STATUS_COMPLETED: &str = "completed";
+const STATUS_CANCELLED: &str = "cancelled";
 
 /// Generate a random 32-character token for inventur access
 fn generate_token() -> String {
@@ -49,6 +50,10 @@ fn generate_token() -> String {
 
 fn validate_status_transition(current: &str, new: &str) -> Result<(), ServiceError> {
     let valid = match (current, new) {
+        // Allow cancellation from any status
+        (_, STATUS_CANCELLED) => true,
+        // Allow restarting a cancelled inventur
+        (STATUS_CANCELLED, STATUS_DRAFT) => true,
         (STATUS_DRAFT, STATUS_ACTIVE) => true,
         (STATUS_ACTIVE, STATUS_POST_PROCESSING) => true,
         (STATUS_POST_PROCESSING, STATUS_COMPLETED) => true,
