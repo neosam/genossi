@@ -392,6 +392,7 @@ mod tests {
             sales_unit: Arc::from(sales_unit),
             requires_weighing,
             price: crate::product::Price::from_cents(500),
+            deposit: crate::product::Price::from_cents(0),
             created: time::PrimitiveDateTime::new(
                 time::Date::from_calendar_date(2024, time::Month::January, 1).unwrap(),
                 time::Time::MIDNIGHT,

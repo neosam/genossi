@@ -1373,6 +1373,16 @@ impl InventurCustomEntryService for MockInventurCustomEntryService {
         Ok(Arc::from([]))
     }
 
+    async fn get_by_ean_and_inventur_id(
+        &self,
+        _ean: &str,
+        _inventur_id: Uuid,
+        _context: Authentication<Self::Context>,
+        _tx: Option<Self::Transaction>,
+    ) -> Result<Arc<[InventurCustomEntry]>, inventurly_service::ServiceError> {
+        Ok(Arc::from([]))
+    }
+
     async fn create(
         &self,
         _item: &InventurCustomEntry,
