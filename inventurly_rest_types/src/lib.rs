@@ -100,7 +100,7 @@ impl From<&PersonTO> for inventurly_service::person::Person {
 }
 
 // Custom Price type for monetary values
-#[derive(Clone, Debug, Copy, PartialEq, Eq, ToSchema)]
+#[derive(Clone, Debug, Copy, PartialEq, Eq, ToSchema, Default)]
 #[schema(example = 599)]
 pub struct Price {
     cents: i64,
@@ -163,6 +163,9 @@ pub struct ProductTO {
     pub requires_weighing: bool,
     #[schema(example = 539)]
     pub price: Price,
+    #[schema(example = 25)]
+    #[serde(default)]
+    pub deposit: Price,
     #[serde(
         skip_serializing_if = "Option::is_none",
         serialize_with = "iso8601_datetime::serialize",
@@ -196,6 +199,7 @@ impl From<&inventurly_service::product::Product> for ProductTO {
             sales_unit: product.sales_unit.to_string(),
             requires_weighing: product.requires_weighing,
             price: product.price.into(),
+            deposit: product.deposit.into(),
             created: Some(product.created),
             deleted: product.deleted,
             version: Some(product.version),
@@ -273,6 +277,7 @@ impl From<&ProductTO> for inventurly_service::product::Product {
             sales_unit: Arc::from(to.sales_unit.as_str()),
             requires_weighing: to.requires_weighing,
             price: to.price.into(),
+            deposit: to.deposit.into(),
             created: to.created.unwrap_or_else(|| {
                 let now = time::OffsetDateTime::now_utc();
                 time::PrimitiveDateTime::new(now.date(), now.time())

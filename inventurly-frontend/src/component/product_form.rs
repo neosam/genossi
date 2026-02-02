@@ -19,6 +19,7 @@ pub fn ProductForm(product_id: Option<Uuid>) -> Element {
         sales_unit: String::new(),
         requires_weighing: false,
         price: Price::from_cents(0),
+        deposit: Price::from_cents(0),
         rack_count: None,
         created: None,
         deleted: None,
@@ -188,6 +189,22 @@ pub fn ProductForm(product_id: Option<Uuid>) -> Element {
                             }
                         },
                         required: true,
+                    }
+                }
+
+                div { class: "mb-4",
+                    label { class: "block text-sm font-medium text-gray-700 mb-2",
+                        {i18n.t(Key::ProductDeposit)} " (in cents)"
+                    }
+                    input {
+                        class: "w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500",
+                        r#type: "number",
+                        value: "{product.read().deposit.to_cents()}",
+                        oninput: move |e| {
+                            if let Ok(cents) = e.value().parse::<i64>() {
+                                product.write().deposit = Price::from_cents(cents);
+                            }
+                        },
                     }
                 }
 

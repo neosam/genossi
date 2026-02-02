@@ -99,6 +99,7 @@ pub enum Key {
     ProductShortName,
     ProductSalesUnit,
     ProductPrice,
+    ProductDeposit,
     ProductRequiresWeighing,
     ProductCreated,
     ProductDeleted,

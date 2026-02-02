@@ -103,6 +103,7 @@ impl TryFrom<CsvProductRow> for Product {
             sales_unit: Arc::from(row.vk_einheit.as_str()),
             requires_weighing,
             price: crate::product::Price::from_euros(price_euros),
+            deposit: crate::product::Price::from_cents(0),
             created,
             deleted: None,
             version: uuid::Uuid::new_v4(),

@@ -66,7 +66,7 @@ pub struct PersonTO {
 }
 
 // Custom Price type for monetary values
-#[derive(Clone, Debug, Copy, PartialEq, Eq)]
+#[derive(Clone, Debug, Copy, PartialEq, Eq, Default)]
 pub struct Price {
     cents: i64,
 }
@@ -75,11 +75,11 @@ impl Price {
     pub fn from_cents(cents: i64) -> Self {
         Self { cents }
     }
-    
+
     pub fn to_cents(&self) -> i64 {
         self.cents
     }
-    
+
     pub fn to_euros(&self) -> f64 {
         self.cents as f64 / 100.0
     }
@@ -113,6 +113,8 @@ pub struct ProductTO {
     pub sales_unit: String,
     pub requires_weighing: bool,
     pub price: Price,
+    #[serde(default)]
+    pub deposit: Price,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub rack_count: Option<i64>,
     #[serde(

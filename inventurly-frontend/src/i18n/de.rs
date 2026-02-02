@@ -47,6 +47,7 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::ProductShortName => "Kurzname",
         Key::ProductSalesUnit => "Verkaufseinheit",
         Key::ProductPrice => "Preis",
+        Key::ProductDeposit => "Pfand",
         Key::ProductRequiresWeighing => "Wiegeartikel",
         Key::ProductCreated => "Erstellt",
         Key::ProductDeleted => "Gelöscht",

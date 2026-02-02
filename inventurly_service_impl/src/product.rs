@@ -200,6 +200,7 @@ impl<Deps: ProductServiceDeps> ProductService for ProductServiceImpl<Deps> {
             sales_unit: item.sales_unit.clone(),
             requires_weighing: item.requires_weighing,
             price: item.price,
+            deposit: item.deposit,
             created: time::PrimitiveDateTime::new(now.date(), now.time()),
             deleted: None,
             version: self.uuid_service.new_v4().await,
