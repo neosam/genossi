@@ -42,6 +42,7 @@ struct AggregatedData {
     price_cents: Option<i64>,
     total_value_cents: Option<i64>,
     requires_weighing: Option<bool>,
+    deposit_ean: Option<Arc<str>>,
 }
 
 impl AggregatedData {
@@ -157,6 +158,7 @@ impl<Deps: InventurReportServiceDeps> InventurReportService for InventurReportSe
                     short_name: product.short_name.clone(),
                     price_cents: Some(product.price),
                     requires_weighing: Some(product.requires_weighing),
+                    deposit_ean: product.deposit_ean.clone(),
                     ..Default::default()
                 });
 
@@ -182,7 +184,7 @@ impl<Deps: InventurReportServiceDeps> InventurReportService for InventurReportSe
                 let ean: Arc<str> = ean.clone();
 
                 // Try to get product info from the EAN
-                let (product_id, product_name, short_name, price_cents, requires_weighing) =
+                let (product_id, product_name, short_name, price_cents, requires_weighing, deposit_ean) =
                     if let Some(product) = product_by_ean.get(ean.as_ref()) {
                         (
                             Some(product.id),
@@ -190,6 +192,7 @@ impl<Deps: InventurReportServiceDeps> InventurReportService for InventurReportSe
                             product.short_name.clone(),
                             Some(product.price),
                             Some(product.requires_weighing),
+                            product.deposit_ean.clone(),
                         )
                     } else {
                         // Use custom product name if no matching product, no price available
@@ -197,6 +200,7 @@ impl<Deps: InventurReportServiceDeps> InventurReportService for InventurReportSe
                             None,
                             custom_entry.custom_product_name.clone(),
                             custom_entry.custom_product_name.clone(),
+                            None,
                             None,
                             None,
                         )
@@ -208,6 +212,7 @@ impl<Deps: InventurReportServiceDeps> InventurReportService for InventurReportSe
                     short_name,
                     price_cents,
                     requires_weighing,
+                    deposit_ean,
                     ..Default::default()
                 });
 
@@ -230,17 +235,44 @@ impl<Deps: InventurReportServiceDeps> InventurReportService for InventurReportSe
         // Convert to result items and sort by EAN
         let mut items: Vec<InventurProductReportItem> = aggregated
             .into_iter()
-            .map(|(ean, data)| InventurProductReportItem {
-                product_id: data.product_id,
-                ean,
-                product_name: data.product_name,
-                short_name: data.short_name,
-                total_count: data.total_count,
-                total_weight_grams: data.total_weight_grams,
-                measurement_count: data.measurement_count,
-                racks_measured: data.racks_measured,
-                price_cents: data.price_cents,
-                total_value_cents: data.total_value_cents,
+            .map(|(ean, data)| {
+                // Calculate deposit value for non-weighing products with deposit_ean
+                let deposit_value_cents = if data.requires_weighing == Some(false) {
+                    if let (Some(deposit_ean), Some(count)) = (&data.deposit_ean, data.total_count) {
+                        if let Some(deposit_product) = product_by_ean.get(deposit_ean.as_ref()) {
+                            Some(count * deposit_product.price)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                // Calculate total with deposit
+                let total_with_deposit_cents = match (data.total_value_cents, deposit_value_cents) {
+                    (Some(value), Some(deposit)) => Some(value + deposit),
+                    (Some(value), None) => Some(value),
+                    (None, Some(deposit)) => Some(deposit),
+                    (None, None) => None,
+                };
+
+                InventurProductReportItem {
+                    product_id: data.product_id,
+                    ean,
+                    product_name: data.product_name,
+                    short_name: data.short_name,
+                    total_count: data.total_count,
+                    total_weight_grams: data.total_weight_grams,
+                    measurement_count: data.measurement_count,
+                    racks_measured: data.racks_measured,
+                    price_cents: data.price_cents,
+                    total_value_cents: data.total_value_cents,
+                    deposit_value_cents,
+                    total_with_deposit_cents,
+                }
             })
             .collect();
 
@@ -274,6 +306,8 @@ impl<Deps: InventurReportServiceDeps> InventurReportService for InventurReportSe
             "Racks",
             "Price / kg (EUR)",
             "Total Value (EUR)",
+            "Deposit (EUR)",
+            "Total with Deposit (EUR)",
         ])
         .map_err(|e| ServiceError::InternalError(Arc::from(format!("CSV write error: {}", e))))?;
 
@@ -286,6 +320,14 @@ impl<Deps: InventurReportServiceDeps> InventurReportService for InventurReportSe
                 .unwrap_or_default();
             let total_value_str = item
                 .total_value_cents
+                .map(|cents| format!("{:.2}", cents as f64 / 100.0))
+                .unwrap_or_default();
+            let deposit_str = item
+                .deposit_value_cents
+                .map(|cents| format!("{:.2}", cents as f64 / 100.0))
+                .unwrap_or_default();
+            let total_with_deposit_str = item
+                .total_with_deposit_cents
                 .map(|cents| format!("{:.2}", cents as f64 / 100.0))
                 .unwrap_or_default();
 
@@ -310,6 +352,8 @@ impl<Deps: InventurReportServiceDeps> InventurReportService for InventurReportSe
                     .join(", "),
                 &price_str,
                 &total_value_str,
+                &deposit_str,
+                &total_with_deposit_str,
             ])
             .map_err(|e| {
                 ServiceError::InternalError(Arc::from(format!("CSV write error: {}", e)))
@@ -377,6 +421,7 @@ impl<Deps: InventurReportServiceDeps> InventurReportService for InventurReportSe
         };
 
         let mut total_value_cents: i64 = 0;
+        let mut total_deposit_cents: i64 = 0;
         let mut total_entries: usize = 0;
         let mut products_with_positive_entries: std::collections::HashSet<Arc<str>> =
             std::collections::HashSet::new();
@@ -411,6 +456,13 @@ impl<Deps: InventurReportServiceDeps> InventurReportService for InventurReportSe
                     // Count-based: count * price
                     if let Some(count) = measurement.count {
                         total_value_cents += count * product.price;
+
+                        // Calculate deposit for non-weighing products
+                        if let Some(ref deposit_ean) = product.deposit_ean {
+                            if let Some(deposit_product) = product_by_ean.get(deposit_ean.as_ref()) {
+                                total_deposit_cents += count * deposit_product.price;
+                            }
+                        }
                     }
                 }
             }
@@ -447,6 +499,13 @@ impl<Deps: InventurReportServiceDeps> InventurReportService for InventurReportSe
                         // Count-based
                         if let Some(count) = custom_entry.count {
                             total_value_cents += count * product.price;
+
+                            // Calculate deposit for non-weighing products
+                            if let Some(ref deposit_ean) = product.deposit_ean {
+                                if let Some(deposit_product) = product_by_ean.get(deposit_ean.as_ref()) {
+                                    total_deposit_cents += count * deposit_product.price;
+                                }
+                            }
                         }
                     }
                 }
@@ -459,6 +518,8 @@ impl<Deps: InventurReportServiceDeps> InventurReportService for InventurReportSe
             total_value_cents,
             total_entries,
             products_with_entries: products_with_positive_entries.len(),
+            total_deposit_cents,
+            total_with_deposit_cents: total_value_cents + total_deposit_cents,
         })
     }
 }

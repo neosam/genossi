@@ -66,13 +66,24 @@ pub fn InventurStatistics(inventur_id: Uuid) -> Element {
                     "{i18n.t(Key::Statistics)}"
                 }
                 div { class: "grid grid-cols-1 md:grid-cols-3 gap-4",
-                    // Total Value
+                    // Total Value (with deposit - the official result)
                     div { class: "bg-blue-50 rounded-lg p-4",
                         p { class: "text-sm text-blue-600 font-medium",
                             "{i18n.t(Key::TotalValue)}"
                         }
                         p { class: "text-2xl font-bold text-blue-900",
-                            "{i18n.format_price(stats.total_value_cents)}"
+                            "{i18n.format_price(stats.total_with_deposit_cents)}"
+                        }
+                        // Show breakdown if there's deposit
+                        if stats.total_deposit_cents > 0 {
+                            div { class: "mt-2 text-xs text-blue-600 space-y-1",
+                                p {
+                                    "{i18n.t(Key::ProductValue)}: {i18n.format_price(stats.total_value_cents)}"
+                                }
+                                p {
+                                    "{i18n.t(Key::Deposit)}: {i18n.format_price(stats.total_deposit_cents)}"
+                                }
+                            }
                         }
                     }
                     // Total Entries

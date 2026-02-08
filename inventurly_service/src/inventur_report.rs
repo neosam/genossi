@@ -28,6 +28,10 @@ pub struct InventurProductReportItem {
     pub price_cents: Option<i64>,
     /// Calculated total value in cents based on count/weight (None if can't calculate)
     pub total_value_cents: Option<i64>,
+    /// Deposit value in cents (count * deposit_product_price, only for non-weighing products)
+    pub deposit_value_cents: Option<i64>,
+    /// Total value including deposit (total_value_cents + deposit_value_cents)
+    pub total_with_deposit_cents: Option<i64>,
 }
 
 /// Statistics summary for an inventur
@@ -39,6 +43,10 @@ pub struct InventurStatistics {
     pub total_entries: usize,
     /// Number of distinct products with at least one positive entry
     pub products_with_entries: usize,
+    /// Total deposit value in cents
+    pub total_deposit_cents: i64,
+    /// Total value including deposit in cents
+    pub total_with_deposit_cents: i64,
 }
 
 #[automock(type Context = MockContext; type Transaction = MockTransaction;)]

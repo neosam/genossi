@@ -1489,6 +1489,8 @@ impl InventurReportService for MockInventurReportService {
             total_value_cents: 0,
             total_entries: 0,
             products_with_entries: 0,
+            total_deposit_cents: 0,
+            total_with_deposit_cents: 0,
         })
     }
 }

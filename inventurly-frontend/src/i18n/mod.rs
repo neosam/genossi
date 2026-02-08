@@ -412,6 +412,9 @@ pub enum Key {
     ShowMeasurements,
     HideMeasurements,
     LoadingMeasurements,
+    Deposit,
+    TotalWithDeposit,
+    ProductValue,
 }
 
 pub struct I18n {

@@ -1064,6 +1064,14 @@ pub struct InventurProductReportItemTO {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(example = 8085)]
     pub total_value_cents: Option<i64>,
+    /// Deposit value in cents (count * deposit_product_price, only for non-weighing products)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(example = 150)]
+    pub deposit_value_cents: Option<i64>,
+    /// Total value including deposit (total_value_cents + deposit_value_cents)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(example = 8235)]
+    pub total_with_deposit_cents: Option<i64>,
 }
 
 impl From<&inventurly_service::inventur_report::InventurProductReportItem>
@@ -1081,6 +1089,8 @@ impl From<&inventurly_service::inventur_report::InventurProductReportItem>
             racks_measured: item.racks_measured.iter().map(RackMeasuredTO::from).collect(),
             price_cents: item.price_cents,
             total_value_cents: item.total_value_cents,
+            deposit_value_cents: item.deposit_value_cents,
+            total_with_deposit_cents: item.total_with_deposit_cents,
         }
     }
 }
@@ -1097,6 +1107,12 @@ pub struct InventurStatisticsTO {
     /// Number of distinct products with at least one positive entry
     #[schema(example = 45)]
     pub products_with_entries: usize,
+    /// Total deposit value in cents
+    #[schema(example = 5000)]
+    pub total_deposit_cents: i64,
+    /// Total value including deposit in cents
+    #[schema(example = 130000)]
+    pub total_with_deposit_cents: i64,
 }
 
 impl From<&inventurly_service::inventur_report::InventurStatistics> for InventurStatisticsTO {
@@ -1105,6 +1121,8 @@ impl From<&inventurly_service::inventur_report::InventurStatistics> for Inventur
             total_value_cents: stats.total_value_cents,
             total_entries: stats.total_entries,
             products_with_entries: stats.products_with_entries,
+            total_deposit_cents: stats.total_deposit_cents,
+            total_with_deposit_cents: stats.total_with_deposit_cents,
         }
     }
 }

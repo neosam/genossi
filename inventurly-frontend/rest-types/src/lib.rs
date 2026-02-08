@@ -513,6 +513,12 @@ pub struct InventurStatisticsTO {
     pub total_entries: usize,
     /// Number of distinct products with at least one positive entry
     pub products_with_entries: usize,
+    /// Total deposit value in cents
+    #[serde(default)]
+    pub total_deposit_cents: i64,
+    /// Total value including deposit in cents
+    #[serde(default)]
+    pub total_with_deposit_cents: i64,
 }
 
 /// Rack information with ID and name for report items
@@ -550,5 +556,11 @@ pub struct InventurProductReportItemTO {
     /// Calculated total value in cents based on count/weight (None if can't calculate)
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub total_value_cents: Option<i64>,
+    /// Deposit value in cents (count * deposit_product_price, only for non-weighing products)
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub deposit_value_cents: Option<i64>,
+    /// Total value including deposit (total_value_cents + deposit_value_cents)
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub total_with_deposit_cents: Option<i64>,
 }
 

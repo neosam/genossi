@@ -480,6 +480,12 @@ pub fn InventurResults(id: String) -> Element {
                                     th { class: "px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider",
                                         "{i18n.t(Key::TotalValue)}"
                                     }
+                                    th { class: "px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider",
+                                        "{i18n.t(Key::Deposit)}"
+                                    }
+                                    th { class: "px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider",
+                                        "{i18n.t(Key::TotalWithDeposit)}"
+                                    }
                                 }
                             }
                             tbody {
@@ -567,13 +573,27 @@ pub fn InventurResults(id: String) -> Element {
                                                         "-"
                                                     }
                                                 }
+                                                td { class: "px-6 py-4 whitespace-nowrap text-sm text-right",
+                                                    if let Some(deposit_value_cents) = item.deposit_value_cents {
+                                                        "{i18n.format_price(deposit_value_cents)}"
+                                                    } else {
+                                                        "-"
+                                                    }
+                                                }
+                                                td { class: "px-6 py-4 whitespace-nowrap text-sm text-right font-semibold",
+                                                    if let Some(total_with_deposit_cents) = item.total_with_deposit_cents {
+                                                        "{i18n.format_price(total_with_deposit_cents)}"
+                                                    } else {
+                                                        "-"
+                                                    }
+                                                }
                                             }
 
                                             // Expanded details row (measurements + custom entries)
                                             if is_expanded {
                                                 if let Some(ref data) = expanded_data {
                                                     tr { class: "bg-gray-50",
-                                                        td { colspan: "10", class: "px-6 py-4",
+                                                        td { colspan: "12", class: "px-6 py-4",
                                                             div { class: "ml-8 border-l-2 border-blue-200 pl-4 space-y-4",
                                                                 // Measurements section
                                                                 if !data.measurements.is_empty() {
@@ -770,7 +790,7 @@ pub fn InventurResults(id: String) -> Element {
                                                     }
                                                 } else if is_loading_data {
                                                     tr { class: "bg-gray-50",
-                                                        td { colspan: "10", class: "px-6 py-4 text-center text-gray-500",
+                                                        td { colspan: "12", class: "px-6 py-4 text-center text-gray-500",
                                                             "{i18n.t(Key::LoadingMeasurements)}"
                                                         }
                                                     }

@@ -360,6 +360,9 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::ShowMeasurements => "Messungen anzeigen",
         Key::HideMeasurements => "Messungen ausblenden",
         Key::LoadingMeasurements => "Messungen werden geladen...",
+        Key::Deposit => "Pfand",
+        Key::TotalWithDeposit => "Gesamt mit Pfand",
+        Key::ProductValue => "Warenwert",
     }
     .into()
 }
