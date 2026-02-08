@@ -8,6 +8,7 @@ use inventurly_service::csv_import::{
     CsvImportResult, CsvImportService, CsvProductRow, ImportAction,
 };
 use inventurly_service::price_import::{PriceImportResult, PriceImportService};
+use inventurly_service::deposit_ean_import::{DepositEanImportResult, DepositEanImportService};
 use inventurly_service::duplicate_detection::{
     DuplicateDetectionConfig, DuplicateDetectionResult, DuplicateDetectionService, DuplicateMatch,
 };
@@ -35,6 +36,7 @@ struct TestRestState {
     product_rack_service: Arc<MockProductRackService>,
     csv_import_service: Arc<MockCsvImportService>,
     price_import_service: Arc<MockPriceImportService>,
+    deposit_ean_import_service: Arc<MockDepositEanImportService>,
     duplicate_detection_service: Arc<MockDuplicateDetectionService>,
     permission_service: Arc<MockPermissionService>,
     session_service: Arc<MockSessionService>,
@@ -53,6 +55,7 @@ impl RestStateDef for TestRestState {
     type ProductRackService = MockProductRackService;
     type CsvImportService = MockCsvImportService;
     type PriceImportService = MockPriceImportService;
+    type DepositEanImportService = MockDepositEanImportService;
     type DuplicateDetectionService = MockDuplicateDetectionService;
     type PermissionService = MockPermissionService;
     type SessionService = MockSessionService;
@@ -93,6 +96,10 @@ impl RestStateDef for TestRestState {
 
     fn price_import_service(&self) -> Arc<Self::PriceImportService> {
         self.price_import_service.clone()
+    }
+
+    fn deposit_ean_import_service(&self) -> Arc<Self::DepositEanImportService> {
+        self.deposit_ean_import_service.clone()
     }
 
     fn session_service(&self) -> Arc<Self::SessionService> {
@@ -580,6 +587,32 @@ impl PriceImportService for MockPriceImportService {
         _transaction: Option<Self::Transaction>,
     ) -> Result<PriceImportResult, inventurly_service::ServiceError> {
         Ok(PriceImportResult {
+            total_rows: 0,
+            updated: 0,
+            skipped: 0,
+            errors: vec![],
+        })
+    }
+}
+
+#[derive(Clone)]
+struct MockDepositEanImportService;
+
+#[async_trait::async_trait]
+impl DepositEanImportService for MockDepositEanImportService {
+    #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
+    type Context = MockContext;
+    #[cfg(feature = "oidc")]
+    type Context = inventurly_service::auth_types::AuthenticatedContext;
+    type Transaction = inventurly_dao::MockTransaction;
+
+    async fn import_deposit_eans_csv(
+        &self,
+        _csv_content: &str,
+        _auth: Authentication<Self::Context>,
+        _transaction: Option<Self::Transaction>,
+    ) -> Result<DepositEanImportResult, inventurly_service::ServiceError> {
+        Ok(DepositEanImportResult {
             total_rows: 0,
             updated: 0,
             skipped: 0,
@@ -1468,6 +1501,7 @@ fn create_test_app() -> axum::Router {
         product_rack_service: Arc::new(MockProductRackService),
         csv_import_service: Arc::new(MockCsvImportService),
         price_import_service: Arc::new(MockPriceImportService),
+        deposit_ean_import_service: Arc::new(MockDepositEanImportService),
         duplicate_detection_service: Arc::new(MockDuplicateDetectionService),
         permission_service: Arc::new(MockPermissionService),
         session_service: Arc::new(MockSessionService),

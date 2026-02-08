@@ -17,6 +17,7 @@ use inventurly_service_impl::{
     container::{ContainerServiceDeps, ContainerServiceImpl},
     container_rack::ContainerRackServiceImpl,
     csv_import::{CsvImportServiceDeps, CsvImportServiceImpl},
+    deposit_ean_import::{DepositEanImportServiceDeps, DepositEanImportServiceImpl},
     duplicate_detection::{DuplicateDetectionServiceDeps, DuplicateDetectionServiceImpl},
     inventur::{InventurServiceDeps, InventurServiceImpl},
     inventur_custom_entry::{InventurCustomEntryServiceDeps, InventurCustomEntryServiceImpl},
@@ -253,6 +254,22 @@ impl PriceImportServiceDeps for PriceImportServiceDependencies {
 type PriceImportService =
     inventurly_service_impl::price_import::PriceImportServiceImpl<PriceImportServiceDependencies>;
 
+pub struct DepositEanImportServiceDependencies;
+
+unsafe impl Send for DepositEanImportServiceDependencies {}
+unsafe impl Sync for DepositEanImportServiceDependencies {}
+
+impl DepositEanImportServiceDeps for DepositEanImportServiceDependencies {
+    type Context = Context;
+    type Transaction = Transaction;
+    type ProductService = ProductService;
+    type PermissionService = PermissionService;
+    type TransactionDao = TransactionDao;
+}
+
+type DepositEanImportService =
+    inventurly_service_impl::deposit_ean_import::DepositEanImportServiceImpl<DepositEanImportServiceDependencies>;
+
 pub struct InventurServiceDependencies;
 
 unsafe impl Send for InventurServiceDependencies {}
@@ -346,6 +363,7 @@ pub struct RestStateImpl {
     inventur_report_service: Arc<InventurReportService>,
     csv_import_service: Arc<CsvImportService>,
     price_import_service: Arc<PriceImportService>,
+    deposit_ean_import_service: Arc<DepositEanImportService>,
     duplicate_detection_service: Arc<DuplicateDetectionService>,
     permission_service: Arc<PermissionService>,
     session_service: Arc<SessionService>,
@@ -457,6 +475,13 @@ impl RestStateImpl {
             transaction_dao: transaction_dao.clone(),
         });
 
+        // Create DepositEanImportService using struct literal syntax
+        let deposit_ean_import_service = Arc::new(DepositEanImportServiceImpl {
+            product_service: product_service.clone(),
+            permission_service: permission_service.clone(),
+            transaction_dao: transaction_dao.clone(),
+        });
+
         // Create InventurService using struct literal syntax
         let inventur_service = Arc::new(InventurServiceImpl {
             inventur_dao: inventur_dao.clone(),
@@ -516,6 +541,7 @@ impl RestStateImpl {
             inventur_report_service,
             csv_import_service,
             price_import_service,
+            deposit_ean_import_service,
             duplicate_detection_service,
             permission_service,
             session_service,
@@ -536,6 +562,7 @@ impl inventurly_rest::RestStateDef for RestStateImpl {
     type InventurReportService = InventurReportService;
     type CsvImportService = CsvImportService;
     type PriceImportService = PriceImportService;
+    type DepositEanImportService = DepositEanImportService;
     type DuplicateDetectionService = DuplicateDetectionService;
     type PermissionService = PermissionService;
     type SessionService = SessionService;
@@ -594,6 +621,10 @@ impl inventurly_rest::RestStateDef for RestStateImpl {
 
     fn price_import_service(&self) -> Arc<Self::PriceImportService> {
         self.price_import_service.clone()
+    }
+
+    fn deposit_ean_import_service(&self) -> Arc<Self::DepositEanImportService> {
+        self.deposit_ean_import_service.clone()
     }
 
     fn session_service(&self) -> Arc<Self::SessionService> {

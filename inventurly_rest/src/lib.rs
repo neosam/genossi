@@ -3,6 +3,7 @@ pub mod auth_middleware;
 pub mod container;
 pub mod container_rack;
 pub mod csv_import;
+pub mod deposit_ean_import;
 pub mod duplicate_detection;
 pub mod inventur;
 pub mod inventur_custom_entry;
@@ -171,6 +172,10 @@ pub trait RestStateDef: Clone + Send + Sync + 'static {
         + Send
         + Sync
         + 'static;
+    type DepositEanImportService: inventurly_service::deposit_ean_import::DepositEanImportService<Context = ContextType>
+        + Send
+        + Sync
+        + 'static;
     type SessionService: inventurly_service::session::SessionService + Send + Sync + 'static;
 
     fn person_service(&self) -> Arc<Self::PersonService>;
@@ -187,6 +192,7 @@ pub trait RestStateDef: Clone + Send + Sync + 'static {
     fn duplicate_detection_service(&self) -> Arc<Self::DuplicateDetectionService>;
     fn permission_service(&self) -> Arc<Self::PermissionService>;
     fn price_import_service(&self) -> Arc<Self::PriceImportService>;
+    fn deposit_ean_import_service(&self) -> Arc<Self::DepositEanImportService>;
     fn session_service(&self) -> Arc<Self::SessionService>;
 }
 
@@ -206,6 +212,7 @@ pub trait RestStateDef: Clone + Send + Sync + 'static {
         (path = "/inventur-report", api = inventur_report::ApiDoc),
         (path = "/csv-import", api = csv_import::CsvImportApiDoc),
         (path = "/price-import", api = price_import::PriceImportApiDoc),
+        (path = "/deposit-ean-import", api = deposit_ean_import::DepositEanImportApiDoc),
         (path = "/duplicate-detection", api = duplicate_detection::DuplicateDetectionApiDoc),
         (path = "/permission", api = permission::ApiDoc)
     )
@@ -348,6 +355,10 @@ pub async fn create_app<RestState: RestStateDef>(rest_state: RestState) -> Route
         .nest("/inventur-report", inventur_report::generate_route())
         .nest("/csv-import", csv_import::generate_route())
         .nest("/price-import", price_import::generate_route())
+        .nest(
+            "/deposit-ean-import",
+            deposit_ean_import::generate_route(),
+        )
         .nest(
             "/duplicate-detection",
             duplicate_detection::generate_route(),

@@ -1,6 +1,7 @@
 pub mod container;
 pub mod container_rack;
 pub mod csv_import;
+pub mod deposit_ean_import;
 pub mod duplicate_detection;
 pub mod inventur;
 pub mod inventur_custom_entry;
