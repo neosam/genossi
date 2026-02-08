@@ -1,6 +1,6 @@
 use crate::auth::Auth;
 use crate::component::dropdown_base::DropdownBase;
-use crate::component::TopBar;
+use crate::component::{Footer, TopBar};
 use crate::page::{InventurTokenLogin, NotAuthenticated};
 use crate::router::Route;
 use crate::service;
@@ -43,17 +43,20 @@ pub fn App() -> Element {
 
         rsx! {
             document::Stylesheet { href: "/assets/tailwind.css" }
-            div { class: "flex flex-col",
+            div { class: "flex flex-col min-h-screen",
                 DropdownBase {}
-                Auth {
-                    authenticated: rsx! {
-                        Router::<Route> {}
-                    },
-                    unauthenticated: rsx! {
-                        TopBar {}
-                        NotAuthenticated {}
-                    },
+                div { class: "flex-1",
+                    Auth {
+                        authenticated: rsx! {
+                            Router::<Route> {}
+                        },
+                        unauthenticated: rsx! {
+                            TopBar {}
+                            NotAuthenticated {}
+                        },
+                    }
                 }
+                Footer {}
             }
         }
     } else {
