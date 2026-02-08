@@ -13,8 +13,8 @@ pub struct ProductEntity {
     pub short_name: Arc<str>,
     pub sales_unit: Arc<str>,
     pub requires_weighing: bool,
-    pub price: i64,   // Price in cents
-    pub deposit: i64, // Deposit/Pfand in cents
+    pub price: i64, // Price in cents
+    pub deposit_ean: Option<Arc<str>>, // Optional EAN reference to deposit product
     pub created: PrimitiveDateTime,
     pub deleted: Option<PrimitiveDateTime>,
     pub version: Uuid,
@@ -204,7 +204,7 @@ mod tests {
             sales_unit: Arc::from("St"),
             requires_weighing: false,
             price: 100,
-            deposit: 0,
+            deposit_ean: None,
             created: PrimitiveDateTime::MIN,
             deleted,
             version: Uuid::new_v4(),

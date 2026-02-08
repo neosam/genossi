@@ -113,8 +113,8 @@ pub struct ProductTO {
     pub sales_unit: String,
     pub requires_weighing: bool,
     pub price: Price,
-    #[serde(default)]
-    pub deposit: Price,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub deposit_ean: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub rack_count: Option<i64>,
     #[serde(

@@ -19,7 +19,7 @@ struct ProductDb {
     sales_unit: String,
     requires_weighing: i32,
     price: i64,
-    deposit: i64,
+    deposit_ean: Option<String>,
     created: String,
     deleted: Option<String>,
     version: Vec<u8>,
@@ -62,7 +62,7 @@ impl TryFrom<&ProductDb> for ProductEntity {
             sales_unit: Arc::from(db.sales_unit.as_str()),
             requires_weighing: db.requires_weighing != 0,
             price: db.price,
-            deposit: db.deposit,
+            deposit_ean: db.deposit_ean.as_ref().map(|s| Arc::from(s.as_str())),
             created: parse_datetime(&db.created)?,
             deleted: db.deleted.as_ref().map(|d| parse_datetime(d)).transpose()?,
             version: Uuid::from_slice(&db.version)?,
@@ -86,7 +86,7 @@ impl ProductDao for ProductDaoImpl {
 
     async fn dump_all(&self, tx: Self::Transaction) -> Result<Arc<[ProductEntity]>, DaoError> {
         let rows = sqlx::query_as::<_, ProductDb>(
-            "SELECT id, ean, name, short_name, sales_unit, requires_weighing, price, deposit, created, deleted, version
+            "SELECT id, ean, name, short_name, sales_unit, requires_weighing, price, deposit_ean, created, deleted, version
              FROM product ORDER BY name"
         )
         .fetch_all(tx.tx.lock().await.as_mut())
@@ -119,10 +119,10 @@ impl ProductDao for ProductDaoImpl {
         let sales_unit = entity.sales_unit.to_string();
         let requires_weighing = if entity.requires_weighing { 1 } else { 0 };
         let price = entity.price;
-        let deposit = entity.deposit;
+        let deposit_ean = entity.deposit_ean.as_ref().map(|s| s.to_string());
 
         sqlx::query(
-            "INSERT INTO product (id, ean, name, short_name, sales_unit, requires_weighing, price, deposit, created, version)
+            "INSERT INTO product (id, ean, name, short_name, sales_unit, requires_weighing, price, deposit_ean, created, version)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )
         .bind(id)
@@ -132,7 +132,7 @@ impl ProductDao for ProductDaoImpl {
         .bind(sales_unit)
         .bind(requires_weighing)
         .bind(price)
-        .bind(deposit)
+        .bind(deposit_ean)
         .bind(created)
         .bind(version)
         .execute(tx.tx.lock().await.as_mut())
@@ -157,7 +157,7 @@ impl ProductDao for ProductDaoImpl {
         let sales_unit = entity.sales_unit.to_string();
         let requires_weighing = if entity.requires_weighing { 1 } else { 0 };
         let price = entity.price;
-        let deposit = entity.deposit;
+        let deposit_ean = entity.deposit_ean.as_ref().map(|s| s.to_string());
 
         // Format deleted timestamp if present
         let deleted = match entity.deleted {
@@ -188,7 +188,7 @@ impl ProductDao for ProductDaoImpl {
         let rows_affected = sqlx::query(
             "UPDATE product
              SET ean = ?, name = ?, short_name = ?, sales_unit = ?, requires_weighing = ?,
-                 price = ?, deposit = ?, deleted = ?, version = ?
+                 price = ?, deposit_ean = ?, deleted = ?, version = ?
              WHERE id = ? AND version = ? AND deleted IS NULL",
         )
         .bind(ean)
@@ -197,7 +197,7 @@ impl ProductDao for ProductDaoImpl {
         .bind(sales_unit)
         .bind(requires_weighing)
         .bind(price)
-        .bind(deposit)
+        .bind(deposit_ean)
         .bind(deleted)
         .bind(new_version)
         .bind(id)
@@ -221,7 +221,7 @@ impl ProductDao for ProductDaoImpl {
         tx: Self::Transaction,
     ) -> Result<Option<ProductEntity>, DaoError> {
         let row = sqlx::query_as::<_, ProductDb>(
-            "SELECT id, ean, name, short_name, sales_unit, requires_weighing, price, deposit, created, deleted, version
+            "SELECT id, ean, name, short_name, sales_unit, requires_weighing, price, deposit_ean, created, deleted, version
              FROM product
              WHERE ean = ? AND deleted IS NULL"
         )
@@ -241,7 +241,7 @@ impl ProductDao for ProductDaoImpl {
     ) -> Result<Option<ProductEntity>, DaoError> {
         let id_bytes = id.as_bytes().to_vec();
         let row = sqlx::query_as::<_, ProductDb>(
-            "SELECT id, ean, name, short_name, sales_unit, requires_weighing, price, deposit, created, deleted, version
+            "SELECT id, ean, name, short_name, sales_unit, requires_weighing, price, deposit_ean, created, deleted, version
              FROM product
              WHERE id = ? AND deleted IS NULL"
         )
@@ -267,7 +267,7 @@ impl ProductDao for ProductDaoImpl {
         };
 
         let sql = format!(
-            "SELECT id, ean, name, short_name, sales_unit, requires_weighing, price, deposit, created, deleted, version
+            "SELECT id, ean, name, short_name, sales_unit, requires_weighing, price, deposit_ean, created, deleted, version
              FROM product
              WHERE deleted IS NULL
                AND (LOWER(name) LIKE ? OR LOWER(ean) LIKE ? OR LOWER(short_name) LIKE ?)

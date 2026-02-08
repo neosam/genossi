@@ -191,6 +191,17 @@ impl<Deps: ProductServiceDeps> ProductService for ProductServiceImpl<Deps> {
             return Err(ServiceError::ValidationError(validation_errors));
         }
 
+        // Validate deposit_ean if provided
+        if let Some(ref deposit_ean) = item.deposit_ean {
+            let deposit_product = self.product_dao.find_by_ean(deposit_ean, tx.clone()).await?;
+            if deposit_product.is_none() {
+                return Err(ServiceError::ValidationError(vec![ValidationFailureItem {
+                    field: Arc::from("deposit_ean"),
+                    message: Arc::from(format!("No product found with EAN '{}'", deposit_ean)),
+                }]));
+            }
+        }
+
         let now = time::OffsetDateTime::now_utc();
         let new_product = Product {
             id: self.uuid_service.new_v4().await,
@@ -200,7 +211,7 @@ impl<Deps: ProductServiceDeps> ProductService for ProductServiceImpl<Deps> {
             sales_unit: item.sales_unit.clone(),
             requires_weighing: item.requires_weighing,
             price: item.price,
-            deposit: item.deposit,
+            deposit_ean: item.deposit_ean.clone(),
             created: time::PrimitiveDateTime::new(now.date(), now.time()),
             deleted: None,
             version: self.uuid_service.new_v4().await,
@@ -287,6 +298,17 @@ impl<Deps: ProductServiceDeps> ProductService for ProductServiceImpl<Deps> {
                     message: Arc::from("EAN already exists"),
                 });
                 return Err(ServiceError::ValidationError(validation_errors));
+            }
+        }
+
+        // Validate deposit_ean if provided
+        if let Some(ref deposit_ean) = item.deposit_ean {
+            let deposit_product = self.product_dao.find_by_ean(deposit_ean, tx.clone()).await?;
+            if deposit_product.is_none() {
+                return Err(ServiceError::ValidationError(vec![ValidationFailureItem {
+                    field: Arc::from("deposit_ean"),
+                    message: Arc::from(format!("No product found with EAN '{}'", deposit_ean)),
+                }]));
             }
         }
 
