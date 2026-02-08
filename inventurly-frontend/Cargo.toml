@@ -1,6 +1,6 @@
 [package]
 name = "inventurly-frontend"
-version = "1.4.0"
+version = "1.5.0-dev"
 authors = ["Inventurly Team"]
 edition = "2021"
 
