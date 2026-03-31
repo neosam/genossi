@@ -1,0 +1,13 @@
+[package]
+name = "genossi_dao_impl_sqlite"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+genossi_dao = { path = "../genossi_dao" }
+async-trait = { workspace = true }
+sqlx = { workspace = true }
+time = { workspace = true }
+uuid = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }

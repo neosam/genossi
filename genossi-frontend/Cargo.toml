@@ -1,0 +1,82 @@
+[package]
+name = "genossi-frontend"
+version = "0.1.0"
+authors = ["Genossi Team"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+dioxus = { version = "0.6.3", features = ["web", "router"] }
+
+# Debug
+tracing = "0.1.41"
+dioxus-logger = "0.6.2"
+reqwest = { version = "0.12.15", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1.0.219", features = ["rc"] }
+serde_json = { version = "1.0.140", features = ["raw_value"] }
+async-recursion = "1.1.1"
+futures = "0.3.30"
+thiserror = "2.0.12"
+futures-util = "0.3.30"
+js-sys = "0.3.77"
+futures-channel = "0.3"
+manganis = "0.6.2"
+wasm-bindgen = "0.2.97"
+wasm-bindgen-futures = "0.4.47"
+gloo-timers = { version = "0.3.0", features = ["futures"] }
+
+[dependencies.rest-types]
+path = "rest-types"
+
+[dependencies.uuid]
+version = "1.18"
+features = ["v4", "js"]
+[dependencies.time]
+version = "0.3"
+features = ["macros"]
+[dependencies.web-sys]
+version = "0.3"
+features = [
+    "Window",
+    "Navigator",
+    "Document",
+    "Element",
+    "HtmlElement",
+    "HtmlTextAreaElement",
+    "HtmlSelectElement",
+    "CssStyleDeclaration",
+    "Node",
+    "Storage",
+]
+
+[profile]
+
+[profile.wasm-dev]
+inherits = "dev"
+opt-level = 1
+
+[profile.server-dev]
+inherits = "dev"
+
+[profile.android-dev]
+inherits = "dev"
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3"
+tokio-test = "0.4"
+mockito = "1.2"
+
+#[profile.release]
+#opt-level = "z"
+#lto = true
+#codegen-units = 1
+#panic = "abort"
+#strip = true
+#[target.wasm32-unknown-unknown]
+#rustflags = ["-C", "target-feature=-bulk-memory"]
+
+#[profile.release]
+#opt-level = "z"
+#lto = true
+#codegen-units = 1

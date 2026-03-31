@@ -1,6 +1,0 @@
-{
-  "backend": "http://localhost:8080",
-  "application_title": "Inventurly",
-  "is_prod": false,
-  "env_short_description": "dev"
-}

@@ -1,22 +1,22 @@
 # OIDC Configuration for NixOS Module
 
-The Inventurly NixOS module now supports OIDC authentication with dedicated configuration options.
+The Genossi NixOS module now supports OIDC authentication with dedicated configuration options.
 
 ## Configuration Examples
 
 ### OIDC Authentication (Production)
 
 ```nix
-services.inventurly.production = {
+services.genossi.production = {
   enable = true;
-  domain = "inventurly.example.com";
+  domain = "genossi.example.com";
   
   oidc = {
     enable = true;
     issuer = "https://accounts.google.com";
     clientId = "your-google-client-id";
-    clientSecretFile = /etc/secrets/inventurly-client-secret;
-    # appUrl auto-derived as "https://inventurly.example.com"
+    clientSecretFile = /etc/secrets/genossi-client-secret;
+    # appUrl auto-derived as "https://genossi.example.com"
   };
 };
 ```
@@ -24,9 +24,9 @@ services.inventurly.production = {
 ### Mock Authentication (Development)
 
 ```nix
-services.inventurly.development = {
+services.genossi.development = {
   enable = true;
-  domain = "inventurly-dev.example.com";
+  domain = "genossi-dev.example.com";
   port = 3001;
   
   oidc.enable = false; # Uses mock authentication
@@ -36,7 +36,7 @@ services.inventurly.development = {
 ### Custom APP_URL
 
 ```nix
-services.inventurly.custom = {
+services.genossi.custom = {
   enable = true;
   
   oidc = {
@@ -70,13 +70,13 @@ services.inventurly.custom = {
 ### `oidc.clientSecretFile`
 - **Type**: `null or path`
 - **Default**: `null`
-- **Example**: `/etc/secrets/inventurly-client-secret`
+- **Example**: `/etc/secrets/genossi-client-secret`
 - **Description**: Path to file containing OAuth client secret
 
 ### `oidc.appUrl`
 - **Type**: `null or string`
 - **Default**: Auto-derived from `domain`
-- **Example**: `"https://inventurly.example.com"`
+- **Example**: `"https://genossi.example.com"`
 - **Description**: Application URL for OIDC callbacks
 
 ## Automatic Behavior
@@ -118,7 +118,7 @@ The module validates configuration with these checks:
 
 **Before** (manual extraEnvironment):
 ```nix
-services.inventurly.instance = {
+services.genossi.instance = {
   enable = true;
   extraEnvironment = {
     APP_URL = "https://example.com";
@@ -131,7 +131,7 @@ services.inventurly.instance = {
 
 **After** (dedicated OIDC options):
 ```nix
-services.inventurly.instance = {
+services.genossi.instance = {
   enable = true;
   domain = "example.com";
   

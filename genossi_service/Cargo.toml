@@ -1,0 +1,20 @@
+[package]
+name = "genossi_service"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+genossi_dao = { path = "../genossi_dao" }
+async-trait = { workspace = true }
+mockall = { workspace = true }
+time = { workspace = true }
+uuid = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+utoipa = { workspace = true, optional = true }
+
+[features]
+default = ["mock_auth"]
+mock_auth = []
+oidc = []
+utoipa = ["dep:utoipa"]

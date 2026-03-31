@@ -1,0 +1,18 @@
+[package]
+name = "genossi_service_impl"
+version.workspace = true
+edition.workspace = true
+
+[features]
+default = ["mock_auth"]
+mock_auth = ["genossi_service/mock_auth"]
+oidc = ["genossi_service/oidc"]
+
+[dependencies]
+genossi_dao = { path = "../genossi_dao" }
+genossi_service = { path = "../genossi_service" }
+async-trait = { workspace = true }
+time = { workspace = true }
+uuid = { workspace = true }
+tracing = { workspace = true }
+calamine = { workspace = true }

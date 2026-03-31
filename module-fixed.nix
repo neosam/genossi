@@ -1,20 +1,20 @@
-# Fixed NixOS module for Inventurly service
+# Fixed NixOS module for Genossi service
 { config, lib, pkgs, ... }:
 
 with lib;
 
 let
-  cfg = config.services.inventurly;
+  cfg = config.services.genossi;
   
-  mkInventurlyService = name: instanceCfg:
+  mkGenossiService = name: instanceCfg:
     mkIf instanceCfg.enable {
-      systemd.services."inventurly-${name}" = {
-        description = "Inventurly Service (${name})";
+      systemd.services."genossi-${name}" = {
+        description = "Genossi Service (${name})";
         wantedBy = [ "multi-user.target" ];
         after = [ "network.target" ];
         
         environment = {
-          DATABASE_URL = "sqlite:/var/lib/inventurly-${name}/inventurly.db";
+          DATABASE_URL = "sqlite:/var/lib/genossi-${name}/genossi.db";
           SERVER_ADDRESS = "${instanceCfg.host}:${toString instanceCfg.port}";
           RUST_LOG = instanceCfg.logLevel;
         } // instanceCfg.extraEnvironment;
@@ -22,7 +22,7 @@ let
         serviceConfig = {
           Type = "simple";
           ExecStart = "${pkgs.rustPlatform.buildRustPackage {
-            pname = "inventurly-service";
+            pname = "genossi-service";
             version = "0.1.0";
             src = ./.;
             nativeBuildInputs = with pkgs; [curl pkg-config openssl];
@@ -34,23 +34,23 @@ let
               cp -r $src/migrations $out/
             '';
             cargoHash = "sha256-HD8zvbAEqDkeIuWgkWheSOW5UyXxU/qZWSCae5jOFfk=";
-          }}/bin/inventurly";
+          }}/bin/genossi";
           
-          StateDirectory = "inventurly-${name}";
-          WorkingDirectory = "/var/lib/inventurly-${name}";
+          StateDirectory = "genossi-${name}";
+          WorkingDirectory = "/var/lib/genossi-${name}";
           Restart = "on-failure";
         };
         
         preStart = ''
           # Initialize database
-          if [ ! -f /var/lib/inventurly-${name}/inventurly.db ]; then
-            ${pkgs.sqlite}/bin/sqlite3 /var/lib/inventurly-${name}/inventurly.db "VACUUM;"
+          if [ ! -f /var/lib/genossi-${name}/genossi.db ]; then
+            ${pkgs.sqlite}/bin/sqlite3 /var/lib/genossi-${name}/genossi.db "VACUUM;"
           fi
           
           # Copy and run migrations
-          if [ ! -d /var/lib/inventurly-${name}/migrations ]; then
+          if [ ! -d /var/lib/genossi-${name}/migrations ]; then
             cp -r ${pkgs.rustPlatform.buildRustPackage {
-              pname = "inventurly-service";
+              pname = "genossi-service";
               version = "0.1.0";
               src = ./.;
               nativeBuildInputs = with pkgs; [curl pkg-config openssl];
@@ -62,9 +62,9 @@ let
                 cp -r $src/migrations $out/
               '';
               cargoHash = "sha256-HD8zvbAEqDkeIuWgkWheSOW5UyXxU/qZWSCae5jOFfk=";
-            }}/migrations /var/lib/inventurly-${name}/
+            }}/migrations /var/lib/genossi-${name}/
           fi
-          cd /var/lib/inventurly-${name}
+          cd /var/lib/genossi-${name}
           ${pkgs.sqlx-cli}/bin/sqlx database setup --source ./migrations/sqlite || true
         '';
       };
@@ -74,7 +74,7 @@ let
     enable = mkOption {
       type = types.bool;
       default = false;
-      description = "Enable this Inventurly instance";
+      description = "Enable this Genossi instance";
     };
     
     port = mkOption {
@@ -97,7 +97,7 @@ let
     
     logLevel = mkOption {
       type = types.str;
-      default = "inventurly=debug,tower_http=debug";
+      default = "genossi=debug,tower_http=debug";
       description = "Rust log level configuration";
     };
     
@@ -109,11 +109,11 @@ let
   };
   
 in {
-  options.services.inventurly = mkOption {
+  options.services.genossi = mkOption {
     type = types.attrsOf (types.submodule { options = instanceOptions; });
     default = {};
-    description = "Inventurly service instances";
+    description = "Genossi service instances";
   };
   
-  config = mkMerge (mapAttrsToList mkInventurlyService cfg);
+  config = mkMerge (mapAttrsToList mkGenossiService cfg);
 }

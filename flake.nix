@@ -1,22 +1,23 @@
 {
-  description = "Inventurly - Inventory Management System";
+  description = "Genossi - Inventory Management System";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
+    openspec.url = "github:Fission-AI/OpenSpec";
 
     # Frontend als Sub-Flake
-    inventurly-frontend = {
-      url = "path:./inventurly-frontend";
+    genossi-frontend = {
+      url = "path:./genossi-frontend";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
 
-  outputs = { self, nixpkgs, flake-utils, inventurly-frontend }:
+  outputs = { self, nixpkgs, flake-utils, genossi-frontend, openspec }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
-        frontendPkg = inventurly-frontend.packages.${system}.default;
+        frontendPkg = genossi-frontend.packages.${system}.default;
       in
       {
         packages = {
@@ -52,6 +53,7 @@
             sqlite
             nodejs
             pkg-config
+            openspec.packages.${system}.default
             # Weitere Tools die du brauchst
           ];
         };

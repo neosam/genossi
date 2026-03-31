@@ -1,0 +1,35 @@
+[package]
+name = "genossi_rest"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+axum = { workspace = true }
+genossi_dao = { path = "../genossi_dao" }
+genossi_service = { path = "../genossi_service", features = ["utoipa"] }
+genossi_rest_types = { path = "../genossi_rest_types" }
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+utoipa = { workspace = true }
+utoipa-swagger-ui = { workspace = true }
+time = { workspace = true }
+tower-cookies = { workspace = true }
+tower-sessions = { workspace = true }
+axum-oidc = { workspace = true, optional = true }
+http = { workspace = true }
+
+[features]
+default = ["mock_auth"]
+mock_auth = []
+oidc = ["dep:axum-oidc"]
+
+[dev-dependencies]
+tower = { workspace = true }
+tower-http = { workspace = true }
+time = { workspace = true }

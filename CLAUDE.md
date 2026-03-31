@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 cargo build
 
 # Build specific package
-cargo build -p inventurly_bin
+cargo build -p genossi_bin
 
 # Build with all features
 cargo build --all-features
@@ -25,7 +25,7 @@ cargo build --release
 cargo test
 
 # Run tests for specific package
-cargo test -p inventurly_service
+cargo test -p genossi_service
 
 # Run specific test by name
 cargo test test_name
@@ -58,22 +58,22 @@ cargo clippy --all-targets --all-features
 ### Database Commands
 ```bash
 # Run migrations (executed automatically on startup)
-sqlx migrate run --database-url sqlite:inventurly.db --source migrations/sqlite
+sqlx migrate run --database-url sqlite:genossi.db --source migrations/sqlite
 
 # Create new migration
 sqlx migrate add <migration_name> --source migrations/sqlite
 
 # Prepare offline query data for compilation
-DATABASE_URL=sqlite:inventurly.db cargo sqlx prepare
+DATABASE_URL=sqlite:genossi.db cargo sqlx prepare
 ```
 
 ### Running the Application
 ```bash
 # Run the server (default port 3000)
-cargo run --bin inventurly
+cargo run --bin genossi
 
 # With environment variables
-DATABASE_URL=sqlite:inventurly.db SERVER_ADDRESS=0.0.0.0:8080 cargo run --bin inventurly
+DATABASE_URL=sqlite:genossi.db SERVER_ADDRESS=0.0.0.0:8080 cargo run --bin genossi
 
 # Access Swagger UI
 # http://localhost:3000/swagger-ui/
@@ -81,11 +81,11 @@ DATABASE_URL=sqlite:inventurly.db SERVER_ADDRESS=0.0.0.0:8080 cargo run --bin in
 
 ## Architecture Overview
 
-Inventurly is a REST API server built with a clean, layered architecture using Rust. The project follows Domain-Driven Design principles with clear separation of concerns.
+Genossi is a REST API server built with a clean, layered architecture using Rust. The project follows Domain-Driven Design principles with clear separation of concerns.
 
 ### Layer Structure
 
-1. **DAO Layer** (`inventurly_dao`, `inventurly_dao_impl_sqlite`)
+1. **DAO Layer** (`genossi_dao`, `genossi_dao_impl_sqlite`)
    - Defines data access interfaces with minimal implementation requirements
    - Only 3 required methods: `dump_all()`, `create()`, `update()`
    - Default implementations provided for `all()` and `find_by_id()`
@@ -94,7 +94,7 @@ Inventurly is a REST API server built with a clean, layered architecture using R
    - Supports soft deletes with `deleted` timestamp field
    - Designed for easy multi-database support
 
-2. **Service Layer** (`inventurly_service`, `inventurly_service_impl`)
+2. **Service Layer** (`genossi_service`, `genossi_service_impl`)
    - Business logic and validation rules
    - Permission and authentication context handling
    - UUID generation service for entity IDs
@@ -102,7 +102,7 @@ Inventurly is a REST API server built with a clean, layered architecture using R
    - Transforms DAO errors to service-level errors
    - Handles entity deletion via update operations with `deleted` timestamps
 
-3. **REST Layer** (`inventurly_rest`, `inventurly_rest_types`)
+3. **REST Layer** (`genossi_rest`, `genossi_rest_types`)
    - Axum-based HTTP server with async handlers
    - OpenAPI documentation via Utoipa
    - CORS support and middleware for context injection
@@ -111,7 +111,7 @@ Inventurly is a REST API server built with a clean, layered architecture using R
    - ISO8601 datetime format in API responses
    - Flexible JSON deserialization for optional datetime fields
 
-4. **Binary Layer** (`inventurly_bin`)
+4. **Binary Layer** (`genossi_bin`)
    - Application entry point and dependency injection
    - Database connection pool management
    - Migration execution on startup
@@ -137,9 +137,9 @@ Entities follow a consistent pattern:
 ### Testing Approach
 
 - **Unit Tests**: Use mockall for mocking dependencies
-- **Integration Tests**: In `inventurly_rest/tests/` test full API endpoints
+- **Integration Tests**: In `genossi_rest/tests/` test full API endpoints
 - **E2E Tests**: Full end-to-end tests using real HTTP server instances with in-memory SQLite databases
-- **Test Server Infrastructure**: `inventurly_rest/src/test_server.rs` provides utilities for starting test servers with random ports
+- **Test Server Infrastructure**: `genossi_rest/src/test_server.rs` provides utilities for starting test servers with random ports
 - **Test Isolation**: Each test gets its own in-memory database for complete isolation
 - **Real HTTP Calls**: E2E tests use `reqwest` client to make actual HTTP requests
 - Each layer can be tested independently due to trait boundaries
@@ -150,24 +150,24 @@ Entities follow a consistent pattern:
 - **ISO8601 Format**: API responses use ISO8601 datetime format (`2025-09-21T13:25:15.454309545Z`)
 - **Flexible Parsing**: Database layer supports multiple datetime formats (ISO8601 and SQLite default)
 - **Optional Fields**: API requests can omit datetime fields - they default to `None` during deserialization
-- **Custom Serialization**: `inventurly_rest_types/src/lib.rs` contains custom ISO8601 serde handlers
+- **Custom Serialization**: `genossi_rest_types/src/lib.rs` contains custom ISO8601 serde handlers
 - **Backward Compatibility**: Existing SQLite data with default format continues to work
 
 ### Environment Variables
 
-- `DATABASE_URL`: SQLite database path (default: `sqlite:inventurly.db`)
+- `DATABASE_URL`: SQLite database path (default: `sqlite:genossi.db`)
 - `SERVER_ADDRESS`: Server bind address (default: `0.0.0.0:3000`)
 - `BASE_PATH`: Base URL for Swagger UI (default: `http://localhost:3000/`)
 
 ### Important Files
 
 - `/migrations/sqlite/`: Database migration files
-- `/inventurly_bin/src/main.rs`: Application entry point
-- `/inventurly_bin/tests/e2e_tests.rs`: End-to-end testing with real HTTP server
-- `/inventurly_rest/src/lib.rs`: REST server configuration and startup
-- `/inventurly_rest/src/test_server.rs`: Test server utilities
-- `/inventurly_rest_types/src/lib.rs`: ISO8601 datetime serialization
-- `/inventurly_service_impl/src/macros.rs`: Common implementation macros
+- `/genossi_bin/src/main.rs`: Application entry point
+- `/genossi_bin/tests/e2e_tests.rs`: End-to-end testing with real HTTP server
+- `/genossi_rest/src/lib.rs`: REST server configuration and startup
+- `/genossi_rest/src/test_server.rs`: Test server utilities
+- `/genossi_rest_types/src/lib.rs`: ISO8601 datetime serialization
+- `/genossi_service_impl/src/macros.rs`: Common implementation macros
 
 ### Known Issues & Troubleshooting
 

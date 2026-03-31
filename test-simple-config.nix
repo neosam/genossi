@@ -1,4 +1,4 @@
-# Test configuration for the Inventurly NixOS module
+# Test configuration for the Genossi NixOS module
 # Run: nixos-rebuild build-vm -I nixos-config=./test-simple-config.nix
 # Or use: ./run-vm.sh
 
@@ -13,18 +13,18 @@
   boot.loader.efi.canTouchEfiVariables = true;
 
   # Test the module with a simple instance
-  services.inventurly.test = {
+  services.genossi.test = {
     enable = true;
     port = 3000;
     host = "127.0.0.1";
     #package = import ./default.nix { features = ["mock_auth"]; };
     logLevel = "debug";
-    domain = "inventurly-test.local";
+    domain = "genossi-test.local";
     enableSSL = false; # Disable SSL for local testing
   };
 
   # Networking
-  networking.hostName = "inventurly-test";
+  networking.hostName = "genossi-test";
   networking.firewall.enable = false;
 
   # Test user

@@ -9,7 +9,7 @@ let
   rustPlatform = specificPkgs.rustPlatform;
 in
   rustPlatform.buildRustPackage {
-    pname = "inventurly-service";
+    pname = "genossi-service";
     version = "1.5.0-dev";
     src = src;
     nativeBuildInputs = with specificPkgs; [curl pkg-config openssl];
@@ -25,7 +25,7 @@ in
   echo "#!${specificPkgs.bash}/bin/bash" > $out/bin/start.sh
   echo "set +a" >> $out/bin/start.sh
   echo "${specificPkgs.sqlx-cli}/bin/sqlx db setup --source $out/migrations/sqlite" >> $out/bin/start.sh
-  echo "$out/bin/inventurly" >> $out/bin/start.sh
+  echo "$out/bin/genossi" >> $out/bin/start.sh
   chmod a+x $out/bin/start.sh
   '';
 

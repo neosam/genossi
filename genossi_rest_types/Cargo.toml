@@ -1,0 +1,12 @@
+[package]
+name = "genossi_rest_types"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+genossi_service = { path = "../genossi_service" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+time = { workspace = true }
+uuid = { workspace = true }
+utoipa = { workspace = true }

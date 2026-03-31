@@ -1,28 +1,28 @@
-# NixOS module for Inventurly service
+# NixOS module for Genossi service
 { config, lib, pkgs, ... }:
 
 let
-  cfg = config.services.inventurly;
+  cfg = config.services.genossi;
 in
 {
-  options.services.inventurly = lib.mkOption {
+  options.services.genossi = lib.mkOption {
     type = lib.types.attrsOf (lib.types.submodule {
       options = {
         enable = lib.mkOption {
           type = lib.types.bool;
           default = false;
-          description = "Enable this Inventurly instance";
+          description = "Enable this Genossi instance";
         };
         
         package = lib.mkOption {
           type = lib.types.nullOr lib.types.package;
-          description = "Inventurly package to use. If null, will be auto-selected based on oidc.enable";
+          description = "Genossi package to use. If null, will be auto-selected based on oidc.enable";
           default = (builtins.getFlake "path:${toString ./.}").packages.${pkgs.system}.backend-oidc;
         };
         
         frontendPackage = lib.mkOption {
           type = lib.types.package;
-          description = "Inventurly frontend package to use";
+          description = "Genossi frontend package to use";
           default = (builtins.getFlake "path:${toString ./.}").packages.${pkgs.system}.frontend;
         };
         
@@ -40,7 +40,7 @@ in
         
         logLevel = lib.mkOption {
           type = lib.types.str;
-          default = "inventurly=debug,tower_http=debug";
+          default = "genossi=debug,tower_http=debug";
           description = "Rust log level configuration";
         };
         
@@ -91,14 +91,14 @@ in
           appUrl = lib.mkOption {
             type = lib.types.nullOr lib.types.str;
             default = null;
-            example = "https://inventurly.example.com";
+            example = "https://genossi.example.com";
             description = "Application URL for OIDC callbacks. Defaults to https://[domain] if domain is set";
           };
         };
       };
     });
     default = {};
-    description = "Inventurly service instances";
+    description = "Genossi service instances";
   };
   
   config = lib.mkMerge [
@@ -107,15 +107,15 @@ in
       assertions = lib.flatten (lib.mapAttrsToList (name: instanceCfg: [
         {
           assertion = !instanceCfg.enable || !instanceCfg.oidc.enable || instanceCfg.oidc.issuer != "";
-          message = "services.inventurly.${name}: oidc.issuer must be set when OIDC is enabled";
+          message = "services.genossi.${name}: oidc.issuer must be set when OIDC is enabled";
         }
         {
           assertion = !instanceCfg.enable || !instanceCfg.oidc.enable || instanceCfg.oidc.clientId != "";
-          message = "services.inventurly.${name}: oidc.clientId must be set when OIDC is enabled";
+          message = "services.genossi.${name}: oidc.clientId must be set when OIDC is enabled";
         }
         {
           assertion = !instanceCfg.enable || !instanceCfg.oidc.enable || instanceCfg.domain != null || instanceCfg.oidc.appUrl != null;
-          message = "services.inventurly.${name}: either domain or oidc.appUrl must be set when OIDC is enabled";
+          message = "services.genossi.${name}: either domain or oidc.appUrl must be set when OIDC is enabled";
         }
       ]) cfg);
     }
@@ -141,7 +141,7 @@ in
               
           # Base environment variables
           baseEnv = {
-            DATABASE_URL = "sqlite:/var/lib/inventurly-${name}/inventurly.db";
+            DATABASE_URL = "sqlite:/var/lib/genossi-${name}/genossi.db";
             SERVER_ADDRESS = "${instanceCfg.host}:${toString instanceCfg.port}";
             RUST_LOG = instanceCfg.logLevel;
             BASE_PATH = "${appUrl}/api";
@@ -154,8 +154,8 @@ in
             CLIENT_ID = instanceCfg.oidc.clientId;
           };
         in
-        lib.nameValuePair "inventurly-${name}" (lib.mkIf instanceCfg.enable {
-          description = "Inventurly Service (${name})";
+        lib.nameValuePair "genossi-${name}" (lib.mkIf instanceCfg.enable {
+          description = "Genossi Service (${name})";
           wantedBy = [ "multi-user.target" ];
           after = [ "network.target" ];
           
@@ -166,25 +166,25 @@ in
           
           serviceConfig = {
             Type = "simple";
-            ExecStart = "${actualPackage}/bin/inventurly";
-            StateDirectory = "inventurly-${name}";
-            WorkingDirectory = "/var/lib/inventurly-${name}";
+            ExecStart = "${actualPackage}/bin/genossi";
+            StateDirectory = "genossi-${name}";
+            WorkingDirectory = "/var/lib/genossi-${name}";
             Restart = "on-failure";
           };
           
           preStart = ''
             # Initialize database
-            if [ ! -f /var/lib/inventurly-${name}/inventurly.db ]; then
-              ${pkgs.sqlite}/bin/sqlite3 /var/lib/inventurly-${name}/inventurly.db "VACUUM;"
+            if [ ! -f /var/lib/genossi-${name}/genossi.db ]; then
+              ${pkgs.sqlite}/bin/sqlite3 /var/lib/genossi-${name}/genossi.db "VACUUM;"
             fi
             
             # Copy and run migrations
-            if [ ! -d /var/lib/inventurly-${name}/migrations ]; then
-              cp -r ${actualPackage}/migrations /var/lib/inventurly-${name}/
+            if [ ! -d /var/lib/genossi-${name}/migrations ]; then
+              cp -r ${actualPackage}/migrations /var/lib/genossi-${name}/
             fi
             
             # Run migrations
-            cd /var/lib/inventurly-${name}
+            cd /var/lib/genossi-${name}
             ${pkgs.sqlx-cli}/bin/sqlx database setup --source ./migrations/sqlite || true
           '';
         })
@@ -195,7 +195,7 @@ in
     {
       # Create etc directories
       environment.etc = lib.mapAttrs' (name: instanceCfg: 
-        lib.nameValuePair "inventurly-${name}/config.json" {
+        lib.nameValuePair "genossi-${name}/config.json" {
           text = lib.mkIf instanceCfg.enable ''
             {
               "backend": "https://${instanceCfg.domain}/api"
@@ -249,12 +249,12 @@ in
               '';
             };
             locations."= /config.json" = {
-              alias = "/etc/inventurly-${name}/config.json";
+              alias = "/etc/genossi-${name}/config.json";
               extraConfig = "add_header ContentType application/json;";
               priority = 200;
             };
             locations."= /assets/config.json" = {
-              alias = "/etc/inventurly-${name}/config.json";
+              alias = "/etc/genossi-${name}/config.json";
               extraConfig = "add_header ContentType application/json;";
               priority = 200;
             };

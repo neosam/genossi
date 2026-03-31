@@ -50,6 +50,7 @@ CREATE TABLE session (
     user_id TEXT NOT NULL,
     expires INTEGER NOT NULL,
     created INTEGER NOT NULL,
+    claims TEXT,
     FOREIGN KEY (user_id) REFERENCES user(name) ON DELETE CASCADE
 );
 

@@ -1,0 +1,52 @@
+[package]
+name = "genossi_bin"
+version.workspace = true
+edition.workspace = true
+
+[features]
+default = ["mock_auth"]
+mock_auth = [
+    "genossi_service/mock_auth",
+    "genossi_service_impl/mock_auth",
+    "genossi_rest/mock_auth",
+]
+oidc = [
+    "genossi_service/oidc",
+    "genossi_service_impl/oidc",
+    "genossi_rest/oidc",
+]
+
+[[bin]]
+name = "genossi"
+path = "src/main.rs"
+
+[dependencies]
+genossi_dao = { path = "../genossi_dao" }
+genossi_dao_impl_sqlite = { path = "../genossi_dao_impl_sqlite" }
+genossi_service = { path = "../genossi_service" }
+genossi_service_impl = { path = "../genossi_service_impl" }
+genossi_rest = { path = "../genossi_rest" }
+genossi_rest_types = { path = "../genossi_rest_types" }
+async-trait = { workspace = true }
+axum = { workspace = true }
+dotenv = { workspace = true }
+sqlx = { workspace = true }
+tokio = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+utoipa = { workspace = true }
+utoipa-swagger-ui = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+uuid = { workspace = true }
+time = { workspace = true }
+reqwest = { version = "0.11", default-features = false, features = [
+    "json",
+    "multipart",
+    "rustls-tls",
+] }
+futures = "0.3"
+rust_xlsxwriter = "0.82"
