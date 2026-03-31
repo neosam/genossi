@@ -19,13 +19,14 @@ The system SHALL store members with the following fields:
 - `current_balance` (i64 in cents, required)
 - `exit_date` (Optional Date)
 - `bank_account` (Optional String)
+- `migrated` (bool, default false)
 - `created` (DateTime, system-generated)
 - `deleted` (Optional DateTime, for soft delete)
 - `version` (UUID, for optimistic locking)
 
 #### Scenario: Member stored with all fields
 - **WHEN** a member is created with all fields provided
-- **THEN** the system stores the member with a generated UUID, created timestamp, and version UUID
+- **THEN** the system stores the member with a generated UUID, created timestamp, version UUID, and `migrated` set to `false`
 
 #### Scenario: Member number uniqueness
 - **WHEN** a member is created with a member_number that already exists
@@ -102,11 +103,35 @@ The system SHALL expose all member endpoints in the Swagger UI at `/swagger-ui/`
 - **THEN** the Swagger UI loads and displays all member management endpoints with their schemas
 
 ### Requirement: Member list page
-The frontend SHALL provide a page listing all members with their member number, name, and key details.
+The frontend SHALL provide a page listing all members with their member number, name, key details, migration status, and active membership status on a user-selected reference date.
 
-#### Scenario: View member list
+#### Scenario: View member list with active status
 - **WHEN** an authenticated user navigates to the members page
-- **THEN** the system displays a table of all active members with member_number, last_name, first_name, city, current_shares, and join_date
+- **THEN** the system displays a table with member_number, last_name, first_name, city, current_shares, join_date, migration status, and an active/inactive badge based on the reference date
+
+#### Scenario: Default reference date is today
+- **WHEN** the members page loads
+- **THEN** the date picker defaults to today's date and active status is computed against today
+
+#### Scenario: Change reference date
+- **WHEN** the user selects a different date in the date picker
+- **THEN** the active/inactive badges update immediately for all members based on the new date
+
+#### Scenario: Active member badge
+- **WHEN** a member's join_date is on or before the reference date AND the member has no exit_date or exit_date is after the reference date
+- **THEN** the member shows a green "Active" badge
+
+#### Scenario: Inactive member badge
+- **WHEN** a member's join_date is after the reference date OR the member's exit_date is on or before the reference date
+- **THEN** the member shows a red "Inactive" badge
+
+#### Scenario: Filter only active members
+- **WHEN** the user enables the "Only active members" toggle
+- **THEN** only members who are active on the selected reference date are shown in the list
+
+#### Scenario: Filter toggle off shows all
+- **WHEN** the "Only active members" toggle is disabled
+- **THEN** all non-deleted members are shown regardless of active status
 
 #### Scenario: Navigate to member detail
 - **WHEN** a user clicks on a member row in the list
@@ -137,3 +162,18 @@ The system SHALL define two privileges: `view_members` and `manage_members`. The
 #### Scenario: Unprivileged user denied
 - **WHEN** a user without any member privileges accesses member endpoints
 - **THEN** the system returns HTTP 401 for all operations
+
+### Requirement: Excel import balance conversion
+The Excel import SHALL convert the "Guthaben aktuell" value from Euro to Cent by multiplying by 100 before storing as `current_balance`.
+
+#### Scenario: Integer Euro value
+- **WHEN** the Excel contains a balance value of 150
+- **THEN** the system stores `current_balance` as 15000 (cents)
+
+#### Scenario: Decimal Euro value
+- **WHEN** the Excel contains a balance value of 150.50
+- **THEN** the system stores `current_balance` as 15050 (cents)
+
+#### Scenario: Zero or empty balance
+- **WHEN** the Excel contains an empty or zero balance
+- **THEN** the system stores `current_balance` as 0

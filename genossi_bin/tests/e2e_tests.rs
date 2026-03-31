@@ -1,7 +1,8 @@
 use genossi_bin::RestStateImpl;
 use genossi_rest::test_server::test_support::start_test_server;
 use genossi_rest_types::{
-    ActionTypeTO, MemberActionTO, MemberImportResultTO, MemberTO, MigrationStatusTO,
+    ActionTypeTO, MemberActionTO, MemberDocumentTO, MemberImportResultTO, MemberTO,
+    MigrationStatusTO,
 };
 use reqwest::StatusCode;
 use sqlx::SqlitePool;
@@ -41,6 +42,7 @@ fn sample_member() -> MemberTO {
         current_shares: 3,
         current_balance: 15000,
         action_count: 0,
+        migrated: false,
         exit_date: None,
         bank_account: Some("DE89370400440532013000".to_string()),
         created: None,
@@ -342,11 +344,11 @@ async fn test_import_new_members() {
         &[
             vec![
                 "1", "Müller", "Hans", "Hauptstr.", "5", "10115", "Berlin",
-                "01.01.2020", "3", "5", "15000", "1", "", "hans@test.de", "", "", "DE123",
+                "01.01.2020", "3", "5", "150", "1", "", "hans@test.de", "", "", "DE123",
             ],
             vec![
                 "2", "Schmidt", "Anna", "Nebenstr.", "10", "80331", "München",
-                "15.06.2021", "2", "2", "10000", "0", "", "anna@test.de", "Firma GmbH", "", "",
+                "15.06.2021", "2", "2", "100", "0", "", "anna@test.de", "Firma GmbH", "", "",
             ],
         ],
     );
@@ -391,7 +393,7 @@ async fn test_import_upsert_existing_members() {
         &standard_headers(),
         &[vec![
             "1", "Müller", "Hans", "Hauptstr.", "5", "10115", "Berlin",
-            "01.01.2020", "3", "3", "10000", "0", "", "", "", "", "",
+            "01.01.2020", "3", "3", "100", "0", "", "", "", "", "",
         ]],
     );
 
@@ -413,7 +415,7 @@ async fn test_import_upsert_existing_members() {
         &standard_headers(),
         &[vec![
             "1", "Müller", "Hans-Peter", "Hauptstr.", "5", "10115", "Berlin",
-            "01.01.2020", "3", "5", "20000", "1", "", "new@email.de", "", "", "",
+            "01.01.2020", "3", "5", "200", "1", "", "new@email.de", "", "", "",
         ]],
     );
 
@@ -445,7 +447,7 @@ async fn test_import_upsert_existing_members() {
     assert_eq!(members.len(), 1);
     assert_eq!(members[0].first_name, "Hans-Peter");
     assert_eq!(members[0].current_shares, 5);
-    assert_eq!(members[0].current_balance, 20000);
+    assert_eq!(members[0].current_balance, 20000); // 200 Euro = 20000 Cent
 }
 
 #[tokio::test]
@@ -486,12 +488,12 @@ async fn test_import_with_invalid_data_row() {
             // Valid row
             vec![
                 "1", "Müller", "Hans", "", "", "", "",
-                "01.01.2020", "3", "3", "10000", "0", "", "", "", "", "",
+                "01.01.2020", "3", "3", "100", "0", "", "", "", "", "",
             ],
             // Invalid row - bad date
             vec![
                 "2", "Schmidt", "Anna", "", "", "", "",
-                "not-a-date", "2", "2", "5000", "0", "", "", "", "", "",
+                "not-a-date", "2", "2", "50", "0", "", "", "", "", "",
             ],
         ],
     );
@@ -1139,7 +1141,7 @@ async fn test_import_auto_migration() {
         &standard_headers(),
         &[vec![
             "1", "Müller", "Hans", "Hauptstr.", "5", "10115", "Berlin",
-            "01.01.2020", "3", "3", "15000", "0", "", "hans@test.de", "", "", "DE123",
+            "01.01.2020", "3", "3", "150", "0", "", "hans@test.de", "", "", "DE123",
         ]],
     );
 
@@ -1165,6 +1167,7 @@ async fn test_import_auto_migration() {
         .unwrap();
     let members: Vec<MemberTO> = response.json().await.unwrap();
     assert_eq!(members.len(), 1);
+    assert!(members[0].migrated, "Member should be migrated after auto-migration import");
     let member_id = members[0].id.unwrap();
 
     // Verify auto-created actions
@@ -1193,16 +1196,16 @@ async fn test_import_auto_migration() {
 }
 
 #[tokio::test]
-async fn test_import_no_auto_migration_when_action_count_nonzero() {
+async fn test_import_always_creates_eintritt_and_aufstockung() {
     let server = setup().await;
     let client = reqwest::Client::new();
 
-    // Import member with action_count > 0 — should NOT auto-create actions
+    // Import member with action_count > 0 — should still auto-create Eintritt + Aufstockung
     let xlsx = create_xlsx(
         &standard_headers(),
         &[vec![
             "1", "Müller", "Hans", "Hauptstr.", "5", "10115", "Berlin",
-            "01.01.2020", "3", "5", "15000", "1", "", "", "", "", "",
+            "01.01.2020", "3", "5", "150", "1", "", "", "", "", "",
         ]],
     );
 
@@ -1227,14 +1230,63 @@ async fn test_import_no_auto_migration_when_action_count_nonzero() {
     let members: Vec<MemberTO> = response.json().await.unwrap();
     let member_id = members[0].id.unwrap();
 
-    // Verify NO auto-created actions
+    // Eintritt + Aufstockung should always be created
     let response = client
         .get(server.url(&format!("/api/members/{}/actions", member_id)))
         .send()
         .await
         .unwrap();
     let actions: Vec<MemberActionTO> = response.json().await.unwrap();
-    assert!(actions.is_empty());
+    assert_eq!(actions.len(), 2);
+    assert!(actions.iter().any(|a| matches!(a.action_type, ActionTypeTO::Eintritt)));
+    assert!(actions.iter().any(|a| matches!(a.action_type, ActionTypeTO::Aufstockung) && a.shares_change == 3));
+}
+
+#[tokio::test]
+async fn test_import_creates_austritt_when_exit_date_set() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let xlsx = create_xlsx(
+        &standard_headers(),
+        &[vec![
+            "1", "Müller", "Hans", "Hauptstr.", "5", "10115", "Berlin",
+            "01.01.2020", "3", "3", "150", "0", "31.12.2024", "", "", "", "",
+        ]],
+    );
+
+    let part = reqwest::multipart::Part::bytes(xlsx)
+        .file_name("members.xlsx")
+        .mime_str("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        .unwrap();
+    let form = reqwest::multipart::Form::new().part("file", part);
+
+    client
+        .post(server.url("/api/members/import"))
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+
+    let response = client
+        .get(server.url("/api/members"))
+        .send()
+        .await
+        .unwrap();
+    let members: Vec<MemberTO> = response.json().await.unwrap();
+    let member_id = members[0].id.unwrap();
+
+    // Eintritt + Aufstockung + Austritt
+    let response = client
+        .get(server.url(&format!("/api/members/{}/actions", member_id)))
+        .send()
+        .await
+        .unwrap();
+    let actions: Vec<MemberActionTO> = response.json().await.unwrap();
+    assert_eq!(actions.len(), 3);
+    assert!(actions.iter().any(|a| matches!(a.action_type, ActionTypeTO::Eintritt)));
+    assert!(actions.iter().any(|a| matches!(a.action_type, ActionTypeTO::Aufstockung)));
+    assert!(actions.iter().any(|a| matches!(a.action_type, ActionTypeTO::Austritt)));
 }
 
 #[tokio::test]
@@ -1246,7 +1298,7 @@ async fn test_import_action_count_stored() {
         &standard_headers(),
         &[vec![
             "1", "Müller", "Hans", "Hauptstr.", "5", "10115", "Berlin",
-            "01.01.2020", "3", "5", "15000", "7", "", "", "", "", "",
+            "01.01.2020", "3", "5", "150", "7", "", "", "", "", "",
         ]],
     );
 
@@ -1357,4 +1409,644 @@ async fn test_action_update_version_conflict() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+}
+
+// === Migrated Flag E2E Tests ===
+
+#[tokio::test]
+async fn test_migrated_flag_set_after_actions_match() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Create member: current_shares=3, action_count=0
+    // => expected: actual_shares==3, actual_action_count==1 (action_count+1)
+    let mut member = sample_member();
+    member.current_shares = 3;
+    member.shares_at_joining = 3;
+    member.action_count = 0;
+
+    let response = client
+        .post(server.url("/api/members"))
+        .json(&member)
+        .send()
+        .await
+        .unwrap();
+    let created: MemberTO = response.json().await.unwrap();
+    let member_id = created.id.unwrap();
+    assert!(!created.migrated);
+
+    // Add Eintritt (shares_change = 0, status action => not counted)
+    client
+        .post(server.url(&format!("/api/members/{}/actions", member_id)))
+        .json(&MemberActionTO {
+            id: None,
+            member_id,
+            action_type: ActionTypeTO::Eintritt,
+            date: time::Date::from_calendar_date(2024, time::Month::January, 15).unwrap(),
+            shares_change: 0,
+            transfer_member_id: None,
+            effective_date: None,
+            comment: None,
+            created: None,
+            deleted: None,
+            version: None,
+        })
+        .send()
+        .await
+        .unwrap();
+
+    // Add Aufstockung (+3) => actual_shares=3, actual_action_count=1
+    client
+        .post(server.url(&format!("/api/members/{}/actions", member_id)))
+        .json(&MemberActionTO {
+            id: None,
+            member_id,
+            action_type: ActionTypeTO::Aufstockung,
+            date: time::Date::from_calendar_date(2024, time::Month::January, 15).unwrap(),
+            shares_change: 3,
+            transfer_member_id: None,
+            effective_date: None,
+            comment: None,
+            created: None,
+            deleted: None,
+            version: None,
+        })
+        .send()
+        .await
+        .unwrap();
+
+    // Verify migrated flag is true in member list
+    let response = client
+        .get(server.url("/api/members"))
+        .send()
+        .await
+        .unwrap();
+    let members: Vec<MemberTO> = response.json().await.unwrap();
+    assert_eq!(members.len(), 1);
+    assert!(members[0].migrated, "Member should be migrated after matching actions");
+}
+
+#[tokio::test]
+async fn test_migrated_flag_false_when_pending() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Create member expecting 5 shares and 2 non-status actions
+    let mut member = sample_member();
+    member.current_shares = 5;
+    member.action_count = 1; // expected_action_count = 2
+
+    let response = client
+        .post(server.url("/api/members"))
+        .json(&member)
+        .send()
+        .await
+        .unwrap();
+    let created: MemberTO = response.json().await.unwrap();
+    let member_id = created.id.unwrap();
+
+    // Add only one Aufstockung (+3) => actual_shares=3 != 5, actual_action_count=1 != 2
+    client
+        .post(server.url(&format!("/api/members/{}/actions", member_id)))
+        .json(&MemberActionTO {
+            id: None,
+            member_id,
+            action_type: ActionTypeTO::Aufstockung,
+            date: time::Date::from_calendar_date(2024, time::Month::January, 15).unwrap(),
+            shares_change: 3,
+            transfer_member_id: None,
+            effective_date: None,
+            comment: None,
+            created: None,
+            deleted: None,
+            version: None,
+        })
+        .send()
+        .await
+        .unwrap();
+
+    // Verify migrated flag is false
+    let response = client
+        .get(server.url(&format!("/api/members/{}", member_id)))
+        .send()
+        .await
+        .unwrap();
+    let fetched: MemberTO = response.json().await.unwrap();
+    assert!(!fetched.migrated, "Member should not be migrated with mismatched actions");
+}
+
+#[tokio::test]
+async fn test_migrated_flag_recalc_on_member_update() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Create member: current_shares=3, action_count=0
+    let mut member = sample_member();
+    member.current_shares = 3;
+    member.action_count = 0;
+
+    let response = client
+        .post(server.url("/api/members"))
+        .json(&member)
+        .send()
+        .await
+        .unwrap();
+    let created: MemberTO = response.json().await.unwrap();
+    let member_id = created.id.unwrap();
+
+    // Add Eintritt + Aufstockung(+3) => migrated=true
+    client
+        .post(server.url(&format!("/api/members/{}/actions", member_id)))
+        .json(&MemberActionTO {
+            id: None,
+            member_id,
+            action_type: ActionTypeTO::Eintritt,
+            date: time::Date::from_calendar_date(2024, time::Month::January, 15).unwrap(),
+            shares_change: 0,
+            transfer_member_id: None,
+            effective_date: None,
+            comment: None,
+            created: None,
+            deleted: None,
+            version: None,
+        })
+        .send()
+        .await
+        .unwrap();
+
+    client
+        .post(server.url(&format!("/api/members/{}/actions", member_id)))
+        .json(&MemberActionTO {
+            id: None,
+            member_id,
+            action_type: ActionTypeTO::Aufstockung,
+            date: time::Date::from_calendar_date(2024, time::Month::January, 15).unwrap(),
+            shares_change: 3,
+            transfer_member_id: None,
+            effective_date: None,
+            comment: None,
+            created: None,
+            deleted: None,
+            version: None,
+        })
+        .send()
+        .await
+        .unwrap();
+
+    // Confirm migrated
+    let response = client
+        .get(server.url(&format!("/api/members/{}", member_id)))
+        .send()
+        .await
+        .unwrap();
+    let fetched: MemberTO = response.json().await.unwrap();
+    assert!(fetched.migrated);
+
+    // Now update current_shares to 5 => mismatch => migrated should become false
+    let mut updated = fetched.clone();
+    updated.current_shares = 5;
+    let response = client
+        .put(server.url(&format!("/api/members/{}", member_id)))
+        .json(&updated)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Verify migrated is now false
+    let response = client
+        .get(server.url(&format!("/api/members/{}", member_id)))
+        .send()
+        .await
+        .unwrap();
+    let refetched: MemberTO = response.json().await.unwrap();
+    assert!(!refetched.migrated, "Member should not be migrated after shares change");
+}
+
+// === Confirm Migration E2E Tests ===
+
+#[tokio::test]
+async fn test_confirm_migration_resolves_action_count_mismatch() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Create member: current_shares=3, action_count=5 (wrong, too high)
+    let mut member = sample_member();
+    member.current_shares = 3;
+    member.action_count = 5;
+
+    let response = client
+        .post(server.url("/api/members"))
+        .json(&member)
+        .send()
+        .await
+        .unwrap();
+    let created: MemberTO = response.json().await.unwrap();
+    let member_id = created.id.unwrap();
+
+    // Add Eintritt + Aufstockung(+3) => shares match, but action_count doesn't
+    client
+        .post(server.url(&format!("/api/members/{}/actions", member_id)))
+        .json(&MemberActionTO {
+            id: None,
+            member_id,
+            action_type: ActionTypeTO::Eintritt,
+            date: time::Date::from_calendar_date(2024, time::Month::January, 15).unwrap(),
+            shares_change: 0,
+            transfer_member_id: None,
+            effective_date: None,
+            comment: None,
+            created: None,
+            deleted: None,
+            version: None,
+        })
+        .send()
+        .await
+        .unwrap();
+
+    client
+        .post(server.url(&format!("/api/members/{}/actions", member_id)))
+        .json(&MemberActionTO {
+            id: None,
+            member_id,
+            action_type: ActionTypeTO::Aufstockung,
+            date: time::Date::from_calendar_date(2024, time::Month::January, 15).unwrap(),
+            shares_change: 3,
+            transfer_member_id: None,
+            effective_date: None,
+            comment: None,
+            created: None,
+            deleted: None,
+            version: None,
+        })
+        .send()
+        .await
+        .unwrap();
+
+    // Verify still pending (action_count mismatch: expected=6, actual=1)
+    let response = client
+        .get(server.url(&format!("/api/members/{}", member_id)))
+        .send()
+        .await
+        .unwrap();
+    let fetched: MemberTO = response.json().await.unwrap();
+    assert!(!fetched.migrated);
+
+    // Confirm migration
+    let response = client
+        .post(server.url(&format!(
+            "/api/members/{}/actions/confirm-migration",
+            member_id
+        )))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Verify now migrated
+    let response = client
+        .get(server.url(&format!("/api/members/{}", member_id)))
+        .send()
+        .await
+        .unwrap();
+    let confirmed: MemberTO = response.json().await.unwrap();
+    assert!(confirmed.migrated, "Member should be migrated after confirmation");
+}
+
+#[tokio::test]
+async fn test_confirm_migration_shares_mismatch_stays_pending() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Create member: current_shares=5, action_count=5
+    let mut member = sample_member();
+    member.current_shares = 5;
+    member.action_count = 5;
+
+    let response = client
+        .post(server.url("/api/members"))
+        .json(&member)
+        .send()
+        .await
+        .unwrap();
+    let created: MemberTO = response.json().await.unwrap();
+    let member_id = created.id.unwrap();
+
+    // Add Aufstockung(+3) => shares mismatch (3 != 5)
+    client
+        .post(server.url(&format!("/api/members/{}/actions", member_id)))
+        .json(&MemberActionTO {
+            id: None,
+            member_id,
+            action_type: ActionTypeTO::Aufstockung,
+            date: time::Date::from_calendar_date(2024, time::Month::January, 15).unwrap(),
+            shares_change: 3,
+            transfer_member_id: None,
+            effective_date: None,
+            comment: None,
+            created: None,
+            deleted: None,
+            version: None,
+        })
+        .send()
+        .await
+        .unwrap();
+
+    // Confirm migration
+    let response = client
+        .post(server.url(&format!(
+            "/api/members/{}/actions/confirm-migration",
+            member_id
+        )))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Still not migrated (shares mismatch)
+    let response = client
+        .get(server.url(&format!("/api/members/{}", member_id)))
+        .send()
+        .await
+        .unwrap();
+    let fetched: MemberTO = response.json().await.unwrap();
+    assert!(!fetched.migrated, "Member should stay pending with shares mismatch");
+}
+
+#[tokio::test]
+async fn test_confirm_migration_not_found() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url(&format!(
+            "/api/members/{}/actions/confirm-migration",
+            uuid::Uuid::new_v4()
+        )))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+// === Member Document E2E Tests ===
+
+#[tokio::test]
+async fn test_document_upload_list_download_delete() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let member = create_test_member(&client, &server).await;
+    let member_id = member.id.unwrap();
+
+    // Upload a document
+    let file_content = b"fake pdf content";
+    let file_part = reqwest::multipart::Part::bytes(file_content.to_vec())
+        .file_name("beitritt.pdf")
+        .mime_str("application/pdf")
+        .unwrap();
+    let form = reqwest::multipart::Form::new()
+        .text("document_type", "join_declaration")
+        .part("file", file_part);
+
+    let response = client
+        .post(server.url(&format!("/api/members/{}/documents", member_id)))
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let doc: MemberDocumentTO = response.json().await.unwrap();
+    assert_eq!(doc.document_type, "join_declaration");
+    assert_eq!(doc.file_name, "beitritt.pdf");
+    assert_eq!(doc.mime_type, "application/pdf");
+    assert!(doc.id.is_some());
+    let doc_id = doc.id.unwrap();
+
+    // List documents
+    let response = client
+        .get(server.url(&format!("/api/members/{}/documents", member_id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let docs: Vec<MemberDocumentTO> = response.json().await.unwrap();
+    assert_eq!(docs.len(), 1);
+    assert_eq!(docs[0].file_name, "beitritt.pdf");
+
+    // Download document
+    let response = client
+        .get(server.url(&format!(
+            "/api/members/{}/documents/{}",
+            member_id, doc_id
+        )))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers().get("content-type").unwrap(),
+        "application/pdf"
+    );
+    let body = response.bytes().await.unwrap();
+    assert_eq!(body.as_ref(), file_content);
+
+    // Delete document
+    let response = client
+        .delete(server.url(&format!(
+            "/api/members/{}/documents/{}",
+            member_id, doc_id
+        )))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+    // Verify deleted - list should be empty
+    let response = client
+        .get(server.url(&format!("/api/members/{}/documents", member_id)))
+        .send()
+        .await
+        .unwrap();
+    let docs: Vec<MemberDocumentTO> = response.json().await.unwrap();
+    assert!(docs.is_empty());
+}
+
+#[tokio::test]
+async fn test_document_singleton_replacement() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let member = create_test_member(&client, &server).await;
+    let member_id = member.id.unwrap();
+
+    // Upload first join_declaration
+    let form = reqwest::multipart::Form::new()
+        .text("document_type", "join_declaration")
+        .part(
+            "file",
+            reqwest::multipart::Part::bytes(b"first".to_vec())
+                .file_name("first.pdf")
+                .mime_str("application/pdf")
+                .unwrap(),
+        );
+    let response = client
+        .post(server.url(&format!("/api/members/{}/documents", member_id)))
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    // Upload second join_declaration (should replace first)
+    let form = reqwest::multipart::Form::new()
+        .text("document_type", "join_declaration")
+        .part(
+            "file",
+            reqwest::multipart::Part::bytes(b"second".to_vec())
+                .file_name("second.pdf")
+                .mime_str("application/pdf")
+                .unwrap(),
+        );
+    let response = client
+        .post(server.url(&format!("/api/members/{}/documents", member_id)))
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    // List should only show the new one
+    let response = client
+        .get(server.url(&format!("/api/members/{}/documents", member_id)))
+        .send()
+        .await
+        .unwrap();
+    let docs: Vec<MemberDocumentTO> = response.json().await.unwrap();
+    assert_eq!(docs.len(), 1);
+    assert_eq!(docs[0].file_name, "second.pdf");
+}
+
+#[tokio::test]
+async fn test_document_multi_type_allows_multiple() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let member = create_test_member(&client, &server).await;
+    let member_id = member.id.unwrap();
+
+    // Upload two share_increase documents
+    for i in 1..=2 {
+        let form = reqwest::multipart::Form::new()
+            .text("document_type", "share_increase")
+            .part(
+                "file",
+                reqwest::multipart::Part::bytes(format!("content {}", i).into_bytes())
+                    .file_name(format!("aufstockung_{}.pdf", i))
+                    .mime_str("application/pdf")
+                    .unwrap(),
+            );
+        let response = client
+            .post(server.url(&format!("/api/members/{}/documents", member_id)))
+            .multipart(form)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::CREATED);
+    }
+
+    // List should show both
+    let response = client
+        .get(server.url(&format!("/api/members/{}/documents", member_id)))
+        .send()
+        .await
+        .unwrap();
+    let docs: Vec<MemberDocumentTO> = response.json().await.unwrap();
+    assert_eq!(docs.len(), 2);
+}
+
+#[tokio::test]
+async fn test_document_other_requires_description() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let member = create_test_member(&client, &server).await;
+    let member_id = member.id.unwrap();
+
+    // Upload 'other' without description should fail
+    let form = reqwest::multipart::Form::new()
+        .text("document_type", "other")
+        .part(
+            "file",
+            reqwest::multipart::Part::bytes(b"content".to_vec())
+                .file_name("doc.pdf")
+                .mime_str("application/pdf")
+                .unwrap(),
+        );
+    let response = client
+        .post(server.url(&format!("/api/members/{}/documents", member_id)))
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    // Upload 'other' with description should succeed
+    let form = reqwest::multipart::Form::new()
+        .text("document_type", "other")
+        .text("description", "Vollmacht")
+        .part(
+            "file",
+            reqwest::multipart::Part::bytes(b"content".to_vec())
+                .file_name("vollmacht.pdf")
+                .mime_str("application/pdf")
+                .unwrap(),
+        );
+    let response = client
+        .post(server.url(&format!("/api/members/{}/documents", member_id)))
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let doc: MemberDocumentTO = response.json().await.unwrap();
+    assert_eq!(doc.description.as_deref(), Some("Vollmacht"));
+}
+
+#[tokio::test]
+async fn test_document_download_not_found() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let member = create_test_member(&client, &server).await;
+    let member_id = member.id.unwrap();
+
+    let response = client
+        .get(server.url(&format!(
+            "/api/members/{}/documents/{}",
+            member_id,
+            uuid::Uuid::new_v4()
+        )))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_document_empty_list() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let member = create_test_member(&client, &server).await;
+    let member_id = member.id.unwrap();
+
+    let response = client
+        .get(server.url(&format!("/api/members/{}/documents", member_id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let docs: Vec<MemberDocumentTO> = response.json().await.unwrap();
+    assert!(docs.is_empty());
 }

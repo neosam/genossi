@@ -4,6 +4,7 @@ pub mod auth_middleware;
 pub mod dev;
 pub mod member;
 pub mod member_action;
+pub mod member_document;
 pub mod permission;
 pub mod session;
 pub mod test_server;
@@ -123,12 +124,19 @@ pub trait RestStateDef: Clone + Send + Sync + 'static {
         + Send
         + Sync
         + 'static;
+    type MemberDocumentService: genossi_service::member_document::MemberDocumentService<Context = ContextType>
+        + Send
+        + Sync
+        + 'static;
+    type DocumentStorage: genossi_service::document_storage::DocumentStorage + Send + Sync + 'static;
 
     fn member_service(&self) -> Arc<Self::MemberService>;
     fn permission_service(&self) -> Arc<Self::PermissionService>;
     fn session_service(&self) -> Arc<Self::SessionService>;
     fn member_import_service(&self) -> Arc<Self::MemberImportService>;
     fn member_action_service(&self) -> Arc<Self::MemberActionService>;
+    fn member_document_service(&self) -> Arc<Self::MemberDocumentService>;
+    fn document_storage(&self) -> Arc<Self::DocumentStorage>;
 }
 
 #[derive(OpenApi)]
@@ -137,6 +145,7 @@ pub trait RestStateDef: Clone + Send + Sync + 'static {
         (path = "/api/auth", api = auth::ApiDoc),
         (path = "/api/members", api = member::ApiDoc),
         (path = "/api/members/{member_id}/actions", api = member_action::ApiDoc),
+        (path = "/api/members/{member_id}/documents", api = member_document::ApiDoc),
         (path = "/api/permission", api = permission::ApiDoc)
     )
 )]
@@ -276,6 +285,10 @@ pub async fn create_app<RestState: RestStateDef>(rest_state: RestState) -> Route
         .nest(
             "/api/members/{member_id}/actions",
             member_action::generate_route(),
+        )
+        .nest(
+            "/api/members/{member_id}/documents",
+            member_document::generate_route(),
         )
         .nest("/api/permission", permission::generate_route())
         .with_state(rest_state.clone())

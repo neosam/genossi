@@ -142,6 +142,8 @@ pub struct MemberTO {
     #[serde(default)]
     #[schema(example = 0)]
     pub action_count: i32,
+    #[serde(default)]
+    pub migrated: bool,
     #[serde(
         skip_serializing_if = "Option::is_none",
         serialize_with = "iso8601_date::serialize",
@@ -188,6 +190,7 @@ impl From<&genossi_service::member::Member> for MemberTO {
             current_shares: m.current_shares,
             current_balance: m.current_balance,
             action_count: m.action_count,
+            migrated: m.migrated,
             exit_date: m.exit_date,
             bank_account: m.bank_account.as_deref().map(String::from),
             created: Some(m.created),
@@ -254,6 +257,7 @@ impl From<&MemberTO> for genossi_service::member::Member {
             current_shares: to.current_shares,
             current_balance: to.current_balance,
             action_count: to.action_count,
+            migrated: to.migrated,
             exit_date: to.exit_date,
             bank_account: to.bank_account.as_deref().map(Arc::from),
             created: to.created.unwrap_or_else(|| {
@@ -400,6 +404,53 @@ pub struct MigrationStatusTO {
     pub expected_action_count: i32,
     #[schema(example = 2)]
     pub actual_action_count: i32,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct MemberDocumentTO {
+    #[schema(example = "123e4567-e89b-12d3-a456-426614174000")]
+    pub id: Option<Uuid>,
+    #[schema(example = "123e4567-e89b-12d3-a456-426614174001")]
+    pub member_id: Uuid,
+    #[schema(example = "join_declaration")]
+    pub document_type: String,
+    pub description: Option<String>,
+    #[schema(example = "beitrittserklaerung.pdf")]
+    pub file_name: String,
+    #[schema(example = "application/pdf")]
+    pub mime_type: String,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    pub created: Option<time::PrimitiveDateTime>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    pub deleted: Option<time::PrimitiveDateTime>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<Uuid>,
+}
+
+impl From<&genossi_service::member_document::MemberDocument> for MemberDocumentTO {
+    fn from(d: &genossi_service::member_document::MemberDocument) -> Self {
+        Self {
+            id: Some(d.id),
+            member_id: d.member_id,
+            document_type: d.document_type.as_str().to_string(),
+            description: d.description.as_deref().map(String::from),
+            file_name: d.file_name.to_string(),
+            mime_type: d.mime_type.to_string(),
+            created: Some(d.created),
+            deleted: d.deleted,
+            version: Some(d.version),
+        }
+    }
 }
 
 impl From<&genossi_service::member_action::MigrationStatus> for MigrationStatusTO {

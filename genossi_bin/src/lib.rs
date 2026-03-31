@@ -9,6 +9,7 @@ use genossi_service::user_service::MockUserService;
 use genossi_service::auth_types::AuthenticatedContext;
 use genossi_service_impl::member::MemberServiceDeps;
 use genossi_service_impl::member_action::MemberActionServiceDeps;
+use genossi_service_impl::member_document::MemberDocumentServiceDeps;
 use genossi_service_impl::member_import::MemberImportServiceDeps;
 use genossi_service_impl::permission::PermissionServiceDeps;
 use sqlx::SqlitePool;
@@ -76,6 +77,7 @@ impl MemberServiceDeps for MemberServiceDependencies {
     type Context = Context;
     type Transaction = Transaction;
     type MemberDao = MemberDao;
+    type MemberActionDao = MemberActionDao;
     type PermissionService = PermissionService;
     type UuidService = UuidService;
     type TransactionDao = TransactionDao;
@@ -103,6 +105,7 @@ type MemberImportService =
     genossi_service_impl::member_import::MemberImportServiceImpl<MemberImportServiceDependencies>;
 
 type MemberActionDao = genossi_dao_impl_sqlite::member_action::MemberActionDaoImpl;
+type MemberDocumentDao = genossi_dao_impl_sqlite::member_document::MemberDocumentDaoImpl;
 
 pub struct MemberActionServiceDependencies;
 
@@ -122,14 +125,36 @@ impl MemberActionServiceDeps for MemberActionServiceDependencies {
 type MemberActionService =
     genossi_service_impl::member_action::MemberActionServiceImpl<MemberActionServiceDependencies>;
 
+pub struct MemberDocumentServiceDependencies;
+
+unsafe impl Send for MemberDocumentServiceDependencies {}
+unsafe impl Sync for MemberDocumentServiceDependencies {}
+
+impl MemberDocumentServiceDeps for MemberDocumentServiceDependencies {
+    type Context = Context;
+    type Transaction = Transaction;
+    type MemberDocumentDao = MemberDocumentDao;
+    type MemberDao = MemberDao;
+    type PermissionService = PermissionService;
+    type UuidService = UuidService;
+    type TransactionDao = TransactionDao;
+}
+
+type MemberDocumentService =
+    genossi_service_impl::member_document::MemberDocumentServiceImpl<MemberDocumentServiceDependencies>;
+
+type DocumentStorage = genossi_service_impl::document_storage::FilesystemDocumentStorage;
+
 // RestStateImpl with all services
 #[derive(Clone)]
 pub struct RestStateImpl {
     member_service: Arc<MemberService>,
     member_import_service: Arc<MemberImportService>,
     member_action_service: Arc<MemberActionService>,
+    member_document_service: Arc<MemberDocumentService>,
     permission_service: Arc<PermissionService>,
     session_service: Arc<SessionService>,
+    document_storage: Arc<DocumentStorage>,
 }
 
 impl RestStateImpl {
@@ -153,15 +178,16 @@ impl RestStateImpl {
                 user_service,
             });
 
+        let member_action_dao = Arc::new(MemberActionDao::new(pool.clone()));
+
         let member_service =
             Arc::new(genossi_service_impl::member::MemberServiceImpl {
                 member_dao: member_dao.clone(),
+                member_action_dao: member_action_dao.clone(),
                 permission_service: permission_service.clone(),
                 uuid_service: uuid_service.clone(),
                 transaction_dao: transaction_dao.clone(),
             });
-
-        let member_action_dao = Arc::new(MemberActionDao::new(pool.clone()));
 
         let member_action_service =
             Arc::new(genossi_service_impl::member_action::MemberActionServiceImpl {
@@ -171,6 +197,19 @@ impl RestStateImpl {
                 uuid_service: uuid_service.clone(),
                 transaction_dao: transaction_dao.clone(),
             });
+
+        let member_document_dao = Arc::new(MemberDocumentDao::new(pool.clone()));
+
+        let member_document_service =
+            Arc::new(genossi_service_impl::member_document::MemberDocumentServiceImpl {
+                member_document_dao,
+                member_dao: member_dao.clone(),
+                permission_service: permission_service.clone(),
+                uuid_service: uuid_service.clone(),
+                transaction_dao: transaction_dao.clone(),
+            });
+
+        let document_storage = Arc::new(DocumentStorage::from_env());
 
         let member_import_service =
             Arc::new(genossi_service_impl::member_import::MemberImportServiceImpl {
@@ -193,8 +232,10 @@ impl RestStateImpl {
             member_service,
             member_import_service,
             member_action_service,
+            member_document_service,
             permission_service,
             session_service,
+            document_storage,
         }
     }
 }
@@ -205,6 +246,8 @@ impl genossi_rest::RestStateDef for RestStateImpl {
     type SessionService = SessionService;
     type MemberImportService = MemberImportService;
     type MemberActionService = MemberActionService;
+    type MemberDocumentService = MemberDocumentService;
+    type DocumentStorage = DocumentStorage;
 
     fn member_service(&self) -> Arc<Self::MemberService> {
         self.member_service.clone()
@@ -224,5 +267,13 @@ impl genossi_rest::RestStateDef for RestStateImpl {
 
     fn member_action_service(&self) -> Arc<Self::MemberActionService> {
         self.member_action_service.clone()
+    }
+
+    fn member_document_service(&self) -> Arc<Self::MemberDocumentService> {
+        self.member_document_service.clone()
+    }
+
+    fn document_storage(&self) -> Arc<Self::DocumentStorage> {
+        self.document_storage.clone()
     }
 }
