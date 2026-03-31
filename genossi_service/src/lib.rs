@@ -2,6 +2,7 @@ pub mod auth_types;
 pub mod claim_context;
 pub mod claim_utils;
 pub mod member;
+pub mod member_action;
 pub mod member_import;
 pub mod permission;
 pub mod session;

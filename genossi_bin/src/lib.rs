@@ -8,6 +8,7 @@ use genossi_service::user_service::MockUserService;
 #[cfg(feature = "oidc")]
 use genossi_service::auth_types::AuthenticatedContext;
 use genossi_service_impl::member::MemberServiceDeps;
+use genossi_service_impl::member_action::MemberActionServiceDeps;
 use genossi_service_impl::member_import::MemberImportServiceDeps;
 use genossi_service_impl::permission::PermissionServiceDeps;
 use sqlx::SqlitePool;
@@ -92,6 +93,7 @@ impl MemberImportServiceDeps for MemberImportServiceDependencies {
     type Context = Context;
     type Transaction = Transaction;
     type MemberDao = MemberDao;
+    type MemberActionDao = MemberActionDao;
     type PermissionService = PermissionService;
     type UuidService = UuidService;
     type TransactionDao = TransactionDao;
@@ -100,11 +102,32 @@ impl MemberImportServiceDeps for MemberImportServiceDependencies {
 type MemberImportService =
     genossi_service_impl::member_import::MemberImportServiceImpl<MemberImportServiceDependencies>;
 
+type MemberActionDao = genossi_dao_impl_sqlite::member_action::MemberActionDaoImpl;
+
+pub struct MemberActionServiceDependencies;
+
+unsafe impl Send for MemberActionServiceDependencies {}
+unsafe impl Sync for MemberActionServiceDependencies {}
+
+impl MemberActionServiceDeps for MemberActionServiceDependencies {
+    type Context = Context;
+    type Transaction = Transaction;
+    type MemberActionDao = MemberActionDao;
+    type MemberDao = MemberDao;
+    type PermissionService = PermissionService;
+    type UuidService = UuidService;
+    type TransactionDao = TransactionDao;
+}
+
+type MemberActionService =
+    genossi_service_impl::member_action::MemberActionServiceImpl<MemberActionServiceDependencies>;
+
 // RestStateImpl with all services
 #[derive(Clone)]
 pub struct RestStateImpl {
     member_service: Arc<MemberService>,
     member_import_service: Arc<MemberImportService>,
+    member_action_service: Arc<MemberActionService>,
     permission_service: Arc<PermissionService>,
     session_service: Arc<SessionService>,
 }
@@ -138,9 +161,21 @@ impl RestStateImpl {
                 transaction_dao: transaction_dao.clone(),
             });
 
+        let member_action_dao = Arc::new(MemberActionDao::new(pool.clone()));
+
+        let member_action_service =
+            Arc::new(genossi_service_impl::member_action::MemberActionServiceImpl {
+                member_action_dao: member_action_dao.clone(),
+                member_dao: member_dao.clone(),
+                permission_service: permission_service.clone(),
+                uuid_service: uuid_service.clone(),
+                transaction_dao: transaction_dao.clone(),
+            });
+
         let member_import_service =
             Arc::new(genossi_service_impl::member_import::MemberImportServiceImpl {
                 member_dao,
+                member_action_dao: member_action_dao.clone(),
                 permission_service: permission_service.clone(),
                 uuid_service,
                 transaction_dao,
@@ -157,6 +192,7 @@ impl RestStateImpl {
         Self {
             member_service,
             member_import_service,
+            member_action_service,
             permission_service,
             session_service,
         }
@@ -168,6 +204,7 @@ impl genossi_rest::RestStateDef for RestStateImpl {
     type PermissionService = PermissionService;
     type SessionService = SessionService;
     type MemberImportService = MemberImportService;
+    type MemberActionService = MemberActionService;
 
     fn member_service(&self) -> Arc<Self::MemberService> {
         self.member_service.clone()
@@ -183,5 +220,9 @@ impl genossi_rest::RestStateDef for RestStateImpl {
 
     fn member_import_service(&self) -> Arc<Self::MemberImportService> {
         self.member_import_service.clone()
+    }
+
+    fn member_action_service(&self) -> Arc<Self::MemberActionService> {
+        self.member_action_service.clone()
     }
 }

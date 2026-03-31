@@ -1,4 +1,5 @@
 pub mod member;
+pub mod member_action;
 pub mod permission;
 
 use async_trait::async_trait;

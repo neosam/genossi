@@ -89,6 +89,35 @@ pub enum Key {
     CreateMember,
     EditMember,
 
+    // Member Actions
+    Actions,
+    ActionType,
+    Date,
+    SharesChange,
+    TransferMember,
+    EffectiveDate,
+    NewAction,
+    EditAction,
+    NoActions,
+
+    // Action Types
+    ActionEintritt,
+    ActionAustritt,
+    ActionTodesfall,
+    ActionAufstockung,
+    ActionVerkauf,
+    ActionUebertragungEmpfang,
+    ActionUebertragungAbgabe,
+
+    // Migration Status
+    MigrationStatus,
+    Migrated,
+    Pending,
+    ExpectedShares,
+    ActualShares,
+    ExpectedActionCount,
+    ActualActionCount,
+
     // Messages
     NoDataFound,
     ErrorLoadingData,

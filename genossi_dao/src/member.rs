@@ -22,6 +22,7 @@ pub struct MemberEntity {
     pub shares_at_joining: i32,
     pub current_shares: i32,
     pub current_balance: i64,
+    pub action_count: i32,
     pub exit_date: Option<time::Date>,
     pub bank_account: Option<Arc<str>>,
     pub created: time::PrimitiveDateTime,

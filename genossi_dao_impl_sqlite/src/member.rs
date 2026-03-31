@@ -53,6 +53,7 @@ struct MemberDb {
     shares_at_joining: i32,
     current_shares: i32,
     current_balance: i64,
+    action_count: i32,
     exit_date: Option<String>,
     bank_account: Option<String>,
     created: String,
@@ -80,6 +81,7 @@ impl TryFrom<&MemberDb> for MemberEntity {
             shares_at_joining: db.shares_at_joining,
             current_shares: db.current_shares,
             current_balance: db.current_balance,
+            action_count: db.action_count,
             exit_date: db.exit_date.as_ref().map(|d| parse_date(d)).transpose()?,
             bank_account: db.bank_account.as_deref().map(Arc::from),
             created: parse_datetime(&db.created)?,
@@ -111,7 +113,7 @@ impl MemberDao for MemberDaoImpl {
         let rows = sqlx::query_as::<_, MemberDb>(
             "SELECT id, member_number, first_name, last_name, email, company, comment, \
              street, house_number, postal_code, city, join_date, shares_at_joining, \
-             current_shares, current_balance, exit_date, bank_account, created, deleted, version \
+             current_shares, current_balance, action_count, exit_date, bank_account, created, deleted, version \
              FROM member ORDER BY member_number",
         )
         .fetch_all(tx.tx.lock().await.as_mut())
@@ -154,8 +156,8 @@ impl MemberDao for MemberDaoImpl {
         sqlx::query(
             "INSERT INTO member (id, member_number, first_name, last_name, email, company, comment, \
              street, house_number, postal_code, city, join_date, shares_at_joining, \
-             current_shares, current_balance, exit_date, bank_account, created, version) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             current_shares, current_balance, action_count, exit_date, bank_account, created, version) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(id)
         .bind(entity.member_number)
@@ -172,6 +174,7 @@ impl MemberDao for MemberDaoImpl {
         .bind(entity.shares_at_joining)
         .bind(entity.current_shares)
         .bind(entity.current_balance)
+        .bind(entity.action_count)
         .bind(exit_date)
         .bind(bank_account)
         .bind(created)
@@ -233,7 +236,7 @@ impl MemberDao for MemberDaoImpl {
             "UPDATE member SET member_number = ?, first_name = ?, last_name = ?, email = ?, \
              company = ?, comment = ?, street = ?, house_number = ?, postal_code = ?, city = ?, \
              join_date = ?, shares_at_joining = ?, current_shares = ?, current_balance = ?, \
-             exit_date = ?, bank_account = ?, deleted = ?, version = ? \
+             action_count = ?, exit_date = ?, bank_account = ?, deleted = ?, version = ? \
              WHERE id = ? AND version = ? AND deleted IS NULL",
         )
         .bind(entity.member_number)
@@ -250,6 +253,7 @@ impl MemberDao for MemberDaoImpl {
         .bind(entity.shares_at_joining)
         .bind(entity.current_shares)
         .bind(entity.current_balance)
+        .bind(entity.action_count)
         .bind(exit_date)
         .bind(bank_account)
         .bind(deleted)

@@ -1,6 +1,8 @@
 use genossi_bin::RestStateImpl;
 use genossi_rest::test_server::test_support::start_test_server;
-use genossi_rest_types::{MemberImportResultTO, MemberTO};
+use genossi_rest_types::{
+    ActionTypeTO, MemberActionTO, MemberImportResultTO, MemberTO, MigrationStatusTO,
+};
 use reqwest::StatusCode;
 use sqlx::SqlitePool;
 use std::sync::Arc;
@@ -38,6 +40,7 @@ fn sample_member() -> MemberTO {
         shares_at_joining: 1,
         current_shares: 3,
         current_balance: 15000,
+        action_count: 0,
         exit_date: None,
         bank_account: Some("DE89370400440532013000".to_string()),
         created: None,
@@ -320,6 +323,7 @@ fn standard_headers() -> Vec<&'static str> {
         "Anteile Beitritt",
         "Anteile aktuell",
         "Guthaben aktuell",
+        "Anzahl Aktionen",
         "Austritt",
         "Email",
         "Firma",
@@ -338,11 +342,11 @@ async fn test_import_new_members() {
         &[
             vec![
                 "1", "Müller", "Hans", "Hauptstr.", "5", "10115", "Berlin",
-                "01.01.2020", "3", "5", "15000", "", "hans@test.de", "", "", "DE123",
+                "01.01.2020", "3", "5", "15000", "1", "", "hans@test.de", "", "", "DE123",
             ],
             vec![
                 "2", "Schmidt", "Anna", "Nebenstr.", "10", "80331", "München",
-                "15.06.2021", "2", "2", "10000", "", "anna@test.de", "Firma GmbH", "", "",
+                "15.06.2021", "2", "2", "10000", "0", "", "anna@test.de", "Firma GmbH", "", "",
             ],
         ],
     );
@@ -387,7 +391,7 @@ async fn test_import_upsert_existing_members() {
         &standard_headers(),
         &[vec![
             "1", "Müller", "Hans", "Hauptstr.", "5", "10115", "Berlin",
-            "01.01.2020", "3", "3", "10000", "", "", "", "", "",
+            "01.01.2020", "3", "3", "10000", "0", "", "", "", "", "",
         ]],
     );
 
@@ -409,7 +413,7 @@ async fn test_import_upsert_existing_members() {
         &standard_headers(),
         &[vec![
             "1", "Müller", "Hans-Peter", "Hauptstr.", "5", "10115", "Berlin",
-            "01.01.2020", "3", "5", "20000", "", "new@email.de", "", "", "",
+            "01.01.2020", "3", "5", "20000", "1", "", "new@email.de", "", "", "",
         ]],
     );
 
@@ -482,12 +486,12 @@ async fn test_import_with_invalid_data_row() {
             // Valid row
             vec![
                 "1", "Müller", "Hans", "", "", "", "",
-                "01.01.2020", "3", "3", "10000", "", "", "", "", "",
+                "01.01.2020", "3", "3", "10000", "0", "", "", "", "", "",
             ],
             // Invalid row - bad date
             vec![
                 "2", "Schmidt", "Anna", "", "", "", "",
-                "not-a-date", "2", "2", "5000", "", "", "", "", "",
+                "not-a-date", "2", "2", "5000", "0", "", "", "", "", "",
             ],
         ],
     );
@@ -590,4 +594,767 @@ async fn test_generate_test_data_is_idempotent() {
         .unwrap();
     let members_after_second: Vec<MemberTO> = response.json().await.unwrap();
     assert_eq!(members_after_first.len(), members_after_second.len());
+}
+
+// === Member Action E2E Tests ===
+
+async fn create_test_member(
+    client: &reqwest::Client,
+    server: &genossi_rest::test_server::test_support::TestServer,
+) -> MemberTO {
+    let response = client
+        .post(server.url("/api/members"))
+        .json(&sample_member())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    response.json().await.unwrap()
+}
+
+fn sample_action(member_id: uuid::Uuid) -> MemberActionTO {
+    MemberActionTO {
+        id: None,
+        member_id,
+        action_type: ActionTypeTO::Aufstockung,
+        date: time::Date::from_calendar_date(2024, time::Month::March, 15).unwrap(),
+        shares_change: 3,
+        transfer_member_id: None,
+        effective_date: None,
+        comment: Some("Initial purchase".to_string()),
+        created: None,
+        deleted: None,
+        version: None,
+    }
+}
+
+#[tokio::test]
+async fn test_create_and_list_member_actions() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let member = create_test_member(&client, &server).await;
+    let member_id = member.id.unwrap();
+
+    // Create an Eintritt action
+    let mut eintritt = sample_action(member_id);
+    eintritt.action_type = ActionTypeTO::Eintritt;
+    eintritt.shares_change = 0;
+
+    let response = client
+        .post(server.url(&format!("/api/members/{}/actions", member_id)))
+        .json(&eintritt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Create an Aufstockung action
+    let aufstockung = sample_action(member_id);
+    let response = client
+        .post(server.url(&format!("/api/members/{}/actions", member_id)))
+        .json(&aufstockung)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let created: MemberActionTO = response.json().await.unwrap();
+    assert!(created.id.is_some());
+    assert_eq!(created.shares_change, 3);
+
+    // List actions
+    let response = client
+        .get(server.url(&format!("/api/members/{}/actions", member_id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let actions: Vec<MemberActionTO> = response.json().await.unwrap();
+    assert_eq!(actions.len(), 2);
+}
+
+#[tokio::test]
+async fn test_update_member_action() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let member = create_test_member(&client, &server).await;
+    let member_id = member.id.unwrap();
+
+    let action = sample_action(member_id);
+    let response = client
+        .post(server.url(&format!("/api/members/{}/actions", member_id)))
+        .json(&action)
+        .send()
+        .await
+        .unwrap();
+    let created: MemberActionTO = response.json().await.unwrap();
+    let action_id = created.id.unwrap();
+
+    // Update
+    let mut updated = created.clone();
+    updated.shares_change = 5;
+    updated.comment = Some("Updated purchase".to_string());
+
+    let response = client
+        .put(server.url(&format!(
+            "/api/members/{}/actions/{}",
+            member_id, action_id
+        )))
+        .json(&updated)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let result: MemberActionTO = response.json().await.unwrap();
+    assert_eq!(result.shares_change, 5);
+}
+
+#[tokio::test]
+async fn test_delete_member_action() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let member = create_test_member(&client, &server).await;
+    let member_id = member.id.unwrap();
+
+    let action = sample_action(member_id);
+    let response = client
+        .post(server.url(&format!("/api/members/{}/actions", member_id)))
+        .json(&action)
+        .send()
+        .await
+        .unwrap();
+    let created: MemberActionTO = response.json().await.unwrap();
+    let action_id = created.id.unwrap();
+
+    // Delete
+    let response = client
+        .delete(server.url(&format!(
+            "/api/members/{}/actions/{}",
+            member_id, action_id
+        )))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+    // Verify deleted
+    let response = client
+        .get(server.url(&format!("/api/members/{}/actions", member_id)))
+        .send()
+        .await
+        .unwrap();
+    let actions: Vec<MemberActionTO> = response.json().await.unwrap();
+    assert!(actions.is_empty());
+}
+
+#[tokio::test]
+async fn test_action_validation_aufstockung_negative_shares() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let member = create_test_member(&client, &server).await;
+    let member_id = member.id.unwrap();
+
+    let mut action = sample_action(member_id);
+    action.shares_change = -3; // Invalid for Aufstockung
+
+    let response = client
+        .post(server.url(&format!("/api/members/{}/actions", member_id)))
+        .json(&action)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_action_validation_uebertragung_without_transfer_member() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let member = create_test_member(&client, &server).await;
+    let member_id = member.id.unwrap();
+
+    let mut action = sample_action(member_id);
+    action.action_type = ActionTypeTO::UebertragungEmpfang;
+    action.shares_change = 2;
+    action.transfer_member_id = None; // Missing!
+
+    let response = client
+        .post(server.url(&format!("/api/members/{}/actions", member_id)))
+        .json(&action)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_action_validation_effective_date_on_non_austritt() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let member = create_test_member(&client, &server).await;
+    let member_id = member.id.unwrap();
+
+    let mut action = sample_action(member_id);
+    action.effective_date =
+        Some(time::Date::from_calendar_date(2024, time::Month::December, 31).unwrap());
+
+    let response = client
+        .post(server.url(&format!("/api/members/{}/actions", member_id)))
+        .json(&action)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_migration_status_pending() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let mut member = sample_member();
+    member.current_shares = 5;
+    member.shares_at_joining = 3;
+    member.action_count = 1;
+
+    let response = client
+        .post(server.url("/api/members"))
+        .json(&member)
+        .send()
+        .await
+        .unwrap();
+    let created: MemberTO = response.json().await.unwrap();
+    let member_id = created.id.unwrap();
+
+    // No actions yet => pending
+    let response = client
+        .get(server.url(&format!(
+            "/api/members/{}/actions/migration-status",
+            member_id
+        )))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let status: MigrationStatusTO = response.json().await.unwrap();
+    assert_eq!(status.status, "pending");
+    assert_eq!(status.expected_shares, 5);
+    assert_eq!(status.actual_shares, 0);
+    // expected_action_count = action_count(1) + 1 (initial Aufstockung) = 2
+    assert_eq!(status.expected_action_count, 2);
+    assert_eq!(status.actual_action_count, 0);
+}
+
+#[tokio::test]
+async fn test_migration_status_migrated() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let mut member = sample_member();
+    member.current_shares = 3;
+    member.shares_at_joining = 3;
+    member.action_count = 0;
+
+    let response = client
+        .post(server.url("/api/members"))
+        .json(&member)
+        .send()
+        .await
+        .unwrap();
+    let created: MemberTO = response.json().await.unwrap();
+    let member_id = created.id.unwrap();
+
+    // Add Eintritt (shares_change = 0)
+    let eintritt = MemberActionTO {
+        id: None,
+        member_id,
+        action_type: ActionTypeTO::Eintritt,
+        date: time::Date::from_calendar_date(2024, time::Month::January, 15).unwrap(),
+        shares_change: 0,
+        transfer_member_id: None,
+        effective_date: None,
+        comment: None,
+        created: None,
+        deleted: None,
+        version: None,
+    };
+    client
+        .post(server.url(&format!("/api/members/{}/actions", member_id)))
+        .json(&eintritt)
+        .send()
+        .await
+        .unwrap();
+
+    // Add Aufstockung (shares_change = 3)
+    let aufstockung = MemberActionTO {
+        id: None,
+        member_id,
+        action_type: ActionTypeTO::Aufstockung,
+        date: time::Date::from_calendar_date(2024, time::Month::January, 15).unwrap(),
+        shares_change: 3,
+        transfer_member_id: None,
+        effective_date: None,
+        comment: None,
+        created: None,
+        deleted: None,
+        version: None,
+    };
+    client
+        .post(server.url(&format!("/api/members/{}/actions", member_id)))
+        .json(&aufstockung)
+        .send()
+        .await
+        .unwrap();
+
+    // Σ = 0 + 3 = 3 == current_shares (3) ✓
+    // expected_action_count = action_count(0) + 1 = 1 == actual_action_count(1) ✓
+    let response = client
+        .get(server.url(&format!(
+            "/api/members/{}/actions/migration-status",
+            member_id
+        )))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let status: MigrationStatusTO = response.json().await.unwrap();
+    assert_eq!(status.status, "migrated");
+    assert_eq!(status.actual_shares, 3);
+    assert_eq!(status.expected_shares, 3);
+    assert_eq!(status.actual_action_count, 1);
+    assert_eq!(status.expected_action_count, 1);
+}
+
+#[tokio::test]
+async fn test_migration_status_fully_migrated() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let mut member = sample_member();
+    member.current_shares = 5;
+    member.shares_at_joining = 3;
+    member.action_count = 1; // One additional action beyond initial Aufstockung
+
+    let response = client
+        .post(server.url("/api/members"))
+        .json(&member)
+        .send()
+        .await
+        .unwrap();
+    let created: MemberTO = response.json().await.unwrap();
+    let member_id = created.id.unwrap();
+
+    // Eintritt
+    let eintritt = MemberActionTO {
+        id: None,
+        member_id,
+        action_type: ActionTypeTO::Eintritt,
+        date: time::Date::from_calendar_date(2024, time::Month::January, 15).unwrap(),
+        shares_change: 0,
+        transfer_member_id: None,
+        effective_date: None,
+        comment: None,
+        created: None,
+        deleted: None,
+        version: None,
+    };
+    client
+        .post(server.url(&format!("/api/members/{}/actions", member_id)))
+        .json(&eintritt)
+        .send()
+        .await
+        .unwrap();
+
+    // Initial Aufstockung (+3)
+    let aufstockung1 = MemberActionTO {
+        id: None,
+        member_id,
+        action_type: ActionTypeTO::Aufstockung,
+        date: time::Date::from_calendar_date(2024, time::Month::January, 15).unwrap(),
+        shares_change: 3,
+        transfer_member_id: None,
+        effective_date: None,
+        comment: None,
+        created: None,
+        deleted: None,
+        version: None,
+    };
+    client
+        .post(server.url(&format!("/api/members/{}/actions", member_id)))
+        .json(&aufstockung1)
+        .send()
+        .await
+        .unwrap();
+
+    // Additional Aufstockung (+2)
+    let aufstockung2 = MemberActionTO {
+        id: None,
+        member_id,
+        action_type: ActionTypeTO::Aufstockung,
+        date: time::Date::from_calendar_date(2024, time::Month::June, 1).unwrap(),
+        shares_change: 2,
+        transfer_member_id: None,
+        effective_date: None,
+        comment: None,
+        created: None,
+        deleted: None,
+        version: None,
+    };
+    client
+        .post(server.url(&format!("/api/members/{}/actions", member_id)))
+        .json(&aufstockung2)
+        .send()
+        .await
+        .unwrap();
+
+    // Σ = 0 + 3 + 2 = 5 == current_shares (5) ✓
+    // expected_action_count = action_count(1) + 1 = 2 == actual_action_count(2) ✓
+    let response = client
+        .get(server.url(&format!(
+            "/api/members/{}/actions/migration-status",
+            member_id
+        )))
+        .send()
+        .await
+        .unwrap();
+    let status: MigrationStatusTO = response.json().await.unwrap();
+    assert_eq!(status.status, "migrated");
+    assert_eq!(status.actual_shares, 5);
+    assert_eq!(status.expected_shares, 5);
+    assert_eq!(status.actual_action_count, 2);
+    assert_eq!(status.expected_action_count, 2);
+}
+
+#[tokio::test]
+async fn test_migration_status_exact_match() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let mut member = sample_member();
+    member.current_shares = 5;
+    member.shares_at_joining = 3;
+    member.action_count = 1; // 1 additional action beyond initial Aufstockung
+
+    let response = client
+        .post(server.url("/api/members"))
+        .json(&member)
+        .send()
+        .await
+        .unwrap();
+    let created: MemberTO = response.json().await.unwrap();
+    let member_id = created.id.unwrap();
+
+    // Eintritt (0)
+    client
+        .post(server.url(&format!("/api/members/{}/actions", member_id)))
+        .json(&MemberActionTO {
+            id: None,
+            member_id,
+            action_type: ActionTypeTO::Eintritt,
+            date: time::Date::from_calendar_date(2024, time::Month::January, 15).unwrap(),
+            shares_change: 0,
+            transfer_member_id: None,
+            effective_date: None,
+            comment: None,
+            created: None,
+            deleted: None,
+            version: None,
+        })
+        .send()
+        .await
+        .unwrap();
+
+    // Initial Aufstockung (+3)
+    client
+        .post(server.url(&format!("/api/members/{}/actions", member_id)))
+        .json(&MemberActionTO {
+            id: None,
+            member_id,
+            action_type: ActionTypeTO::Aufstockung,
+            date: time::Date::from_calendar_date(2024, time::Month::January, 15).unwrap(),
+            shares_change: 3,
+            transfer_member_id: None,
+            effective_date: None,
+            comment: None,
+            created: None,
+            deleted: None,
+            version: None,
+        })
+        .send()
+        .await
+        .unwrap();
+
+    // Additional Aufstockung (+2)
+    client
+        .post(server.url(&format!("/api/members/{}/actions", member_id)))
+        .json(&MemberActionTO {
+            id: None,
+            member_id,
+            action_type: ActionTypeTO::Aufstockung,
+            date: time::Date::from_calendar_date(2024, time::Month::June, 1).unwrap(),
+            shares_change: 2,
+            transfer_member_id: None,
+            effective_date: None,
+            comment: None,
+            created: None,
+            deleted: None,
+            version: None,
+        })
+        .send()
+        .await
+        .unwrap();
+
+    // Σ = 0 + 3 + 2 = 5 == current_shares (5) ✓
+    // expected_action_count = action_count(1) + 1 = 2 == actual_action_count(2) ✓
+    let response = client
+        .get(server.url(&format!(
+            "/api/members/{}/actions/migration-status",
+            member_id
+        )))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let status: MigrationStatusTO = response.json().await.unwrap();
+    assert_eq!(status.status, "migrated");
+    assert_eq!(status.expected_shares, 5);
+    assert_eq!(status.actual_shares, 5);
+    assert_eq!(status.expected_action_count, 2);
+    assert_eq!(status.actual_action_count, 2);
+}
+
+#[tokio::test]
+async fn test_import_auto_migration() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Import member with action_count=0 and shares_at_joining==current_shares
+    // Should auto-create Eintritt + Aufstockung actions
+    let xlsx = create_xlsx(
+        &standard_headers(),
+        &[vec![
+            "1", "Müller", "Hans", "Hauptstr.", "5", "10115", "Berlin",
+            "01.01.2020", "3", "3", "15000", "0", "", "hans@test.de", "", "", "DE123",
+        ]],
+    );
+
+    let part = reqwest::multipart::Part::bytes(xlsx)
+        .file_name("members.xlsx")
+        .mime_str("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        .unwrap();
+    let form = reqwest::multipart::Form::new().part("file", part);
+
+    let response = client
+        .post(server.url("/api/members/import"))
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Get the member
+    let response = client
+        .get(server.url("/api/members"))
+        .send()
+        .await
+        .unwrap();
+    let members: Vec<MemberTO> = response.json().await.unwrap();
+    assert_eq!(members.len(), 1);
+    let member_id = members[0].id.unwrap();
+
+    // Verify auto-created actions
+    let response = client
+        .get(server.url(&format!("/api/members/{}/actions", member_id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let actions: Vec<MemberActionTO> = response.json().await.unwrap();
+    assert_eq!(actions.len(), 2);
+
+    // Check migration status - should be migrated
+    let response = client
+        .get(server.url(&format!(
+            "/api/members/{}/actions/migration-status",
+            member_id
+        )))
+        .send()
+        .await
+        .unwrap();
+    let status: MigrationStatusTO = response.json().await.unwrap();
+    assert_eq!(status.status, "migrated");
+    assert_eq!(status.actual_shares, 3);
+    assert_eq!(status.expected_shares, 3);
+}
+
+#[tokio::test]
+async fn test_import_no_auto_migration_when_action_count_nonzero() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Import member with action_count > 0 — should NOT auto-create actions
+    let xlsx = create_xlsx(
+        &standard_headers(),
+        &[vec![
+            "1", "Müller", "Hans", "Hauptstr.", "5", "10115", "Berlin",
+            "01.01.2020", "3", "5", "15000", "1", "", "", "", "", "",
+        ]],
+    );
+
+    let part = reqwest::multipart::Part::bytes(xlsx)
+        .file_name("members.xlsx")
+        .mime_str("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        .unwrap();
+    let form = reqwest::multipart::Form::new().part("file", part);
+
+    client
+        .post(server.url("/api/members/import"))
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+
+    let response = client
+        .get(server.url("/api/members"))
+        .send()
+        .await
+        .unwrap();
+    let members: Vec<MemberTO> = response.json().await.unwrap();
+    let member_id = members[0].id.unwrap();
+
+    // Verify NO auto-created actions
+    let response = client
+        .get(server.url(&format!("/api/members/{}/actions", member_id)))
+        .send()
+        .await
+        .unwrap();
+    let actions: Vec<MemberActionTO> = response.json().await.unwrap();
+    assert!(actions.is_empty());
+}
+
+#[tokio::test]
+async fn test_import_action_count_stored() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let xlsx = create_xlsx(
+        &standard_headers(),
+        &[vec![
+            "1", "Müller", "Hans", "Hauptstr.", "5", "10115", "Berlin",
+            "01.01.2020", "3", "5", "15000", "7", "", "", "", "", "",
+        ]],
+    );
+
+    let part = reqwest::multipart::Part::bytes(xlsx)
+        .file_name("members.xlsx")
+        .mime_str("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        .unwrap();
+    let form = reqwest::multipart::Form::new().part("file", part);
+
+    client
+        .post(server.url("/api/members/import"))
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+
+    let response = client
+        .get(server.url("/api/members"))
+        .send()
+        .await
+        .unwrap();
+    let members: Vec<MemberTO> = response.json().await.unwrap();
+    assert_eq!(members[0].action_count, 7);
+}
+
+#[tokio::test]
+async fn test_austritt_with_effective_date() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let member = create_test_member(&client, &server).await;
+    let member_id = member.id.unwrap();
+
+    let austritt = MemberActionTO {
+        id: None,
+        member_id,
+        action_type: ActionTypeTO::Austritt,
+        date: time::Date::from_calendar_date(2025, time::Month::June, 15).unwrap(),
+        shares_change: 0,
+        transfer_member_id: None,
+        effective_date: Some(
+            time::Date::from_calendar_date(2025, time::Month::December, 31).unwrap(),
+        ),
+        comment: Some("Austritt per Satzung".to_string()),
+        created: None,
+        deleted: None,
+        version: None,
+    };
+
+    let response = client
+        .post(server.url(&format!("/api/members/{}/actions", member_id)))
+        .json(&austritt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let created: MemberActionTO = response.json().await.unwrap();
+    assert_eq!(
+        created.effective_date,
+        Some(time::Date::from_calendar_date(2025, time::Month::December, 31).unwrap())
+    );
+    assert_eq!(created.shares_change, 0);
+}
+
+#[tokio::test]
+async fn test_action_update_version_conflict() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let member = create_test_member(&client, &server).await;
+    let member_id = member.id.unwrap();
+
+    // Create action
+    let action = sample_action(member_id);
+    let response = client
+        .post(server.url(&format!("/api/members/{}/actions", member_id)))
+        .json(&action)
+        .send()
+        .await
+        .unwrap();
+    let created: MemberActionTO = response.json().await.unwrap();
+    let action_id = created.id.unwrap();
+
+    // First update succeeds
+    let mut updated = created.clone();
+    updated.shares_change = 5;
+    let response = client
+        .put(server.url(&format!(
+            "/api/members/{}/actions/{}",
+            member_id, action_id
+        )))
+        .json(&updated)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Second update with OLD version should fail (version conflict)
+    let mut stale = created.clone();
+    stale.shares_change = 7;
+    let response = client
+        .put(server.url(&format!(
+            "/api/members/{}/actions/{}",
+            member_id, action_id
+        )))
+        .json(&stale)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
 }

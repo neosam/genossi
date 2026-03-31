@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use calamine::{Data, Reader};
 use genossi_dao::member::MemberDao;
+use genossi_dao::member_action::{ActionType, MemberActionDao, MemberActionEntity};
 use genossi_dao::TransactionDao;
 use genossi_service::member_import::{MemberImportError, MemberImportResult, MemberImportService};
 use genossi_service::permission::{Authentication, PermissionService};
@@ -19,6 +20,7 @@ const MEMBER_IMPORT_PROCESS: &str = "member-import";
 gen_service_impl! {
     struct MemberImportServiceImpl: MemberImportService = MemberImportServiceDeps {
         MemberDao: MemberDao<Transaction = Self::Transaction> = member_dao,
+        MemberActionDao: MemberActionDao<Transaction = Self::Transaction> = member_action_dao,
         PermissionService: PermissionService<Context = Self::Context> = permission_service,
         UuidService: UuidService = uuid_service,
         TransactionDao: TransactionDao<Transaction = Self::Transaction> = transaction_dao,
@@ -199,6 +201,10 @@ fn parse_row(
         Data::Empty => 0,
         v => get_i64(v).map_err(|e| format!("Guthaben aktuell: {}", e))?,
     };
+    let action_count = match get_cell(row, col_index, "Anzahl Aktionen") {
+        Data::Empty => 0,
+        v => get_i32(v).map_err(|e| format!("Anzahl Aktionen: {}", e))?,
+    };
     let exit_date = parse_optional_date(get_cell(row, col_index, "Austritt"))
         .map_err(|e| format!("Austritt: {}", e))?;
 
@@ -214,6 +220,7 @@ fn parse_row(
         shares_at_joining,
         current_shares,
         current_balance,
+        action_count,
         exit_date,
         email: get_string(get_cell(row, col_index, "Email")),
         company: get_string(get_cell(row, col_index, "Firma")),
@@ -234,6 +241,7 @@ struct ParsedMemberRow {
     shares_at_joining: i32,
     current_shares: i32,
     current_balance: i64,
+    action_count: i32,
     exit_date: Option<Date>,
     email: Option<Arc<str>>,
     company: Option<Arc<str>>,
@@ -331,6 +339,7 @@ impl<Deps: MemberImportServiceDeps> MemberImportService for MemberImportServiceI
                     entity.shares_at_joining = parsed.shares_at_joining;
                     entity.current_shares = parsed.current_shares;
                     entity.current_balance = parsed.current_balance;
+                    entity.action_count = parsed.action_count;
                     entity.exit_date = parsed.exit_date;
                     entity.email = parsed.email.clone();
                     entity.company = parsed.company.clone();
@@ -360,6 +369,7 @@ impl<Deps: MemberImportServiceDeps> MemberImportService for MemberImportServiceI
                         shares_at_joining: parsed.shares_at_joining,
                         current_shares: parsed.current_shares,
                         current_balance: parsed.current_balance,
+                        action_count: parsed.action_count,
                         exit_date: parsed.exit_date,
                         bank_account: parsed.bank_account.clone(),
                         created: time::PrimitiveDateTime::new(now.date(), now.time()),
@@ -370,6 +380,47 @@ impl<Deps: MemberImportServiceDeps> MemberImportService for MemberImportServiceI
                     self.member_dao
                         .create(&entity, MEMBER_IMPORT_PROCESS, tx.clone())
                         .await?;
+
+                    // Auto-migration: create Eintritt + Aufstockung for members
+                    // with action_count == 0 and shares_at_joining == current_shares
+                    if parsed.action_count == 0
+                        && parsed.shares_at_joining == parsed.current_shares
+                    {
+                        let eintritt = MemberActionEntity {
+                            id: self.uuid_service.new_v4().await,
+                            member_id: entity.id,
+                            action_type: ActionType::Eintritt,
+                            date: parsed.join_date,
+                            shares_change: 0,
+                            transfer_member_id: None,
+                            effective_date: None,
+                            comment: Some(Arc::from("Auto-migration from Excel import")),
+                            created: entity.created,
+                            deleted: None,
+                            version: self.uuid_service.new_v4().await,
+                        };
+                        self.member_action_dao
+                            .create(&eintritt, MEMBER_IMPORT_PROCESS, tx.clone())
+                            .await?;
+
+                        let aufstockung = MemberActionEntity {
+                            id: self.uuid_service.new_v4().await,
+                            member_id: entity.id,
+                            action_type: ActionType::Aufstockung,
+                            date: parsed.join_date,
+                            shares_change: parsed.shares_at_joining,
+                            transfer_member_id: None,
+                            effective_date: None,
+                            comment: Some(Arc::from("Auto-migration from Excel import")),
+                            created: entity.created,
+                            deleted: None,
+                            version: self.uuid_service.new_v4().await,
+                        };
+                        self.member_action_dao
+                            .create(&aufstockung, MEMBER_IMPORT_PROCESS, tx.clone())
+                            .await?;
+                    }
+
                     imported += 1;
                 }
             }

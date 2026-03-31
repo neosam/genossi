@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+genossi_dao = { path = "../genossi_dao" }
 genossi_service = { path = "../genossi_service" }
 serde = { workspace = true }
 serde_json = { workspace = true }

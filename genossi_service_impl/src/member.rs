@@ -138,6 +138,7 @@ impl<Deps: MemberServiceDeps> MemberService for MemberServiceImpl<Deps> {
             shares_at_joining: item.shares_at_joining,
             current_shares: item.current_shares,
             current_balance: item.current_balance,
+            action_count: item.action_count,
             exit_date: item.exit_date,
             bank_account: item.bank_account.clone(),
             created: time::PrimitiveDateTime::new(now.date(), now.time()),

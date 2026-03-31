@@ -944,6 +944,7 @@ dependencies = [
 name = "genossi_rest_types"
 version = "0.1.0"
 dependencies = [
+ "genossi_dao",
  "genossi_service",
  "serde",
  "serde_json",

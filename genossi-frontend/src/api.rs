@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use rest_types::{MemberTO, UserTO};
+use rest_types::{MemberActionTO, MemberTO, MigrationStatusTO, UserTO};
 use tracing::info;
 use uuid::Uuid;
 
@@ -83,4 +83,76 @@ pub async fn delete_member(config: &Config, id: Uuid) -> Result<(), reqwest::Err
     let url = format!("{}/api/members/{id}", config.backend);
     reqwest::Client::new().delete(url).send().await?.error_for_status_ref()?;
     Ok(())
+}
+
+// Member Action API
+pub async fn get_member_actions(
+    config: &Config,
+    member_id: Uuid,
+) -> Result<Vec<MemberActionTO>, reqwest::Error> {
+    info!("Fetching actions for member {member_id}");
+    let url = format!("{}/api/members/{member_id}/actions", config.backend);
+    let response = reqwest::get(url).await?;
+    response.error_for_status_ref()?;
+    Ok(response.json().await?)
+}
+
+pub async fn create_member_action(
+    config: &Config,
+    member_id: Uuid,
+    action: MemberActionTO,
+) -> Result<MemberActionTO, reqwest::Error> {
+    info!("Creating action for member {member_id}");
+    let url = format!("{}/api/members/{member_id}/actions", config.backend);
+    let response = reqwest::Client::new().post(url).json(&action).send().await?;
+    response.error_for_status_ref()?;
+    Ok(response.json().await?)
+}
+
+pub async fn update_member_action(
+    config: &Config,
+    member_id: Uuid,
+    action_id: Uuid,
+    action: MemberActionTO,
+) -> Result<MemberActionTO, reqwest::Error> {
+    info!("Updating action {action_id} for member {member_id}");
+    let url = format!(
+        "{}/api/members/{member_id}/actions/{action_id}",
+        config.backend
+    );
+    let response = reqwest::Client::new().put(url).json(&action).send().await?;
+    response.error_for_status_ref()?;
+    Ok(response.json().await?)
+}
+
+pub async fn delete_member_action(
+    config: &Config,
+    member_id: Uuid,
+    action_id: Uuid,
+) -> Result<(), reqwest::Error> {
+    info!("Deleting action {action_id} for member {member_id}");
+    let url = format!(
+        "{}/api/members/{member_id}/actions/{action_id}",
+        config.backend
+    );
+    reqwest::Client::new()
+        .delete(url)
+        .send()
+        .await?
+        .error_for_status_ref()?;
+    Ok(())
+}
+
+pub async fn get_migration_status(
+    config: &Config,
+    member_id: Uuid,
+) -> Result<MigrationStatusTO, reqwest::Error> {
+    info!("Fetching migration status for member {member_id}");
+    let url = format!(
+        "{}/api/members/{member_id}/actions/migration-status",
+        config.backend
+    );
+    let response = reqwest::get(url).await?;
+    response.error_for_status_ref()?;
+    Ok(response.json().await?)
 }
