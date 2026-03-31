@@ -1,5 +1,7 @@
 pub mod auth;
 pub mod auth_middleware;
+#[cfg(debug_assertions)]
+pub mod dev;
 pub mod member;
 pub mod permission;
 pub mod session;
@@ -228,6 +230,12 @@ pub async fn create_app<RestState: RestStateDef>(rest_state: RestState) -> Route
         .description(Some("Genossi backend"))
         .build()]);
 
+    #[cfg(debug_assertions)]
+    {
+        let dev_doc = dev::api_doc();
+        api_doc.merge(dev_doc);
+    }
+
     let swagger_router = SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", api_doc);
 
     let app = Router::new().route("/authenticate", get(login));
@@ -333,6 +341,12 @@ pub async fn create_app<RestState: RestStateDef>(rest_state: RestState) -> Route
 
     #[cfg(not(feature = "oidc"))]
     let app = app.layer(CookieManagerLayer::new());
+
+    // Dev-only routes (no auth required, only compiled in debug builds)
+    #[cfg(debug_assertions)]
+    let app = app
+        .nest("/api/dev", dev::generate_route::<RestState>())
+        .with_state(rest_state.clone());
 
     app
 }

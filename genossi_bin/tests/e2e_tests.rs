@@ -511,3 +511,83 @@ async fn test_import_with_invalid_data_row() {
     assert_eq!(result.errors.len(), 1);
     assert_eq!(result.errors[0].row, 3); // Row 3 (1-indexed, header is 1)
 }
+
+#[tokio::test]
+async fn test_generate_test_data_creates_members() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // First call should create test data
+    let response = client
+        .post(server.url("/api/dev/generate-test-data"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert!(body["count"].as_u64().unwrap() >= 5);
+
+    // Verify members exist
+    let response = client
+        .get(server.url("/api/members"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let members: Vec<MemberTO> = response.json().await.unwrap();
+    assert!(members.len() >= 5);
+
+    // Verify at least one has all optional fields set
+    let fully_populated = members.iter().any(|m| {
+        m.email.is_some()
+            && m.company.is_some()
+            && m.street.is_some()
+            && m.bank_account.is_some()
+    });
+    assert!(fully_populated, "At least one member should have all optional fields");
+
+    // Verify at least one has exit_date set
+    let has_exited = members.iter().any(|m| m.exit_date.is_some());
+    assert!(has_exited, "At least one member should have an exit_date");
+}
+
+#[tokio::test]
+async fn test_generate_test_data_is_idempotent() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // First call creates data
+    let response = client
+        .post(server.url("/api/dev/generate-test-data"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    // Get count after first call
+    let response = client
+        .get(server.url("/api/members"))
+        .send()
+        .await
+        .unwrap();
+    let members_after_first: Vec<MemberTO> = response.json().await.unwrap();
+
+    // Second call should not create more data
+    let response = client
+        .post(server.url("/api/dev/generate-test-data"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Count should be the same
+    let response = client
+        .get(server.url("/api/members"))
+        .send()
+        .await
+        .unwrap();
+    let members_after_second: Vec<MemberTO> = response.json().await.unwrap();
+    assert_eq!(members_after_first.len(), members_after_second.len());
+}
