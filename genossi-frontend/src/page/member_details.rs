@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use rest_types::{ActionTypeTO, MemberActionTO, MemberTO, MigrationStatusTO};
+use rest_types::{ActionTypeTO, DocumentTypeTO, MemberActionTO, MemberDocumentTO, MemberTO, MigrationStatusTO};
 use uuid::Uuid;
 
 use crate::api;
@@ -68,6 +68,7 @@ pub fn MemberDetails(id: String) -> Element {
             current_shares: 1,
             current_balance: 0,
             action_count: 0,
+            migrated: false,
             exit_date: None,
             bank_account: None,
             created: None,
@@ -81,6 +82,12 @@ pub fn MemberDetails(id: String) -> Element {
     // Actions state
     let mut actions = use_signal(|| Vec::<MemberActionTO>::new());
     let mut migration_status = use_signal(|| None::<MigrationStatusTO>);
+
+    // Documents state
+    let mut documents = use_signal(|| Vec::<MemberDocumentTO>::new());
+    let mut show_upload_form = use_signal(|| false);
+    let mut doc_type = use_signal(|| DocumentTypeTO::JoinDeclaration);
+    let mut doc_description = use_signal(|| String::new());
     let mut show_action_form = use_signal(|| false);
     let mut editing_action = use_signal(|| None::<MemberActionTO>);
 
@@ -122,6 +129,13 @@ pub fn MemberDetails(id: String) -> Element {
                         Err(e) => {
                             error.set(Some(format!("Failed to load actions: {}", e)));
                         }
+                    }
+                    // Load documents
+                    match api::get_member_documents(&config, uuid).await {
+                        Ok(data) => {
+                            *documents.write() = data;
+                        }
+                        Err(_) => {}
                     }
                     // Load migration status
                     match api::get_migration_status(&config, uuid).await {
@@ -282,8 +296,36 @@ pub fn MemberDetails(id: String) -> Element {
                                     span {
                                         "{i18n.t(Key::ExpectedShares)}: {status.expected_shares} / {i18n.t(Key::ActualShares)}: {status.actual_shares}"
                                     }
-                                    span {
-                                        "{i18n.t(Key::ExpectedActionCount)}: {status.expected_action_count} / {i18n.t(Key::ActualActionCount)}: {status.actual_action_count}"
+                                    div { class: "flex items-center gap-2",
+                                        span {
+                                            "{i18n.t(Key::ExpectedActionCount)}: {status.expected_action_count} / {i18n.t(Key::ActualActionCount)}: {status.actual_action_count}"
+                                        }
+                                        if status.expected_action_count != status.actual_action_count {
+                                            {
+                                                let member_id_for_confirm = member.read().id;
+                                                rsx! {
+                                                    button {
+                                                        class: "px-2 py-0.5 text-xs font-medium rounded bg-orange-600 text-white hover:bg-orange-700",
+                                                        onclick: move |_| {
+                                                            if let Some(mid) = member_id_for_confirm {
+                                                                spawn(async move {
+                                                                    let config = CONFIG.read().clone();
+                                                                    if api::confirm_migration(&config, mid).await.is_ok() {
+                                                                        if let Ok(data) = api::get_migration_status(&config, mid).await {
+                                                                            migration_status.set(Some(data));
+                                                                        }
+                                                                        if let Ok(data) = api::get_member(&config, mid).await {
+                                                                            member.set(data);
+                                                                        }
+                                                                    }
+                                                                });
+                                                            }
+                                                        },
+                                                        {i18n.t(Key::ConfirmMigration)}
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -770,6 +812,239 @@ pub fn MemberDetails(id: String) -> Element {
                                                                     }
                                                                 },
                                                                 {i18n.t(Key::Delete)}
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // === Documents Section ===
+                        div { class: "mt-8",
+                            div { class: "flex justify-between items-center mb-4",
+                                h2 { class: "text-2xl font-bold", {i18n.t(Key::Documents)} }
+                                button {
+                                    class: "px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm",
+                                    onclick: move |_| {
+                                        show_upload_form.set(true);
+                                        doc_type.set(DocumentTypeTO::JoinDeclaration);
+                                        doc_description.set(String::new());
+                                    },
+                                    {i18n.t(Key::UploadDocument)}
+                                }
+                            }
+
+                            // Upload Form
+                            if *show_upload_form.read() {
+                                div { class: "bg-white rounded-lg shadow p-6 mb-4 space-y-4 border-l-4 border-green-500",
+                                    h3 { class: "text-lg font-semibold mb-2", {i18n.t(Key::UploadDocument)} }
+
+                                    // Document Type
+                                    div {
+                                        label { class: "block text-sm font-medium text-gray-700 mb-1",
+                                            {i18n.t(Key::DocumentType)}
+                                        }
+                                        select {
+                                            class: "w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500",
+                                            value: "{doc_type.read().as_str()}",
+                                            oninput: move |e| {
+                                                if let Some(dt) = DocumentTypeTO::from_str(&e.value()) {
+                                                    doc_type.set(dt);
+                                                }
+                                            },
+                                            for dt in DocumentTypeTO::all() {
+                                                {
+                                                    let label = match dt {
+                                                        DocumentTypeTO::JoinDeclaration => i18n.t(Key::DocJoinDeclaration),
+                                                        DocumentTypeTO::JoinConfirmation => i18n.t(Key::DocJoinConfirmation),
+                                                        DocumentTypeTO::ShareIncrease => i18n.t(Key::DocShareIncrease),
+                                                        DocumentTypeTO::Other => i18n.t(Key::DocOther),
+                                                    };
+                                                    rsx! {
+                                                        option {
+                                                            value: "{dt.as_str()}",
+                                                            selected: *doc_type.read() == *dt,
+                                                            {label}
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // Description (shown for Other)
+                                    if *doc_type.read() == DocumentTypeTO::Other {
+                                        div {
+                                            label { class: "block text-sm font-medium text-gray-700 mb-1",
+                                                {i18n.t(Key::Description)}
+                                            }
+                                            input {
+                                                class: "w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500",
+                                                r#type: "text",
+                                                value: "{doc_description}",
+                                                oninput: move |e| {
+                                                    doc_description.set(e.value().clone());
+                                                },
+                                            }
+                                        }
+                                    }
+
+                                    // File Input
+                                    div {
+                                        label { class: "block text-sm font-medium text-gray-700 mb-1",
+                                            "Datei"
+                                        }
+                                        input {
+                                            class: "w-full px-3 py-2 border border-gray-300 rounded-md",
+                                            r#type: "file",
+                                            id: "document-file-input",
+                                        }
+                                    }
+
+                                    // Form buttons
+                                    div { class: "flex gap-2 justify-end pt-2",
+                                        button {
+                                            class: "px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300",
+                                            onclick: move |_| {
+                                                show_upload_form.set(false);
+                                            },
+                                            {i18n.t(Key::Cancel)}
+                                        }
+                                        button {
+                                            class: "px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700",
+                                            disabled: *loading.read(),
+                                            onclick: move |_| {
+                                                spawn(async move {
+                                                    let member_id = match member.read().id {
+                                                        Some(id) => id,
+                                                        None => return,
+                                                    };
+                                                    loading.set(true);
+                                                    error.set(None);
+                                                    let config = CONFIG.read().clone();
+                                                    let dt = doc_type.read().as_str().to_string();
+                                                    let desc = doc_description.read().clone();
+                                                    let desc_opt = if desc.is_empty() { None } else { Some(desc.as_str()) };
+
+                                                    // Get file from input
+                                                    let window = web_sys::window().unwrap();
+                                                    let document = window.document().unwrap();
+                                                    let input = document
+                                                        .get_element_by_id("document-file-input")
+                                                        .and_then(|el| {
+                                                            use wasm_bindgen::JsCast;
+                                                            el.dyn_into::<web_sys::HtmlInputElement>().ok()
+                                                        });
+                                                    let file = input
+                                                        .and_then(|inp| inp.files())
+                                                        .and_then(|files| files.get(0));
+
+                                                    match file {
+                                                        Some(f) => {
+                                                            match api::upload_member_document(&config, member_id, &dt, desc_opt, f).await {
+                                                                Ok(_) => {
+                                                                    if let Ok(data) = api::get_member_documents(&config, member_id).await {
+                                                                        *documents.write() = data;
+                                                                    }
+                                                                    show_upload_form.set(false);
+                                                                    doc_description.set(String::new());
+                                                                }
+                                                                Err(e) => {
+                                                                    error.set(Some(format!("Upload failed: {}", e)));
+                                                                }
+                                                            }
+                                                        }
+                                                        None => {
+                                                            error.set(Some("No file selected".to_string()));
+                                                        }
+                                                    }
+                                                    loading.set(false);
+                                                });
+                                            },
+                                            {i18n.t(Key::Upload)}
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Documents List
+                            if documents.read().is_empty() {
+                                div { class: "bg-white rounded-lg shadow p-6 text-gray-500 text-center",
+                                    {i18n.t(Key::NoDocuments)}
+                                }
+                            } else {
+                                div { class: "bg-white rounded-lg shadow overflow-hidden",
+                                    table { class: "min-w-full divide-y divide-gray-200",
+                                        thead { class: "bg-gray-50",
+                                            tr {
+                                                th { class: "px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase", {i18n.t(Key::DocumentType)} }
+                                                th { class: "px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase", {i18n.t(Key::FileName)} }
+                                                th { class: "px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase", {i18n.t(Key::Description)} }
+                                                th { class: "px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase", "" }
+                                            }
+                                        }
+                                        tbody { class: "bg-white divide-y divide-gray-200",
+                                            for doc in documents.read().iter() {
+                                                {
+                                                    let doc_clone = doc.clone();
+                                                    let doc_id_for_delete = doc.id;
+                                                    let doc_type_label = match DocumentTypeTO::from_str(&doc_clone.document_type) {
+                                                        Some(DocumentTypeTO::JoinDeclaration) => i18n.t(Key::DocJoinDeclaration),
+                                                        Some(DocumentTypeTO::JoinConfirmation) => i18n.t(Key::DocJoinConfirmation),
+                                                        Some(DocumentTypeTO::ShareIncrease) => i18n.t(Key::DocShareIncrease),
+                                                        Some(DocumentTypeTO::Other) => i18n.t(Key::DocOther),
+                                                        None => doc_clone.document_type.clone().into(),
+                                                    };
+                                                    let download_url = {
+                                                        let config = CONFIG.read().clone();
+                                                        let member_id = member.read().id.unwrap_or_default();
+                                                        let doc_id = doc_clone.id.unwrap_or_default();
+                                                        api::document_download_url(&config, member_id, doc_id)
+                                                    };
+                                                    rsx! {
+                                                        tr { class: "hover:bg-gray-50",
+                                                            td { class: "px-4 py-3 text-sm", {doc_type_label} }
+                                                            td { class: "px-4 py-3 text-sm", {doc_clone.file_name.clone()} }
+                                                            td { class: "px-4 py-3 text-sm text-gray-500",
+                                                                {doc_clone.description.clone().unwrap_or_default()}
+                                                            }
+                                                            td { class: "px-4 py-3 text-sm flex gap-2",
+                                                                a {
+                                                                    class: "text-blue-600 hover:text-blue-800 text-xs",
+                                                                    href: "{download_url}",
+                                                                    target: "_blank",
+                                                                    {i18n.t(Key::Download)}
+                                                                }
+                                                                button {
+                                                                    class: "text-red-600 hover:text-red-800 text-xs",
+                                                                    onclick: move |evt| {
+                                                                        evt.stop_propagation();
+                                                                        if let Some(did) = doc_id_for_delete {
+                                                                            spawn(async move {
+                                                                                let member_id = match member.read().id {
+                                                                                    Some(id) => id,
+                                                                                    None => return,
+                                                                                };
+                                                                                let config = CONFIG.read().clone();
+                                                                                match api::delete_member_document(&config, member_id, did).await {
+                                                                                    Ok(_) => {
+                                                                                        if let Ok(data) = api::get_member_documents(&config, member_id).await {
+                                                                                            *documents.write() = data;
+                                                                                        }
+                                                                                    }
+                                                                                    Err(e) => {
+                                                                                        error.set(Some(format!("Failed to delete document: {}", e)));
+                                                                                    }
+                                                                                }
+                                                                            });
+                                                                        }
+                                                                    },
+                                                                    {i18n.t(Key::Delete)}
+                                                                }
                                                             }
                                                         }
                                                     }

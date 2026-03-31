@@ -5,6 +5,49 @@ use crate::i18n::use_i18n;
 use crate::i18n::Key;
 use crate::router::Route;
 use crate::service::member::{refresh_members, MEMBERS};
+use rest_types::MemberTO;
+
+fn is_active(member: &MemberTO, reference_date: &time::Date) -> bool {
+    if member.join_date > *reference_date {
+        return false;
+    }
+    match member.exit_date {
+        Some(exit) => exit > *reference_date,
+        None => true,
+    }
+}
+
+fn today() -> time::Date {
+    let today = js_sys::Date::new_0();
+    let year = today.get_full_year() as i32;
+    let month: time::Month = (today.get_month() as u8 + 1)
+        .try_into()
+        .unwrap_or(time::Month::January);
+    let day = today.get_date() as u8;
+    time::Date::from_calendar_date(year, month, day)
+        .unwrap_or_else(|_| time::Date::from_calendar_date(2025, time::Month::January, 1).unwrap())
+}
+
+fn format_date_iso(date: &time::Date) -> String {
+    format!(
+        "{:04}-{:02}-{:02}",
+        date.year(),
+        date.month() as u8,
+        date.day()
+    )
+}
+
+fn parse_date_iso(s: &str) -> Option<time::Date> {
+    let parts: Vec<&str> = s.split('-').collect();
+    if parts.len() != 3 {
+        return None;
+    }
+    let year: i32 = parts[0].parse().ok()?;
+    let month: u8 = parts[1].parse().ok()?;
+    let day: u8 = parts[2].parse().ok()?;
+    let month: time::Month = month.try_into().ok()?;
+    time::Date::from_calendar_date(year, month, day).ok()
+}
 
 #[component]
 pub fn Members() -> Element {
@@ -17,8 +60,17 @@ pub fn Members() -> Element {
         });
     });
 
+    let mut reference_date = use_signal(today);
+    let mut only_active = use_signal(|| false);
+    let mut only_exited = use_signal(|| false);
+    let mut only_pending_migration = use_signal(|| false);
+
     let members_state = MEMBERS.read();
     let filter_query = members_state.filter_query.clone();
+    let ref_date = *reference_date.read();
+    let show_only_active = *only_active.read();
+    let show_only_exited = *only_exited.read();
+    let show_only_pending_migration = *only_pending_migration.read();
 
     let filtered_members: Vec<_> = members_state
         .items
@@ -34,6 +86,27 @@ pub fn Members() -> Element {
                 || m.member_number.to_string().contains(&q)
                 || m.city.as_deref().unwrap_or("").to_lowercase().contains(&q)
                 || m.email.as_deref().unwrap_or("").to_lowercase().contains(&q)
+        })
+        .filter(|m| {
+            if show_only_active {
+                is_active(m, &ref_date)
+            } else {
+                true
+            }
+        })
+        .filter(|m| {
+            if show_only_exited {
+                !is_active(m, &ref_date)
+            } else {
+                true
+            }
+        })
+        .filter(|m| {
+            if show_only_pending_migration {
+                !m.migrated
+            } else {
+                true
+            }
         })
         .collect();
 
@@ -64,6 +137,64 @@ pub fn Members() -> Element {
                     oninput: move |e| {
                         MEMBERS.write().filter_query = e.value().clone();
                     },
+                }
+            }
+
+            // Reference date + active filter
+            div { class: "mb-4 flex items-center gap-4 flex-wrap",
+                div { class: "flex items-center gap-2",
+                    label { class: "text-sm font-medium text-gray-700",
+                        {i18n.t(Key::ReferenceDate)}
+                    }
+                    input {
+                        class: "px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm",
+                        r#type: "date",
+                        value: "{format_date_iso(&ref_date)}",
+                        oninput: move |e| {
+                            if let Some(d) = parse_date_iso(&e.value()) {
+                                reference_date.set(d);
+                            }
+                        },
+                    }
+                }
+                label { class: "flex items-center gap-2 text-sm text-gray-700 cursor-pointer",
+                    input {
+                        r#type: "checkbox",
+                        class: "rounded border-gray-300 text-blue-600 focus:ring-blue-500",
+                        checked: show_only_active,
+                        oninput: move |e| {
+                            only_active.set(e.value() == "true");
+                            if e.value() == "true" {
+                                only_exited.set(false);
+                            }
+                        },
+                    }
+                    {i18n.t(Key::OnlyActiveMembers)}
+                }
+                label { class: "flex items-center gap-2 text-sm text-gray-700 cursor-pointer",
+                    input {
+                        r#type: "checkbox",
+                        class: "rounded border-gray-300 text-blue-600 focus:ring-blue-500",
+                        checked: show_only_exited,
+                        oninput: move |e| {
+                            only_exited.set(e.value() == "true");
+                            if e.value() == "true" {
+                                only_active.set(false);
+                            }
+                        },
+                    }
+                    {i18n.t(Key::OnlyExitedMembers)}
+                }
+                label { class: "flex items-center gap-2 text-sm text-gray-700 cursor-pointer",
+                    input {
+                        r#type: "checkbox",
+                        class: "rounded border-gray-300 text-blue-600 focus:ring-blue-500",
+                        checked: show_only_pending_migration,
+                        oninput: move |e| {
+                            only_pending_migration.set(e.value() == "true");
+                        },
+                    }
+                    {i18n.t(Key::OnlyPendingMigration)}
                 }
             }
 
@@ -102,6 +233,15 @@ pub fn Members() -> Element {
                                 th { class: "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider",
                                     {i18n.t(Key::JoinDate)}
                                 }
+                                th { class: "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider",
+                                    {i18n.t(Key::ExitDate)}
+                                }
+                                th { class: "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider",
+                                    {i18n.t(Key::MigrationStatus)}
+                                }
+                                th { class: "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider",
+                                    {i18n.t(Key::Active)}
+                                }
                             }
                         }
                         tbody {
@@ -109,6 +249,7 @@ pub fn Members() -> Element {
                                 {
                                     let member_id = member.id;
                                     let join_date = i18n.format_date(&member.join_date);
+                                    let active = is_active(member, &ref_date);
                                     rsx! {
                                         tr {
                                             class: "border-b hover:bg-gray-50 cursor-pointer",
@@ -123,6 +264,31 @@ pub fn Members() -> Element {
                                             td { class: "px-6 py-4", {member.city.clone().unwrap_or_default()} }
                                             td { class: "px-6 py-4", "{member.current_shares}" }
                                             td { class: "px-6 py-4", "{join_date}" }
+                                            td { class: "px-6 py-4",
+                                                {member.exit_date.as_ref().map(|d| i18n.format_date(d)).unwrap_or_default()}
+                                            }
+                                            td { class: "px-6 py-4",
+                                                if member.migrated {
+                                                    span { class: "px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800",
+                                                        {i18n.t(Key::Migrated)}
+                                                    }
+                                                } else {
+                                                    span { class: "px-2 py-1 text-xs font-semibold rounded-full bg-orange-100 text-orange-800",
+                                                        {i18n.t(Key::Pending)}
+                                                    }
+                                                }
+                                            }
+                                            td { class: "px-6 py-4",
+                                                if active {
+                                                    span { class: "px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800",
+                                                        {i18n.t(Key::Active)}
+                                                    }
+                                                } else {
+                                                    span { class: "px-2 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800",
+                                                        {i18n.t(Key::Inactive)}
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 }

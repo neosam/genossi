@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use rest_types::{MemberActionTO, MemberTO, MigrationStatusTO, UserTO};
+use rest_types::{MemberActionTO, MemberDocumentTO, MemberTO, MigrationStatusTO, UserTO};
 use tracing::info;
 use uuid::Uuid;
 
@@ -155,4 +155,117 @@ pub async fn get_migration_status(
     let response = reqwest::get(url).await?;
     response.error_for_status_ref()?;
     Ok(response.json().await?)
+}
+
+pub async fn confirm_migration(
+    config: &Config,
+    member_id: Uuid,
+) -> Result<(), reqwest::Error> {
+    info!("Confirming migration for member {member_id}");
+    let url = format!(
+        "{}/api/members/{member_id}/actions/confirm-migration",
+        config.backend
+    );
+    let client = reqwest::Client::new();
+    client.post(url).send().await?.error_for_status_ref()?;
+    Ok(())
+}
+
+// Member Document API
+pub async fn get_member_documents(
+    config: &Config,
+    member_id: Uuid,
+) -> Result<Vec<MemberDocumentTO>, reqwest::Error> {
+    info!("Fetching documents for member {member_id}");
+    let url = format!("{}/api/members/{member_id}/documents", config.backend);
+    let response = reqwest::get(url).await?;
+    response.error_for_status_ref()?;
+    Ok(response.json().await?)
+}
+
+pub async fn upload_member_document(
+    config: &Config,
+    member_id: Uuid,
+    document_type: &str,
+    description: Option<&str>,
+    file: web_sys::File,
+) -> Result<MemberDocumentTO, String> {
+    use wasm_bindgen::JsCast;
+    use wasm_bindgen_futures::JsFuture;
+
+    let url = format!("{}/api/members/{member_id}/documents", config.backend);
+
+    let form_data =
+        web_sys::FormData::new().map_err(|e| format!("Failed to create FormData: {:?}", e))?;
+    form_data
+        .append_with_str("document_type", document_type)
+        .map_err(|e| format!("Failed to append document_type: {:?}", e))?;
+    if let Some(desc) = description {
+        form_data
+            .append_with_str("description", desc)
+            .map_err(|e| format!("Failed to append description: {:?}", e))?;
+    }
+    form_data
+        .append_with_blob_and_filename("file", &file, &file.name())
+        .map_err(|e| format!("Failed to append file: {:?}", e))?;
+
+    let mut opts = web_sys::RequestInit::new();
+    opts.method("POST");
+    opts.body(Some(&form_data));
+
+    let request = web_sys::Request::new_with_str_and_init(&url, &opts)
+        .map_err(|e| format!("Failed to create request: {:?}", e))?;
+
+    let window = web_sys::window().ok_or("No window")?;
+    let resp_value = JsFuture::from(window.fetch_with_request(&request))
+        .await
+        .map_err(|e| format!("Fetch failed: {:?}", e))?;
+
+    let resp: web_sys::Response = resp_value
+        .dyn_into()
+        .map_err(|_| "Response is not a Response object".to_string())?;
+
+    if !resp.ok() {
+        let status = resp.status();
+        let text = JsFuture::from(resp.text().unwrap())
+            .await
+            .map_err(|e| format!("Failed to read error body: {:?}", e))?
+            .as_string()
+            .unwrap_or_default();
+        return Err(format!("Upload failed ({}): {}", status, text));
+    }
+
+    let json = JsFuture::from(resp.json().unwrap())
+        .await
+        .map_err(|e| format!("Failed to parse response: {:?}", e))?;
+
+    let doc: MemberDocumentTO = serde_wasm_bindgen::from_value(json)
+        .map_err(|e| format!("Failed to deserialize: {:?}", e))?;
+
+    Ok(doc)
+}
+
+pub async fn delete_member_document(
+    config: &Config,
+    member_id: Uuid,
+    document_id: Uuid,
+) -> Result<(), reqwest::Error> {
+    info!("Deleting document {document_id} for member {member_id}");
+    let url = format!(
+        "{}/api/members/{member_id}/documents/{document_id}",
+        config.backend
+    );
+    reqwest::Client::new()
+        .delete(url)
+        .send()
+        .await?
+        .error_for_status_ref()?;
+    Ok(())
+}
+
+pub fn document_download_url(config: &Config, member_id: Uuid, document_id: Uuid) -> String {
+    format!(
+        "{}/api/members/{member_id}/documents/{document_id}",
+        config.backend
+    )
 }

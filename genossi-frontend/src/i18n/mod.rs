@@ -118,6 +118,30 @@ pub enum Key {
     ExpectedActionCount,
     ActualActionCount,
 
+    ConfirmMigration,
+
+    // Documents
+    Documents,
+    Upload,
+    DocumentType,
+    Description,
+    FileName,
+    Download,
+    DocJoinDeclaration,
+    DocJoinConfirmation,
+    DocShareIncrease,
+    DocOther,
+    NoDocuments,
+    UploadDocument,
+    Uploaded,
+
+    ReferenceDate,
+    Active,
+    Inactive,
+    OnlyActiveMembers,
+    OnlyExitedMembers,
+    OnlyPendingMigration,
+
     // Messages
     NoDataFound,
     ErrorLoadingData,

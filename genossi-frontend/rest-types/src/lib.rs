@@ -130,6 +130,8 @@ pub struct MemberTO {
     pub current_balance: i64,
     #[serde(default)]
     pub action_count: i32,
+    #[serde(default)]
+    pub migrated: bool,
     #[serde(
         skip_serializing_if = "Option::is_none",
         serialize_with = "iso8601_date::serialize",
@@ -241,6 +243,70 @@ pub struct MemberActionTO {
     )]
     pub effective_date: Option<time::Date>,
     pub comment: Option<String>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    pub created: Option<time::PrimitiveDateTime>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    pub deleted: Option<time::PrimitiveDateTime>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<Uuid>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum DocumentTypeTO {
+    JoinDeclaration,
+    JoinConfirmation,
+    ShareIncrease,
+    Other,
+}
+
+impl DocumentTypeTO {
+    pub fn all() -> &'static [DocumentTypeTO] {
+        &[
+            DocumentTypeTO::JoinDeclaration,
+            DocumentTypeTO::JoinConfirmation,
+            DocumentTypeTO::ShareIncrease,
+            DocumentTypeTO::Other,
+        ]
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            DocumentTypeTO::JoinDeclaration => "join_declaration",
+            DocumentTypeTO::JoinConfirmation => "join_confirmation",
+            DocumentTypeTO::ShareIncrease => "share_increase",
+            DocumentTypeTO::Other => "other",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "join_declaration" => Some(DocumentTypeTO::JoinDeclaration),
+            "join_confirmation" => Some(DocumentTypeTO::JoinConfirmation),
+            "share_increase" => Some(DocumentTypeTO::ShareIncrease),
+            "other" => Some(DocumentTypeTO::Other),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MemberDocumentTO {
+    pub id: Option<Uuid>,
+    pub member_id: Uuid,
+    pub document_type: String,
+    pub description: Option<String>,
+    pub file_name: String,
+    pub mime_type: String,
     #[serde(
         skip_serializing_if = "Option::is_none",
         serialize_with = "iso8601_datetime::serialize",
