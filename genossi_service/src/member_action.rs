@@ -124,4 +124,11 @@ pub trait MemberActionService {
         context: Authentication<Self::Context>,
         tx: Option<Self::Transaction>,
     ) -> Result<MigrationStatus, ServiceError>;
+
+    async fn confirm_migration(
+        &self,
+        member_id: Uuid,
+        context: Authentication<Self::Context>,
+        tx: Option<Self::Transaction>,
+    ) -> Result<(), ServiceError>;
 }

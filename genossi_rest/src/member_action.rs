@@ -22,6 +22,7 @@ pub fn generate_route<RestState: RestStateDef>() -> Router<RestState> {
         .route("/{action_id}", put(update_member_action::<RestState>))
         .route("/{action_id}", delete(delete_member_action::<RestState>))
         .route("/migration-status", get(get_migration_status::<RestState>))
+        .route("/confirm-migration", post(confirm_migration::<RestState>))
 }
 
 #[instrument(skip(rest_state))]
@@ -273,6 +274,44 @@ pub async fn get_migration_status<RestState: RestStateDef>(
     )
 }
 
+#[instrument(skip(rest_state))]
+#[utoipa::path(
+    post,
+    tag = "Member Actions",
+    path = "/confirm-migration",
+    params(
+        ("member_id" = Uuid, Path, description = "Member ID"),
+    ),
+    responses(
+        (status = 200, description = "Migration confirmed"),
+        (status = 404, description = "Member not found"),
+        (status = 401, description = "Unauthorized"),
+    ),
+)]
+pub async fn confirm_migration<RestState: RestStateDef>(
+    rest_state: State<RestState>,
+    Extension(context): Extension<Context>,
+    Path(member_id): Path<Uuid>,
+) -> Response {
+    error_handler(
+        (async {
+            rest_state
+                .member_action_service()
+                .confirm_migration(
+                    member_id,
+                    crate::extract_auth_context(Some(context))?,
+                    None,
+                )
+                .await?;
+            Ok(Response::builder()
+                .status(200)
+                .body(Body::empty())
+                .unwrap())
+        })
+        .await,
+    )
+}
+
 #[derive(OpenApi)]
 #[openapi(
     paths(
@@ -281,7 +320,8 @@ pub async fn get_migration_status<RestState: RestStateDef>(
         create_member_action,
         update_member_action,
         delete_member_action,
-        get_migration_status
+        get_migration_status,
+        confirm_migration
     ),
     components(schemas(MemberActionTO, genossi_rest_types::ActionTypeTO, MigrationStatusTO)),
     tags((name = "Member Actions", description = "Member action management endpoints"))

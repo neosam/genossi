@@ -54,6 +54,7 @@ struct MemberDb {
     current_shares: i32,
     current_balance: i64,
     action_count: i32,
+    migrated: bool,
     exit_date: Option<String>,
     bank_account: Option<String>,
     created: String,
@@ -82,6 +83,7 @@ impl TryFrom<&MemberDb> for MemberEntity {
             current_shares: db.current_shares,
             current_balance: db.current_balance,
             action_count: db.action_count,
+            migrated: db.migrated,
             exit_date: db.exit_date.as_ref().map(|d| parse_date(d)).transpose()?,
             bank_account: db.bank_account.as_deref().map(Arc::from),
             created: parse_datetime(&db.created)?,
@@ -113,7 +115,7 @@ impl MemberDao for MemberDaoImpl {
         let rows = sqlx::query_as::<_, MemberDb>(
             "SELECT id, member_number, first_name, last_name, email, company, comment, \
              street, house_number, postal_code, city, join_date, shares_at_joining, \
-             current_shares, current_balance, action_count, exit_date, bank_account, created, deleted, version \
+             current_shares, current_balance, action_count, migrated, exit_date, bank_account, created, deleted, version \
              FROM member ORDER BY member_number",
         )
         .fetch_all(tx.tx.lock().await.as_mut())
@@ -156,8 +158,8 @@ impl MemberDao for MemberDaoImpl {
         sqlx::query(
             "INSERT INTO member (id, member_number, first_name, last_name, email, company, comment, \
              street, house_number, postal_code, city, join_date, shares_at_joining, \
-             current_shares, current_balance, action_count, exit_date, bank_account, created, version) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             current_shares, current_balance, action_count, migrated, exit_date, bank_account, created, version) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(id)
         .bind(entity.member_number)
@@ -175,6 +177,7 @@ impl MemberDao for MemberDaoImpl {
         .bind(entity.current_shares)
         .bind(entity.current_balance)
         .bind(entity.action_count)
+        .bind(entity.migrated)
         .bind(exit_date)
         .bind(bank_account)
         .bind(created)
@@ -236,7 +239,7 @@ impl MemberDao for MemberDaoImpl {
             "UPDATE member SET member_number = ?, first_name = ?, last_name = ?, email = ?, \
              company = ?, comment = ?, street = ?, house_number = ?, postal_code = ?, city = ?, \
              join_date = ?, shares_at_joining = ?, current_shares = ?, current_balance = ?, \
-             action_count = ?, exit_date = ?, bank_account = ?, deleted = ?, version = ? \
+             action_count = ?, migrated = ?, exit_date = ?, bank_account = ?, deleted = ?, version = ? \
              WHERE id = ? AND version = ? AND deleted IS NULL",
         )
         .bind(entity.member_number)
@@ -254,6 +257,7 @@ impl MemberDao for MemberDaoImpl {
         .bind(entity.current_shares)
         .bind(entity.current_balance)
         .bind(entity.action_count)
+        .bind(entity.migrated)
         .bind(exit_date)
         .bind(bank_account)
         .bind(deleted)
@@ -268,6 +272,24 @@ impl MemberDao for MemberDaoImpl {
         if rows_affected == 0 {
             return Err(DaoError::ConflictError(Arc::from("Version mismatch")));
         }
+
+        Ok(())
+    }
+
+    async fn update_migrated(
+        &self,
+        id: Uuid,
+        migrated: bool,
+        tx: Self::Transaction,
+    ) -> Result<(), DaoError> {
+        let id_bytes = id.as_bytes().to_vec();
+
+        sqlx::query("UPDATE member SET migrated = ? WHERE id = ? AND deleted IS NULL")
+            .bind(migrated)
+            .bind(id_bytes)
+            .execute(tx.tx.lock().await.as_mut())
+            .await
+            .map_err(|e| DaoError::DatabaseError(Arc::from(e.to_string())))?;
 
         Ok(())
     }

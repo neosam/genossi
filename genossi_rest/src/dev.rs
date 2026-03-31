@@ -244,6 +244,7 @@ fn build_member(t: &TestMember) -> genossi_service::member::Member {
         current_shares: t.current_shares,
         current_balance: t.current_balance,
         action_count: 0,
+        migrated: false,
         exit_date,
         bank_account: t.bank_account.map(Arc::from),
         created,

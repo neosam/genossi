@@ -27,6 +27,43 @@ gen_service_impl! {
     }
 }
 
+pub(crate) fn compute_migration_status(
+    member: &genossi_dao::member::MemberEntity,
+    actions: &[genossi_dao::member_action::MemberActionEntity],
+) -> MigrationStatus {
+    let actual_shares: i32 = actions.iter().map(|a| a.shares_change).sum();
+
+    let actual_action_count = actions
+        .iter()
+        .filter(|a| {
+            !matches!(
+                a.action_type,
+                ActionType::Eintritt | ActionType::Austritt | ActionType::Todesfall
+            )
+        })
+        .count() as i32;
+
+    let expected_shares = member.current_shares;
+    let expected_action_count = member.action_count + 1;
+
+    let status = if actual_shares == expected_shares
+        && actual_action_count == expected_action_count
+    {
+        MigrationState::Migrated
+    } else {
+        MigrationState::Pending
+    };
+
+    MigrationStatus {
+        member_id: member.id,
+        status,
+        expected_shares,
+        actual_shares,
+        expected_action_count,
+        actual_action_count,
+    }
+}
+
 fn validate_action(item: &MemberAction) -> Vec<ValidationFailureItem> {
     let mut errors = Vec::new();
 
@@ -77,6 +114,34 @@ fn validate_action(item: &MemberAction) -> Vec<ValidationFailureItem> {
     }
 
     errors
+}
+
+impl<Deps: MemberActionServiceDeps> MemberActionServiceImpl<Deps> {
+    async fn recalc_migrated(
+        &self,
+        member_id: Uuid,
+        tx: Deps::Transaction,
+    ) -> Result<(), ServiceError> {
+        let member = self
+            .member_dao
+            .find_by_id(member_id, tx.clone())
+            .await?
+            .ok_or(ServiceError::EntityNotFound(member_id))?;
+
+        let actions = self
+            .member_action_dao
+            .find_by_member_id(member_id, tx.clone())
+            .await?;
+
+        let status = compute_migration_status(&member, &actions);
+        let migrated = status.status == MigrationState::Migrated;
+
+        self.member_dao
+            .update_migrated(member_id, migrated, tx)
+            .await?;
+
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -190,6 +255,9 @@ impl<Deps: MemberActionServiceDeps> MemberActionService for MemberActionServiceI
             )
             .await?;
 
+        self.recalc_migrated(new_action.member_id, tx.clone())
+            .await?;
+
         self.transaction_dao.commit(tx).await?;
         Ok(new_action)
     }
@@ -215,6 +283,8 @@ impl<Deps: MemberActionServiceDeps> MemberActionService for MemberActionServiceI
             .update(&item.into(), MEMBER_ACTION_SERVICE_PROCESS, tx.clone())
             .await?;
 
+        self.recalc_migrated(item.member_id, tx.clone()).await?;
+
         self.transaction_dao.commit(tx).await?;
         Ok(item.clone())
     }
@@ -235,11 +305,13 @@ impl<Deps: MemberActionServiceDeps> MemberActionService for MemberActionServiceI
 
         match existing {
             Some(mut entity) => {
+                let member_id = entity.member_id;
                 let now = time::OffsetDateTime::now_utc();
                 entity.deleted = Some(time::PrimitiveDateTime::new(now.date(), now.time()));
                 self.member_action_dao
                     .update(&entity, MEMBER_ACTION_SERVICE_PROCESS, tx.clone())
                     .await?;
+                self.recalc_migrated(member_id, tx.clone()).await?;
                 self.transaction_dao.commit(tx).await?;
                 Ok(())
             }
@@ -270,9 +342,37 @@ impl<Deps: MemberActionServiceDeps> MemberActionService for MemberActionServiceI
             .find_by_member_id(member_id, tx.clone())
             .await?;
 
-        let actual_shares: i32 = actions.iter().map(|a| a.shares_change).sum();
+        let result = compute_migration_status(&member, &actions);
 
-        // Count non-Eintritt share actions (Aufstockung, Verkauf, Uebertragung*)
+        self.transaction_dao.commit(tx).await?;
+
+        Ok(result)
+    }
+
+    async fn confirm_migration(
+        &self,
+        member_id: Uuid,
+        context: Authentication<Self::Context>,
+        tx: Option<Self::Transaction>,
+    ) -> Result<(), ServiceError> {
+        let tx = self.transaction_dao.use_transaction(tx).await?;
+
+        self.permission_service
+            .check_permission(MANAGE_MEMBERS_PRIVILEGE, context)
+            .await?;
+
+        let member = self
+            .member_dao
+            .find_by_id(member_id, tx.clone())
+            .await?
+            .ok_or(ServiceError::EntityNotFound(member_id))?;
+
+        let actions = self
+            .member_action_dao
+            .find_by_member_id(member_id, tx.clone())
+            .await?;
+
+        // Count actual non-status actions
         let actual_action_count = actions
             .iter()
             .filter(|a| {
@@ -283,29 +383,20 @@ impl<Deps: MemberActionServiceDeps> MemberActionService for MemberActionServiceI
             })
             .count() as i32;
 
-        let expected_shares = member.current_shares;
-        // action_count from Excel doesn't include the initial Aufstockung,
-        // but our system counts all non-Eintritt share actions, so add 1.
-        let expected_action_count = member.action_count + 1;
+        // Adjust action_count so expected matches actual
+        // expected_action_count = action_count + 1, so action_count = actual - 1
+        let new_action_count = actual_action_count - 1;
 
-        let status = if actual_shares == expected_shares
-            && actual_action_count == expected_action_count
-        {
-            MigrationState::Migrated
-        } else {
-            MigrationState::Pending
-        };
+        let mut updated_member = member.clone();
+        updated_member.action_count = new_action_count;
+        self.member_dao
+            .update(&updated_member, "confirm-migration", tx.clone())
+            .await?;
+
+        self.recalc_migrated(member_id, tx.clone()).await?;
 
         self.transaction_dao.commit(tx).await?;
-
-        Ok(MigrationStatus {
-            member_id,
-            status,
-            expected_shares,
-            actual_shares,
-            expected_action_count,
-            actual_action_count,
-        })
+        Ok(())
     }
 }
 

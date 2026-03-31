@@ -23,6 +23,7 @@ pub struct MemberEntity {
     pub current_shares: i32,
     pub current_balance: i64,
     pub action_count: i32,
+    pub migrated: bool,
     pub exit_date: Option<time::Date>,
     pub bank_account: Option<Arc<str>>,
     pub created: time::PrimitiveDateTime,
@@ -72,6 +73,13 @@ pub trait MemberDao {
             .find(|e| e.id == id && e.deleted.is_none())
             .cloned())
     }
+
+    async fn update_migrated(
+        &self,
+        id: Uuid,
+        migrated: bool,
+        tx: Self::Transaction,
+    ) -> Result<(), DaoError>;
 
     async fn find_by_member_number(
         &self,

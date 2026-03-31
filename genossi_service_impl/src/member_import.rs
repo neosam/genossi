@@ -13,6 +13,8 @@ use std::sync::Arc;
 use time::{Date, Month};
 
 use crate::gen_service_impl;
+use crate::member_action::compute_migration_status;
+use genossi_service::member_action::MigrationState;
 
 const MANAGE_MEMBERS_PRIVILEGE: &str = "manage_members";
 const MEMBER_IMPORT_PROCESS: &str = "member-import";
@@ -131,6 +133,21 @@ fn get_i64(value: &Data) -> Result<i64, String> {
     }
 }
 
+fn get_euro_as_cents(value: &Data) -> Result<i64, String> {
+    match value {
+        Data::Float(f) => Ok((*f * 100.0).round() as i64),
+        Data::Int(i) => Ok(*i * 100),
+        Data::String(s) => {
+            let trimmed = s.trim().replace(',', ".");
+            trimmed
+                .parse::<f64>()
+                .map(|f| (f * 100.0).round() as i64)
+                .map_err(|_| format!("Expected number, got '{}'", s))
+        }
+        _ => Err(format!("Expected number, got {:?}", value)),
+    }
+}
+
 fn get_i32(value: &Data) -> Result<i32, String> {
     get_i64(value).map(|v| v as i32)
 }
@@ -199,7 +216,7 @@ fn parse_row(
     };
     let current_balance = match get_cell(row, col_index, "Guthaben aktuell") {
         Data::Empty => 0,
-        v => get_i64(v).map_err(|e| format!("Guthaben aktuell: {}", e))?,
+        v => get_euro_as_cents(v).map_err(|e| format!("Guthaben aktuell: {}", e))?,
     };
     let action_count = match get_cell(row, col_index, "Anzahl Aktionen") {
         Data::Empty => 0,
@@ -349,6 +366,23 @@ impl<Deps: MemberImportServiceDeps> MemberImportService for MemberImportServiceI
                     self.member_dao
                         .update(&entity, MEMBER_IMPORT_PROCESS, tx.clone())
                         .await?;
+
+                    // Recalculate migrated flag after update
+                    let updated_member = self
+                        .member_dao
+                        .find_by_id(entity.id, tx.clone())
+                        .await?
+                        .ok_or(ServiceError::EntityNotFound(entity.id))?;
+                    let actions = self
+                        .member_action_dao
+                        .find_by_member_id(entity.id, tx.clone())
+                        .await?;
+                    let status = compute_migration_status(&updated_member, &actions);
+                    let is_migrated = status.status == MigrationState::Migrated;
+                    self.member_dao
+                        .update_migrated(entity.id, is_migrated, tx.clone())
+                        .await?;
+
                     updated += 1;
                 }
                 None => {
@@ -370,6 +404,7 @@ impl<Deps: MemberImportServiceDeps> MemberImportService for MemberImportServiceI
                         current_shares: parsed.current_shares,
                         current_balance: parsed.current_balance,
                         action_count: parsed.action_count,
+                        migrated: false,
                         exit_date: parsed.exit_date,
                         bank_account: parsed.bank_account.clone(),
                         created: time::PrimitiveDateTime::new(now.date(), now.time()),
@@ -381,45 +416,77 @@ impl<Deps: MemberImportServiceDeps> MemberImportService for MemberImportServiceI
                         .create(&entity, MEMBER_IMPORT_PROCESS, tx.clone())
                         .await?;
 
-                    // Auto-migration: create Eintritt + Aufstockung for members
-                    // with action_count == 0 and shares_at_joining == current_shares
-                    if parsed.action_count == 0
-                        && parsed.shares_at_joining == parsed.current_shares
-                    {
-                        let eintritt = MemberActionEntity {
+                    // Auto-migration: always create Eintritt + initial Aufstockung
+                    // (join_date and shares_at_joining are always known)
+                    let eintritt = MemberActionEntity {
+                        id: self.uuid_service.new_v4().await,
+                        member_id: entity.id,
+                        action_type: ActionType::Eintritt,
+                        date: parsed.join_date,
+                        shares_change: 0,
+                        transfer_member_id: None,
+                        effective_date: None,
+                        comment: Some(Arc::from("Auto-migration from Excel import")),
+                        created: entity.created,
+                        deleted: None,
+                        version: self.uuid_service.new_v4().await,
+                    };
+                    self.member_action_dao
+                        .create(&eintritt, MEMBER_IMPORT_PROCESS, tx.clone())
+                        .await?;
+
+                    let aufstockung = MemberActionEntity {
+                        id: self.uuid_service.new_v4().await,
+                        member_id: entity.id,
+                        action_type: ActionType::Aufstockung,
+                        date: parsed.join_date,
+                        shares_change: parsed.shares_at_joining,
+                        transfer_member_id: None,
+                        effective_date: None,
+                        comment: Some(Arc::from("Auto-migration from Excel import")),
+                        created: entity.created,
+                        deleted: None,
+                        version: self.uuid_service.new_v4().await,
+                    };
+                    self.member_action_dao
+                        .create(&aufstockung, MEMBER_IMPORT_PROCESS, tx.clone())
+                        .await?;
+
+                    // Auto-migration: create Austritt if exit_date is set
+                    if let Some(exit_date) = parsed.exit_date {
+                        let austritt = MemberActionEntity {
                             id: self.uuid_service.new_v4().await,
                             member_id: entity.id,
-                            action_type: ActionType::Eintritt,
-                            date: parsed.join_date,
+                            action_type: ActionType::Austritt,
+                            date: exit_date,
                             shares_change: 0,
                             transfer_member_id: None,
-                            effective_date: None,
+                            effective_date: Some(exit_date),
                             comment: Some(Arc::from("Auto-migration from Excel import")),
                             created: entity.created,
                             deleted: None,
                             version: self.uuid_service.new_v4().await,
                         };
                         self.member_action_dao
-                            .create(&eintritt, MEMBER_IMPORT_PROCESS, tx.clone())
-                            .await?;
-
-                        let aufstockung = MemberActionEntity {
-                            id: self.uuid_service.new_v4().await,
-                            member_id: entity.id,
-                            action_type: ActionType::Aufstockung,
-                            date: parsed.join_date,
-                            shares_change: parsed.shares_at_joining,
-                            transfer_member_id: None,
-                            effective_date: None,
-                            comment: Some(Arc::from("Auto-migration from Excel import")),
-                            created: entity.created,
-                            deleted: None,
-                            version: self.uuid_service.new_v4().await,
-                        };
-                        self.member_action_dao
-                            .create(&aufstockung, MEMBER_IMPORT_PROCESS, tx.clone())
+                            .create(&austritt, MEMBER_IMPORT_PROCESS, tx.clone())
                             .await?;
                     }
+
+                    // Recalculate migrated flag
+                    let member = self
+                        .member_dao
+                        .find_by_id(entity.id, tx.clone())
+                        .await?
+                        .ok_or(ServiceError::EntityNotFound(entity.id))?;
+                    let actions = self
+                        .member_action_dao
+                        .find_by_member_id(entity.id, tx.clone())
+                        .await?;
+                    let status = compute_migration_status(&member, &actions);
+                    let migrated = status.status == MigrationState::Migrated;
+                    self.member_dao
+                        .update_migrated(entity.id, migrated, tx.clone())
+                        .await?;
 
                     imported += 1;
                 }
@@ -562,7 +629,7 @@ mod tests {
             Data::String("01.01.2020".to_string()),
             Data::Int(3),
             Data::Int(5),
-            Data::Int(15000),
+            Data::Int(150),
         ];
 
         let parsed = parse_row(&row, &col_index).unwrap();
@@ -571,7 +638,28 @@ mod tests {
         assert_eq!(&*parsed.first_name, "Hans");
         assert_eq!(parsed.shares_at_joining, 3);
         assert_eq!(parsed.current_shares, 5);
+        // 150 Euro → 15000 Cent
         assert_eq!(parsed.current_balance, 15000);
+    }
+
+    #[test]
+    fn test_euro_to_cents_conversion() {
+        // Integer Euro
+        assert_eq!(get_euro_as_cents(&Data::Int(150)).unwrap(), 15000);
+        // Float Euro
+        assert_eq!(get_euro_as_cents(&Data::Float(150.50)).unwrap(), 15050);
+        // String with comma (German format)
+        assert_eq!(
+            get_euro_as_cents(&Data::String("150,50".to_string())).unwrap(),
+            15050
+        );
+        // String with dot
+        assert_eq!(
+            get_euro_as_cents(&Data::String("150.50".to_string())).unwrap(),
+            15050
+        );
+        // Zero
+        assert_eq!(get_euro_as_cents(&Data::Int(0)).unwrap(), 0);
     }
 
     #[test]

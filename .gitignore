@@ -1,4 +1,5 @@
 target/
+documents/
 *.db
 *.db-shm
 *.db-wal

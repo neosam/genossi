@@ -1,7 +1,9 @@
 use async_trait::async_trait;
 use genossi_dao::member::MemberDao;
+use genossi_dao::member_action::MemberActionDao;
 use genossi_dao::TransactionDao;
 use genossi_service::member::{Member, MemberService};
+use genossi_service::member_action::MigrationState;
 use genossi_service::permission::{Authentication, PermissionService};
 use genossi_service::uuid_service::UuidService;
 use genossi_service::{ServiceError, ValidationFailureItem};
@@ -9,6 +11,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::gen_service_impl;
+use crate::member_action::compute_migration_status;
 
 const MEMBER_SERVICE_PROCESS: &str = "member-service";
 const VIEW_MEMBERS_PRIVILEGE: &str = "view_members";
@@ -17,9 +20,38 @@ const MANAGE_MEMBERS_PRIVILEGE: &str = "manage_members";
 gen_service_impl! {
     struct MemberServiceImpl: MemberService = MemberServiceDeps {
         MemberDao: MemberDao<Transaction = Self::Transaction> = member_dao,
+        MemberActionDao: MemberActionDao<Transaction = Self::Transaction> = member_action_dao,
         PermissionService: PermissionService<Context = Self::Context> = permission_service,
         UuidService: UuidService = uuid_service,
         TransactionDao: TransactionDao<Transaction = Self::Transaction> = transaction_dao,
+    }
+}
+
+impl<Deps: MemberServiceDeps> MemberServiceImpl<Deps> {
+    async fn recalc_migrated(
+        &self,
+        member_id: Uuid,
+        tx: Deps::Transaction,
+    ) -> Result<(), ServiceError> {
+        let member = self
+            .member_dao
+            .find_by_id(member_id, tx.clone())
+            .await?
+            .ok_or(ServiceError::EntityNotFound(member_id))?;
+
+        let actions = self
+            .member_action_dao
+            .find_by_member_id(member_id, tx.clone())
+            .await?;
+
+        let status = compute_migration_status(&member, &actions);
+        let migrated = status.status == MigrationState::Migrated;
+
+        self.member_dao
+            .update_migrated(member_id, migrated, tx)
+            .await?;
+
+        Ok(())
     }
 }
 
@@ -139,6 +171,7 @@ impl<Deps: MemberServiceDeps> MemberService for MemberServiceImpl<Deps> {
             current_shares: item.current_shares,
             current_balance: item.current_balance,
             action_count: item.action_count,
+            migrated: false,
             exit_date: item.exit_date,
             bank_account: item.bank_account.clone(),
             created: time::PrimitiveDateTime::new(now.date(), now.time()),
@@ -186,6 +219,8 @@ impl<Deps: MemberServiceDeps> MemberService for MemberServiceImpl<Deps> {
         self.member_dao
             .update(&item.into(), MEMBER_SERVICE_PROCESS, tx.clone())
             .await?;
+
+        self.recalc_migrated(item.id, tx.clone()).await?;
 
         self.transaction_dao.commit(tx).await?;
         Ok(item.clone())
