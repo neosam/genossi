@@ -146,6 +146,8 @@ pub enum Key {
     NoDataFound,
     ErrorLoadingData,
     ConfirmDelete,
+    DeleteMemberConfirmTitle,
+    Confirm,
 }
 
 pub struct I18n {

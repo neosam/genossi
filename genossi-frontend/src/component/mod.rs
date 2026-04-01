@@ -7,4 +7,5 @@ pub mod overlay;
 pub mod top_bar;
 
 pub use footer::Footer;
+pub use modal::Modal;
 pub use top_bar::TopBar;

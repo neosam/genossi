@@ -3,7 +3,7 @@ use rest_types::{ActionTypeTO, DocumentTypeTO, MemberActionTO, MemberDocumentTO,
 use uuid::Uuid;
 
 use crate::api;
-use crate::component::TopBar;
+use crate::component::{Modal, TopBar};
 use crate::i18n::use_i18n;
 use crate::i18n::Key;
 use crate::router::Route;
@@ -78,6 +78,7 @@ pub fn MemberDetails(id: String) -> Element {
     });
     let mut loading = use_signal(|| false);
     let mut error = use_signal(|| None::<String>);
+    let mut show_delete_modal = use_signal(|| false);
 
     // Actions state
     let mut actions = use_signal(|| Vec::<MemberActionTO>::new());
@@ -174,8 +175,13 @@ pub fn MemberDetails(id: String) -> Element {
     };
 
     let delete = move |_| {
+        show_delete_modal.set(true);
+    };
+
+    let confirm_delete = move |_| {
         spawn(async move {
             if let Some(id) = member.read().id {
+                show_delete_modal.set(false);
                 loading.set(true);
                 let config = CONFIG.read().clone();
                 match api::delete_member(&config, id).await {
@@ -569,6 +575,35 @@ pub fn MemberDetails(id: String) -> Element {
                                 disabled: *loading.read(),
                                 onclick: save,
                                 {i18n.t(Key::Save)}
+                            }
+                        }
+                    }
+                }
+
+                // === Delete Confirmation Modal ===
+                if *show_delete_modal.read() {
+                    Modal {
+                        div { class: "space-y-4",
+                            h2 { class: "text-xl font-bold text-red-600",
+                                {i18n.t(Key::DeleteMemberConfirmTitle)}
+                            }
+                            p {
+                                {i18n.t(Key::ConfirmDelete)}
+                            }
+                            p { class: "font-semibold",
+                                {format!("{} {}", member.read().first_name, member.read().last_name)}
+                            }
+                            div { class: "flex justify-end gap-2 pt-4",
+                                button {
+                                    class: "px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300",
+                                    onclick: move |_| { show_delete_modal.set(false); },
+                                    {i18n.t(Key::Cancel)}
+                                }
+                                button {
+                                    class: "px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700",
+                                    onclick: confirm_delete,
+                                    {i18n.t(Key::Confirm)}
+                                }
                             }
                         }
                     }

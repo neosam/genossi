@@ -94,6 +94,8 @@ pub fn translate(key: Key) -> Rc<str> {
 
         Key::NoDataFound => "Keine Daten gefunden.".into(),
         Key::ErrorLoadingData => "Fehler beim Laden der Daten.".into(),
-        Key::ConfirmDelete => "Sind Sie sicher, dass Sie dies löschen möchten?".into(),
+        Key::ConfirmDelete => "Sind Sie sicher, dass Sie dieses Mitglied löschen möchten?".into(),
+        Key::DeleteMemberConfirmTitle => "Mitglied löschen".into(),
+        Key::Confirm => "Bestätigen".into(),
     }
 }
