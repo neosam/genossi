@@ -90,8 +90,8 @@ async fn test_create_and_get_member() {
     assert_eq!(created.first_name, "Max");
     assert_eq!(created.last_name, "Mustermann");
     assert_eq!(created.member_number, 1);
-    assert_eq!(created.current_shares, 3);
-    assert_eq!(created.current_balance, 15000);
+    assert_eq!(created.current_shares, 1); // set to shares_at_joining by service
+    assert_eq!(created.current_balance, 0); // set to 0 by service
 
     // Get by ID
     let id = created.id.unwrap();
@@ -640,20 +640,19 @@ async fn test_create_and_list_member_actions() {
     let member = create_test_member(&client, &server).await;
     let member_id = member.id.unwrap();
 
-    // Create an Eintritt action
-    let mut eintritt = sample_action(member_id);
-    eintritt.action_type = ActionTypeTO::Eintritt;
-    eintritt.shares_change = 0;
-
+    // Auto-created Eintritt + Aufstockung should already exist
     let response = client
-        .post(server.url(&format!("/api/members/{}/actions", member_id)))
-        .json(&eintritt)
+        .get(server.url(&format!("/api/members/{}/actions", member_id)))
         .send()
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
+    let actions: Vec<MemberActionTO> = response.json().await.unwrap();
+    assert_eq!(actions.len(), 2);
+    assert!(actions.iter().any(|a| matches!(a.action_type, ActionTypeTO::Eintritt)));
+    assert!(actions.iter().any(|a| matches!(a.action_type, ActionTypeTO::Aufstockung)));
 
-    // Create an Aufstockung action
+    // Create an additional Aufstockung action
     let aufstockung = sample_action(member_id);
     let response = client
         .post(server.url(&format!("/api/members/{}/actions", member_id)))
@@ -666,7 +665,7 @@ async fn test_create_and_list_member_actions() {
     assert!(created.id.is_some());
     assert_eq!(created.shares_change, 3);
 
-    // List actions
+    // List actions - should now be 3 (2 auto + 1 manual)
     let response = client
         .get(server.url(&format!("/api/members/{}/actions", member_id)))
         .send()
@@ -674,7 +673,7 @@ async fn test_create_and_list_member_actions() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     let actions: Vec<MemberActionTO> = response.json().await.unwrap();
-    assert_eq!(actions.len(), 2);
+    assert_eq!(actions.len(), 3);
 }
 
 #[tokio::test]
@@ -743,14 +742,14 @@ async fn test_delete_member_action() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
 
-    // Verify deleted
+    // Verify deleted - only auto-created actions remain
     let response = client
         .get(server.url(&format!("/api/members/{}/actions", member_id)))
         .send()
         .await
         .unwrap();
     let actions: Vec<MemberActionTO> = response.json().await.unwrap();
-    assert!(actions.is_empty());
+    assert_eq!(actions.len(), 2); // 2 auto-created (Eintritt + Aufstockung) remain
 }
 
 #[tokio::test]
@@ -822,9 +821,7 @@ async fn test_migration_status_pending() {
     let client = reqwest::Client::new();
 
     let mut member = sample_member();
-    member.current_shares = 5;
     member.shares_at_joining = 3;
-    member.action_count = 1;
 
     let response = client
         .post(server.url("/api/members"))
@@ -835,7 +832,20 @@ async fn test_migration_status_pending() {
     let created: MemberTO = response.json().await.unwrap();
     let member_id = created.id.unwrap();
 
-    // No actions yet => pending
+    // Update member to set current_shares=5, action_count=1 to force pending status
+    let mut updated = created.clone();
+    updated.current_shares = 5;
+    updated.action_count = 1;
+    let response = client
+        .put(server.url(&format!("/api/members/{}", member_id)))
+        .json(&updated)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Auto-created actions: Eintritt(0) + Aufstockung(+3) => actual_shares=3, actual_action_count=1
+    // expected_shares=5, expected_action_count = action_count(1) + 1 = 2
     let response = client
         .get(server.url(&format!(
             "/api/members/{}/actions/migration-status",
@@ -848,10 +858,9 @@ async fn test_migration_status_pending() {
     let status: MigrationStatusTO = response.json().await.unwrap();
     assert_eq!(status.status, "pending");
     assert_eq!(status.expected_shares, 5);
-    assert_eq!(status.actual_shares, 0);
-    // expected_action_count = action_count(1) + 1 (initial Aufstockung) = 2
+    assert_eq!(status.actual_shares, 3);
     assert_eq!(status.expected_action_count, 2);
-    assert_eq!(status.actual_action_count, 0);
+    assert_eq!(status.actual_action_count, 1);
 }
 
 #[tokio::test]
@@ -860,9 +869,7 @@ async fn test_migration_status_migrated() {
     let client = reqwest::Client::new();
 
     let mut member = sample_member();
-    member.current_shares = 3;
     member.shares_at_joining = 3;
-    member.action_count = 0;
 
     let response = client
         .post(server.url("/api/members"))
@@ -873,50 +880,10 @@ async fn test_migration_status_migrated() {
     let created: MemberTO = response.json().await.unwrap();
     let member_id = created.id.unwrap();
 
-    // Add Eintritt (shares_change = 0)
-    let eintritt = MemberActionTO {
-        id: None,
-        member_id,
-        action_type: ActionTypeTO::Eintritt,
-        date: time::Date::from_calendar_date(2024, time::Month::January, 15).unwrap(),
-        shares_change: 0,
-        transfer_member_id: None,
-        effective_date: None,
-        comment: None,
-        created: None,
-        deleted: None,
-        version: None,
-    };
-    client
-        .post(server.url(&format!("/api/members/{}/actions", member_id)))
-        .json(&eintritt)
-        .send()
-        .await
-        .unwrap();
-
-    // Add Aufstockung (shares_change = 3)
-    let aufstockung = MemberActionTO {
-        id: None,
-        member_id,
-        action_type: ActionTypeTO::Aufstockung,
-        date: time::Date::from_calendar_date(2024, time::Month::January, 15).unwrap(),
-        shares_change: 3,
-        transfer_member_id: None,
-        effective_date: None,
-        comment: None,
-        created: None,
-        deleted: None,
-        version: None,
-    };
-    client
-        .post(server.url(&format!("/api/members/{}/actions", member_id)))
-        .json(&aufstockung)
-        .send()
-        .await
-        .unwrap();
-
-    // Σ = 0 + 3 = 3 == current_shares (3) ✓
-    // expected_action_count = action_count(0) + 1 = 1 == actual_action_count(1) ✓
+    // Auto-created: Eintritt(0) + Aufstockung(+3)
+    // current_shares = shares_at_joining = 3, action_count = 0
+    // expected_shares = 3, actual_shares = 3 ✓
+    // expected_action_count = action_count(0) + 1 = 1, actual_action_count = 1 ✓
     let response = client
         .get(server.url(&format!(
             "/api/members/{}/actions/migration-status",
@@ -940,9 +907,7 @@ async fn test_migration_status_fully_migrated() {
     let client = reqwest::Client::new();
 
     let mut member = sample_member();
-    member.current_shares = 5;
     member.shares_at_joining = 3;
-    member.action_count = 1; // One additional action beyond initial Aufstockung
 
     let response = client
         .post(server.url("/api/members"))
@@ -953,47 +918,17 @@ async fn test_migration_status_fully_migrated() {
     let created: MemberTO = response.json().await.unwrap();
     let member_id = created.id.unwrap();
 
-    // Eintritt
-    let eintritt = MemberActionTO {
-        id: None,
-        member_id,
-        action_type: ActionTypeTO::Eintritt,
-        date: time::Date::from_calendar_date(2024, time::Month::January, 15).unwrap(),
-        shares_change: 0,
-        transfer_member_id: None,
-        effective_date: None,
-        comment: None,
-        created: None,
-        deleted: None,
-        version: None,
-    };
-    client
-        .post(server.url(&format!("/api/members/{}/actions", member_id)))
-        .json(&eintritt)
+    // Update member to set current_shares=5, action_count=1
+    let mut updated = created.clone();
+    updated.current_shares = 5;
+    updated.action_count = 1;
+    let response = client
+        .put(server.url(&format!("/api/members/{}", member_id)))
+        .json(&updated)
         .send()
         .await
         .unwrap();
-
-    // Initial Aufstockung (+3)
-    let aufstockung1 = MemberActionTO {
-        id: None,
-        member_id,
-        action_type: ActionTypeTO::Aufstockung,
-        date: time::Date::from_calendar_date(2024, time::Month::January, 15).unwrap(),
-        shares_change: 3,
-        transfer_member_id: None,
-        effective_date: None,
-        comment: None,
-        created: None,
-        deleted: None,
-        version: None,
-    };
-    client
-        .post(server.url(&format!("/api/members/{}/actions", member_id)))
-        .json(&aufstockung1)
-        .send()
-        .await
-        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
 
     // Additional Aufstockung (+2)
     let aufstockung2 = MemberActionTO {
@@ -1016,7 +951,8 @@ async fn test_migration_status_fully_migrated() {
         .await
         .unwrap();
 
-    // Σ = 0 + 3 + 2 = 5 == current_shares (5) ✓
+    // Auto: Eintritt(0) + Aufstockung(+3), Manual: Aufstockung(+2)
+    // actual_shares = 3 + 2 = 5 == current_shares (5) ✓
     // expected_action_count = action_count(1) + 1 = 2 == actual_action_count(2) ✓
     let response = client
         .get(server.url(&format!(
@@ -1040,9 +976,7 @@ async fn test_migration_status_exact_match() {
     let client = reqwest::Client::new();
 
     let mut member = sample_member();
-    member.current_shares = 5;
     member.shares_at_joining = 3;
-    member.action_count = 1; // 1 additional action beyond initial Aufstockung
 
     let response = client
         .post(server.url("/api/members"))
@@ -1053,45 +987,17 @@ async fn test_migration_status_exact_match() {
     let created: MemberTO = response.json().await.unwrap();
     let member_id = created.id.unwrap();
 
-    // Eintritt (0)
-    client
-        .post(server.url(&format!("/api/members/{}/actions", member_id)))
-        .json(&MemberActionTO {
-            id: None,
-            member_id,
-            action_type: ActionTypeTO::Eintritt,
-            date: time::Date::from_calendar_date(2024, time::Month::January, 15).unwrap(),
-            shares_change: 0,
-            transfer_member_id: None,
-            effective_date: None,
-            comment: None,
-            created: None,
-            deleted: None,
-            version: None,
-        })
+    // Update member to set current_shares=5, action_count=1
+    let mut updated = created.clone();
+    updated.current_shares = 5;
+    updated.action_count = 1;
+    let response = client
+        .put(server.url(&format!("/api/members/{}", member_id)))
+        .json(&updated)
         .send()
         .await
         .unwrap();
-
-    // Initial Aufstockung (+3)
-    client
-        .post(server.url(&format!("/api/members/{}/actions", member_id)))
-        .json(&MemberActionTO {
-            id: None,
-            member_id,
-            action_type: ActionTypeTO::Aufstockung,
-            date: time::Date::from_calendar_date(2024, time::Month::January, 15).unwrap(),
-            shares_change: 3,
-            transfer_member_id: None,
-            effective_date: None,
-            comment: None,
-            created: None,
-            deleted: None,
-            version: None,
-        })
-        .send()
-        .await
-        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
 
     // Additional Aufstockung (+2)
     client
@@ -1113,7 +1019,8 @@ async fn test_migration_status_exact_match() {
         .await
         .unwrap();
 
-    // Σ = 0 + 3 + 2 = 5 == current_shares (5) ✓
+    // Auto: Eintritt(0) + Aufstockung(+3), Manual: Aufstockung(+2)
+    // actual_shares = 3 + 2 = 5 == current_shares (5) ✓
     // expected_action_count = action_count(1) + 1 = 2 == actual_action_count(2) ✓
     let response = client
         .get(server.url(&format!(
@@ -1420,12 +1327,12 @@ async fn test_migrated_flag_set_after_actions_match() {
     let server = setup().await;
     let client = reqwest::Client::new();
 
-    // Create member: current_shares=3, action_count=0
-    // => expected: actual_shares==3, actual_action_count==1 (action_count+1)
+    // Create member with shares_at_joining=3
+    // Auto-creates Eintritt(0) + Aufstockung(+3)
+    // current_shares = shares_at_joining = 3, action_count = 0
+    // => already migrated after creation
     let mut member = sample_member();
-    member.current_shares = 3;
     member.shares_at_joining = 3;
-    member.action_count = 0;
 
     let response = client
         .post(server.url("/api/members"))
@@ -1435,47 +1342,16 @@ async fn test_migrated_flag_set_after_actions_match() {
         .unwrap();
     let created: MemberTO = response.json().await.unwrap();
     let member_id = created.id.unwrap();
-    assert!(!created.migrated);
 
-    // Add Eintritt (shares_change = 0, status action => not counted)
-    client
-        .post(server.url(&format!("/api/members/{}/actions", member_id)))
-        .json(&MemberActionTO {
-            id: None,
-            member_id,
-            action_type: ActionTypeTO::Eintritt,
-            date: time::Date::from_calendar_date(2024, time::Month::January, 15).unwrap(),
-            shares_change: 0,
-            transfer_member_id: None,
-            effective_date: None,
-            comment: None,
-            created: None,
-            deleted: None,
-            version: None,
-        })
+    // Verify migrated flag is true when fetching the member
+    // (migrated recalculation happens after auto-action creation)
+    let response = client
+        .get(server.url(&format!("/api/members/{}", member_id)))
         .send()
         .await
         .unwrap();
-
-    // Add Aufstockung (+3) => actual_shares=3, actual_action_count=1
-    client
-        .post(server.url(&format!("/api/members/{}/actions", member_id)))
-        .json(&MemberActionTO {
-            id: None,
-            member_id,
-            action_type: ActionTypeTO::Aufstockung,
-            date: time::Date::from_calendar_date(2024, time::Month::January, 15).unwrap(),
-            shares_change: 3,
-            transfer_member_id: None,
-            effective_date: None,
-            comment: None,
-            created: None,
-            deleted: None,
-            version: None,
-        })
-        .send()
-        .await
-        .unwrap();
+    let fetched: MemberTO = response.json().await.unwrap();
+    assert!(fetched.migrated, "Member should be migrated after creation with auto-created actions");
 
     // Verify migrated flag is true in member list
     let response = client
@@ -1542,10 +1418,10 @@ async fn test_migrated_flag_recalc_on_member_update() {
     let server = setup().await;
     let client = reqwest::Client::new();
 
-    // Create member: current_shares=3, action_count=0
+    // Create member with shares_at_joining=3
+    // Auto-creates Eintritt(0) + Aufstockung(+3) => migrated after creation
     let mut member = sample_member();
-    member.current_shares = 3;
-    member.action_count = 0;
+    member.shares_at_joining = 3;
 
     let response = client
         .post(server.url("/api/members"))
@@ -1556,46 +1432,7 @@ async fn test_migrated_flag_recalc_on_member_update() {
     let created: MemberTO = response.json().await.unwrap();
     let member_id = created.id.unwrap();
 
-    // Add Eintritt + Aufstockung(+3) => migrated=true
-    client
-        .post(server.url(&format!("/api/members/{}/actions", member_id)))
-        .json(&MemberActionTO {
-            id: None,
-            member_id,
-            action_type: ActionTypeTO::Eintritt,
-            date: time::Date::from_calendar_date(2024, time::Month::January, 15).unwrap(),
-            shares_change: 0,
-            transfer_member_id: None,
-            effective_date: None,
-            comment: None,
-            created: None,
-            deleted: None,
-            version: None,
-        })
-        .send()
-        .await
-        .unwrap();
-
-    client
-        .post(server.url(&format!("/api/members/{}/actions", member_id)))
-        .json(&MemberActionTO {
-            id: None,
-            member_id,
-            action_type: ActionTypeTO::Aufstockung,
-            date: time::Date::from_calendar_date(2024, time::Month::January, 15).unwrap(),
-            shares_change: 3,
-            transfer_member_id: None,
-            effective_date: None,
-            comment: None,
-            created: None,
-            deleted: None,
-            version: None,
-        })
-        .send()
-        .await
-        .unwrap();
-
-    // Confirm migrated
+    // Confirm migrated after creation
     let response = client
         .get(server.url(&format!("/api/members/{}", member_id)))
         .send()
@@ -1632,10 +1469,10 @@ async fn test_confirm_migration_resolves_action_count_mismatch() {
     let server = setup().await;
     let client = reqwest::Client::new();
 
-    // Create member: current_shares=3, action_count=5 (wrong, too high)
+    // Create member with shares_at_joining=3
+    // Auto-creates Eintritt(0) + Aufstockung(+3), current_shares=3, action_count=0 => migrated
     let mut member = sample_member();
-    member.current_shares = 3;
-    member.action_count = 5;
+    member.shares_at_joining = 3;
 
     let response = client
         .post(server.url("/api/members"))
@@ -1646,46 +1483,18 @@ async fn test_confirm_migration_resolves_action_count_mismatch() {
     let created: MemberTO = response.json().await.unwrap();
     let member_id = created.id.unwrap();
 
-    // Add Eintritt + Aufstockung(+3) => shares match, but action_count doesn't
-    client
-        .post(server.url(&format!("/api/members/{}/actions", member_id)))
-        .json(&MemberActionTO {
-            id: None,
-            member_id,
-            action_type: ActionTypeTO::Eintritt,
-            date: time::Date::from_calendar_date(2024, time::Month::January, 15).unwrap(),
-            shares_change: 0,
-            transfer_member_id: None,
-            effective_date: None,
-            comment: None,
-            created: None,
-            deleted: None,
-            version: None,
-        })
+    // Update action_count=5 to force pending (action_count mismatch)
+    let mut updated = created.clone();
+    updated.action_count = 5;
+    let response = client
+        .put(server.url(&format!("/api/members/{}", member_id)))
+        .json(&updated)
         .send()
         .await
         .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
 
-    client
-        .post(server.url(&format!("/api/members/{}/actions", member_id)))
-        .json(&MemberActionTO {
-            id: None,
-            member_id,
-            action_type: ActionTypeTO::Aufstockung,
-            date: time::Date::from_calendar_date(2024, time::Month::January, 15).unwrap(),
-            shares_change: 3,
-            transfer_member_id: None,
-            effective_date: None,
-            comment: None,
-            created: None,
-            deleted: None,
-            version: None,
-        })
-        .send()
-        .await
-        .unwrap();
-
-    // Verify still pending (action_count mismatch: expected=6, actual=1)
+    // Verify pending (shares match but action_count mismatch: expected=6, actual=1)
     let response = client
         .get(server.url(&format!("/api/members/{}", member_id)))
         .send()
@@ -2051,4 +1860,110 @@ async fn test_document_empty_list() {
     assert_eq!(response.status(), StatusCode::OK);
     let docs: Vec<MemberDocumentTO> = response.json().await.unwrap();
     assert!(docs.is_empty());
+}
+
+// === Auto Member Creation Tests ===
+
+#[tokio::test]
+async fn test_create_member_auto_assigns_member_number() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Create first member with member_number=0 (auto-assign)
+    let mut member = sample_member();
+    member.member_number = 0;
+
+    let response = client
+        .post(server.url("/api/members"))
+        .json(&member)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let created1: MemberTO = response.json().await.unwrap();
+    assert_eq!(created1.member_number, 1);
+
+    // Create second member with member_number=0
+    let mut member2 = sample_member();
+    member2.member_number = 0;
+    member2.first_name = "Erika".to_string();
+
+    let response = client
+        .post(server.url("/api/members"))
+        .json(&member2)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let created2: MemberTO = response.json().await.unwrap();
+    assert_eq!(created2.member_number, 2);
+}
+
+#[tokio::test]
+async fn test_create_member_auto_creates_entry_actions() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let mut member = sample_member();
+    member.shares_at_joining = 3;
+
+    let response = client
+        .post(server.url("/api/members"))
+        .json(&member)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let created: MemberTO = response.json().await.unwrap();
+    let member_id = created.id.unwrap();
+
+    // Verify auto-created actions
+    let response = client
+        .get(server.url(&format!("/api/members/{}/actions", member_id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let actions: Vec<MemberActionTO> = response.json().await.unwrap();
+    assert_eq!(actions.len(), 2);
+
+    // First action should be Eintritt
+    let eintritt = actions.iter().find(|a| a.action_type == ActionTypeTO::Eintritt);
+    assert!(eintritt.is_some(), "Eintritt action should exist");
+    let eintritt = eintritt.unwrap();
+    assert_eq!(eintritt.shares_change, 0);
+    assert_eq!(eintritt.date, created.join_date);
+
+    // Second action should be Aufstockung
+    let aufstockung = actions.iter().find(|a| a.action_type == ActionTypeTO::Aufstockung);
+    assert!(aufstockung.is_some(), "Aufstockung action should exist");
+    let aufstockung = aufstockung.unwrap();
+    assert_eq!(aufstockung.shares_change, 3);
+    assert_eq!(aufstockung.date, created.join_date);
+}
+
+#[tokio::test]
+async fn test_create_member_sets_computed_fields() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let mut member = sample_member();
+    member.shares_at_joining = 5;
+    // These should be overridden by the service
+    member.current_shares = 99;
+    member.current_balance = 999999;
+    member.action_count = 42;
+
+    let response = client
+        .post(server.url("/api/members"))
+        .json(&member)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let created: MemberTO = response.json().await.unwrap();
+
+    assert_eq!(created.current_shares, 5, "current_shares should equal shares_at_joining");
+    assert_eq!(created.current_balance, 0, "current_balance should be 0");
+    assert_eq!(created.action_count, 0, "action_count should be 0");
 }

@@ -270,7 +270,7 @@ impl From<&MemberTO> for genossi_service::member::Member {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub enum ActionTypeTO {
     Eintritt,
     Austritt,

@@ -92,4 +92,133 @@ pub trait MemberDao {
             .find(|e| e.member_number == member_number && e.deleted.is_none())
             .cloned())
     }
+
+    async fn next_member_number(&self, tx: Self::Transaction) -> Result<i64, DaoError> {
+        let all_entities = self.dump_all(tx).await?;
+        let max = all_entities
+            .iter()
+            .map(|e| e.member_number)
+            .max()
+            .unwrap_or(0);
+        Ok(max + 1)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::MockTransaction;
+
+    fn make_entity(member_number: i64, deleted: Option<time::PrimitiveDateTime>) -> MemberEntity {
+        let date = time::Date::from_calendar_date(2025, time::Month::January, 1).unwrap();
+        let datetime = time::PrimitiveDateTime::new(date, time::Time::MIDNIGHT);
+        MemberEntity {
+            id: Uuid::new_v4(),
+            member_number,
+            first_name: Arc::from("Test"),
+            last_name: Arc::from("User"),
+            email: None,
+            company: None,
+            comment: None,
+            street: None,
+            house_number: None,
+            postal_code: None,
+            city: None,
+            join_date: date,
+            shares_at_joining: 1,
+            current_shares: 1,
+            current_balance: 0,
+            action_count: 0,
+            migrated: false,
+            exit_date: None,
+            bank_account: None,
+            created: datetime,
+            deleted,
+            version: Uuid::new_v4(),
+        }
+    }
+
+    struct TestMemberDao {
+        entities: Arc<[MemberEntity]>,
+    }
+
+    #[async_trait]
+    impl MemberDao for TestMemberDao {
+        type Transaction = MockTransaction;
+
+        async fn dump_all(&self, _tx: Self::Transaction) -> Result<Arc<[MemberEntity]>, DaoError> {
+            Ok(self.entities.clone())
+        }
+
+        async fn create(
+            &self,
+            _entity: &MemberEntity,
+            _process: &str,
+            _tx: Self::Transaction,
+        ) -> Result<(), DaoError> {
+            Ok(())
+        }
+
+        async fn update(
+            &self,
+            _entity: &MemberEntity,
+            _process: &str,
+            _tx: Self::Transaction,
+        ) -> Result<(), DaoError> {
+            Ok(())
+        }
+
+        async fn update_migrated(
+            &self,
+            _id: Uuid,
+            _migrated: bool,
+            _tx: Self::Transaction,
+        ) -> Result<(), DaoError> {
+            Ok(())
+        }
+    }
+
+    fn mock_tx() -> MockTransaction {
+        let mut tx = MockTransaction::new();
+        tx.expect_clone().returning(MockTransaction::new);
+        tx
+    }
+
+    #[tokio::test]
+    async fn test_next_member_number_empty() {
+        let dao = TestMemberDao {
+            entities: Arc::from(vec![]),
+        };
+        let result = dao.next_member_number(mock_tx()).await.unwrap();
+        assert_eq!(result, 1);
+    }
+
+    #[tokio::test]
+    async fn test_next_member_number_with_members() {
+        let dao = TestMemberDao {
+            entities: Arc::from(vec![
+                make_entity(5, None),
+                make_entity(10, None),
+                make_entity(3, None),
+            ]),
+        };
+        let result = dao.next_member_number(mock_tx()).await.unwrap();
+        assert_eq!(result, 11);
+    }
+
+    #[tokio::test]
+    async fn test_next_member_number_includes_soft_deleted() {
+        let deleted_at = time::PrimitiveDateTime::new(
+            time::Date::from_calendar_date(2025, time::Month::June, 1).unwrap(),
+            time::Time::MIDNIGHT,
+        );
+        let dao = TestMemberDao {
+            entities: Arc::from(vec![
+                make_entity(5, None),
+                make_entity(100, Some(deleted_at)),
+            ]),
+        };
+        let result = dao.next_member_number(mock_tx()).await.unwrap();
+        assert_eq!(result, 101);
+    }
 }

@@ -130,22 +130,10 @@ impl<Deps: MemberServiceDeps> MemberService for MemberServiceImpl<Deps> {
                 message: Arc::from("Last name cannot be empty"),
             });
         }
-        if item.member_number <= 0 {
+        if item.member_number < 0 {
             validation_errors.push(ValidationFailureItem {
                 field: Arc::from("member_number"),
-                message: Arc::from("Member number must be positive"),
-            });
-        }
-
-        // Check uniqueness of member_number
-        if let Some(_) = self
-            .member_dao
-            .find_by_member_number(item.member_number, tx.clone())
-            .await?
-        {
-            validation_errors.push(ValidationFailureItem {
-                field: Arc::from("member_number"),
-                message: Arc::from("Member number already exists"),
+                message: Arc::from("Member number must not be negative"),
             });
         }
 
@@ -153,10 +141,30 @@ impl<Deps: MemberServiceDeps> MemberService for MemberServiceImpl<Deps> {
             return Err(ServiceError::ValidationError(validation_errors));
         }
 
+        // Auto-assign member number if 0
+        let member_number = if item.member_number == 0 {
+            self.member_dao.next_member_number(tx.clone()).await?
+        } else {
+            // Check uniqueness of explicit member_number
+            if self
+                .member_dao
+                .find_by_member_number(item.member_number, tx.clone())
+                .await?
+                .is_some()
+            {
+                return Err(ServiceError::ValidationError(vec![ValidationFailureItem {
+                    field: Arc::from("member_number"),
+                    message: Arc::from("Member number already exists"),
+                }]));
+            }
+            item.member_number
+        };
+
         let now = time::OffsetDateTime::now_utc();
+        let created = time::PrimitiveDateTime::new(now.date(), now.time());
         let new_member = Member {
             id: self.uuid_service.new_v4().await,
-            member_number: item.member_number,
+            member_number,
             first_name: item.first_name.clone(),
             last_name: item.last_name.clone(),
             email: item.email.clone(),
@@ -168,13 +176,13 @@ impl<Deps: MemberServiceDeps> MemberService for MemberServiceImpl<Deps> {
             city: item.city.clone(),
             join_date: item.join_date,
             shares_at_joining: item.shares_at_joining,
-            current_shares: item.current_shares,
-            current_balance: item.current_balance,
-            action_count: item.action_count,
+            current_shares: item.shares_at_joining,
+            current_balance: 0,
+            action_count: 0,
             migrated: false,
             exit_date: item.exit_date,
             bank_account: item.bank_account.clone(),
-            created: time::PrimitiveDateTime::new(now.date(), now.time()),
+            created,
             deleted: None,
             version: self.uuid_service.new_v4().await,
         };
@@ -182,6 +190,44 @@ impl<Deps: MemberServiceDeps> MemberService for MemberServiceImpl<Deps> {
         self.member_dao
             .create(&(&new_member).into(), MEMBER_SERVICE_PROCESS, tx.clone())
             .await?;
+
+        // Create Eintritt action
+        let eintritt = genossi_dao::member_action::MemberActionEntity {
+            id: self.uuid_service.new_v4().await,
+            member_id: new_member.id,
+            action_type: genossi_dao::member_action::ActionType::Eintritt,
+            date: item.join_date,
+            shares_change: 0,
+            transfer_member_id: None,
+            effective_date: None,
+            comment: None,
+            created,
+            deleted: None,
+            version: self.uuid_service.new_v4().await,
+        };
+        self.member_action_dao
+            .create(&eintritt, MEMBER_SERVICE_PROCESS, tx.clone())
+            .await?;
+
+        // Create Aufstockung action
+        let aufstockung = genossi_dao::member_action::MemberActionEntity {
+            id: self.uuid_service.new_v4().await,
+            member_id: new_member.id,
+            action_type: genossi_dao::member_action::ActionType::Aufstockung,
+            date: item.join_date,
+            shares_change: item.shares_at_joining,
+            transfer_member_id: None,
+            effective_date: None,
+            comment: None,
+            created,
+            deleted: None,
+            version: self.uuid_service.new_v4().await,
+        };
+        self.member_action_dao
+            .create(&aufstockung, MEMBER_SERVICE_PROCESS, tx.clone())
+            .await?;
+
+        self.recalc_migrated(new_member.id, tx.clone()).await?;
 
         self.transaction_dao.commit(tx).await?;
         Ok(new_member)
