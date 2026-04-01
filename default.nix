@@ -10,7 +10,7 @@ let
 in
   rustPlatform.buildRustPackage {
     pname = "genossi-service";
-    version = "1.5.0-dev";
+    version = "0.1.0";
     src = src;
     nativeBuildInputs = with specificPkgs; [curl pkg-config openssl];
     buildInputs = with specificPkgs; [sqlite openssl];
