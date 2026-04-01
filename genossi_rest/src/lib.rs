@@ -11,7 +11,7 @@ pub mod test_server;
 
 use async_trait::async_trait;
 use axum::routing::get;
-use axum::{body::Body, middleware, response::Response, Router};
+use axum::{body::Body, middleware, response::IntoResponse, response::Response, Router};
 #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
 use genossi_service::permission::MockContext;
 #[cfg(feature = "oidc")]

@@ -1,3 +1,5 @@
+#![cfg(feature = "mock_auth")]
+
 use genossi_bin::RestStateImpl;
 use genossi_rest::test_server::test_support::start_test_server;
 use genossi_rest_types::{
