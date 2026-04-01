@@ -457,6 +457,13 @@ impl From<&genossi_service::member_document::MemberDocument> for MemberDocumentT
 pub struct ValidationResultTO {
     pub member_number_gaps: Vec<i64>,
     pub unmatched_transfers: Vec<UnmatchedTransferTO>,
+    pub shares_mismatches: Vec<SharesMismatchTO>,
+    pub missing_entry_actions: Vec<MissingEntryActionTO>,
+    pub exit_date_mismatches: Vec<ExitDateMismatchTO>,
+    pub active_members_no_shares: Vec<ActiveMemberNoSharesTO>,
+    pub duplicate_member_numbers: Vec<DuplicateMemberNumberTO>,
+    pub exited_members_with_shares: Vec<ExitedMemberWithSharesTO>,
+    pub migrated_flag_mismatches: Vec<MigratedFlagMismatchTO>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
@@ -479,15 +486,68 @@ pub struct UnmatchedTransferTO {
     pub date: time::Date,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct SharesMismatchTO {
+    pub member_id: Uuid,
+    pub member_number: i64,
+    pub expected: i32,
+    pub actual: i32,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct MissingEntryActionTO {
+    pub member_id: Uuid,
+    pub member_number: i64,
+    pub actual_count: i32,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct ExitDateMismatchTO {
+    pub member_id: Uuid,
+    pub member_number: i64,
+    pub has_exit_date: bool,
+    pub has_austritt_action: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct ActiveMemberNoSharesTO {
+    pub member_id: Uuid,
+    pub member_number: i64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct DuplicateMemberNumberTO {
+    pub member_number: i64,
+    pub member_ids: Vec<Uuid>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct ExitedMemberWithSharesTO {
+    pub member_id: Uuid,
+    pub member_number: i64,
+    pub current_shares: i32,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct MigratedFlagMismatchTO {
+    pub member_id: Uuid,
+    pub member_number: i64,
+    pub flag_value: bool,
+    pub computed_status: String,
+}
+
 impl From<&genossi_service::validation::ValidationResult> for ValidationResultTO {
     fn from(r: &genossi_service::validation::ValidationResult) -> Self {
         Self {
             member_number_gaps: r.member_number_gaps.to_vec(),
-            unmatched_transfers: r
-                .unmatched_transfers
-                .iter()
-                .map(UnmatchedTransferTO::from)
-                .collect(),
+            unmatched_transfers: r.unmatched_transfers.iter().map(UnmatchedTransferTO::from).collect(),
+            shares_mismatches: r.shares_mismatches.iter().map(SharesMismatchTO::from).collect(),
+            missing_entry_actions: r.missing_entry_actions.iter().map(MissingEntryActionTO::from).collect(),
+            exit_date_mismatches: r.exit_date_mismatches.iter().map(ExitDateMismatchTO::from).collect(),
+            active_members_no_shares: r.active_members_no_shares.iter().map(ActiveMemberNoSharesTO::from).collect(),
+            duplicate_member_numbers: r.duplicate_member_numbers.iter().map(DuplicateMemberNumberTO::from).collect(),
+            exited_members_with_shares: r.exited_members_with_shares.iter().map(ExitedMemberWithSharesTO::from).collect(),
+            migrated_flag_mismatches: r.migrated_flag_mismatches.iter().map(MigratedFlagMismatchTO::from).collect(),
         }
     }
 }
@@ -495,15 +555,52 @@ impl From<&genossi_service::validation::ValidationResult> for ValidationResultTO
 impl From<&genossi_service::validation::UnmatchedTransfer> for UnmatchedTransferTO {
     fn from(t: &genossi_service::validation::UnmatchedTransfer) -> Self {
         Self {
-            action_id: t.action_id,
-            member_id: t.member_id,
-            member_number: t.member_number,
-            action_type: ActionTypeTO::from(&t.action_type),
-            transfer_member_id: t.transfer_member_id,
-            transfer_member_number: t.transfer_member_number,
-            shares_change: t.shares_change,
-            date: t.date,
+            action_id: t.action_id, member_id: t.member_id, member_number: t.member_number,
+            action_type: ActionTypeTO::from(&t.action_type), transfer_member_id: t.transfer_member_id,
+            transfer_member_number: t.transfer_member_number, shares_change: t.shares_change, date: t.date,
         }
+    }
+}
+
+impl From<&genossi_service::validation::SharesMismatch> for SharesMismatchTO {
+    fn from(s: &genossi_service::validation::SharesMismatch) -> Self {
+        Self { member_id: s.member_id, member_number: s.member_number, expected: s.expected, actual: s.actual }
+    }
+}
+
+impl From<&genossi_service::validation::MissingEntryAction> for MissingEntryActionTO {
+    fn from(m: &genossi_service::validation::MissingEntryAction) -> Self {
+        Self { member_id: m.member_id, member_number: m.member_number, actual_count: m.actual_count }
+    }
+}
+
+impl From<&genossi_service::validation::ExitDateMismatch> for ExitDateMismatchTO {
+    fn from(e: &genossi_service::validation::ExitDateMismatch) -> Self {
+        Self { member_id: e.member_id, member_number: e.member_number, has_exit_date: e.has_exit_date, has_austritt_action: e.has_austritt_action }
+    }
+}
+
+impl From<&genossi_service::validation::ActiveMemberNoShares> for ActiveMemberNoSharesTO {
+    fn from(a: &genossi_service::validation::ActiveMemberNoShares) -> Self {
+        Self { member_id: a.member_id, member_number: a.member_number }
+    }
+}
+
+impl From<&genossi_service::validation::DuplicateMemberNumber> for DuplicateMemberNumberTO {
+    fn from(d: &genossi_service::validation::DuplicateMemberNumber) -> Self {
+        Self { member_number: d.member_number, member_ids: d.member_ids.to_vec() }
+    }
+}
+
+impl From<&genossi_service::validation::ExitedMemberWithShares> for ExitedMemberWithSharesTO {
+    fn from(e: &genossi_service::validation::ExitedMemberWithShares) -> Self {
+        Self { member_id: e.member_id, member_number: e.member_number, current_shares: e.current_shares }
+    }
+}
+
+impl From<&genossi_service::validation::MigratedFlagMismatch> for MigratedFlagMismatchTO {
+    fn from(m: &genossi_service::validation::MigratedFlagMismatch) -> Self {
+        Self { member_id: m.member_id, member_number: m.member_number, flag_value: m.flag_value, computed_status: m.computed_status.to_string() }
     }
 }
 

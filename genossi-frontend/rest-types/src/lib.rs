@@ -339,6 +339,20 @@ pub struct MigrationStatusTO {
 pub struct ValidationResultTO {
     pub member_number_gaps: Vec<i64>,
     pub unmatched_transfers: Vec<UnmatchedTransferTO>,
+    #[serde(default)]
+    pub shares_mismatches: Vec<SharesMismatchTO>,
+    #[serde(default)]
+    pub missing_entry_actions: Vec<MissingEntryActionTO>,
+    #[serde(default)]
+    pub exit_date_mismatches: Vec<ExitDateMismatchTO>,
+    #[serde(default)]
+    pub active_members_no_shares: Vec<ActiveMemberNoSharesTO>,
+    #[serde(default)]
+    pub duplicate_member_numbers: Vec<DuplicateMemberNumberTO>,
+    #[serde(default)]
+    pub exited_members_with_shares: Vec<ExitedMemberWithSharesTO>,
+    #[serde(default)]
+    pub migrated_flag_mismatches: Vec<MigratedFlagMismatchTO>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -355,4 +369,54 @@ pub struct UnmatchedTransferTO {
         deserialize_with = "iso8601_date_required::deserialize"
     )]
     pub date: time::Date,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SharesMismatchTO {
+    pub member_id: Uuid,
+    pub member_number: i64,
+    pub expected: i32,
+    pub actual: i32,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MissingEntryActionTO {
+    pub member_id: Uuid,
+    pub member_number: i64,
+    pub actual_count: i32,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ExitDateMismatchTO {
+    pub member_id: Uuid,
+    pub member_number: i64,
+    pub has_exit_date: bool,
+    pub has_austritt_action: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ActiveMemberNoSharesTO {
+    pub member_id: Uuid,
+    pub member_number: i64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DuplicateMemberNumberTO {
+    pub member_number: i64,
+    pub member_ids: Vec<Uuid>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ExitedMemberWithSharesTO {
+    pub member_id: Uuid,
+    pub member_number: i64,
+    pub current_shares: i32,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MigratedFlagMismatchTO {
+    pub member_id: Uuid,
+    pub member_number: i64,
+    pub flag_value: bool,
+    pub computed_status: String,
 }

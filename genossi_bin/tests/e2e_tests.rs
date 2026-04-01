@@ -2085,3 +2085,97 @@ async fn test_validation_detects_unmatched_transfers() {
     assert_eq!(result.unmatched_transfers[0].member_id, id_a);
     assert_eq!(result.unmatched_transfers[0].shares_change, -3);
 }
+
+#[tokio::test]
+async fn test_validation_detects_shares_mismatch() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Create a member (service sets current_shares = shares_at_joining = 1)
+    let mut member = sample_member();
+    member.shares_at_joining = 3;
+    let resp = client
+        .post(server.url("/api/members"))
+        .json(&member)
+        .send()
+        .await
+        .unwrap();
+    let created: MemberTO = resp.json().await.unwrap();
+    let id = created.id.unwrap();
+
+    // The service auto-creates Eintritt (shares_change=0) + Aufstockung (shares_change=shares_at_joining=3)
+    // So current_shares=3 matches sum=3 -> no mismatch initially.
+    // Now update current_shares to something different via update
+    let mut updated = created.clone();
+    updated.current_shares = 10; // mismatch: actions sum to 3
+
+    let resp = client
+        .put(server.url(&format!("/api/members/{}", id)))
+        .json(&updated)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let response = client
+        .get(server.url("/api/validation"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let result: ValidationResultTO = response.json().await.unwrap();
+    assert!(
+        result.shares_mismatches.iter().any(|s| s.member_id == id && s.expected == 10 && s.actual == 3),
+        "Should detect shares mismatch for member with current_shares=10 but actions sum=3"
+    );
+}
+
+#[tokio::test]
+async fn test_validation_detects_missing_entry_action() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Create a member (auto-creates Eintritt + Aufstockung)
+    let member = sample_member();
+    let resp = client
+        .post(server.url("/api/members"))
+        .json(&member)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let created: MemberTO = resp.json().await.unwrap();
+    let id = created.id.unwrap();
+
+    // Get the member's actions
+    let resp = client
+        .get(server.url(&format!("/api/members/{}/actions", id)))
+        .send()
+        .await
+        .unwrap();
+    let actions: Vec<MemberActionTO> = resp.json().await.unwrap();
+
+    // Delete the Eintritt action
+    let eintritt = actions.iter().find(|a| a.action_type == ActionTypeTO::Eintritt).unwrap();
+    let resp = client
+        .delete(server.url(&format!("/api/members/{}/actions/{}", id, eintritt.id.unwrap())))
+        .send()
+        .await
+        .unwrap();
+    assert!(resp.status().is_success());
+
+    // Validate
+    let response = client
+        .get(server.url("/api/validation"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let result: ValidationResultTO = response.json().await.unwrap();
+    assert!(
+        result.missing_entry_actions.iter().any(|m| m.member_id == id && m.actual_count == 0),
+        "Should detect missing entry action"
+    );
+}

@@ -19,7 +19,17 @@ pub fn generate_route<RestState: RestStateDef>() -> Router<RestState> {
 #[derive(OpenApi)]
 #[openapi(
     paths(get_validation),
-    components(schemas(ValidationResultTO, genossi_rest_types::UnmatchedTransferTO)),
+    components(schemas(
+        ValidationResultTO,
+        genossi_rest_types::UnmatchedTransferTO,
+        genossi_rest_types::SharesMismatchTO,
+        genossi_rest_types::MissingEntryActionTO,
+        genossi_rest_types::ExitDateMismatchTO,
+        genossi_rest_types::ActiveMemberNoSharesTO,
+        genossi_rest_types::DuplicateMemberNumberTO,
+        genossi_rest_types::ExitedMemberWithSharesTO,
+        genossi_rest_types::MigratedFlagMismatchTO,
+    )),
     tags((name = "Validation", description = "Data integrity validation"))
 )]
 pub struct ApiDoc;
