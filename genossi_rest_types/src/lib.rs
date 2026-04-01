@@ -453,6 +453,60 @@ impl From<&genossi_service::member_document::MemberDocument> for MemberDocumentT
     }
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct ValidationResultTO {
+    pub member_number_gaps: Vec<i64>,
+    pub unmatched_transfers: Vec<UnmatchedTransferTO>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct UnmatchedTransferTO {
+    pub action_id: Uuid,
+    pub member_id: Uuid,
+    #[schema(example = 42)]
+    pub member_number: i64,
+    pub action_type: ActionTypeTO,
+    pub transfer_member_id: Uuid,
+    #[schema(example = 17)]
+    pub transfer_member_number: i64,
+    #[schema(example = -3)]
+    pub shares_change: i32,
+    #[serde(
+        serialize_with = "iso8601_date_required::serialize",
+        deserialize_with = "iso8601_date_required::deserialize"
+    )]
+    #[schema(example = "2024-05-01")]
+    pub date: time::Date,
+}
+
+impl From<&genossi_service::validation::ValidationResult> for ValidationResultTO {
+    fn from(r: &genossi_service::validation::ValidationResult) -> Self {
+        Self {
+            member_number_gaps: r.member_number_gaps.to_vec(),
+            unmatched_transfers: r
+                .unmatched_transfers
+                .iter()
+                .map(UnmatchedTransferTO::from)
+                .collect(),
+        }
+    }
+}
+
+impl From<&genossi_service::validation::UnmatchedTransfer> for UnmatchedTransferTO {
+    fn from(t: &genossi_service::validation::UnmatchedTransfer) -> Self {
+        Self {
+            action_id: t.action_id,
+            member_id: t.member_id,
+            member_number: t.member_number,
+            action_type: ActionTypeTO::from(&t.action_type),
+            transfer_member_id: t.transfer_member_id,
+            transfer_member_number: t.transfer_member_number,
+            shares_change: t.shares_change,
+            date: t.date,
+        }
+    }
+}
+
 impl From<&genossi_service::member_action::MigrationStatus> for MigrationStatusTO {
     fn from(s: &genossi_service::member_action::MigrationStatus) -> Self {
         Self {

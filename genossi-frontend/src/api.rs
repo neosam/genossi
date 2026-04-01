@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use rest_types::{MemberActionTO, MemberDocumentTO, MemberTO, MigrationStatusTO, UserTO};
+use rest_types::{MemberActionTO, MemberDocumentTO, MemberTO, MigrationStatusTO, UserTO, ValidationResultTO};
 use tracing::info;
 use uuid::Uuid;
 
@@ -268,4 +268,13 @@ pub fn document_download_url(config: &Config, member_id: Uuid, document_id: Uuid
         "{}/api/members/{member_id}/documents/{document_id}",
         config.backend
     )
+}
+
+// Validation API
+pub async fn get_validation(config: &Config) -> Result<ValidationResultTO, reqwest::Error> {
+    info!("Fetching validation results");
+    let url = format!("{}/api/validation", config.backend);
+    let response = reqwest::get(url).await?;
+    response.error_for_status_ref()?;
+    Ok(response.json().await?)
 }

@@ -8,6 +8,7 @@ pub mod permission;
 pub mod session;
 pub mod user_service;
 pub mod uuid_service;
+pub mod validation;
 
 pub use permission::PermissionServiceImpl;
 pub use session::{MockSessionServiceImpl, SessionServiceImpl};

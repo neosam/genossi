@@ -12,6 +12,7 @@ use genossi_service_impl::member_action::MemberActionServiceDeps;
 use genossi_service_impl::member_document::MemberDocumentServiceDeps;
 use genossi_service_impl::member_import::MemberImportServiceDeps;
 use genossi_service_impl::permission::PermissionServiceDeps;
+use genossi_service_impl::validation::ValidationServiceDeps;
 use sqlx::SqlitePool;
 
 // Type aliases for clarity
@@ -145,6 +146,23 @@ type MemberDocumentService =
 
 type DocumentStorage = genossi_service_impl::document_storage::FilesystemDocumentStorage;
 
+pub struct ValidationServiceDependencies;
+
+unsafe impl Send for ValidationServiceDependencies {}
+unsafe impl Sync for ValidationServiceDependencies {}
+
+impl ValidationServiceDeps for ValidationServiceDependencies {
+    type Context = Context;
+    type Transaction = Transaction;
+    type MemberDao = MemberDao;
+    type MemberActionDao = MemberActionDao;
+    type PermissionService = PermissionService;
+    type TransactionDao = TransactionDao;
+}
+
+type ValidationService =
+    genossi_service_impl::validation::ValidationServiceImpl<ValidationServiceDependencies>;
+
 // RestStateImpl with all services
 #[derive(Clone)]
 pub struct RestStateImpl {
@@ -155,6 +173,7 @@ pub struct RestStateImpl {
     permission_service: Arc<PermissionService>,
     session_service: Arc<SessionService>,
     document_storage: Arc<DocumentStorage>,
+    validation_service: Arc<ValidationService>,
 }
 
 impl RestStateImpl {
@@ -211,6 +230,14 @@ impl RestStateImpl {
 
         let document_storage = Arc::new(DocumentStorage::from_env());
 
+        let validation_service =
+            Arc::new(genossi_service_impl::validation::ValidationServiceImpl {
+                member_dao: member_dao.clone(),
+                member_action_dao: member_action_dao.clone(),
+                permission_service: permission_service.clone(),
+                transaction_dao: transaction_dao.clone(),
+            });
+
         let member_import_service =
             Arc::new(genossi_service_impl::member_import::MemberImportServiceImpl {
                 member_dao,
@@ -236,6 +263,7 @@ impl RestStateImpl {
             permission_service,
             session_service,
             document_storage,
+            validation_service,
         }
     }
 }
@@ -248,6 +276,7 @@ impl genossi_rest::RestStateDef for RestStateImpl {
     type MemberActionService = MemberActionService;
     type MemberDocumentService = MemberDocumentService;
     type DocumentStorage = DocumentStorage;
+    type ValidationService = ValidationService;
 
     fn member_service(&self) -> Arc<Self::MemberService> {
         self.member_service.clone()
@@ -275,5 +304,9 @@ impl genossi_rest::RestStateDef for RestStateImpl {
 
     fn document_storage(&self) -> Arc<Self::DocumentStorage> {
         self.document_storage.clone()
+    }
+
+    fn validation_service(&self) -> Arc<Self::ValidationService> {
+        self.validation_service.clone()
     }
 }

@@ -142,6 +142,14 @@ pub enum Key {
     OnlyExitedMembers,
     OnlyPendingMigration,
 
+    // Validation
+    Validation,
+    ValidationNoIssues,
+    MemberNumberGaps,
+    MissingNumbers,
+    UnmatchedTransfers,
+    TransferMemberNumber,
+
     // Messages
     NoDataFound,
     ErrorLoadingData,

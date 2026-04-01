@@ -8,6 +8,7 @@ pub mod member_document;
 pub mod permission;
 pub mod session;
 pub mod test_server;
+pub mod validation;
 
 use async_trait::async_trait;
 use axum::routing::get;
@@ -129,6 +130,10 @@ pub trait RestStateDef: Clone + Send + Sync + 'static {
         + Sync
         + 'static;
     type DocumentStorage: genossi_service::document_storage::DocumentStorage + Send + Sync + 'static;
+    type ValidationService: genossi_service::validation::ValidationService<Context = ContextType>
+        + Send
+        + Sync
+        + 'static;
 
     fn member_service(&self) -> Arc<Self::MemberService>;
     fn permission_service(&self) -> Arc<Self::PermissionService>;
@@ -137,6 +142,7 @@ pub trait RestStateDef: Clone + Send + Sync + 'static {
     fn member_action_service(&self) -> Arc<Self::MemberActionService>;
     fn member_document_service(&self) -> Arc<Self::MemberDocumentService>;
     fn document_storage(&self) -> Arc<Self::DocumentStorage>;
+    fn validation_service(&self) -> Arc<Self::ValidationService>;
 }
 
 #[derive(OpenApi)]
@@ -146,7 +152,8 @@ pub trait RestStateDef: Clone + Send + Sync + 'static {
         (path = "/api/members", api = member::ApiDoc),
         (path = "/api/members/{member_id}/actions", api = member_action::ApiDoc),
         (path = "/api/members/{member_id}/documents", api = member_document::ApiDoc),
-        (path = "/api/permission", api = permission::ApiDoc)
+        (path = "/api/permission", api = permission::ApiDoc),
+        (path = "/api/validation", api = validation::ApiDoc)
     )
 )]
 pub struct ApiDoc;
@@ -291,6 +298,7 @@ pub async fn create_app<RestState: RestStateDef>(rest_state: RestState) -> Route
             member_document::generate_route(),
         )
         .nest("/api/permission", permission::generate_route())
+        .nest("/api/validation", validation::generate_route())
         .with_state(rest_state.clone())
         .layer(middleware::from_fn_with_state(
             rest_state.clone(),

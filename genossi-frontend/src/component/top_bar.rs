@@ -50,6 +50,11 @@ pub fn TopBar() -> Element {
                             Link { class: "hover:underline px-3 py-2 md:py-4", to: Route::Members {}, {i18n.t(Key::Members)} }
                         }
                     }
+                    if show_members {
+                        li {
+                            Link { class: "hover:underline px-3 py-2 md:py-4", to: Route::Validation {}, {i18n.t(Key::Validation)} }
+                        }
+                    }
                     if show_permissions {
                         li {
                             Link { class: "hover:underline px-3 py-2 md:py-4", to: Route::Permissions {}, {i18n.t(Key::Permissions)} }

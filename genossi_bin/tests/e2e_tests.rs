@@ -4,7 +4,7 @@ use genossi_bin::RestStateImpl;
 use genossi_rest::test_server::test_support::start_test_server;
 use genossi_rest_types::{
     ActionTypeTO, MemberActionTO, MemberDocumentTO, MemberImportResultTO, MemberTO,
-    MigrationStatusTO,
+    MigrationStatusTO, ValidationResultTO,
 };
 use reqwest::StatusCode;
 use sqlx::SqlitePool;
@@ -1966,4 +1966,122 @@ async fn test_create_member_sets_computed_fields() {
     assert_eq!(created.current_shares, 5, "current_shares should equal shares_at_joining");
     assert_eq!(created.current_balance, 0, "current_balance should be 0");
     assert_eq!(created.action_count, 0, "action_count should be 0");
+}
+
+// === Validation E2E Tests ===
+
+#[tokio::test]
+async fn test_validation_empty_database() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(server.url("/api/validation"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let result: ValidationResultTO = response.json().await.unwrap();
+    assert!(result.member_number_gaps.is_empty());
+    assert!(result.unmatched_transfers.is_empty());
+}
+
+#[tokio::test]
+async fn test_validation_detects_member_number_gaps() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Create member 1
+    let mut member = sample_member();
+    member.member_number = 1;
+    client
+        .post(server.url("/api/members"))
+        .json(&member)
+        .send()
+        .await
+        .unwrap();
+
+    // Create member 3 (skip 2)
+    member.member_number = 3;
+    client
+        .post(server.url("/api/members"))
+        .json(&member)
+        .send()
+        .await
+        .unwrap();
+
+    let response = client
+        .get(server.url("/api/validation"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let result: ValidationResultTO = response.json().await.unwrap();
+    assert_eq!(result.member_number_gaps, vec![2]);
+}
+
+#[tokio::test]
+async fn test_validation_detects_unmatched_transfers() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Create two members
+    let mut member_a = sample_member();
+    member_a.member_number = 1;
+    let resp = client
+        .post(server.url("/api/members"))
+        .json(&member_a)
+        .send()
+        .await
+        .unwrap();
+    let created_a: MemberTO = resp.json().await.unwrap();
+    let id_a = created_a.id.unwrap();
+
+    let mut member_b = sample_member();
+    member_b.member_number = 2;
+    let resp = client
+        .post(server.url("/api/members"))
+        .json(&member_b)
+        .send()
+        .await
+        .unwrap();
+    let created_b: MemberTO = resp.json().await.unwrap();
+    let id_b = created_b.id.unwrap();
+
+    // Create UebertragungAbgabe for member A (without counterpart on B)
+    let action = MemberActionTO {
+        id: None,
+        member_id: id_a,
+        action_type: ActionTypeTO::UebertragungAbgabe,
+        date: time::Date::from_calendar_date(2024, time::Month::May, 1).unwrap(),
+        shares_change: -3,
+        transfer_member_id: Some(id_b),
+        effective_date: None,
+        comment: None,
+        created: None,
+        deleted: None,
+        version: None,
+    };
+    let resp = client
+        .post(server.url(&format!("/api/members/{}/actions", id_a)))
+        .json(&action)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // Validate - should find unmatched transfer
+    let response = client
+        .get(server.url("/api/validation"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let result: ValidationResultTO = response.json().await.unwrap();
+    assert_eq!(result.unmatched_transfers.len(), 1);
+    assert_eq!(result.unmatched_transfers[0].member_id, id_a);
+    assert_eq!(result.unmatched_transfers[0].shares_change, -3);
 }

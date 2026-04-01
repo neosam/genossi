@@ -92,6 +92,13 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::OnlyExitedMembers => "Nur ausgetretene Mitglieder".into(),
         Key::OnlyPendingMigration => "Nur ausstehende Migrationen".into(),
 
+        Key::Validation => "Validierung".into(),
+        Key::ValidationNoIssues => "Keine Probleme gefunden.".into(),
+        Key::MemberNumberGaps => "Lücken in Mitgliedsnummern".into(),
+        Key::MissingNumbers => "Fehlende Nummern".into(),
+        Key::UnmatchedTransfers => "Übertragungen ohne Gegenpart".into(),
+        Key::TransferMemberNumber => "Gegenmitglied Nr.".into(),
+
         Key::NoDataFound => "Keine Daten gefunden.".into(),
         Key::ErrorLoadingData => "Fehler beim Laden der Daten.".into(),
         Key::ConfirmDelete => "Sind Sie sicher, dass Sie dieses Mitglied löschen möchten?".into(),

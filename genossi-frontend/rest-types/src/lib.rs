@@ -334,3 +334,25 @@ pub struct MigrationStatusTO {
     pub expected_action_count: i32,
     pub actual_action_count: i32,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ValidationResultTO {
+    pub member_number_gaps: Vec<i64>,
+    pub unmatched_transfers: Vec<UnmatchedTransferTO>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct UnmatchedTransferTO {
+    pub action_id: Uuid,
+    pub member_id: Uuid,
+    pub member_number: i64,
+    pub action_type: ActionTypeTO,
+    pub transfer_member_id: Uuid,
+    pub transfer_member_number: i64,
+    pub shares_change: i32,
+    #[serde(
+        serialize_with = "iso8601_date_required::serialize",
+        deserialize_with = "iso8601_date_required::deserialize"
+    )]
+    pub date: time::Date,
+}
