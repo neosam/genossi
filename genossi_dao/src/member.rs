@@ -81,6 +81,14 @@ pub trait MemberDao {
         tx: Self::Transaction,
     ) -> Result<(), DaoError>;
 
+    async fn update_dates(
+        &self,
+        id: Uuid,
+        join_date: time::Date,
+        exit_date: Option<time::Date>,
+        tx: Self::Transaction,
+    ) -> Result<(), DaoError>;
+
     async fn find_by_member_number(
         &self,
         member_number: i64,
@@ -172,6 +180,16 @@ mod tests {
             &self,
             _id: Uuid,
             _migrated: bool,
+            _tx: Self::Transaction,
+        ) -> Result<(), DaoError> {
+            Ok(())
+        }
+
+        async fn update_dates(
+            &self,
+            _id: Uuid,
+            _join_date: time::Date,
+            _exit_date: Option<time::Date>,
             _tx: Self::Transaction,
         ) -> Result<(), DaoError> {
             Ok(())

@@ -247,6 +247,10 @@ pub fn MemberDetails(id: String) -> Element {
 
             match result {
                 Ok(_) => {
+                    // Refresh member data (join_date/exit_date may have changed)
+                    if let Ok(data) = api::get_member(&config, member_id).await {
+                        *member.write() = data;
+                    }
                     // Refresh actions and migration status
                     if let Ok(data) = api::get_member_actions(&config, member_id).await {
                         *actions.write() = data;
@@ -536,6 +540,45 @@ pub fn MemberDetails(id: String) -> Element {
                                 let val = e.value();
                                 member.write().bank_account = if val.is_empty() { None } else { Some(val.clone()) };
                             },
+                        }
+                    }
+
+                    // Join date & Exit date
+                    div { class: "grid grid-cols-2 gap-4",
+                        div {
+                            label { class: "block text-sm font-medium text-gray-700 mb-1",
+                                {i18n.t(Key::JoinDate)}
+                            }
+                            if is_new {
+                                input {
+                                    class: "w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500",
+                                    r#type: "date",
+                                    value: "{format_date_input(&member.read().join_date)}",
+                                    oninput: move |e| {
+                                        if let Some(d) = parse_date_input(&e.value()) {
+                                            member.write().join_date = d;
+                                        }
+                                    },
+                                }
+                            } else {
+                                input {
+                                    class: "w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-100 text-gray-600",
+                                    r#type: "date",
+                                    value: "{format_date_input(&member.read().join_date)}",
+                                    readonly: true,
+                                }
+                            }
+                        }
+                        div {
+                            label { class: "block text-sm font-medium text-gray-700 mb-1",
+                                {i18n.t(Key::ExitDate)}
+                            }
+                            input {
+                                class: "w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-100 text-gray-600",
+                                r#type: "date",
+                                value: "{member.read().exit_date.as_ref().map(|d| format_date_input(d)).unwrap_or_default()}",
+                                readonly: true,
+                            }
                         }
                     }
 
@@ -832,6 +875,9 @@ pub fn MemberDetails(id: String) -> Element {
                                                                             let config = CONFIG.read().clone();
                                                                             match api::delete_member_action(&config, member_id, aid).await {
                                                                                 Ok(_) => {
+                                                                                    if let Ok(data) = api::get_member(&config, member_id).await {
+                                                                                        *member.write() = data;
+                                                                                    }
                                                                                     if let Ok(data) = api::get_member_actions(&config, member_id).await {
                                                                                         *actions.write() = data;
                                                                                     }

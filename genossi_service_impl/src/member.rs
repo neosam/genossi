@@ -11,7 +11,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::gen_service_impl;
-use crate::member_action::compute_migration_status;
+use crate::member_action::{compute_dates, compute_migration_status};
 
 const MEMBER_SERVICE_PROCESS: &str = "member-service";
 const VIEW_MEMBERS_PRIVILEGE: &str = "view_members";
@@ -28,6 +28,31 @@ gen_service_impl! {
 }
 
 impl<Deps: MemberServiceDeps> MemberServiceImpl<Deps> {
+    async fn recalc_dates(
+        &self,
+        member_id: Uuid,
+        tx: Deps::Transaction,
+    ) -> Result<(), ServiceError> {
+        let member = self
+            .member_dao
+            .find_by_id(member_id, tx.clone())
+            .await?
+            .ok_or(ServiceError::EntityNotFound(member_id))?;
+
+        let actions = self
+            .member_action_dao
+            .find_by_member_id(member_id, tx.clone())
+            .await?;
+
+        let (join_date, exit_date) = compute_dates(&member, &actions);
+
+        self.member_dao
+            .update_dates(member_id, join_date, exit_date, tx)
+            .await?;
+
+        Ok(())
+    }
+
     async fn recalc_migrated(
         &self,
         member_id: Uuid,
@@ -227,6 +252,7 @@ impl<Deps: MemberServiceDeps> MemberService for MemberServiceImpl<Deps> {
             .create(&aufstockung, MEMBER_SERVICE_PROCESS, tx.clone())
             .await?;
 
+        self.recalc_dates(new_member.id, tx.clone()).await?;
         self.recalc_migrated(new_member.id, tx.clone()).await?;
 
         self.transaction_dao.commit(tx).await?;

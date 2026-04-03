@@ -1,6 +1,8 @@
 use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::post, Json, Router};
 use genossi_service::member::MemberService;
+use genossi_service::member_action::{MemberAction, MemberActionService};
 use genossi_service::permission::Authentication;
+use genossi_dao::member_action::ActionType;
 use std::sync::Arc;
 use time::Month;
 use crate::RestStateDef;
@@ -281,15 +283,43 @@ async fn generate_test_data<RestState: RestStateDef>(
         }
         Ok(_) => {
             let test_data = test_members();
+            let member_action_service = rest_state.member_action_service();
             let mut created_count = 0;
             for t in &test_data {
                 let member = build_member(t);
-                if let Err(e) = member_service.create(&member, Authentication::Full, None).await {
-                    tracing::error!("Failed to create test member {}: {:?}", t.first_name, e);
-                    return (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(serde_json::json!({"error": format!("Failed to create member: {:?}", e)})),
-                    ).into_response();
+                let created_member = match member_service.create(&member, Authentication::Full, None).await {
+                    Ok(m) => m,
+                    Err(e) => {
+                        tracing::error!("Failed to create test member {}: {:?}", t.first_name, e);
+                        return (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(serde_json::json!({"error": format!("Failed to create member: {:?}", e)})),
+                        ).into_response();
+                    }
+                };
+                // Create Austritt action for members with exit_date
+                if let Some(exit_date) = member.exit_date {
+                    let now = time::OffsetDateTime::now_utc();
+                    let austritt = MemberAction {
+                        id: uuid::Uuid::new_v4(),
+                        member_id: created_member.id,
+                        action_type: ActionType::Austritt,
+                        date: exit_date,
+                        shares_change: 0,
+                        transfer_member_id: None,
+                        effective_date: Some(exit_date),
+                        comment: None,
+                        created: time::PrimitiveDateTime::new(now.date(), now.time()),
+                        deleted: None,
+                        version: uuid::Uuid::new_v4(),
+                    };
+                    if let Err(e) = member_action_service.create(&austritt, Authentication::Full, None).await {
+                        tracing::error!("Failed to create Austritt action for {}: {:?}", t.first_name, e);
+                        return (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(serde_json::json!({"error": format!("Failed to create Austritt action: {:?}", e)})),
+                        ).into_response();
+                    }
                 }
                 created_count += 1;
             }

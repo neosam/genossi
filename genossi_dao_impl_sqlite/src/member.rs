@@ -293,4 +293,28 @@ impl MemberDao for MemberDaoImpl {
 
         Ok(())
     }
+
+    async fn update_dates(
+        &self,
+        id: Uuid,
+        join_date: time::Date,
+        exit_date: Option<time::Date>,
+        tx: Self::Transaction,
+    ) -> Result<(), DaoError> {
+        let id_bytes = id.as_bytes().to_vec();
+        let join_date_str = format_date(&join_date);
+        let exit_date_str = exit_date.as_ref().map(format_date);
+
+        sqlx::query(
+            "UPDATE member SET join_date = ?, exit_date = ? WHERE id = ? AND deleted IS NULL",
+        )
+        .bind(join_date_str)
+        .bind(exit_date_str)
+        .bind(id_bytes)
+        .execute(tx.tx.lock().await.as_mut())
+        .await
+        .map_err(|e| DaoError::DatabaseError(Arc::from(e.to_string())))?;
+
+        Ok(())
+    }
 }

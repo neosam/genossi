@@ -106,6 +106,13 @@ fn validate_action(item: &MemberAction) -> Vec<ValidationFailureItem> {
         _ => {}
     }
 
+    if item.action_type == ActionType::Austritt && item.effective_date.is_none() {
+        errors.push(ValidationFailureItem {
+            field: Arc::from("effective_date"),
+            message: Arc::from("effective_date is required for Austritt actions"),
+        });
+    }
+
     if item.effective_date.is_some() && item.action_type != ActionType::Austritt {
         errors.push(ValidationFailureItem {
             field: Arc::from("effective_date"),
@@ -116,7 +123,56 @@ fn validate_action(item: &MemberAction) -> Vec<ValidationFailureItem> {
     errors
 }
 
+pub(crate) fn compute_dates(
+    member: &genossi_dao::member::MemberEntity,
+    actions: &[genossi_dao::member_action::MemberActionEntity],
+) -> (time::Date, Option<time::Date>) {
+    let join_date = actions
+        .iter()
+        .find(|a| a.action_type == ActionType::Eintritt)
+        .map(|a| a.date)
+        .unwrap_or(member.join_date);
+
+    let exit_date = actions
+        .iter()
+        .find(|a| a.action_type == ActionType::Austritt)
+        .map(|a| a.effective_date.unwrap_or(a.date))
+        .or_else(|| {
+            actions
+                .iter()
+                .find(|a| a.action_type == ActionType::Todesfall)
+                .map(|a| a.date)
+        });
+
+    (join_date, exit_date)
+}
+
 impl<Deps: MemberActionServiceDeps> MemberActionServiceImpl<Deps> {
+    async fn recalc_dates(
+        &self,
+        member_id: Uuid,
+        tx: Deps::Transaction,
+    ) -> Result<(), ServiceError> {
+        let member = self
+            .member_dao
+            .find_by_id(member_id, tx.clone())
+            .await?
+            .ok_or(ServiceError::EntityNotFound(member_id))?;
+
+        let actions = self
+            .member_action_dao
+            .find_by_member_id(member_id, tx.clone())
+            .await?;
+
+        let (join_date, exit_date) = compute_dates(&member, &actions);
+
+        self.member_dao
+            .update_dates(member_id, join_date, exit_date, tx)
+            .await?;
+
+        Ok(())
+    }
+
     async fn recalc_migrated(
         &self,
         member_id: Uuid,
@@ -255,6 +311,8 @@ impl<Deps: MemberActionServiceDeps> MemberActionService for MemberActionServiceI
             )
             .await?;
 
+        self.recalc_dates(new_action.member_id, tx.clone())
+            .await?;
         self.recalc_migrated(new_action.member_id, tx.clone())
             .await?;
 
@@ -283,6 +341,7 @@ impl<Deps: MemberActionServiceDeps> MemberActionService for MemberActionServiceI
             .update(&item.into(), MEMBER_ACTION_SERVICE_PROCESS, tx.clone())
             .await?;
 
+        self.recalc_dates(item.member_id, tx.clone()).await?;
         self.recalc_migrated(item.member_id, tx.clone()).await?;
 
         self.transaction_dao.commit(tx).await?;
@@ -311,6 +370,7 @@ impl<Deps: MemberActionServiceDeps> MemberActionService for MemberActionServiceI
                 self.member_action_dao
                     .update(&entity, MEMBER_ACTION_SERVICE_PROCESS, tx.clone())
                     .await?;
+                self.recalc_dates(member_id, tx.clone()).await?;
                 self.recalc_migrated(member_id, tx.clone()).await?;
                 self.transaction_dao.commit(tx).await?;
                 Ok(())
@@ -562,5 +622,183 @@ mod tests {
         };
         let errors = validate_action(&action);
         assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_validate_austritt_without_effective_date() {
+        let action = MemberAction {
+            id: Uuid::new_v4(),
+            member_id: Uuid::new_v4(),
+            action_type: ActionType::Austritt,
+            date: time::Date::from_calendar_date(2024, time::Month::March, 15).unwrap(),
+            shares_change: 0,
+            transfer_member_id: None,
+            effective_date: None,
+            comment: None,
+            created: time::PrimitiveDateTime::new(
+                time::Date::from_calendar_date(2024, time::Month::March, 15).unwrap(),
+                time::Time::MIDNIGHT,
+            ),
+            deleted: None,
+            version: Uuid::new_v4(),
+        };
+        let errors = validate_action(&action);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(&*errors[0].field, "effective_date");
+    }
+
+    #[test]
+    fn test_validate_austritt_with_effective_date() {
+        let action = MemberAction {
+            id: Uuid::new_v4(),
+            member_id: Uuid::new_v4(),
+            action_type: ActionType::Austritt,
+            date: time::Date::from_calendar_date(2024, time::Month::March, 15).unwrap(),
+            shares_change: 0,
+            transfer_member_id: None,
+            effective_date: Some(
+                time::Date::from_calendar_date(2024, time::Month::December, 31).unwrap(),
+            ),
+            comment: None,
+            created: time::PrimitiveDateTime::new(
+                time::Date::from_calendar_date(2024, time::Month::March, 15).unwrap(),
+                time::Time::MIDNIGHT,
+            ),
+            deleted: None,
+            version: Uuid::new_v4(),
+        };
+        let errors = validate_action(&action);
+        assert!(errors.is_empty());
+    }
+
+    fn make_member_entity(join_date: time::Date) -> genossi_dao::member::MemberEntity {
+        let datetime = time::PrimitiveDateTime::new(join_date, time::Time::MIDNIGHT);
+        genossi_dao::member::MemberEntity {
+            id: Uuid::new_v4(),
+            member_number: 1,
+            first_name: Arc::from("Test"),
+            last_name: Arc::from("User"),
+            email: None,
+            company: None,
+            comment: None,
+            street: None,
+            house_number: None,
+            postal_code: None,
+            city: None,
+            join_date,
+            shares_at_joining: 1,
+            current_shares: 1,
+            current_balance: 0,
+            action_count: 0,
+            migrated: false,
+            exit_date: None,
+            bank_account: None,
+            created: datetime,
+            deleted: None,
+            version: Uuid::new_v4(),
+        }
+    }
+
+    fn make_action_entity(
+        member_id: Uuid,
+        action_type: ActionType,
+        date: time::Date,
+        effective_date: Option<time::Date>,
+    ) -> genossi_dao::member_action::MemberActionEntity {
+        genossi_dao::member_action::MemberActionEntity {
+            id: Uuid::new_v4(),
+            member_id,
+            action_type,
+            date,
+            shares_change: 0,
+            transfer_member_id: None,
+            effective_date,
+            comment: None,
+            created: time::PrimitiveDateTime::new(date, time::Time::MIDNIGHT),
+            deleted: None,
+            version: Uuid::new_v4(),
+        }
+    }
+
+    #[test]
+    fn test_compute_dates_join_date_from_eintritt() {
+        let original_date = time::Date::from_calendar_date(2020, time::Month::January, 1).unwrap();
+        let eintritt_date = time::Date::from_calendar_date(2024, time::Month::March, 15).unwrap();
+        let member = make_member_entity(original_date);
+        let actions = vec![make_action_entity(
+            member.id,
+            ActionType::Eintritt,
+            eintritt_date,
+            None,
+        )];
+        let (join_date, exit_date) = compute_dates(&member, &actions);
+        assert_eq!(join_date, eintritt_date);
+        assert_eq!(exit_date, None);
+    }
+
+    #[test]
+    fn test_compute_dates_exit_date_from_austritt_effective_date() {
+        let join_date = time::Date::from_calendar_date(2024, time::Month::January, 1).unwrap();
+        let austritt_date = time::Date::from_calendar_date(2024, time::Month::June, 15).unwrap();
+        let effective = time::Date::from_calendar_date(2024, time::Month::December, 31).unwrap();
+        let member = make_member_entity(join_date);
+        let actions = vec![
+            make_action_entity(member.id, ActionType::Eintritt, join_date, None),
+            make_action_entity(member.id, ActionType::Austritt, austritt_date, Some(effective)),
+        ];
+        let (_, exit_date) = compute_dates(&member, &actions);
+        assert_eq!(exit_date, Some(effective));
+    }
+
+    #[test]
+    fn test_compute_dates_exit_date_from_todesfall() {
+        let join_date = time::Date::from_calendar_date(2024, time::Month::January, 1).unwrap();
+        let todesfall_date = time::Date::from_calendar_date(2024, time::Month::August, 10).unwrap();
+        let member = make_member_entity(join_date);
+        let actions = vec![
+            make_action_entity(member.id, ActionType::Eintritt, join_date, None),
+            make_action_entity(member.id, ActionType::Todesfall, todesfall_date, None),
+        ];
+        let (_, exit_date) = compute_dates(&member, &actions);
+        assert_eq!(exit_date, Some(todesfall_date));
+    }
+
+    #[test]
+    fn test_compute_dates_no_exit_action() {
+        let join_date = time::Date::from_calendar_date(2024, time::Month::January, 1).unwrap();
+        let member = make_member_entity(join_date);
+        let actions = vec![make_action_entity(
+            member.id,
+            ActionType::Eintritt,
+            join_date,
+            None,
+        )];
+        let (_, exit_date) = compute_dates(&member, &actions);
+        assert_eq!(exit_date, None);
+    }
+
+    #[test]
+    fn test_compute_dates_no_eintritt_preserves_join_date() {
+        let original_date = time::Date::from_calendar_date(2020, time::Month::May, 5).unwrap();
+        let member = make_member_entity(original_date);
+        let actions: Vec<genossi_dao::member_action::MemberActionEntity> = vec![];
+        let (join_date, _) = compute_dates(&member, &actions);
+        assert_eq!(join_date, original_date);
+    }
+
+    #[test]
+    fn test_compute_dates_austritt_takes_precedence_over_todesfall() {
+        let join_date = time::Date::from_calendar_date(2024, time::Month::January, 1).unwrap();
+        let austritt_date = time::Date::from_calendar_date(2024, time::Month::June, 15).unwrap();
+        let effective = time::Date::from_calendar_date(2024, time::Month::December, 31).unwrap();
+        let todesfall_date = time::Date::from_calendar_date(2024, time::Month::August, 10).unwrap();
+        let member = make_member_entity(join_date);
+        let actions = vec![
+            make_action_entity(member.id, ActionType::Eintritt, join_date, None),
+            make_action_entity(member.id, ActionType::Austritt, austritt_date, Some(effective)),
+            make_action_entity(member.id, ActionType::Todesfall, todesfall_date, None),
+        ];
+        let (_, exit_date) = compute_dates(&member, &actions);
+        assert_eq!(exit_date, Some(effective));
     }
 }
