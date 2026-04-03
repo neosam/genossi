@@ -191,6 +191,9 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::SmtpSaving => "Speichere...".into(),
         Key::AdvancedConfig => "Erweiterte Konfiguration".into(),
 
+        Key::SelectedCount => "ausgewählt".into(),
+        Key::SendMailToSelected => "Mail senden".into(),
+
         Key::NotReachedByMailJob => "Nicht erreicht durch Mail-Job".into(),
         Key::AllMembers => "Alle Mitglieder".into(),
 

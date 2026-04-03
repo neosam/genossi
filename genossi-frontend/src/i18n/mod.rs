@@ -246,6 +246,10 @@ pub enum Key {
     SmtpSaving,
     AdvancedConfig,
 
+    // Member selection
+    SelectedCount,
+    SendMailToSelected,
+
     // Member filter
     NotReachedByMailJob,
     AllMembers,
