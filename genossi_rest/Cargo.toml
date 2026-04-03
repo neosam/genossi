@@ -23,6 +23,7 @@ tower-cookies = { workspace = true }
 tower-sessions = { workspace = true }
 axum-oidc = { workspace = true, optional = true }
 http = { workspace = true }
+genossi_service_impl = { path = "../genossi_service_impl" }
 
 [features]
 default = ["mock_auth"]

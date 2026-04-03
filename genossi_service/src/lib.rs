@@ -1,4 +1,5 @@
 pub mod auth_types;
+pub mod template;
 pub mod claim_context;
 pub mod claim_utils;
 pub mod document_storage;

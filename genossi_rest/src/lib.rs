@@ -7,6 +7,7 @@ pub mod member_action;
 pub mod member_document;
 pub mod permission;
 pub mod session;
+pub mod template;
 pub mod test_server;
 pub mod validation;
 
@@ -143,6 +144,8 @@ pub trait RestStateDef: Clone + Send + Sync + 'static {
     fn member_document_service(&self) -> Arc<Self::MemberDocumentService>;
     fn document_storage(&self) -> Arc<Self::DocumentStorage>;
     fn validation_service(&self) -> Arc<Self::ValidationService>;
+    fn template_storage(&self) -> Arc<genossi_service_impl::template_storage::TemplateStorage>;
+    fn pdf_generator(&self) -> Arc<genossi_service_impl::pdf_generation::PdfGenerator>;
 }
 
 #[derive(OpenApi)]
@@ -153,7 +156,8 @@ pub trait RestStateDef: Clone + Send + Sync + 'static {
         (path = "/api/members/{member_id}/actions", api = member_action::ApiDoc),
         (path = "/api/members/{member_id}/documents", api = member_document::ApiDoc),
         (path = "/api/permission", api = permission::ApiDoc),
-        (path = "/api/validation", api = validation::ApiDoc)
+        (path = "/api/validation", api = validation::ApiDoc),
+        (path = "/api/templates", api = template::ApiDoc)
     )
 )]
 pub struct ApiDoc;
@@ -299,6 +303,8 @@ pub async fn create_app<RestState: RestStateDef>(rest_state: RestState) -> Route
         )
         .nest("/api/permission", permission::generate_route())
         .nest("/api/validation", validation::generate_route())
+        .nest("/api/templates", template::generate_route())
+        .nest("/api/templates/render", template::generate_render_route())
         .with_state(rest_state.clone())
         .layer(middleware::from_fn_with_state(
             rest_state.clone(),

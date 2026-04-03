@@ -174,6 +174,8 @@ pub struct RestStateImpl {
     session_service: Arc<SessionService>,
     document_storage: Arc<DocumentStorage>,
     validation_service: Arc<ValidationService>,
+    template_storage: Arc<genossi_service_impl::template_storage::TemplateStorage>,
+    pdf_generator: Arc<genossi_service_impl::pdf_generation::PdfGenerator>,
 }
 
 impl RestStateImpl {
@@ -255,6 +257,11 @@ impl RestStateImpl {
             permission_dao: permission_dao.clone(),
         });
 
+        let template_storage =
+            Arc::new(genossi_service_impl::template_storage::TemplateStorage::from_env());
+        let pdf_generator =
+            Arc::new(genossi_service_impl::pdf_generation::PdfGenerator::new());
+
         Self {
             member_service,
             member_import_service,
@@ -264,6 +271,8 @@ impl RestStateImpl {
             session_service,
             document_storage,
             validation_service,
+            template_storage,
+            pdf_generator,
         }
     }
 }
@@ -308,5 +317,13 @@ impl genossi_rest::RestStateDef for RestStateImpl {
 
     fn validation_service(&self) -> Arc<Self::ValidationService> {
         self.validation_service.clone()
+    }
+
+    fn template_storage(&self) -> Arc<genossi_service_impl::template_storage::TemplateStorage> {
+        self.template_storage.clone()
+    }
+
+    fn pdf_generator(&self) -> Arc<genossi_service_impl::pdf_generation::PdfGenerator> {
+        self.pdf_generator.clone()
     }
 }

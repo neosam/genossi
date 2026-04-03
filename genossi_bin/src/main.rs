@@ -1,4 +1,5 @@
 use genossi_bin::RestStateImpl;
+use genossi_rest::RestStateDef;
 use sqlx::SqlitePool;
 use std::sync::Arc;
 
@@ -28,6 +29,13 @@ async fn main() {
 
     // Create RestStateImpl with all services
     let rest_state = RestStateImpl::new(pool);
+
+    // Provision default templates
+    rest_state
+        .template_storage()
+        .provision_defaults()
+        .await
+        .expect("Failed to provision default templates");
 
     // Start server using the rest crate's start_server function
     genossi_rest::start_server(rest_state).await;

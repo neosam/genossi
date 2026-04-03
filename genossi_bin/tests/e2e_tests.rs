@@ -2179,3 +2179,470 @@ async fn test_validation_detects_missing_entry_action() {
         "Should detect missing entry action"
     );
 }
+
+#[tokio::test]
+async fn test_join_date_derived_from_eintritt_action() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let mut member = sample_member();
+    member.join_date = time::Date::from_calendar_date(2024, time::Month::June, 15).unwrap();
+
+    let response = client
+        .post(server.url("/api/members"))
+        .json(&member)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let created: MemberTO = response.json().await.unwrap();
+    let member_id = created.id.unwrap();
+
+    // Reload member to check derived join_date
+    let response = client
+        .get(server.url(&format!("/api/members/{}", member_id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let loaded: MemberTO = response.json().await.unwrap();
+    assert_eq!(
+        loaded.join_date,
+        time::Date::from_calendar_date(2024, time::Month::June, 15).unwrap(),
+        "join_date should be derived from Eintritt action date"
+    );
+}
+
+#[tokio::test]
+async fn test_exit_date_derived_from_austritt_action() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let member = create_test_member(&client, &server).await;
+    let member_id = member.id.unwrap();
+
+    // Create Austritt action with effective_date
+    let austritt = MemberActionTO {
+        id: None,
+        member_id,
+        action_type: ActionTypeTO::Austritt,
+        date: time::Date::from_calendar_date(2024, time::Month::June, 15).unwrap(),
+        shares_change: 0,
+        transfer_member_id: None,
+        effective_date: Some(
+            time::Date::from_calendar_date(2024, time::Month::December, 31).unwrap(),
+        ),
+        comment: None,
+        created: None,
+        deleted: None,
+        version: None,
+    };
+
+    let response = client
+        .post(server.url(&format!("/api/members/{}/actions", member_id)))
+        .json(&austritt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Reload member and check exit_date
+    let response = client
+        .get(server.url(&format!("/api/members/{}", member_id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let loaded: MemberTO = response.json().await.unwrap();
+    assert_eq!(
+        loaded.exit_date,
+        Some(time::Date::from_calendar_date(2024, time::Month::December, 31).unwrap()),
+        "exit_date should be derived from Austritt effective_date"
+    );
+}
+
+#[tokio::test]
+async fn test_austritt_without_effective_date_fails() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let member = create_test_member(&client, &server).await;
+    let member_id = member.id.unwrap();
+
+    // Try to create Austritt without effective_date
+    let austritt = MemberActionTO {
+        id: None,
+        member_id,
+        action_type: ActionTypeTO::Austritt,
+        date: time::Date::from_calendar_date(2024, time::Month::June, 15).unwrap(),
+        shares_change: 0,
+        transfer_member_id: None,
+        effective_date: None,
+        comment: None,
+        created: None,
+        deleted: None,
+        version: None,
+    };
+
+    let response = client
+        .post(server.url(&format!("/api/members/{}/actions", member_id)))
+        .json(&austritt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::BAD_REQUEST,
+        "Austritt without effective_date should be rejected"
+    );
+}
+
+#[tokio::test]
+async fn test_exit_date_cleared_when_austritt_deleted() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let member = create_test_member(&client, &server).await;
+    let member_id = member.id.unwrap();
+
+    // Create Austritt action
+    let austritt = MemberActionTO {
+        id: None,
+        member_id,
+        action_type: ActionTypeTO::Austritt,
+        date: time::Date::from_calendar_date(2024, time::Month::June, 15).unwrap(),
+        shares_change: 0,
+        transfer_member_id: None,
+        effective_date: Some(
+            time::Date::from_calendar_date(2024, time::Month::December, 31).unwrap(),
+        ),
+        comment: None,
+        created: None,
+        deleted: None,
+        version: None,
+    };
+
+    let response = client
+        .post(server.url(&format!("/api/members/{}/actions", member_id)))
+        .json(&austritt)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let created_austritt: MemberActionTO = response.json().await.unwrap();
+    let action_id = created_austritt.id.unwrap();
+
+    // Verify exit_date is set
+    let response = client
+        .get(server.url(&format!("/api/members/{}", member_id)))
+        .send()
+        .await
+        .unwrap();
+    let loaded: MemberTO = response.json().await.unwrap();
+    assert!(loaded.exit_date.is_some(), "exit_date should be set after Austritt");
+
+    // Delete the Austritt action
+    let response = client
+        .delete(server.url(&format!(
+            "/api/members/{}/actions/{}",
+            member_id, action_id
+        )))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+    // Verify exit_date is cleared
+    let response = client
+        .get(server.url(&format!("/api/members/{}", member_id)))
+        .send()
+        .await
+        .unwrap();
+    let loaded: MemberTO = response.json().await.unwrap();
+    assert_eq!(
+        loaded.exit_date, None,
+        "exit_date should be None after Austritt action is deleted"
+    );
+}
+
+// ===== Template API Tests =====
+
+use genossi_rest::RestStateDef;
+use genossi_service::template::FileTreeEntry;
+
+async fn setup_with_templates() -> genossi_rest::test_server::test_support::TestServer {
+    let pool = Arc::new(
+        SqlitePool::connect("sqlite::memory:")
+            .await
+            .expect("Failed to create in-memory database"),
+    );
+
+    sqlx::migrate!("../migrations/sqlite")
+        .run(&*pool)
+        .await
+        .expect("Failed to run migrations");
+
+    let rest_state = RestStateImpl::new(pool);
+
+    // Provision default templates
+    rest_state
+        .template_storage()
+        .provision_defaults()
+        .await
+        .expect("Failed to provision default templates");
+
+    start_test_server(rest_state).await
+}
+
+#[tokio::test]
+async fn test_template_list() {
+    let server = setup_with_templates().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(server.url("/api/templates"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let tree: Vec<FileTreeEntry> = response.json().await.unwrap();
+    // Should have default templates
+    assert!(!tree.is_empty());
+}
+
+#[tokio::test]
+async fn test_template_crud() {
+    let server = setup_with_templates().await;
+    let client = reqwest::Client::new();
+
+    // Create a new template
+    let response = client
+        .put(server.url("/api/templates/test_template.typ"))
+        .body("Hello #sys.inputs.at(\"member\")")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Read it back
+    let response = client
+        .get(server.url("/api/templates/test_template.typ"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let content = response.text().await.unwrap();
+    assert_eq!(content, "Hello #sys.inputs.at(\"member\")");
+
+    // Update it
+    let response = client
+        .put(server.url("/api/templates/test_template.typ"))
+        .body("Updated content")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Read updated
+    let response = client
+        .get(server.url("/api/templates/test_template.typ"))
+        .send()
+        .await
+        .unwrap();
+    let content = response.text().await.unwrap();
+    assert_eq!(content, "Updated content");
+
+    // Delete it
+    let response = client
+        .delete(server.url("/api/templates/test_template.typ"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+    // Verify deleted
+    let response = client
+        .get(server.url("/api/templates/test_template.typ"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_template_read_nonexistent() {
+    let server = setup_with_templates().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(server.url("/api/templates/nonexistent.typ"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_template_path_traversal() {
+    let server = setup_with_templates().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(server.url("/api/templates/..%2F..%2Fetc%2Fpasswd"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_template_render_pdf() {
+    let server = setup_with_templates().await;
+    let client = reqwest::Client::new();
+
+    // First create a member
+    let member = sample_member();
+    let response = client
+        .post(server.url("/api/members"))
+        .json(&member)
+        .send()
+        .await
+        .unwrap();
+    let created: MemberTO = response.json().await.unwrap();
+    let member_id = created.id.unwrap();
+
+    // Create a simple template
+    let template = r#"
+#set page(paper: "a4")
+#let member = json.decode(sys.inputs.at("member"))
+Hello #member.first_name #member.last_name
+"#;
+    client
+        .put(server.url("/api/templates/simple.typ"))
+        .body(template)
+        .send()
+        .await
+        .unwrap();
+
+    // Render it
+    let response = client
+        .post(server.url(&format!(
+            "/api/templates/render/simple.typ/{}",
+            member_id
+        )))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers().get("content-type").unwrap(),
+        "application/pdf"
+    );
+    let bytes = response.bytes().await.unwrap();
+    assert!(bytes.starts_with(b"%PDF"));
+}
+
+#[tokio::test]
+async fn test_template_render_compilation_error() {
+    let server = setup_with_templates().await;
+    let client = reqwest::Client::new();
+
+    // Create a member
+    let member = sample_member();
+    let response = client
+        .post(server.url("/api/members"))
+        .json(&member)
+        .send()
+        .await
+        .unwrap();
+    let created: MemberTO = response.json().await.unwrap();
+    let member_id = created.id.unwrap();
+
+    // Create a broken template
+    client
+        .put(server.url("/api/templates/broken.typ"))
+        .body("#let x = \n// broken")
+        .send()
+        .await
+        .unwrap();
+
+    // Try to render
+    let response = client
+        .post(server.url(&format!(
+            "/api/templates/render/broken.typ/{}",
+            member_id
+        )))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_template_render_nonexistent_member() {
+    let server = setup_with_templates().await;
+    let client = reqwest::Client::new();
+
+    // Create a valid template
+    client
+        .put(server.url("/api/templates/valid.typ"))
+        .body("#set page(paper: \"a4\")\nHello")
+        .send()
+        .await
+        .unwrap();
+
+    // Render with non-existent member
+    let fake_id = uuid::Uuid::new_v4();
+    let response = client
+        .post(server.url(&format!(
+            "/api/templates/render/valid.typ/{}",
+            fake_id
+        )))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_template_subdirectory() {
+    let server = setup_with_templates().await;
+    let client = reqwest::Client::new();
+
+    // Create a template in a subdirectory (directory created automatically)
+    let response = client
+        .put(server.url("/api/templates/vorstand/einladung.typ"))
+        .body("Einladung content")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Read it back
+    let response = client
+        .get(server.url("/api/templates/vorstand/einladung.typ"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let content = response.text().await.unwrap();
+    assert_eq!(content, "Einladung content");
+
+    // List should show the directory
+    let response = client
+        .get(server.url("/api/templates"))
+        .send()
+        .await
+        .unwrap();
+    let tree: Vec<FileTreeEntry> = response.json().await.unwrap();
+    let has_vorstand = tree.iter().any(|e| {
+        matches!(e, FileTreeEntry::Directory { name, .. } if name == "vorstand")
+    });
+    assert!(has_vorstand, "Should have vorstand directory in tree");
+}
