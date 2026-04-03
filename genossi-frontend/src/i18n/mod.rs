@@ -139,7 +139,7 @@ pub enum Key {
     Active,
     Inactive,
     OnlyActiveMembers,
-    OnlyExitedMembers,
+    ExitedInYear,
     OnlyPendingMigration,
 
     // Validation

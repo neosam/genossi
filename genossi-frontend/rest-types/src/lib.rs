@@ -168,6 +168,12 @@ impl MemberTO {
             None => true,
         }
     }
+
+    pub fn exited_in_year(&self, reference_date: &time::Date) -> bool {
+        self.exit_date
+            .map(|d| d.year() == reference_date.year())
+            .unwrap_or(false)
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -513,5 +519,47 @@ mod tests {
             Some(Date::from_calendar_date(2026, Month::April, 1).unwrap()),
         );
         assert!(!member.is_active(&ref_date));
+    }
+
+    #[test]
+    fn test_exited_in_year_matching_year() {
+        let ref_date = Date::from_calendar_date(2026, Month::June, 15).unwrap();
+        let member = make_member(
+            Date::from_calendar_date(2025, Month::January, 1).unwrap(),
+            Some(Date::from_calendar_date(2026, Month::December, 31).unwrap()),
+        );
+        assert!(member.exited_in_year(&ref_date));
+    }
+
+    #[test]
+    fn test_exited_in_year_different_year() {
+        let ref_date = Date::from_calendar_date(2026, Month::June, 15).unwrap();
+        let member = make_member(
+            Date::from_calendar_date(2025, Month::January, 1).unwrap(),
+            Some(Date::from_calendar_date(2025, Month::March, 1).unwrap()),
+        );
+        assert!(!member.exited_in_year(&ref_date));
+    }
+
+    #[test]
+    fn test_exited_in_year_no_exit_date() {
+        let ref_date = Date::from_calendar_date(2026, Month::June, 15).unwrap();
+        let member = make_member(
+            Date::from_calendar_date(2025, Month::January, 1).unwrap(),
+            None,
+        );
+        assert!(!member.exited_in_year(&ref_date));
+    }
+
+    #[test]
+    fn test_exited_in_year_and_still_active() {
+        // Member exits Dec 31, 2026 — still active on June 15, 2026 but exited_in_year matches
+        let ref_date = Date::from_calendar_date(2026, Month::June, 15).unwrap();
+        let member = make_member(
+            Date::from_calendar_date(2025, Month::January, 1).unwrap(),
+            Some(Date::from_calendar_date(2026, Month::December, 31).unwrap()),
+        );
+        assert!(member.is_active(&ref_date));
+        assert!(member.exited_in_year(&ref_date));
     }
 }

@@ -4,6 +4,10 @@ pub fn is_active(member: &MemberTO, reference_date: &time::Date) -> bool {
     member.is_active(reference_date)
 }
 
+pub fn exited_in_year(member: &MemberTO, reference_date: &time::Date) -> bool {
+    member.exited_in_year(reference_date)
+}
+
 pub fn today() -> time::Date {
     let today = js_sys::Date::new_0();
     let year = today.get_full_year() as i32;

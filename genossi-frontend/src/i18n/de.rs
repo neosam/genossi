@@ -89,7 +89,7 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::Active => "Aktiv".into(),
         Key::Inactive => "Inaktiv".into(),
         Key::OnlyActiveMembers => "Nur aktive Mitglieder".into(),
-        Key::OnlyExitedMembers => "Nur ausgetretene Mitglieder".into(),
+        Key::ExitedInYear => "Ausgetreten in".into(),
         Key::OnlyPendingMigration => "Nur ausstehende Migrationen".into(),
 
         Key::Validation => "Validierung".into(),

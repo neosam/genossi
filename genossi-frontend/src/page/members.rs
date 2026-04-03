@@ -3,7 +3,7 @@ use dioxus::prelude::*;
 use crate::component::TopBar;
 use crate::i18n::use_i18n;
 use crate::i18n::Key;
-use crate::member_utils::{is_active, today};
+use crate::member_utils::{exited_in_year, is_active, today};
 use crate::router::Route;
 use crate::service::member::{refresh_members, MEMBERS};
 
@@ -40,15 +40,15 @@ pub fn Members() -> Element {
     });
 
     let mut reference_date = use_signal(today);
-    let mut only_active = use_signal(|| false);
-    let mut only_exited = use_signal(|| false);
+    let mut only_active = use_signal(|| true);
+    let mut filter_exited_in_year = use_signal(|| false);
     let mut only_pending_migration = use_signal(|| false);
 
     let members_state = MEMBERS.read();
     let filter_query = members_state.filter_query.clone();
     let ref_date = *reference_date.read();
     let show_only_active = *only_active.read();
-    let show_only_exited = *only_exited.read();
+    let show_exited_in_year = *filter_exited_in_year.read();
     let show_only_pending_migration = *only_pending_migration.read();
 
     let filtered_members: Vec<_> = members_state
@@ -74,8 +74,8 @@ pub fn Members() -> Element {
             }
         })
         .filter(|m| {
-            if show_only_exited {
-                !is_active(m, &ref_date)
+            if show_exited_in_year {
+                exited_in_year(m, &ref_date)
             } else {
                 true
             }
@@ -143,9 +143,6 @@ pub fn Members() -> Element {
                         checked: show_only_active,
                         oninput: move |e| {
                             only_active.set(e.value() == "true");
-                            if e.value() == "true" {
-                                only_exited.set(false);
-                            }
                         },
                     }
                     {i18n.t(Key::OnlyActiveMembers)}
@@ -154,15 +151,12 @@ pub fn Members() -> Element {
                     input {
                         r#type: "checkbox",
                         class: "rounded border-gray-300 text-blue-600 focus:ring-blue-500",
-                        checked: show_only_exited,
+                        checked: show_exited_in_year,
                         oninput: move |e| {
-                            only_exited.set(e.value() == "true");
-                            if e.value() == "true" {
-                                only_active.set(false);
-                            }
+                            filter_exited_in_year.set(e.value() == "true");
                         },
                     }
-                    {i18n.t(Key::OnlyExitedMembers)}
+                    {format!("{} {}", i18n.t(Key::ExitedInYear), ref_date.year())}
                 }
                 label { class: "flex items-center gap-2 text-sm text-gray-700 cursor-pointer",
                     input {
