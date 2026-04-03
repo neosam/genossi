@@ -376,6 +376,7 @@ pub async fn retry_job<S: MailRestState>(
     state: State<S>,
     Path(id): Path<String>,
 ) -> Response {
+    tracing::info!("retry_job called for job_id={}", id);
     error_handler(
         (async {
             let job_id = uuid::Uuid::parse_str(&id)

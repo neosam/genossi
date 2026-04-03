@@ -19,6 +19,30 @@ async fn get_send_interval<C: ConfigService>(config_service: &C) -> u64 {
         .unwrap_or(DEFAULT_SEND_INTERVAL_SECONDS)
 }
 
+async fn update_job_with_retry<J: MailJobDao>(job_dao: &J, job: &crate::dao::MailJob) -> bool {
+    for attempt in 1..=3 {
+        match job_dao.update(job).await {
+            Ok(()) => return true,
+            Err(e) => {
+                tracing::error!(
+                    "Worker: failed to update job {} (attempt {}/3): {:?}",
+                    job.id,
+                    attempt,
+                    e
+                );
+                if attempt < 3 {
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                }
+            }
+        }
+    }
+    tracing::error!(
+        "Worker: giving up on job update for {} after 3 attempts",
+        job.id
+    );
+    false
+}
+
 pub async fn start_mail_worker<C, J, R>(
     config_service: Arc<C>,
     job_dao: Arc<J>,
@@ -107,9 +131,7 @@ pub async fn start_mail_worker<C, J, R>(
         }
         job.version = uuid::Uuid::new_v4();
 
-        if let Err(e) = job_dao.update(&job).await {
-            tracing::error!("Worker: failed to update job {}: {:?}", job.id, e);
-        }
+        update_job_with_retry(job_dao.as_ref(), &job).await;
 
         // Wait configured interval
         let interval = get_send_interval(config_service.as_ref()).await;
@@ -155,7 +177,7 @@ async fn send_mail_for_recipient<C: ConfigService>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dao::{MailDaoError, MailJob, MailRecipient, MockMailJobDao, MockMailRecipientDao};
+    use crate::dao::{MailDaoError, MailJob, MockMailJobDao};
     use genossi_config::dao::ConfigEntry;
     use genossi_config::service::MockConfigService;
 
@@ -220,5 +242,58 @@ mod tests {
 
         let interval = get_send_interval(&config_mock).await;
         assert_eq!(interval, DEFAULT_SEND_INTERVAL_SECONDS);
+    }
+
+    fn sample_job() -> MailJob {
+        MailJob {
+            id: uuid::Uuid::new_v4(),
+            created: sample_datetime(),
+            deleted: None,
+            version: uuid::Uuid::new_v4(),
+            subject: Arc::from("Test"),
+            body: Arc::from("Body"),
+            status: Arc::from("running"),
+            total_count: 1,
+            sent_count: 0,
+            failed_count: 1,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_update_job_with_retry_succeeds_on_second_attempt() {
+        let mut job_dao = MockMailJobDao::new();
+        let call_count = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let call_count_clone = call_count.clone();
+
+        job_dao.expect_update().times(2).returning(move |_| {
+            let count = call_count_clone.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if count == 0 {
+                Err(MailDaoError::DatabaseError(Arc::from("transient error")))
+            } else {
+                Ok(())
+            }
+        });
+
+        let job = sample_job();
+        let result = update_job_with_retry(&job_dao, &job).await;
+        assert!(result);
+        assert_eq!(call_count.load(std::sync::atomic::Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn test_update_job_with_retry_fails_after_3_attempts() {
+        let mut job_dao = MockMailJobDao::new();
+        let call_count = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let call_count_clone = call_count.clone();
+
+        job_dao.expect_update().times(3).returning(move |_| {
+            call_count_clone.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Err(MailDaoError::DatabaseError(Arc::from("persistent error")))
+        });
+
+        let job = sample_job();
+        let result = update_job_with_retry(&job_dao, &job).await;
+        assert!(!result);
+        assert_eq!(call_count.load(std::sync::atomic::Ordering::SeqCst), 3);
     }
 }
