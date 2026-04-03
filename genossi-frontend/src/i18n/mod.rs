@@ -245,13 +245,6 @@ pub enum Key {
     SmtpSaving,
     AdvancedConfig,
 
-    // Member Selection
-    SelectedCount,
-    SendMailToSelected,
-    ShowRecipients,
-    HideRecipients,
-    NoEmailWarning,
-
     // Messages
     NoDataFound,
     ErrorLoadingData,

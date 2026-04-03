@@ -2,11 +2,9 @@ use dioxus::prelude::*;
 
 use crate::api;
 use crate::service::config::CONFIG;
-use crate::state::{MemberSelectionState, MemberState};
+use crate::state::MemberState;
 
 pub static MEMBERS: GlobalSignal<MemberState> = Signal::global(MemberState::default);
-pub static SELECTED_MEMBER_IDS: GlobalSignal<MemberSelectionState> =
-    Signal::global(MemberSelectionState::default);
 
 pub async fn refresh_members() {
     let config = CONFIG.read().clone();

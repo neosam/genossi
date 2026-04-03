@@ -2666,6 +2666,11 @@ async fn test_config_get_all_empty() {
 
     assert_eq!(response.status(), StatusCode::OK);
     let entries: Vec<ConfigEntryTO> = response.json().await.unwrap();
+    // Migration seeds mail_send_interval_seconds, so filter it out
+    let entries: Vec<_> = entries
+        .into_iter()
+        .filter(|e| e.key != "mail_send_interval_seconds")
+        .collect();
     assert!(entries.is_empty());
 }
 
@@ -2700,9 +2705,8 @@ async fn test_config_set_and_get() {
 
     assert_eq!(response.status(), StatusCode::OK);
     let entries: Vec<ConfigEntryTO> = response.json().await.unwrap();
-    assert_eq!(entries.len(), 1);
-    assert_eq!(entries[0].key, "smtp_host");
-    assert_eq!(entries[0].value, "mail.example.com");
+    let entry = entries.iter().find(|e| e.key == "smtp_host").expect("smtp_host entry not found");
+    assert_eq!(entry.value, "mail.example.com");
 }
 
 #[tokio::test]
@@ -2741,8 +2745,8 @@ async fn test_config_upsert() {
         .await
         .unwrap();
     let entries: Vec<ConfigEntryTO> = response.json().await.unwrap();
-    assert_eq!(entries.len(), 1);
-    assert_eq!(entries[0].value, "465");
+    let entry = entries.iter().find(|e| e.key == "smtp_port").expect("smtp_port entry not found");
+    assert_eq!(entry.value, "465");
 }
 
 #[tokio::test]
@@ -2776,7 +2780,7 @@ async fn test_config_delete() {
         .await
         .unwrap();
     let entries: Vec<ConfigEntryTO> = response.json().await.unwrap();
-    assert!(entries.is_empty());
+    assert!(entries.iter().all(|e| e.key != "test_key"));
 }
 
 #[tokio::test]
@@ -2818,10 +2822,9 @@ async fn test_config_secret_masking() {
         .await
         .unwrap();
     let entries: Vec<ConfigEntryTO> = response.json().await.unwrap();
-    assert_eq!(entries.len(), 1);
-    assert_eq!(entries[0].key, "smtp_pass");
-    assert_eq!(entries[0].value, "***");
-    assert_eq!(entries[0].value_type, "secret");
+    let entry = entries.iter().find(|e| e.key == "smtp_pass").expect("smtp_pass entry not found");
+    assert_eq!(entry.value, "***");
+    assert_eq!(entry.value_type, "secret");
 }
 
 #[tokio::test]

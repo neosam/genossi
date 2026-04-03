@@ -5,7 +5,7 @@ use crate::i18n::use_i18n;
 use crate::i18n::Key;
 use crate::member_utils::{exited_in_year, is_active, today};
 use crate::router::Route;
-use crate::service::member::{refresh_members, MEMBERS, SELECTED_MEMBER_IDS};
+use crate::service::member::{refresh_members, MEMBERS};
 
 fn format_date_iso(date: &time::Date) -> String {
     format!(
@@ -89,16 +89,6 @@ pub fn Members() -> Element {
         })
         .collect();
 
-    let selection = SELECTED_MEMBER_IDS.read();
-    let selected_count = selection.count();
-
-    // Determine header checkbox state
-    let filtered_ids: Vec<_> = filtered_members.iter().filter_map(|m| m.id).collect();
-    let all_filtered_selected = !filtered_ids.is_empty()
-        && filtered_ids.iter().all(|id| selection.is_selected(id));
-    let _some_filtered_selected = !all_filtered_selected
-        && filtered_ids.iter().any(|id| selection.is_selected(id));
-
     rsx! {
         TopBar {}
         div { class: "container mx-auto px-4 py-8",
@@ -181,29 +171,6 @@ pub fn Members() -> Element {
                 }
             }
 
-            // Selection action bar
-            if selected_count > 0 {
-                div { class: "mb-4 flex items-center gap-4 bg-blue-50 border border-blue-200 rounded-lg px-4 py-3",
-                    span { class: "text-sm font-medium text-blue-800",
-                        "{selected_count} {i18n.t(Key::SelectedCount)}"
-                    }
-                    button {
-                        class: "px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-medium",
-                        onclick: move |_| {
-                            nav.push(Route::MailPage {});
-                        },
-                        "✉ {i18n.t(Key::SendMailToSelected)}"
-                    }
-                    button {
-                        class: "px-3 py-2 text-sm text-gray-600 hover:text-gray-800",
-                        onclick: move |_| {
-                            SELECTED_MEMBER_IDS.write().clear();
-                        },
-                        {i18n.t(Key::Cancel)}
-                    }
-                }
-            }
-
             if members_state.loading {
                 div { class: "text-center py-8 text-gray-500",
                     {i18n.t(Key::Loading)}
@@ -221,35 +188,6 @@ pub fn Members() -> Element {
                     table { class: "w-full",
                         thead {
                             tr { class: "border-b bg-gray-50",
-                                th { class: "px-3 py-3 w-12",
-                                    {
-                                        let filtered_ids_clone = filtered_ids.clone();
-                                        rsx! {
-                                            div {
-                                                class: "flex items-center justify-center min-w-[44px] min-h-[44px] cursor-pointer",
-                                                onclick: move |_| {
-                                                    let mut sel = SELECTED_MEMBER_IDS.write();
-                                                    if all_filtered_selected {
-                                                        for id in &filtered_ids_clone {
-                                                            sel.selected_ids.retain(|i| i != id);
-                                                        }
-                                                    } else {
-                                                        for id in &filtered_ids_clone {
-                                                            if !sel.is_selected(id) {
-                                                                sel.selected_ids.push(*id);
-                                                            }
-                                                        }
-                                                    }
-                                                },
-                                                input {
-                                                    r#type: "checkbox",
-                                                    class: "w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 pointer-events-none",
-                                                    checked: all_filtered_selected,
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
                                 th { class: "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider",
                                     {i18n.t(Key::MemberNumber)}
                                 }
@@ -285,31 +223,14 @@ pub fn Members() -> Element {
                                     let member_id = member.id;
                                     let join_date = i18n.format_date(&member.join_date);
                                     let active = is_active(member, &ref_date);
-                                    let is_checked = member_id.map(|id| selection.is_selected(&id)).unwrap_or(false);
                                     rsx! {
                                         tr {
-                                            class: if is_checked { "border-b hover:bg-blue-50 cursor-pointer bg-blue-50" } else { "border-b hover:bg-gray-50 cursor-pointer" },
+                                            class: "border-b hover:bg-gray-50 cursor-pointer",
                                             onclick: move |_| {
                                                 if let Some(id) = member_id {
                                                     nav.push(Route::MemberDetails { id: id.to_string() });
                                                 }
                                             },
-                                            td {
-                                                class: "px-3 py-2",
-                                                onclick: move |e| {
-                                                    e.stop_propagation();
-                                                    if let Some(id) = member_id {
-                                                        SELECTED_MEMBER_IDS.write().toggle(id);
-                                                    }
-                                                },
-                                                div { class: "flex items-center justify-center min-w-[44px] min-h-[44px]",
-                                                    input {
-                                                        r#type: "checkbox",
-                                                        class: "w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 pointer-events-none",
-                                                        checked: is_checked,
-                                                    }
-                                                }
-                                            }
                                             td { class: "px-6 py-4 font-medium", "{member.member_number}" }
                                             td { class: "px-6 py-4", {member.last_name.clone()} }
                                             td { class: "px-6 py-4", {member.first_name.clone()} }

@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 use rest_types::MemberTO;
 use uuid::Uuid;
 
-use crate::api::{self, BulkRecipient, MailJobDetailTO, MailJobTO};
+use crate::api::{self, BulkRecipient, MailJobTO, MailJobDetailTO};
 use crate::auth::RequirePrivilege;
 use crate::component::TopBar;
 use crate::component::member_search::filter_members;
@@ -10,7 +10,7 @@ use crate::i18n::{use_i18n, Key};
 use crate::member_utils::{is_active, today};
 use crate::page::AccessDeniedPage;
 use crate::service::config::CONFIG;
-use crate::service::member::{refresh_members, MEMBERS, SELECTED_MEMBER_IDS};
+use crate::service::member::{refresh_members, MEMBERS};
 
 fn format_member(m: &MemberTO) -> String {
     format!("#{} {} {}", m.member_number, m.first_name, m.last_name)
@@ -54,26 +54,11 @@ pub fn MailPage() -> Element {
     let mut search_query = use_signal(|| String::new());
     let mut show_dropdown = use_signal(|| false);
 
-    // Recipients list expanded state
-    let mut recipients_expanded = use_signal(|| false);
-
     // Load members
     use_effect(move || {
         spawn(async move {
             refresh_members().await;
         });
-    });
-
-    // Pick up pre-selected members from GlobalSignal
-    use_effect(move || {
-        let pre_selected = {
-            let sel = SELECTED_MEMBER_IDS.read();
-            sel.selected_ids.clone()
-        };
-        if !pre_selected.is_empty() {
-            selected_member_ids.set(pre_selected);
-            SELECTED_MEMBER_IDS.write().clear();
-        }
     });
 
     let reload_jobs = move || {
@@ -109,19 +94,20 @@ pub fn MailPage() -> Element {
     };
 
     // Count selected members without email
-    let selected_without_email_count = {
+    let selected_without_email: Vec<String> = {
         let members = MEMBERS.read();
         let ids = selected_member_ids.read();
         ids.iter()
-            .filter(|id| {
-                members
-                    .items
-                    .iter()
-                    .find(|m| m.id == Some(**id))
-                    .map(|m| m.email.is_none())
-                    .unwrap_or(false)
+            .filter_map(|id| {
+                members.items.iter().find(|m| m.id == Some(*id)).and_then(|m| {
+                    if m.email.is_none() {
+                        Some(format_member(m))
+                    } else {
+                        None
+                    }
+                })
             })
-            .count()
+            .collect()
     };
 
     // Collect email addresses of selected members (only those with email)
@@ -139,8 +125,6 @@ pub fn MailPage() -> Element {
             })
             .count()
     };
-
-    let selected_count = selected_member_ids.read().len();
 
     rsx! {
         RequirePrivilege {
@@ -177,80 +161,42 @@ pub fn MailPage() -> Element {
                                     {i18n.t(Key::MailTo)}
                                 }
 
-                                // Collapsible recipient summary
-                                if selected_count > 0 {
-                                    div { class: "mb-2",
-                                        // Summary bar
-                                        div {
-                                            class: "flex items-center justify-between bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 cursor-pointer",
-                                            onclick: move |_| {
-                                                let current = *recipients_expanded.read();
-                                                recipients_expanded.set(!current);
-                                            },
-                                            div { class: "flex items-center gap-3",
-                                                span { class: "text-sm font-medium text-blue-800",
-                                                    "{selected_count} {i18n.t(Key::MailRecipients)}"
-                                                }
-                                                if selected_without_email_count > 0 {
-                                                    span { class: "text-sm text-amber-600",
-                                                        "({selected_without_email_count} {i18n.t(Key::NoEmailWarning)})"
-                                                    }
-                                                }
-                                            }
-                                            span { class: "text-sm text-blue-600 font-medium",
-                                                if *recipients_expanded.read() {
-                                                    {i18n.t(Key::HideRecipients)}
-                                                } else {
-                                                    {i18n.t(Key::ShowRecipients)}
-                                                }
-                                            }
-                                        }
-
-                                        // Expanded recipient list
-                                        if *recipients_expanded.read() {
-                                            div { class: "mt-2 max-h-60 overflow-y-auto border border-gray-200 rounded-lg",
-                                                {
-                                                    let members = MEMBERS.read();
-                                                    let ids = selected_member_ids.read().clone();
-                                                    rsx! {
-                                                        for id in ids.iter() {
-                                                            {
-                                                                let member = members.items.iter().find(|m| m.id == Some(*id));
-                                                                let member_id = *id;
-                                                                if let Some(m) = member {
-                                                                    let display = format_member(m);
-                                                                    let email_display = m.email.clone().unwrap_or_default();
-                                                                    let has_email = m.email.is_some();
-                                                                    rsx! {
-                                                                        div {
-                                                                            class: "flex items-center justify-between px-4 py-2 border-b border-gray-100 last:border-b-0 hover:bg-gray-50",
-                                                                            div { class: "flex-1 min-w-0",
-                                                                                span { class: "text-sm font-medium text-gray-900",
-                                                                                    "{display}"
-                                                                                }
-                                                                                if has_email {
-                                                                                    span { class: "ml-3 text-sm text-gray-500 truncate",
-                                                                                        "{email_display}"
-                                                                                    }
-                                                                                } else {
-                                                                                    span { class: "ml-3 text-sm text-amber-600",
-                                                                                        "(keine E-Mail)"
-                                                                                    }
-                                                                                }
-                                                                            }
-                                                                            button {
-                                                                                class: "ml-2 text-gray-400 hover:text-red-600 text-lg font-bold flex-shrink-0 min-w-[32px] min-h-[32px] flex items-center justify-center",
-                                                                                onclick: move |_| {
-                                                                                    selected_member_ids.write().retain(|id| *id != member_id);
-                                                                                },
-                                                                                "×"
-                                                                            }
-                                                                        }
+                                // Selected members as chips
+                                if !selected_member_ids.read().is_empty() {
+                                    div { class: "flex flex-wrap gap-2 mb-2",
+                                        {
+                                            let members = MEMBERS.read();
+                                            let ids = selected_member_ids.read();
+                                            rsx! {
+                                                for id in ids.iter() {
+                                                    {
+                                                        let member = members.items.iter().find(|m| m.id == Some(*id));
+                                                        let member_id = *id;
+                                                        if let Some(m) = member {
+                                                            let display = format_member(m);
+                                                            let has_email = m.email.is_some();
+                                                            let chip_class = if has_email {
+                                                                "inline-flex items-center gap-1 bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm"
+                                                            } else {
+                                                                "inline-flex items-center gap-1 bg-amber-100 text-amber-800 px-3 py-1 rounded-full text-sm"
+                                                            };
+                                                            rsx! {
+                                                                span { class: "{chip_class}",
+                                                                    "{display}"
+                                                                    if !has_email {
+                                                                        span { class: "text-xs", " (keine E-Mail)" }
                                                                     }
-                                                                } else {
-                                                                    rsx! {}
+                                                                    button {
+                                                                        class: "ml-1 text-current hover:text-red-600 font-bold",
+                                                                        onclick: move |_| {
+                                                                            selected_member_ids.write().retain(|id| *id != member_id);
+                                                                        },
+                                                                        "x"
+                                                                    }
                                                                 }
                                                             }
+                                                        } else {
+                                                            rsx! {}
                                                         }
                                                     }
                                                 }
@@ -354,6 +300,13 @@ pub fn MailPage() -> Element {
                                             },
                                             {i18n.t(Key::Cancel)}
                                         }
+                                    }
+                                }
+
+                                // Warning for members without email
+                                if !selected_without_email.is_empty() {
+                                    p { class: "text-sm text-amber-600 mt-1",
+                                        "{selected_without_email.len()} Mitglied(er) ohne E-Mail-Adresse werden übersprungen."
                                     }
                                 }
                             }
