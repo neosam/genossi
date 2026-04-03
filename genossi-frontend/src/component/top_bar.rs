@@ -22,6 +22,10 @@ pub fn TopBar() -> Element {
         .as_ref()
         .map(|a| a.has_privilege("admin"))
         .unwrap_or(false);
+    let show_templates = auth_info
+        .as_ref()
+        .map(|a| a.has_privilege("manage_members") || a.has_privilege("admin"))
+        .unwrap_or(false);
 
     rsx! {
         div { class: "flex bg-gray-800 text-white p-4 md:p-0 items-center print:hidden",
@@ -53,6 +57,11 @@ pub fn TopBar() -> Element {
                     if show_members {
                         li {
                             Link { class: "hover:underline px-3 py-2 md:py-4", to: Route::Validation {}, {i18n.t(Key::Validation)} }
+                        }
+                    }
+                    if show_templates {
+                        li {
+                            Link { class: "hover:underline px-3 py-2 md:py-4", to: Route::Templates {}, {i18n.t(Key::Templates)} }
                         }
                     }
                     if show_permissions {

@@ -33,19 +33,19 @@
 
 ## 5. Frontend: Template Management Page
 
-- [ ] 5.1 Add "Templates" navigation item (visible only for board members)
-- [ ] 5.2 Implement file tree component with collapsible directories
-- [ ] 5.3 Integrate CodeMirror editor with Typst syntax highlighting
-- [ ] 5.4 Implement file loading: click file in tree → load content into editor
-- [ ] 5.5 Implement save functionality: editor content → `PUT /api/templates/{path}`
-- [ ] 5.6 Implement unsaved changes warning when switching files
-- [ ] 5.7 Implement "Neue Datei" (New File) dialog with path input
-- [ ] 5.8 Implement "Neuer Ordner" (New Folder) dialog with path input
-- [ ] 5.9 Implement delete action on file tree items with confirmation
-- [ ] 5.10 Implement PDF preview: member selection dropdown + render + display
+- [x] 5.1 Add "Templates" navigation item (visible only for board members)
+- [x] 5.2 Implement file tree component with collapsible directories
+- [x] 5.3 Integrate CodeMirror editor with Typst syntax highlighting
+- [x] 5.4 Implement file loading: click file in tree → load content into editor
+- [x] 5.5 Implement save functionality: editor content → `PUT /api/templates/{path}`
+- [x] 5.6 Implement unsaved changes warning when switching files
+- [x] 5.7 Implement "Neue Datei" (New File) dialog with path input
+- [x] 5.8 Implement "Neuer Ordner" (New Folder) dialog with path input
+- [x] 5.9 Implement delete action on file tree items with confirmation
+- [x] 5.10 Implement PDF preview: member selection dropdown + render + display
 
 ## 6. Frontend: Member Details Integration
 
-- [ ] 6.1 Add "Dokument erstellen" (Generate Document) button/section to member details page
-- [ ] 6.2 Implement template selection dialog listing available templates
-- [ ] 6.3 Implement PDF generation and download for selected template + member
+- [x] 6.1 Add "Dokument erstellen" (Generate Document) button/section to member details page
+- [x] 6.2 Implement template selection dialog listing available templates
+- [x] 6.3 Implement PDF generation and download for selected template + member

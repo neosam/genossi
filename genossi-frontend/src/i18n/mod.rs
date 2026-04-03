@@ -166,6 +166,26 @@ pub enum Key {
     FlagValue,
     ComputedStatus,
 
+    // Templates
+    Templates,
+    TemplateEditor,
+    NewFile,
+    NewFolder,
+    Preview,
+    SaveTemplate,
+    DeleteTemplate,
+    ConfirmDeleteTemplate,
+    TemplatePath,
+    NoTemplates,
+    RenderPdf,
+    SelectMember,
+    GenerateDocument,
+    SelectTemplate,
+    TemplateRenderError,
+    UnsavedChanges,
+    UnsavedChangesWarning,
+    Discard,
+
     // Messages
     NoDataFound,
     ErrorLoadingData,

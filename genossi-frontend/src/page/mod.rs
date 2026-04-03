@@ -4,6 +4,7 @@ pub mod member_details;
 pub mod members;
 pub mod not_authenticated;
 pub mod permissions;
+pub mod templates;
 pub mod validation;
 
 pub use access_denied::AccessDeniedPage;
@@ -12,4 +13,5 @@ pub use member_details::MemberDetails;
 pub use members::Members;
 pub use not_authenticated::NotAuthenticated;
 pub use permissions::Permissions;
+pub use templates::Templates;
 pub use validation::Validation;

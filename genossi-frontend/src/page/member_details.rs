@@ -2,11 +2,12 @@ use dioxus::prelude::*;
 use rest_types::{ActionTypeTO, DocumentTypeTO, MemberActionTO, MemberDocumentTO, MemberTO, MigrationStatusTO};
 use uuid::Uuid;
 
-use crate::api;
+use crate::api::{self, FileTreeEntry};
 use crate::component::{MemberSearch, Modal, TopBar};
 use crate::i18n::use_i18n;
 use crate::i18n::Key;
 use crate::router::Route;
+use crate::service::auth::AUTH;
 use crate::service::config::CONFIG;
 
 fn action_type_label(i18n: &crate::i18n::I18n, at: &ActionTypeTO) -> String {
@@ -106,6 +107,10 @@ pub fn MemberDetails(id: String) -> Element {
     let mut action_transfer_member_id = use_signal(|| String::new());
     let mut action_effective_date = use_signal(|| String::new());
     let mut action_comment = use_signal(|| String::new());
+
+    // Generate document state
+    let mut show_generate_doc = use_signal(|| false);
+    let mut template_list = use_signal(|| Vec::<String>::new());
 
     // Load existing member + actions
     use_effect(move || {
@@ -1136,9 +1141,105 @@ pub fn MemberDetails(id: String) -> Element {
                                 }
                             }
                         }
+
+                        // === Generate Document Section ===
+                        {
+                            let is_board = AUTH.read().auth_info.as_ref()
+                                .map(|a| a.has_privilege("manage_members") || a.has_privilege("admin"))
+                                .unwrap_or(false);
+                            rsx! {
+                                if is_board && !is_new {
+                                    div { class: "mt-8",
+                                        div { class: "flex justify-between items-center mb-4",
+                                            h2 { class: "text-2xl font-bold", {i18n.t(Key::GenerateDocument)} }
+                                            button {
+                                                class: "px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 text-sm",
+                                                onclick: move |_| {
+                                                    spawn(async move {
+                                                        let config = CONFIG.read().clone();
+                                                        if let Ok(entries) = api::get_templates(&config).await {
+                                                            let paths = collect_template_paths(&entries);
+                                                            template_list.set(paths);
+                                                        }
+                                                        show_generate_doc.set(true);
+                                                    });
+                                                },
+                                                {i18n.t(Key::GenerateDocument)}
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Generate Document modal
+        if *show_generate_doc.read() {
+            Modal {
+                div { class: "space-y-4",
+                    h2 { class: "text-xl font-bold", {i18n.t(Key::SelectTemplate)} }
+                    if template_list.read().is_empty() {
+                        p { class: "text-gray-500", {i18n.t(Key::NoTemplates)} }
+                    } else {
+                        div { class: "max-h-96 overflow-y-auto space-y-1",
+                            for tpl_path in template_list.read().iter().cloned() {
+                                {
+                                    let path_for_click = tpl_path.clone();
+                                    rsx! {
+                                        button {
+                                            class: "w-full text-left px-3 py-2 hover:bg-blue-50 rounded border text-sm font-mono",
+                                            onclick: move |_| {
+                                                if let Some(member_id) = member.read().id {
+                                                    let path = path_for_click.clone();
+                                                    spawn(async move {
+                                                        let config = CONFIG.read().clone();
+                                                        match api::render_template_pdf(&config, &path, member_id).await {
+                                                            Ok(blob_url) => {
+                                                                let window = web_sys::window().unwrap();
+                                                                let _ = window.open_with_url_and_target(&blob_url, "_blank");
+                                                            }
+                                                            Err(e) => error.set(Some(format!("Render failed: {}", e))),
+                                                        }
+                                                    });
+                                                }
+                                                show_generate_doc.set(false);
+                                            },
+                                            "{tpl_path}"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    div { class: "flex justify-end pt-2",
+                        button {
+                            class: "px-4 py-2 bg-gray-300 rounded hover:bg-gray-400",
+                            onclick: move |_| show_generate_doc.set(false),
+                            {i18n.t(Key::Cancel)}
+                        }
                     }
                 }
             }
         }
     }
+}
+
+fn collect_template_paths(entries: &[FileTreeEntry]) -> Vec<String> {
+    let mut paths = Vec::new();
+    for entry in entries {
+        match entry {
+            FileTreeEntry::File { path, .. } => {
+                if !path.starts_with('_') {
+                    paths.push(path.clone());
+                }
+            }
+            FileTreeEntry::Directory { children, .. } => {
+                paths.extend(collect_template_paths(children));
+            }
+        }
+    }
+    paths
 }
