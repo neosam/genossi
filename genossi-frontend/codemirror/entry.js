@@ -1,24 +1,10 @@
 import { basicSetup } from "codemirror";
 import { EditorView } from "@codemirror/view";
 import { EditorState } from "@codemirror/state";
+import { typst } from "codemirror-lang-typst";
 
 const editors = new Map();
 let nextId = 1;
-let typstLang = null;
-let typstLoading = false;
-
-// Try to load typst language support asynchronously
-async function loadTypst() {
-  if (typstLang || typstLoading) return;
-  typstLoading = true;
-  try {
-    const mod = await import("codemirror-lang-typst");
-    typstLang = mod.typst;
-  } catch (e) {
-    console.warn("Typst syntax highlighting not available:", e.message);
-  }
-}
-loadTypst();
 
 window.createTypstEditor = function (elementId, content, onChangeCallback) {
   const container = document.getElementById(elementId);
@@ -40,10 +26,7 @@ window.createTypstEditor = function (elementId, content, onChangeCallback) {
     }
   });
 
-  const extensions = [basicSetup, updateListener];
-  if (typstLang) {
-    extensions.push(typstLang());
-  }
+  const extensions = [basicSetup, updateListener, typst()];
 
   const state = EditorState.create({
     doc: content || "",

@@ -1,4 +1,4 @@
-// Beitrittsbestätigung (Join Confirmation)
+// Beitrittsbestätigung (Join Confirmation )
 // Available variables (via sys.inputs):
 //   member.first_name, member.last_name, member.member_number,
 //   member.join_date, member.shares_at_joining, member.current_shares,
