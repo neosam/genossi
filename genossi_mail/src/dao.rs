@@ -53,4 +53,8 @@ pub trait MailRecipientDao: Send + Sync + 'static {
     async fn find_by_job_id(&self, job_id: Uuid) -> Result<Arc<[MailRecipient]>, MailDaoError>;
     async fn next_pending(&self) -> Result<Option<MailRecipient>, MailDaoError>;
     async fn update(&self, recipient: &MailRecipient) -> Result<(), MailDaoError>;
+    async fn find_sent_member_ids_by_job_id(
+        &self,
+        job_id: Uuid,
+    ) -> Result<Arc<[Uuid]>, MailDaoError>;
 }

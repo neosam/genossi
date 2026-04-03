@@ -1,10 +1,12 @@
 use dioxus::prelude::*;
 
+use crate::api::{self, MailJobTO};
 use crate::component::TopBar;
 use crate::i18n::use_i18n;
 use crate::i18n::Key;
 use crate::member_utils::{exited_in_year, is_active, today};
 use crate::router::Route;
+use crate::service::config::CONFIG;
 use crate::service::member::{refresh_members, MEMBERS};
 
 fn format_date_iso(date: &time::Date) -> String {
@@ -44,6 +46,24 @@ pub fn Members() -> Element {
     let mut filter_exited_in_year = use_signal(|| false);
     let mut only_pending_migration = use_signal(|| false);
 
+    // Mail job filter
+    let mut mail_jobs: Signal<Vec<MailJobTO>> = use_signal(Vec::new);
+    let mut selected_mail_job: Signal<Option<String>> = use_signal(|| None);
+    let mut not_reached_members: Signal<Option<Vec<rest_types::MemberTO>>> = use_signal(|| None);
+    let mut not_reached_loading = use_signal(|| false);
+
+    // Load mail jobs on mount
+    use_effect(move || {
+        spawn(async move {
+            let config = CONFIG.read().clone();
+            if !config.backend.is_empty() {
+                if let Ok(jobs) = api::get_mail_jobs(&config).await {
+                    mail_jobs.set(jobs);
+                }
+            }
+        });
+    });
+
     let members_state = MEMBERS.read();
     let filter_query = members_state.filter_query.clone();
     let ref_date = *reference_date.read();
@@ -51,8 +71,14 @@ pub fn Members() -> Element {
     let show_exited_in_year = *filter_exited_in_year.read();
     let show_only_pending_migration = *only_pending_migration.read();
 
-    let filtered_members: Vec<_> = members_state
-        .items
+    // Use not-reached members if a mail job filter is active, otherwise normal list
+    let base_members: Vec<_> = if let Some(ref nr_members) = *not_reached_members.read() {
+        nr_members.clone()
+    } else {
+        members_state.items.clone()
+    };
+
+    let filtered_members: Vec<_> = base_members
         .iter()
         .filter(|m| m.deleted.is_none())
         .filter(|m| {
@@ -169,9 +195,54 @@ pub fn Members() -> Element {
                     }
                     {i18n.t(Key::OnlyPendingMigration)}
                 }
+                if !mail_jobs.read().is_empty() {
+                    div { class: "flex items-center gap-2",
+                        label { class: "text-sm font-medium text-gray-700",
+                            {i18n.t(Key::NotReachedByMailJob)}
+                        }
+                        select {
+                            class: "px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm",
+                            value: selected_mail_job.read().clone().unwrap_or_else(|| "all".to_string()),
+                            onchange: move |e| {
+                                let val = e.value();
+                                if val == "all" {
+                                    selected_mail_job.set(None);
+                                    not_reached_members.set(None);
+                                } else {
+                                    selected_mail_job.set(Some(val.clone()));
+                                    not_reached_loading.set(true);
+                                    spawn(async move {
+                                        let config = CONFIG.read().clone();
+                                        match api::get_members_not_reached_by(&config, &val).await {
+                                            Ok(members) => {
+                                                not_reached_members.set(Some(members));
+                                            }
+                                            Err(e) => {
+                                                tracing::error!("Failed to load not-reached members: {e}");
+                                                not_reached_members.set(None);
+                                            }
+                                        }
+                                        not_reached_loading.set(false);
+                                    });
+                                }
+                            },
+                            option { value: "all", {i18n.t(Key::AllMembers)} }
+                            for job in mail_jobs.read().iter() {
+                                option {
+                                    value: "{job.id}",
+                                    {format!("{} ({})", job.subject, job.created.chars().take(10).collect::<String>())}
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
-            if members_state.loading {
+            if *not_reached_loading.read() {
+                div { class: "text-center py-8 text-gray-500",
+                    {i18n.t(Key::Loading)}
+                }
+            } else if members_state.loading {
                 div { class: "text-center py-8 text-gray-500",
                     {i18n.t(Key::Loading)}
                 }

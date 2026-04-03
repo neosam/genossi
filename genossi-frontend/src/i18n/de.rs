@@ -191,6 +191,9 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::SmtpSaving => "Speichere...".into(),
         Key::AdvancedConfig => "Erweiterte Konfiguration".into(),
 
+        Key::NotReachedByMailJob => "Nicht erreicht durch Mail-Job".into(),
+        Key::AllMembers => "Alle Mitglieder".into(),
+
         Key::NoDataFound => "Keine Daten gefunden.".into(),
         Key::ErrorLoadingData => "Fehler beim Laden der Daten.".into(),
         Key::ConfirmDelete => "Sind Sie sicher, dass Sie dieses Mitglied löschen möchten?".into(),

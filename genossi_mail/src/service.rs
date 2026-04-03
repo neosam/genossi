@@ -54,6 +54,12 @@ pub trait MailService: Send + Sync + 'static {
 
     /// Send a test email synchronously (no job, direct SMTP).
     async fn send_test_mail(&self, to: &str) -> Result<(), MailServiceError>;
+
+    /// Get member IDs that were successfully reached (status = "sent") for a given job.
+    async fn get_reached_member_ids(
+        &self,
+        job_id: Uuid,
+    ) -> Result<Arc<[Uuid]>, MailServiceError>;
 }
 
 pub struct SmtpConfig {
@@ -287,6 +293,18 @@ impl<C: ConfigService, J: MailJobDao, R: MailRecipientDao> MailService
             .map_err(|e| MailServiceError::SmtpError(Arc::from(e.to_string())))?;
 
         Ok(())
+    }
+
+    async fn get_reached_member_ids(
+        &self,
+        job_id: Uuid,
+    ) -> Result<Arc<[Uuid]>, MailServiceError> {
+        // Verify job exists
+        self.job_dao.find_by_id(job_id).await?;
+        Ok(self
+            .recipient_dao
+            .find_sent_member_ids_by_job_id(job_id)
+            .await?)
     }
 }
 
@@ -552,5 +570,65 @@ mod tests {
         let result = service.send_test_mail("to@example.com").await;
         // SMTP will fail since no real server, but it should be SmtpError not ConfigMissing
         assert!(matches!(result, Err(MailServiceError::SmtpError(_))));
+    }
+
+    #[tokio::test]
+    async fn test_get_reached_member_ids() {
+        let config_mock = MockConfigService::new();
+        let mut job_dao = MockMailJobDao::new();
+        let mut recipient_dao = MockMailRecipientDao::new();
+
+        let job_id = Uuid::new_v4();
+        let now = time::PrimitiveDateTime::new(
+            time::Date::from_calendar_date(2026, time::Month::April, 3).unwrap(),
+            time::Time::from_hms(10, 0, 0).unwrap(),
+        );
+
+        let job = MailJob {
+            id: job_id,
+            created: now,
+            deleted: None,
+            version: Uuid::new_v4(),
+            subject: Arc::from("Test"),
+            body: Arc::from("Body"),
+            status: Arc::from("done"),
+            total_count: 3,
+            sent_count: 2,
+            failed_count: 1,
+        };
+        let job_clone = job.clone();
+
+        let member1 = Uuid::new_v4();
+        let member2 = Uuid::new_v4();
+        let sent_ids: Arc<[Uuid]> = vec![member1, member2].into();
+        let sent_ids_clone = sent_ids.clone();
+
+        job_dao
+            .expect_find_by_id()
+            .returning(move |_| Ok(job_clone.clone()));
+        recipient_dao
+            .expect_find_sent_member_ids_by_job_id()
+            .returning(move |_| Ok(sent_ids_clone.clone()));
+
+        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao);
+        let result = service.get_reached_member_ids(job_id).await.unwrap();
+        assert_eq!(result.len(), 2);
+        assert!(result.contains(&member1));
+        assert!(result.contains(&member2));
+    }
+
+    #[tokio::test]
+    async fn test_get_reached_member_ids_not_found() {
+        let config_mock = MockConfigService::new();
+        let mut job_dao = MockMailJobDao::new();
+        let recipient_dao = MockMailRecipientDao::new();
+
+        job_dao
+            .expect_find_by_id()
+            .returning(|_| Err(crate::dao::MailDaoError::NotFound));
+
+        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao);
+        let result = service.get_reached_member_ids(Uuid::new_v4()).await;
+        assert!(matches!(result, Err(MailServiceError::NotFound)));
     }
 }

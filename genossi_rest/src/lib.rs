@@ -79,6 +79,23 @@ impl From<genossi_service::ServiceError> for RestError {
     }
 }
 
+impl From<genossi_mail::service::MailServiceError> for RestError {
+    fn from(e: genossi_mail::service::MailServiceError) -> Self {
+        match e {
+            genossi_mail::service::MailServiceError::NotFound => RestError::NotFound,
+            genossi_mail::service::MailServiceError::DataAccess(msg) => {
+                RestError::InternalError(msg.to_string())
+            }
+            genossi_mail::service::MailServiceError::ConfigMissing(msg) => {
+                RestError::BadRequest(msg.to_string())
+            }
+            genossi_mail::service::MailServiceError::SmtpError(msg) => {
+                RestError::InternalError(msg.to_string())
+            }
+        }
+    }
+}
+
 pub fn error_handler(result: Result<Response, RestError>) -> Response {
     match result {
         Ok(response) => response,

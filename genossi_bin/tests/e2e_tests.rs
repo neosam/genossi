@@ -3226,3 +3226,213 @@ async fn test_mail_test_with_config() {
     // Test mail with unreachable server returns 502 (SMTP error)
     assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
 }
+
+// ============================================================
+// Members Not Reached By Mail Job E2E Tests
+// ============================================================
+
+async fn setup_with_pool() -> (
+    genossi_rest::test_server::test_support::TestServer,
+    Arc<SqlitePool>,
+) {
+    let pool = Arc::new(
+        SqlitePool::connect("sqlite::memory:")
+            .await
+            .expect("Failed to create in-memory database"),
+    );
+
+    sqlx::migrate!("../migrations/sqlite")
+        .run(&*pool)
+        .await
+        .expect("Failed to run migrations");
+
+    let rest_state = RestStateImpl::new(pool.clone());
+    let server = start_test_server(rest_state).await;
+    (server, pool)
+}
+
+#[tokio::test]
+async fn test_members_not_reached_by_job() {
+    let (server, pool) = setup_with_pool().await;
+    let client = reqwest::Client::new();
+
+    // Create 3 members
+    let mut member1 = sample_member();
+    member1.email = Some("alice@example.com".to_string());
+    member1.first_name = "Alice".to_string();
+    member1.member_number = 1;
+
+    let mut member2 = sample_member();
+    member2.email = Some("bob@example.com".to_string());
+    member2.first_name = "Bob".to_string();
+    member2.member_number = 2;
+
+    let mut member3 = sample_member();
+    member3.email = None; // No email
+    member3.first_name = "Carol".to_string();
+    member3.member_number = 3;
+
+    let m1: MemberTO = client
+        .post(server.url("/api/members"))
+        .json(&member1)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let m2: MemberTO = client
+        .post(server.url("/api/members"))
+        .json(&member2)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let _m3: MemberTO = client
+        .post(server.url("/api/members"))
+        .json(&member3)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    // Create bulk mail job with member_ids for Alice (sent) and Bob (failed)
+    let response = client
+        .post(server.url("/api/mail/send-bulk"))
+        .json(&SendBulkMailRequest {
+            to_addresses: vec![
+                BulkRecipient {
+                    address: "alice@example.com".to_string(),
+                    member_id: m1.id.map(|id| id.to_string()),
+                },
+                BulkRecipient {
+                    address: "bob@example.com".to_string(),
+                    member_id: m2.id.map(|id| id.to_string()),
+                },
+            ],
+            subject: "GV Einladung".to_string(),
+            body: "Einladung zur Generalversammlung".to_string(),
+        })
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 202);
+    let job: MailJobTO = response.json().await.unwrap();
+
+    // Directly update recipient statuses in DB: Alice=sent, Bob=failed
+    let alice_member_id = m1.id.unwrap().as_bytes().to_vec();
+    let bob_member_id = m2.id.unwrap().as_bytes().to_vec();
+
+    sqlx::query("UPDATE mail_recipients SET status = 'sent' WHERE member_id = ?")
+        .bind(&alice_member_id)
+        .execute(&*pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE mail_recipients SET status = 'failed', error = 'Connection refused' WHERE member_id = ?")
+        .bind(&bob_member_id)
+        .execute(&*pool)
+        .await
+        .unwrap();
+
+    // Query not-reached-by endpoint
+    let response = client
+        .get(server.url(&format!("/api/members/not-reached-by/{}", job.id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let not_reached: Vec<MemberTO> = response.json().await.unwrap();
+
+    // Bob (failed) and Carol (not in job) should be in the list
+    // Alice (sent) should NOT be in the list
+    assert_eq!(not_reached.len(), 2);
+    let names: Vec<&str> = not_reached.iter().map(|m| m.first_name.as_str()).collect();
+    assert!(names.contains(&"Bob"), "Bob (failed) should be not-reached");
+    assert!(
+        names.contains(&"Carol"),
+        "Carol (no email, not in job) should be not-reached"
+    );
+    assert!(
+        !names.contains(&"Alice"),
+        "Alice (sent) should NOT be not-reached"
+    );
+}
+
+#[tokio::test]
+async fn test_members_not_reached_sent_excluded() {
+    let (server, pool) = setup_with_pool().await;
+    let client = reqwest::Client::new();
+
+    // Create 1 member
+    let mut member = sample_member();
+    member.email = Some("only@example.com".to_string());
+    member.first_name = "Only".to_string();
+
+    let created: MemberTO = client
+        .post(server.url("/api/members"))
+        .json(&member)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    // Create mail job with this member
+    let response = client
+        .post(server.url("/api/mail/send-bulk"))
+        .json(&SendBulkMailRequest {
+            to_addresses: vec![BulkRecipient {
+                address: "only@example.com".to_string(),
+                member_id: created.id.map(|id| id.to_string()),
+            }],
+            subject: "Test".to_string(),
+            body: "Test".to_string(),
+        })
+        .send()
+        .await
+        .unwrap();
+    let job: MailJobTO = response.json().await.unwrap();
+
+    // Mark as sent
+    let member_id_bytes = created.id.unwrap().as_bytes().to_vec();
+    sqlx::query("UPDATE mail_recipients SET status = 'sent' WHERE member_id = ?")
+        .bind(&member_id_bytes)
+        .execute(&*pool)
+        .await
+        .unwrap();
+
+    // Query not-reached: should be empty since only member was reached
+    let response = client
+        .get(server.url(&format!("/api/members/not-reached-by/{}", job.id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let not_reached: Vec<MemberTO> = response.json().await.unwrap();
+    assert!(
+        not_reached.is_empty(),
+        "All members were reached, list should be empty"
+    );
+}
+
+#[tokio::test]
+async fn test_members_not_reached_invalid_job_id() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(server.url(
+            "/api/members/not-reached-by/00000000-0000-0000-0000-000000000000",
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}

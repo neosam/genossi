@@ -246,6 +246,10 @@ pub enum Key {
     SmtpSaving,
     AdvancedConfig,
 
+    // Member filter
+    NotReachedByMailJob,
+    AllMembers,
+
     // Messages
     NoDataFound,
     ErrorLoadingData,

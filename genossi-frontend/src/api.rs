@@ -582,6 +582,21 @@ pub async fn retry_mail_job(config: &Config, id: &str) -> Result<MailJobTO, Stri
     response.json().await.map_err(|e| e.to_string())
 }
 
+pub async fn get_members_not_reached_by(
+    config: &Config,
+    job_id: &str,
+) -> Result<Vec<MemberTO>, String> {
+    info!("Fetching members not reached by job {job_id}");
+    let url = format!("{}/api/members/not-reached-by/{}", config.backend, job_id);
+    let response = reqwest::get(url).await.map_err(|e| e.to_string())?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        return Err(format!("{}: {}", status, text));
+    }
+    response.json().await.map_err(|e| e.to_string())
+}
+
 pub async fn send_test_mail(config: &Config, to_address: &str) -> Result<(), String> {
     info!("Sending test mail to: {to_address}");
     let url = format!("{}/api/mail/test", config.backend);

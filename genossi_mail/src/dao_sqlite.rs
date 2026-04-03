@@ -307,6 +307,26 @@ impl MailRecipientDao for MailRecipientDaoSqlite {
 
         Ok(())
     }
+
+    async fn find_sent_member_ids_by_job_id(
+        &self,
+        job_id: Uuid,
+    ) -> Result<Arc<[Uuid]>, MailDaoError> {
+        let job_id_bytes = job_id.as_bytes().to_vec();
+        let rows: Vec<(Vec<u8>,)> = sqlx::query_as(
+            "SELECT member_id FROM mail_recipients \
+             WHERE mail_job_id = ? AND status = 'sent' AND member_id IS NOT NULL",
+        )
+        .bind(job_id_bytes)
+        .fetch_all(self.pool.as_ref())
+        .await
+        .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
+
+        rows.iter()
+            .map(|(bytes,)| parse_uuid(bytes))
+            .collect::<Result<Vec<_>, _>>()
+            .map(|v| v.into())
+    }
 }
 
 #[cfg(test)]
@@ -574,5 +594,52 @@ mod tests {
         let found = recipient_dao.find_by_job_id(job.id).await.unwrap();
         assert_eq!(found[0].status.as_ref(), "failed");
         assert_eq!(found[0].error.as_deref(), Some("Connection refused"));
+    }
+
+    #[tokio::test]
+    async fn test_find_sent_member_ids_by_job_id() {
+        let pool = setup_db().await;
+        let job_dao = MailJobDaoSqlite::new(pool.clone());
+        let recipient_dao = MailRecipientDaoSqlite::new(pool);
+
+        let job = sample_job();
+        job_dao.create(&job).await.unwrap();
+
+        let member1 = Uuid::new_v4();
+        let member2 = Uuid::new_v4();
+        let member3 = Uuid::new_v4();
+
+        // sent recipient with member_id
+        let mut r1 = sample_recipient(job.id);
+        r1.member_id = Some(member1);
+        r1.status = Arc::from("sent");
+        recipient_dao.create(&r1).await.unwrap();
+
+        // failed recipient with member_id
+        let mut r2 = sample_recipient(job.id);
+        r2.member_id = Some(member2);
+        r2.status = Arc::from("failed");
+        recipient_dao.create(&r2).await.unwrap();
+
+        // sent recipient with member_id
+        let mut r3 = sample_recipient(job.id);
+        r3.member_id = Some(member3);
+        r3.status = Arc::from("sent");
+        recipient_dao.create(&r3).await.unwrap();
+
+        // sent recipient without member_id (should be excluded)
+        let mut r4 = sample_recipient(job.id);
+        r4.status = Arc::from("sent");
+        r4.member_id = None;
+        recipient_dao.create(&r4).await.unwrap();
+
+        let sent_ids = recipient_dao
+            .find_sent_member_ids_by_job_id(job.id)
+            .await
+            .unwrap();
+        assert_eq!(sent_ids.len(), 2);
+        assert!(sent_ids.contains(&member1));
+        assert!(sent_ids.contains(&member3));
+        assert!(!sent_ids.contains(&member2));
     }
 }

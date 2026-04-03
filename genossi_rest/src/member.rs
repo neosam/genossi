@@ -6,6 +6,7 @@ use axum::{
     Extension, Json, Router,
 };
 use genossi_rest_types::{MemberImportResultTO, MemberTO};
+use genossi_mail::service::MailService;
 use genossi_service::member::MemberService;
 use genossi_service::member_import::MemberImportService;
 use std::sync::Arc;
@@ -32,6 +33,10 @@ pub fn generate_route<RestState: RestStateDef>() -> Router<RestState> {
         .route("/{id}", put(update_member::<RestState>))
         .route("/{id}", delete(delete_member::<RestState>))
         .route("/import", post(import_members::<RestState>))
+        .route(
+            "/not-reached-by/{job_id}",
+            get(get_members_not_reached_by::<RestState>),
+        )
 }
 
 #[instrument(skip(rest_state))]
@@ -276,6 +281,58 @@ pub async fn import_members<RestState: RestStateDef>(
     )
 }
 
+#[instrument(skip(rest_state))]
+#[utoipa::path(
+    get,
+    tag = "Members",
+    path = "/not-reached-by/{job_id}",
+    params(
+        ("job_id" = String, Path, description = "Mail job UUID"),
+    ),
+    responses(
+        (status = 200, description = "Members not reached by the given mail job", body = [MemberTO]),
+        (status = 404, description = "Mail job not found"),
+        (status = 401, description = "Unauthorized"),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
+pub async fn get_members_not_reached_by<RestState: RestStateDef>(
+    rest_state: State<RestState>,
+    Extension(context): Extension<Context>,
+    Path(job_id): Path<String>,
+) -> Response {
+    error_handler(
+        (async {
+            let job_id = uuid::Uuid::parse_str(&job_id)
+                .map_err(|_| crate::RestError::NotFound)?;
+
+            let reached_ids = rest_state
+                .mail_service()
+                .get_reached_member_ids(job_id)
+                .await?;
+
+            let all_members = rest_state
+                .member_service()
+                .get_all(crate::extract_auth_context(Some(context))?, None)
+                .await?;
+
+            let not_reached: Vec<MemberTO> = all_members
+                .iter()
+                .filter(|m| m.deleted.is_none())
+                .filter(|m| !reached_ids.contains(&m.id))
+                .map(MemberTO::from)
+                .collect();
+
+            Ok(Response::builder()
+                .status(200)
+                .header("Content-Type", "application/json")
+                .body(Body::new(serde_json::to_string(&not_reached).unwrap()))
+                .unwrap())
+        })
+        .await,
+    )
+}
+
 #[derive(OpenApi)]
 #[openapi(
     paths(
@@ -284,7 +341,8 @@ pub async fn import_members<RestState: RestStateDef>(
         create_member,
         update_member,
         delete_member,
-        import_members
+        import_members,
+        get_members_not_reached_by
     ),
     components(schemas(MemberTO, MemberImportResultTO, genossi_rest_types::MemberImportErrorTO, MemberImportUpload)),
     tags((name = "Members", description = "Member management endpoints"))
