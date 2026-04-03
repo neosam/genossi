@@ -1,6 +1,8 @@
 use dioxus::prelude::*;
 
+pub use crate::page::ConfigPage;
 pub use crate::page::Home;
+pub use crate::page::MailPage;
 pub use crate::page::MemberDetails;
 pub use crate::page::Members;
 pub use crate::page::Permissions;
@@ -21,4 +23,8 @@ pub enum Route {
     Validation {},
     #[route("/templates")]
     Templates {},
+    #[route("/config")]
+    ConfigPage {},
+    #[route("/mail")]
+    MailPage {},
 }

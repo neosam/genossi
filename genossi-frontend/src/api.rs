@@ -391,6 +391,163 @@ pub async fn render_template_pdf(config: &Config, path: &str, member_id: Uuid) -
     Ok(blob_url)
 }
 
+// Config API (backend config store)
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ConfigEntryTO {
+    pub key: String,
+    pub value: String,
+    pub value_type: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SetConfigRequest {
+    pub value: String,
+    pub value_type: String,
+}
+
+pub async fn get_config_entries(config: &Config) -> Result<Vec<ConfigEntryTO>, reqwest::Error> {
+    info!("Fetching config entries");
+    let url = format!("{}/api/config", config.backend);
+    let response = reqwest::get(url).await?;
+    response.error_for_status_ref()?;
+    Ok(response.json().await?)
+}
+
+pub async fn set_config_entry(
+    config: &Config,
+    key: &str,
+    value: &str,
+    value_type: &str,
+) -> Result<ConfigEntryTO, reqwest::Error> {
+    info!("Setting config entry: {key}");
+    let url = format!("{}/api/config/{}", config.backend, key);
+    let body = SetConfigRequest {
+        value: value.to_string(),
+        value_type: value_type.to_string(),
+    };
+    let response = reqwest::Client::new().put(url).json(&body).send().await?;
+    response.error_for_status_ref()?;
+    Ok(response.json().await?)
+}
+
+pub async fn delete_config_entry(config: &Config, key: &str) -> Result<(), reqwest::Error> {
+    info!("Deleting config entry: {key}");
+    let url = format!("{}/api/config/{}", config.backend, key);
+    reqwest::Client::new()
+        .delete(url)
+        .send()
+        .await?
+        .error_for_status_ref()?;
+    Ok(())
+}
+
+// Mail API
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SentMailTO {
+    pub id: String,
+    pub created: String,
+    pub to_address: String,
+    pub subject: String,
+    pub body: String,
+    pub status: String,
+    pub error: Option<String>,
+    pub sent_at: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SendMailRequest {
+    pub to_address: String,
+    pub subject: String,
+    pub body: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SendBulkMailRequest {
+    pub to_addresses: Vec<String>,
+    pub subject: String,
+    pub body: String,
+}
+
+pub async fn send_mail(
+    config: &Config,
+    to_address: &str,
+    subject: &str,
+    body: &str,
+) -> Result<SentMailTO, String> {
+    info!("Sending mail to: {to_address}");
+    let url = format!("{}/api/mail/send", config.backend);
+    let req = SendMailRequest {
+        to_address: to_address.to_string(),
+        subject: subject.to_string(),
+        body: body.to_string(),
+    };
+    let response = reqwest::Client::new()
+        .post(url)
+        .json(&req)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        return Err(format!("{}: {}", status, text));
+    }
+    response.json().await.map_err(|e| e.to_string())
+}
+
+pub async fn send_bulk_mail(
+    config: &Config,
+    to_addresses: &[String],
+    subject: &str,
+    body: &str,
+) -> Result<Vec<SentMailTO>, String> {
+    info!("Sending bulk mail to {} recipients", to_addresses.len());
+    let url = format!("{}/api/mail/send-bulk", config.backend);
+    let req = SendBulkMailRequest {
+        to_addresses: to_addresses.to_vec(),
+        subject: subject.to_string(),
+        body: body.to_string(),
+    };
+    let response = reqwest::Client::new()
+        .post(url)
+        .json(&req)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        return Err(format!("{}: {}", status, text));
+    }
+    response.json().await.map_err(|e| e.to_string())
+}
+
+pub async fn get_sent_mails(config: &Config) -> Result<Vec<SentMailTO>, reqwest::Error> {
+    info!("Fetching sent mails");
+    let url = format!("{}/api/mail/sent", config.backend);
+    let response = reqwest::get(url).await?;
+    response.error_for_status_ref()?;
+    Ok(response.json().await?)
+}
+
+pub async fn send_test_mail(config: &Config, to_address: &str) -> Result<SentMailTO, String> {
+    info!("Sending test mail to: {to_address}");
+    let url = format!("{}/api/mail/test", config.backend);
+    let req = serde_json::json!({ "to_address": to_address });
+    let response = reqwest::Client::new()
+        .post(url)
+        .json(&req)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        return Err(format!("{}: {}", status, text));
+    }
+    response.json().await.map_err(|e| e.to_string())
+}
+
 // Validation API
 pub async fn get_validation(config: &Config) -> Result<ValidationResultTO, reqwest::Error> {
     info!("Fetching validation results");
