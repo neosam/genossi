@@ -39,6 +39,16 @@ impl DocumentType {
     pub fn is_singleton(&self) -> bool {
         matches!(self, DocumentType::JoinDeclaration | DocumentType::JoinConfirmation)
     }
+
+    /// Returns the Typst template path for document types that support generation.
+    /// Returns `None` for types without a template mapping (e.g. `Other`, `ShareIncrease`).
+    pub fn template_path(&self) -> Option<&str> {
+        match self {
+            DocumentType::JoinConfirmation => Some("join_confirmation.typ"),
+            DocumentType::JoinDeclaration => Some("join_declaration.typ"),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

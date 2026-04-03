@@ -7,7 +7,9 @@ use axum::{
 };
 use genossi_rest_types::MemberDocumentTO;
 use genossi_service::document_storage::DocumentStorage;
+use genossi_service::member::MemberService;
 use genossi_service::member_document::{DocumentType, MemberDocumentService, UploadDocument};
+use genossi_service::template::TemplateError;
 use std::sync::Arc;
 use tracing::instrument;
 use utoipa::{OpenApi, ToSchema};
@@ -32,6 +34,10 @@ pub fn generate_route<RestState: RestStateDef>() -> Router<RestState> {
     Router::new()
         .route("/", get(list_documents::<RestState>))
         .route("/", post(upload_document::<RestState>))
+        .route(
+            "/generate/{document_type}",
+            post(generate_document::<RestState>),
+        )
         .route("/{document_id}", get(download_document::<RestState>))
         .route("/{document_id}", delete(delete_document::<RestState>))
 }
@@ -277,9 +283,113 @@ pub async fn delete_document<RestState: RestStateDef>(
     )
 }
 
+#[instrument(skip(rest_state))]
+#[utoipa::path(
+    post,
+    tag = "Member Documents",
+    path = "/generate/{document_type}",
+    params(
+        ("member_id" = Uuid, Path, description = "Member ID"),
+        ("document_type" = String, Path, description = "Document type identifier (e.g. join_confirmation)"),
+    ),
+    responses(
+        (status = 201, description = "Document generated and stored", body = MemberDocumentTO),
+        (status = 400, description = "Invalid document type or template error"),
+        (status = 401, description = "Unauthorized"),
+        (status = 404, description = "Member or template not found"),
+        (status = 409, description = "Document of this type already exists"),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
+pub async fn generate_document<RestState: RestStateDef>(
+    rest_state: State<RestState>,
+    Extension(context): Extension<Context>,
+    Path((member_id, document_type_str)): Path<(Uuid, String)>,
+) -> Response {
+    error_handler(
+        (async {
+            let auth = crate::extract_auth_context(Some(context))?;
+
+            // Resolve document type from identifier
+            let doc_type = DocumentType::from_str(&document_type_str).ok_or_else(|| {
+                RestError::BadRequest(format!("Unknown document type: {}", document_type_str))
+            })?;
+
+            // Get template path from mapping
+            let template_path = doc_type.template_path().ok_or_else(|| {
+                RestError::BadRequest(format!(
+                    "Document type '{}' does not support generation",
+                    document_type_str
+                ))
+            })?;
+
+            // Get member data
+            let member = rest_state
+                .member_service()
+                .get(member_id, auth.clone(), None)
+                .await
+                .map_err(RestError::from)?;
+
+            // Render PDF
+            let pdf_bytes = rest_state
+                .pdf_generator()
+                .render(
+                    template_path,
+                    rest_state.template_storage().base_path(),
+                    &member,
+                )
+                .map_err(|e| match e {
+                    TemplateError::NotFound => RestError::NotFound,
+                    TemplateError::RenderError(msg) => RestError::BadRequest(msg.to_string()),
+                    other => RestError::InternalError(format!("{:?}", other)),
+                })?;
+
+            // Derive filename: e.g. "join_confirmation_1001_mustermann_max.pdf"
+            let base_name = template_path.replace(".typ", "");
+            let filename = format!(
+                "{}_{}_{}_{}.pdf",
+                base_name,
+                member.member_number,
+                member.last_name.to_lowercase(),
+                member.first_name.to_lowercase(),
+            );
+
+            // Upload as MemberDocument (singleton check happens in service)
+            let upload = UploadDocument {
+                member_id,
+                document_type: doc_type,
+                description: None,
+                file_name: filename,
+                mime_type: "application/pdf".to_string(),
+                data: pdf_bytes.clone(),
+            };
+
+            let doc = rest_state
+                .member_document_service()
+                .upload(upload, auth, None)
+                .await?;
+
+            // Save file to storage
+            rest_state
+                .document_storage()
+                .save(&doc.relative_path, &pdf_bytes)
+                .await
+                .map_err(|e| RestError::InternalError(format!("Failed to save file: {}", e)))?;
+
+            let to = MemberDocumentTO::from(&doc);
+            Ok(Response::builder()
+                .status(201)
+                .header("Content-Type", "application/json")
+                .body(Body::new(serde_json::to_string(&to).unwrap()))
+                .unwrap())
+        })
+        .await,
+    )
+}
+
 #[derive(OpenApi)]
 #[openapi(
-    paths(list_documents, upload_document, download_document, delete_document),
+    paths(list_documents, upload_document, download_document, delete_document, generate_document),
     components(schemas(MemberDocumentTO, DocumentUpload)),
     tags((name = "Member Documents", description = "Member document management endpoints"))
 )]

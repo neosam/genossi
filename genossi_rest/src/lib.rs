@@ -56,6 +56,7 @@ pub fn extract_auth_context(context: Option<Context>) -> Result<genossi_service:
 pub enum RestError {
     NotFound,
     BadRequest(String),
+    Conflict(String),
     Unauthorized,
     InternalError(String),
 }
@@ -72,6 +73,7 @@ impl From<genossi_service::ServiceError> for RestError {
                 RestError::BadRequest(messages.join(", "))
             }
             genossi_service::ServiceError::PermissionDenied => RestError::Unauthorized,
+            genossi_service::ServiceError::Conflict(msg) => RestError::Conflict(msg.to_string()),
             _ => RestError::InternalError(format!("{:?}", e)),
         }
     }
@@ -86,6 +88,10 @@ pub fn error_handler(result: Result<Response, RestError>) -> Response {
             .unwrap(),
         Err(RestError::BadRequest(msg)) => Response::builder()
             .status(400)
+            .body(Body::from(msg))
+            .unwrap(),
+        Err(RestError::Conflict(msg)) => Response::builder()
+            .status(409)
             .body(Body::from(msg))
             .unwrap(),
         Err(RestError::Unauthorized) => Response::builder()

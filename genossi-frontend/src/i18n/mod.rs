@@ -134,6 +134,7 @@ pub enum Key {
     NoDocuments,
     UploadDocument,
     Uploaded,
+    GenerateAndStore,
 
     ReferenceDate,
     Active,

@@ -270,6 +270,30 @@ pub fn document_download_url(config: &Config, member_id: Uuid, document_id: Uuid
     )
 }
 
+pub async fn generate_member_document(
+    config: &Config,
+    member_id: Uuid,
+    document_type: &str,
+) -> Result<MemberDocumentTO, String> {
+    info!("Generating document {document_type} for member {member_id}");
+    let url = format!(
+        "{}/api/members/{member_id}/documents/generate/{document_type}",
+        config.backend
+    );
+    let response = reqwest::Client::new()
+        .post(url)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if response.status() == 409 {
+        return Err("Document of this type already exists".to_string());
+    }
+
+    let response = response.error_for_status().map_err(|e| e.to_string())?;
+    response.json().await.map_err(|e| e.to_string())
+}
+
 // Template API
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type")]

@@ -78,22 +78,20 @@ impl<Deps: MemberDocumentServiceDeps> MemberDocumentService
             .await?
             .ok_or(ServiceError::EntityNotFound(upload.member_id))?;
 
-        // Singleton replacement: soft-delete existing document of same type
+        // Singleton check: block upload if document of same type already exists
         if upload.document_type.is_singleton() {
             let existing_docs = self
                 .member_document_dao
                 .find_by_member_id(upload.member_id, tx.clone())
                 .await?;
-            for doc in existing_docs.iter() {
-                if doc.document_type.as_ref() == upload.document_type.as_str() {
-                    let mut to_delete = doc.clone();
-                    let now = time::OffsetDateTime::now_utc();
-                    to_delete.deleted =
-                        Some(time::PrimitiveDateTime::new(now.date(), now.time()));
-                    self.member_document_dao
-                        .update(&to_delete, PROCESS, tx.clone())
-                        .await?;
-                }
+            let already_exists = existing_docs
+                .iter()
+                .any(|doc| doc.document_type.as_ref() == upload.document_type.as_str());
+            if already_exists {
+                return Err(ServiceError::Conflict(Arc::from(format!(
+                    "A document of type '{}' already exists for this member",
+                    upload.document_type.as_str()
+                ))));
             }
         }
 
@@ -257,5 +255,19 @@ mod tests {
     #[test]
     fn test_document_type_from_invalid() {
         assert!(DocumentType::from_str("invalid").is_none());
+    }
+
+    #[test]
+    fn test_document_type_template_path() {
+        assert_eq!(
+            DocumentType::JoinConfirmation.template_path(),
+            Some("join_confirmation.typ")
+        );
+        assert_eq!(
+            DocumentType::JoinDeclaration.template_path(),
+            Some("join_declaration.typ")
+        );
+        assert_eq!(DocumentType::ShareIncrease.template_path(), None);
+        assert_eq!(DocumentType::Other.template_path(), None);
     }
 }

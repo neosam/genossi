@@ -1686,7 +1686,7 @@ async fn test_document_upload_list_download_delete() {
 }
 
 #[tokio::test]
-async fn test_document_singleton_replacement() {
+async fn test_document_singleton_blocks_duplicate() {
     let server = setup().await;
     let client = reqwest::Client::new();
 
@@ -1711,7 +1711,75 @@ async fn test_document_singleton_replacement() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::CREATED);
 
-    // Upload second join_declaration (should replace first)
+    // Upload second join_declaration (should be blocked with 409)
+    let form = reqwest::multipart::Form::new()
+        .text("document_type", "join_declaration")
+        .part(
+            "file",
+            reqwest::multipart::Part::bytes(b"second".to_vec())
+                .file_name("second.pdf")
+                .mime_str("application/pdf")
+                .unwrap(),
+        );
+    let response = client
+        .post(server.url(&format!("/api/members/{}/documents", member_id)))
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+
+    // List should still show only the first one
+    let response = client
+        .get(server.url(&format!("/api/members/{}/documents", member_id)))
+        .send()
+        .await
+        .unwrap();
+    let docs: Vec<MemberDocumentTO> = response.json().await.unwrap();
+    assert_eq!(docs.len(), 1);
+    assert_eq!(docs[0].file_name, "first.pdf");
+}
+
+#[tokio::test]
+async fn test_document_singleton_allows_reupload_after_delete() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let member = create_test_member(&client, &server).await;
+    let member_id = member.id.unwrap();
+
+    // Upload first join_declaration
+    let form = reqwest::multipart::Form::new()
+        .text("document_type", "join_declaration")
+        .part(
+            "file",
+            reqwest::multipart::Part::bytes(b"first".to_vec())
+                .file_name("first.pdf")
+                .mime_str("application/pdf")
+                .unwrap(),
+        );
+    let response = client
+        .post(server.url(&format!("/api/members/{}/documents", member_id)))
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let doc: MemberDocumentTO = response.json().await.unwrap();
+
+    // Delete the document
+    let response = client
+        .delete(server.url(&format!(
+            "/api/members/{}/documents/{}",
+            member_id,
+            doc.id.unwrap()
+        )))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+    // Upload again (should succeed now)
     let form = reqwest::multipart::Form::new()
         .text("document_type", "join_declaration")
         .part(
@@ -1728,16 +1796,6 @@ async fn test_document_singleton_replacement() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::CREATED);
-
-    // List should only show the new one
-    let response = client
-        .get(server.url(&format!("/api/members/{}/documents", member_id)))
-        .send()
-        .await
-        .unwrap();
-    let docs: Vec<MemberDocumentTO> = response.json().await.unwrap();
-    assert_eq!(docs.len(), 1);
-    assert_eq!(docs[0].file_name, "second.pdf");
 }
 
 #[tokio::test]
@@ -1862,6 +1920,92 @@ async fn test_document_empty_list() {
     assert_eq!(response.status(), StatusCode::OK);
     let docs: Vec<MemberDocumentTO> = response.json().await.unwrap();
     assert!(docs.is_empty());
+}
+
+// === Document Generation E2E Tests ===
+
+#[tokio::test]
+async fn test_generate_document_success() {
+    let server = setup_with_templates().await;
+    let client = reqwest::Client::new();
+
+    let member = create_test_member(&client, &server).await;
+    let member_id = member.id.unwrap();
+
+    // Generate join_confirmation document
+    let response = client
+        .post(server.url(&format!(
+            "/api/members/{}/documents/generate/join_confirmation",
+            member_id
+        )))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let doc: MemberDocumentTO = response.json().await.unwrap();
+    assert_eq!(doc.document_type, "join_confirmation");
+    assert_eq!(doc.file_name, "join_confirmation_1_mustermann_max.pdf");
+    assert_eq!(doc.mime_type, "application/pdf");
+
+    // Verify document appears in list
+    let response = client
+        .get(server.url(&format!("/api/members/{}/documents", member_id)))
+        .send()
+        .await
+        .unwrap();
+    let docs: Vec<MemberDocumentTO> = response.json().await.unwrap();
+    assert_eq!(docs.len(), 1);
+    assert_eq!(docs[0].document_type, "join_confirmation");
+}
+
+#[tokio::test]
+async fn test_generate_document_duplicate_blocked() {
+    let server = setup_with_templates().await;
+    let client = reqwest::Client::new();
+
+    let member = create_test_member(&client, &server).await;
+    let member_id = member.id.unwrap();
+
+    // Generate first
+    let response = client
+        .post(server.url(&format!(
+            "/api/members/{}/documents/generate/join_confirmation",
+            member_id
+        )))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    // Generate again — should be blocked
+    let response = client
+        .post(server.url(&format!(
+            "/api/members/{}/documents/generate/join_confirmation",
+            member_id
+        )))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+}
+
+#[tokio::test]
+async fn test_generate_document_unknown_type() {
+    let server = setup_with_templates().await;
+    let client = reqwest::Client::new();
+
+    let member = create_test_member(&client, &server).await;
+    let member_id = member.id.unwrap();
+
+    let response = client
+        .post(server.url(&format!(
+            "/api/members/{}/documents/generate/nonexistent_type",
+            member_id
+        )))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
 
 // === Auto Member Creation Tests ===

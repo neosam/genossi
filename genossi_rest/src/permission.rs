@@ -687,6 +687,7 @@ fn service_error_to_rest_error(error: ServiceError) -> RestError {
         ServiceError::InternalError(msg) => RestError::InternalError(msg.to_string()),
         ServiceError::SessionExpired => RestError::Unauthorized,
         ServiceError::AuthenticationFailed => RestError::Unauthorized,
+        ServiceError::Conflict(msg) => RestError::Conflict(msg.to_string()),
     }
 }
 

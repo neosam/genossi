@@ -84,6 +84,7 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::NoDocuments => "No documents yet.".into(),
         Key::UploadDocument => "Upload Document".into(),
         Key::Uploaded => "Uploaded".into(),
+        Key::GenerateAndStore => "Generate & Store".into(),
 
         Key::ReferenceDate => "Reference Date".into(),
         Key::Active => "Active".into(),

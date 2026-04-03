@@ -913,14 +913,46 @@ pub fn MemberDetails(id: String) -> Element {
                         div { class: "mt-8",
                             div { class: "flex justify-between items-center mb-4",
                                 h2 { class: "text-2xl font-bold", {i18n.t(Key::Documents)} }
-                                button {
-                                    class: "px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm",
-                                    onclick: move |_| {
-                                        show_upload_form.set(true);
-                                        doc_type.set(DocumentTypeTO::JoinDeclaration);
-                                        doc_description.set(String::new());
-                                    },
-                                    {i18n.t(Key::UploadDocument)}
+                                div { class: "flex gap-2",
+                                    // Generate buttons for types that have template mappings and no existing document
+                                    {
+                                        let has_join_confirmation = documents.read().iter().any(|d| d.document_type == "join_confirmation");
+                                        let gen_label = format!("{}: {}", i18n.t(Key::DocJoinConfirmation), i18n.t(Key::GenerateAndStore));
+                                        let error_label = i18n.t(Key::DocJoinConfirmation).to_string();
+                                        rsx! {
+                                            if !has_join_confirmation {
+                                                button {
+                                                    class: "px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 text-sm",
+                                                    onclick: move |_| {
+                                                        let err_label = error_label.clone();
+                                                        if let Some(member_id) = member.read().id {
+                                                            spawn(async move {
+                                                                let config = CONFIG.read().clone();
+                                                                match api::generate_member_document(&config, member_id, "join_confirmation").await {
+                                                                    Ok(_) => {
+                                                                        if let Ok(data) = api::get_member_documents(&config, member_id).await {
+                                                                            *documents.write() = data;
+                                                                        }
+                                                                    }
+                                                                    Err(e) => error.set(Some(format!("{}: {}", err_label, e))),
+                                                                }
+                                                            });
+                                                        }
+                                                    },
+                                                    "{gen_label}"
+                                                }
+                                            }
+                                        }
+                                    }
+                                    button {
+                                        class: "px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm",
+                                        onclick: move |_| {
+                                            show_upload_form.set(true);
+                                            doc_type.set(DocumentTypeTO::JoinDeclaration);
+                                            doc_description.set(String::new());
+                                        },
+                                        {i18n.t(Key::UploadDocument)}
+                                    }
                                 }
                             }
 
@@ -1063,7 +1095,7 @@ pub fn MemberDetails(id: String) -> Element {
                                     {i18n.t(Key::NoDocuments)}
                                 }
                             } else {
-                                div { class: "bg-white rounded-lg shadow overflow-hidden",
+                                div { class: "bg-white rounded-lg shadow overflow-x-auto",
                                     table { class: "min-w-full divide-y divide-gray-200",
                                         thead { class: "bg-gray-50",
                                             tr {
@@ -1094,11 +1126,11 @@ pub fn MemberDetails(id: String) -> Element {
                                                     rsx! {
                                                         tr { class: "hover:bg-gray-50",
                                                             td { class: "px-4 py-3 text-sm", {doc_type_label} }
-                                                            td { class: "px-4 py-3 text-sm", {doc_clone.file_name.clone()} }
+                                                            td { class: "px-4 py-3 text-sm break-all", {doc_clone.file_name.clone()} }
                                                             td { class: "px-4 py-3 text-sm text-gray-500",
                                                                 {doc_clone.description.clone().unwrap_or_default()}
                                                             }
-                                                            td { class: "px-4 py-3 text-sm flex gap-2",
+                                                            td { class: "px-4 py-3 text-sm flex gap-2 whitespace-nowrap",
                                                                 a {
                                                                     class: "text-blue-600 hover:text-blue-800 text-xs",
                                                                     href: "{download_url}",

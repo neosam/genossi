@@ -22,6 +22,7 @@ pub enum ServiceError {
     ValidationError(Vec<ValidationFailureItem>),
     PermissionDenied,
     InternalError(Arc<str>),
+    Conflict(Arc<str>),
     Unauthorized,
     SessionExpired,
     AuthenticationFailed,
