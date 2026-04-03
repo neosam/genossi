@@ -24,6 +24,8 @@ tower-sessions = { workspace = true }
 axum-oidc = { workspace = true, optional = true }
 http = { workspace = true }
 genossi_service_impl = { path = "../genossi_service_impl" }
+genossi_config = { path = "../genossi_config" }
+genossi_mail = { path = "../genossi_mail" }
 
 [features]
 default = ["mock_auth"]

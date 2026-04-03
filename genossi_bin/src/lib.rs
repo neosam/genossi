@@ -163,6 +163,11 @@ impl ValidationServiceDeps for ValidationServiceDependencies {
 type ValidationService =
     genossi_service_impl::validation::ValidationServiceImpl<ValidationServiceDependencies>;
 
+type ConfigDao = genossi_config::dao_sqlite::ConfigDaoSqlite;
+type ConfigService = genossi_config::service::ConfigServiceImpl<ConfigDao>;
+type SentMailDao = genossi_mail::dao_sqlite::SentMailDaoSqlite;
+type MailServiceType = genossi_mail::service::MailServiceImpl<ConfigService, SentMailDao>;
+
 // RestStateImpl with all services
 #[derive(Clone)]
 pub struct RestStateImpl {
@@ -176,6 +181,8 @@ pub struct RestStateImpl {
     validation_service: Arc<ValidationService>,
     template_storage: Arc<genossi_service_impl::template_storage::TemplateStorage>,
     pdf_generator: Arc<genossi_service_impl::pdf_generation::PdfGenerator>,
+    config_service: Arc<ConfigService>,
+    mail_service: Arc<MailServiceType>,
 }
 
 impl RestStateImpl {
@@ -262,6 +269,14 @@ impl RestStateImpl {
         let pdf_generator =
             Arc::new(genossi_service_impl::pdf_generation::PdfGenerator::new());
 
+        let config_dao = ConfigDao::new(pool.clone());
+        let config_service = Arc::new(ConfigService::new(config_dao));
+
+        let sent_mail_dao = SentMailDao::new(pool.clone());
+        let config_dao_for_mail = ConfigDao::new(pool.clone());
+        let config_service_for_mail = ConfigService::new(config_dao_for_mail);
+        let mail_service = Arc::new(MailServiceType::new(config_service_for_mail, sent_mail_dao));
+
         Self {
             member_service,
             member_import_service,
@@ -273,7 +288,23 @@ impl RestStateImpl {
             validation_service,
             template_storage,
             pdf_generator,
+            config_service,
+            mail_service,
         }
+    }
+}
+
+impl genossi_mail::rest::MailRestState for RestStateImpl {
+    type MailService = MailServiceType;
+    fn mail_service(&self) -> Arc<Self::MailService> {
+        self.mail_service.clone()
+    }
+}
+
+impl genossi_config::rest::ConfigRestState for RestStateImpl {
+    type ConfigService = ConfigService;
+    fn config_service(&self) -> Arc<Self::ConfigService> {
+        self.config_service.clone()
     }
 }
 

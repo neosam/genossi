@@ -7,9 +7,11 @@ members = [
     "genossi_rest",
     "genossi_rest_types",
     "genossi_bin",
+    "genossi_config",
+    "genossi_mail",
 ]
 resolver = "2"
-exclude = ["genossi-frontend"]
+exclude = ["genossi-frontend", ".claude/worktrees/codemirror-template-editor/genossi-frontend", ".claude/worktrees/smtp-config-ui/genossi-frontend"]
 
 [workspace.package]
 version = "0.1.0"
@@ -39,5 +41,6 @@ tower-sessions = "0.14"
 calamine = "0.26"
 axum-oidc = "0.6"
 http = "1.1"
+lettre = { version = "0.11", default-features = false, features = ["tokio1-rustls-tls", "smtp-transport", "builder", "hostname"] }
 typst = "0.14"
 typst-pdf = "0.14"

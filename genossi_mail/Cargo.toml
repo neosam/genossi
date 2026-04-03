@@ -1,0 +1,21 @@
+[package]
+name = "genossi_mail"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+genossi_config = { path = "../genossi_config" }
+async-trait = { workspace = true }
+mockall = { workspace = true }
+sqlx = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+time = { workspace = true }
+axum = { workspace = true }
+utoipa = { workspace = true }
+lettre = { workspace = true }

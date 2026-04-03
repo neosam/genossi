@@ -6,6 +6,8 @@ use genossi_rest_types::{
     ActionTypeTO, MemberActionTO, MemberDocumentTO, MemberImportResultTO, MemberTO,
     MigrationStatusTO, ValidationResultTO,
 };
+use genossi_config::rest::{ConfigEntryTO, SetConfigRequest};
+use genossi_mail::rest::{SendBulkMailRequest, SendMailRequest, SentMailTO, TestMailRequest};
 use reqwest::StatusCode;
 use sqlx::SqlitePool;
 use std::sync::Arc;
@@ -2645,4 +2647,469 @@ async fn test_template_subdirectory() {
         matches!(e, FileTreeEntry::Directory { name, .. } if name == "vorstand")
     });
     assert!(has_vorstand, "Should have vorstand directory in tree");
+}
+
+// ============================================================
+// Config E2E Tests
+// ============================================================
+
+#[tokio::test]
+async fn test_config_get_all_empty() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(server.url("/api/config"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let entries: Vec<ConfigEntryTO> = response.json().await.unwrap();
+    assert!(entries.is_empty());
+}
+
+#[tokio::test]
+async fn test_config_set_and_get() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Set a config entry
+    let response = client
+        .put(server.url("/api/config/smtp_host"))
+        .json(&SetConfigRequest {
+            value: "mail.example.com".to_string(),
+            value_type: "string".to_string(),
+        })
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let entry: ConfigEntryTO = response.json().await.unwrap();
+    assert_eq!(entry.key, "smtp_host");
+    assert_eq!(entry.value, "mail.example.com");
+    assert_eq!(entry.value_type, "string");
+
+    // Get all and verify
+    let response = client
+        .get(server.url("/api/config"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let entries: Vec<ConfigEntryTO> = response.json().await.unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].key, "smtp_host");
+    assert_eq!(entries[0].value, "mail.example.com");
+}
+
+#[tokio::test]
+async fn test_config_upsert() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Set initial value
+    client
+        .put(server.url("/api/config/smtp_port"))
+        .json(&SetConfigRequest {
+            value: "587".to_string(),
+            value_type: "int".to_string(),
+        })
+        .send()
+        .await
+        .unwrap();
+
+    // Update to new value
+    let response = client
+        .put(server.url("/api/config/smtp_port"))
+        .json(&SetConfigRequest {
+            value: "465".to_string(),
+            value_type: "int".to_string(),
+        })
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Verify updated
+    let response = client
+        .get(server.url("/api/config"))
+        .send()
+        .await
+        .unwrap();
+    let entries: Vec<ConfigEntryTO> = response.json().await.unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].value, "465");
+}
+
+#[tokio::test]
+async fn test_config_delete() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Create entry
+    client
+        .put(server.url("/api/config/test_key"))
+        .json(&SetConfigRequest {
+            value: "test_value".to_string(),
+            value_type: "string".to_string(),
+        })
+        .send()
+        .await
+        .unwrap();
+
+    // Delete it
+    let response = client
+        .delete(server.url("/api/config/test_key"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+    // Verify gone
+    let response = client
+        .get(server.url("/api/config"))
+        .send()
+        .await
+        .unwrap();
+    let entries: Vec<ConfigEntryTO> = response.json().await.unwrap();
+    assert!(entries.is_empty());
+}
+
+#[tokio::test]
+async fn test_config_delete_nonexistent() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .delete(server.url("/api/config/nonexistent"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_config_secret_masking() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Set a secret
+    let response = client
+        .put(server.url("/api/config/smtp_pass"))
+        .json(&SetConfigRequest {
+            value: "supersecretpassword".to_string(),
+            value_type: "secret".to_string(),
+        })
+        .send()
+        .await
+        .unwrap();
+
+    // The set response returns the value as-is (not masked) since user just provided it
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // But GET all should mask it
+    let response = client
+        .get(server.url("/api/config"))
+        .send()
+        .await
+        .unwrap();
+    let entries: Vec<ConfigEntryTO> = response.json().await.unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].key, "smtp_pass");
+    assert_eq!(entries[0].value, "***");
+    assert_eq!(entries[0].value_type, "secret");
+}
+
+#[tokio::test]
+async fn test_config_validation_invalid_int() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .put(server.url("/api/config/smtp_port"))
+        .json(&SetConfigRequest {
+            value: "not_a_number".to_string(),
+            value_type: "int".to_string(),
+        })
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_config_validation_invalid_bool() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .put(server.url("/api/config/some_flag"))
+        .json(&SetConfigRequest {
+            value: "yes".to_string(),
+            value_type: "bool".to_string(),
+        })
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+// ============================================================
+// Mail E2E Tests
+// ============================================================
+
+#[tokio::test]
+async fn test_mail_sent_list_empty() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(server.url("/api/mail/sent"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let mails: Vec<SentMailTO> = response.json().await.unwrap();
+    assert!(mails.is_empty());
+}
+
+#[tokio::test]
+async fn test_mail_send_missing_config() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/mail/send"))
+        .json(&SendMailRequest {
+            to_address: "user@example.com".to_string(),
+            subject: "Test".to_string(),
+            body: "Hello".to_string(),
+        })
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_mail_send_with_config_stores_failed() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Set up SMTP config pointing to unreachable server
+    for (key, value, vtype) in [
+        ("smtp_host", "127.0.0.1", "string"),
+        ("smtp_port", "19999", "int"),
+        ("smtp_user", "user", "string"),
+        ("smtp_pass", "pass", "secret"),
+        ("smtp_from", "sender@example.com", "string"),
+        ("smtp_tls", "none", "string"),
+    ] {
+        client
+            .put(server.url(&format!("/api/config/{}", key)))
+            .json(&SetConfigRequest {
+                value: value.to_string(),
+                value_type: vtype.to_string(),
+            })
+            .send()
+            .await
+            .unwrap();
+    }
+
+    // Send mail (will fail because no SMTP server running)
+    let response = client
+        .post(server.url("/api/mail/send"))
+        .json(&SendMailRequest {
+            to_address: "user@example.com".to_string(),
+            subject: "Test Subject".to_string(),
+            body: "Test Body".to_string(),
+        })
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let sent: SentMailTO = response.json().await.unwrap();
+    assert_eq!(sent.status, "failed");
+    assert!(sent.error.is_some());
+    assert_eq!(sent.to_address, "user@example.com");
+    assert_eq!(sent.subject, "Test Subject");
+
+    // Verify it appears in sent list
+    let response = client
+        .get(server.url("/api/mail/sent"))
+        .send()
+        .await
+        .unwrap();
+    let mails: Vec<SentMailTO> = response.json().await.unwrap();
+    assert_eq!(mails.len(), 1);
+    assert_eq!(mails[0].status, "failed");
+}
+
+#[tokio::test]
+async fn test_mail_send_bulk_with_config() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Set up SMTP config pointing to unreachable server
+    for (key, value, vtype) in [
+        ("smtp_host", "127.0.0.1", "string"),
+        ("smtp_port", "19999", "int"),
+        ("smtp_user", "user", "string"),
+        ("smtp_pass", "pass", "secret"),
+        ("smtp_from", "sender@example.com", "string"),
+        ("smtp_tls", "none", "string"),
+    ] {
+        client
+            .put(server.url(&format!("/api/config/{}", key)))
+            .json(&SetConfigRequest {
+                value: value.to_string(),
+                value_type: vtype.to_string(),
+            })
+            .send()
+            .await
+            .unwrap();
+    }
+
+    // Send bulk mail to 3 recipients
+    let response = client
+        .post(server.url("/api/mail/send-bulk"))
+        .json(&SendBulkMailRequest {
+            to_addresses: vec![
+                "alice@example.com".to_string(),
+                "bob@example.com".to_string(),
+                "carol@example.com".to_string(),
+            ],
+            subject: "Bulk Test".to_string(),
+            body: "Hello everyone".to_string(),
+        })
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let results: Vec<SentMailTO> = response.json().await.unwrap();
+    assert_eq!(results.len(), 3);
+    assert_eq!(results[0].to_address, "alice@example.com");
+    assert_eq!(results[1].to_address, "bob@example.com");
+    assert_eq!(results[2].to_address, "carol@example.com");
+    for r in &results {
+        assert_eq!(r.status, "failed"); // no real SMTP server
+        assert_eq!(r.subject, "Bulk Test");
+    }
+
+    // All 3 should appear in sent list
+    let response = client
+        .get(server.url("/api/mail/sent"))
+        .send()
+        .await
+        .unwrap();
+    let mails: Vec<SentMailTO> = response.json().await.unwrap();
+    assert_eq!(mails.len(), 3);
+}
+
+#[tokio::test]
+async fn test_mail_send_bulk_empty_list() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/mail/send-bulk"))
+        .json(&SendBulkMailRequest {
+            to_addresses: vec![],
+            subject: "Empty".to_string(),
+            body: "Body".to_string(),
+        })
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let results: Vec<SentMailTO> = response.json().await.unwrap();
+    assert!(results.is_empty());
+}
+
+#[tokio::test]
+async fn test_mail_send_bulk_missing_config() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/mail/send-bulk"))
+        .json(&SendBulkMailRequest {
+            to_addresses: vec!["user@example.com".to_string()],
+            subject: "Test".to_string(),
+            body: "Body".to_string(),
+        })
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_mail_test_missing_config() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/mail/test"))
+        .json(&TestMailRequest {
+            to_address: "admin@example.com".to_string(),
+        })
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_mail_test_with_config_stores_result() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Set up SMTP config pointing to unreachable server
+    for (key, value, vtype) in [
+        ("smtp_host", "127.0.0.1", "string"),
+        ("smtp_port", "19999", "int"),
+        ("smtp_user", "user", "string"),
+        ("smtp_pass", "pass", "secret"),
+        ("smtp_from", "sender@example.com", "string"),
+        ("smtp_tls", "none", "string"),
+    ] {
+        client
+            .put(server.url(&format!("/api/config/{}", key)))
+            .json(&SetConfigRequest {
+                value: value.to_string(),
+                value_type: vtype.to_string(),
+            })
+            .send()
+            .await
+            .unwrap();
+    }
+
+    let response = client
+        .post(server.url("/api/mail/test"))
+        .json(&TestMailRequest {
+            to_address: "test@example.com".to_string(),
+        })
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let result: SentMailTO = response.json().await.unwrap();
+    assert_eq!(result.status, "failed");
+    assert_eq!(result.subject, "Genossi Test-E-Mail");
+    assert_eq!(result.to_address, "test@example.com");
 }

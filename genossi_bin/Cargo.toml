@@ -27,6 +27,8 @@ genossi_service = { path = "../genossi_service" }
 genossi_service_impl = { path = "../genossi_service_impl" }
 genossi_rest = { path = "../genossi_rest" }
 genossi_rest_types = { path = "../genossi_rest_types" }
+genossi_config = { path = "../genossi_config" }
+genossi_mail = { path = "../genossi_mail" }
 async-trait = { workspace = true }
 axum = { workspace = true }
 dotenv = { workspace = true }

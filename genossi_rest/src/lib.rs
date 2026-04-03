@@ -108,7 +108,7 @@ type ContextType = MockContext;
 type ContextType = AuthenticatedContext;
 
 #[async_trait]
-pub trait RestStateDef: Clone + Send + Sync + 'static {
+pub trait RestStateDef: Clone + Send + Sync + 'static + genossi_config::rest::ConfigRestState + genossi_mail::rest::MailRestState {
     type MemberService: genossi_service::member::MemberService<Context = ContextType>
         + Send
         + Sync
@@ -157,7 +157,9 @@ pub trait RestStateDef: Clone + Send + Sync + 'static {
         (path = "/api/members/{member_id}/documents", api = member_document::ApiDoc),
         (path = "/api/permission", api = permission::ApiDoc),
         (path = "/api/validation", api = validation::ApiDoc),
-        (path = "/api/templates", api = template::ApiDoc)
+        (path = "/api/templates", api = template::ApiDoc),
+        (path = "/api/config", api = genossi_config::rest::ApiDoc),
+        (path = "/api/mail", api = genossi_mail::rest::ApiDoc)
     )
 )]
 pub struct ApiDoc;
@@ -305,6 +307,8 @@ pub async fn create_app<RestState: RestStateDef>(rest_state: RestState) -> Route
         .nest("/api/validation", validation::generate_route())
         .nest("/api/templates", template::generate_route())
         .nest("/api/templates/render", template::generate_render_route())
+        .nest("/api/config", genossi_config::rest::generate_route())
+        .nest("/api/mail", genossi_mail::rest::generate_route())
         .with_state(rest_state.clone())
         .layer(middleware::from_fn_with_state(
             rest_state.clone(),
