@@ -190,6 +190,12 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::SmtpSaving => "Saving...".into(),
         Key::AdvancedConfig => "Advanced Configuration".into(),
 
+        Key::SelectedCount => "selected".into(),
+        Key::SendMailToSelected => "Send Mail".into(),
+        Key::ShowRecipients => "Show Recipients".into(),
+        Key::HideRecipients => "Hide Recipients".into(),
+        Key::NoEmailWarning => "without email address will be skipped".into(),
+
         Key::NoDataFound => "No data found.".into(),
         Key::ErrorLoadingData => "Error loading data.".into(),
         Key::ConfirmDelete => "Are you sure you want to delete this member?".into(),
