@@ -8,3 +8,5 @@ inventurly.db
 result
 inventurly-test.qcow2
 genossi_bin/templates/
+genossi-frontend/codemirror/node_modules/
+.claude/worktrees/
