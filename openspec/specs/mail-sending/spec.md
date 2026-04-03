@@ -76,6 +76,28 @@ The system SHALL expose `POST /api/mail/send` accepting a JSON body with `to_add
 - **WHEN** `POST /api/mail/send` is called without `to_address`
 - **THEN** the system returns a 422 validation error
 
+### Requirement: Bulk mail sending endpoint
+The system SHALL expose `POST /api/mail/send-bulk` accepting a JSON body with `to_addresses` (array of strings), `subject`, and `body` fields. The system sends one individually addressed email per recipient, stores one SentMail entry per recipient, and returns all results as an array.
+
+#### Scenario: Bulk send to multiple recipients
+- **WHEN** `POST /api/mail/send-bulk` is called with `{"to_addresses": ["a@example.com", "b@example.com"], "subject": "Test", "body": "Hello"}`
+- **THEN** the system sends one email to each address individually, stores each result as a separate SentMail entity, and returns both SentMail entries
+
+#### Scenario: Bulk send with empty list
+- **WHEN** `POST /api/mail/send-bulk` is called with an empty `to_addresses` array
+- **THEN** the system returns an empty array without attempting SMTP connection
+
+#### Scenario: Bulk send partial failure
+- **WHEN** `POST /api/mail/send-bulk` is called with multiple addresses and some fail
+- **THEN** the system continues sending to remaining addresses, stores each result individually (sent or failed), and returns all results
+
+### Requirement: Bulk mail batching
+The system SHALL process bulk mail recipients in batches (default: 10 per batch) with a brief pause between batches to avoid overwhelming the SMTP server.
+
+#### Scenario: Large recipient list
+- **WHEN** `POST /api/mail/send-bulk` is called with 25 recipients
+- **THEN** the system processes them in batches of 10, pausing briefly between batches
+
 ### Requirement: Sent mail history endpoint
 The system SHALL expose `GET /api/mail/sent` returning all stored SentMail entities ordered by creation time descending.
 
