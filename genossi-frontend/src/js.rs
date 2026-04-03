@@ -1,6 +1,26 @@
 use js_sys::{wasm_bindgen::JsValue, Date};
 use wasm_bindgen::prelude::*;
 
+// CodeMirror interop functions
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(catch, js_namespace = window, js_name = createTypstEditor)]
+    pub fn create_typst_editor(
+        element_id: &str,
+        content: &str,
+        on_change: &Closure<dyn FnMut(String)>,
+    ) -> Result<JsValue, JsValue>;
+
+    #[wasm_bindgen(js_namespace = window, js_name = setEditorContent)]
+    pub fn set_editor_content(editor_id: &JsValue, content: &str);
+
+    #[wasm_bindgen(js_namespace = window, js_name = getEditorContent)]
+    pub fn get_editor_content(editor_id: &JsValue) -> String;
+
+    #[wasm_bindgen(js_namespace = window, js_name = destroyEditor)]
+    pub fn destroy_editor(editor_id: &JsValue);
+}
+
 #[allow(dead_code)]
 pub fn get_current_year() -> u32 {
     current_datetime().to_iso_week_date().0 as u32

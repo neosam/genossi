@@ -1,9 +1,12 @@
 use dioxus::prelude::*;
+use js_sys::wasm_bindgen::JsValue;
 use uuid::Uuid;
+use wasm_bindgen::prelude::*;
 
 use crate::api::{self, FileTreeEntry};
 use crate::component::{MemberSearch, Modal, TopBar};
 use crate::i18n::{use_i18n, Key};
+use crate::js;
 use crate::service::config::CONFIG;
 use crate::service::member::refresh_members;
 
@@ -98,6 +101,10 @@ pub fn Templates() -> Element {
     let mut error = use_signal(|| None::<String>);
     let mut success_msg = use_signal(|| None::<String>);
 
+    // CodeMirror editor state
+    let mut editor_id: Signal<Option<JsValue>> = use_signal(|| None);
+    let mut editor_mounted = use_signal(|| false);
+
     // Modal states
     let mut show_new_file = use_signal(|| false);
     let mut show_new_folder = use_signal(|| false);
@@ -116,6 +123,60 @@ pub fn Templates() -> Element {
         let original = original_content.read().clone();
         selected_path.read().is_some() && editor != original
     };
+
+    // Initialize CodeMirror when the container div is mounted
+    let on_editor_mounted = move |_: Event<MountedData>| {
+        if editor_mounted.read().clone() {
+            return;
+        }
+        editor_mounted.set(true);
+
+        // The CodeMirror ESM bundle loads asynchronously, so we retry
+        // until window.createTypstEditor is available.
+        spawn(async move {
+            // Wait for the CodeMirror script to load
+            for _ in 0..50 {
+                let ready = js_sys::Reflect::get(
+                    &wasm_bindgen::JsValue::from(web_sys::window().unwrap()),
+                    &wasm_bindgen::JsValue::from_str("createTypstEditor"),
+                )
+                .map(|v| v.is_function())
+                .unwrap_or(false);
+
+                if ready {
+                    break;
+                }
+                gloo_timers::future::TimeoutFuture::new(100).await;
+            }
+
+            let initial_content = editor_content.read().clone();
+
+            let on_change = Closure::new(move |content: String| {
+                editor_content.set(content);
+            });
+
+            match js::create_typst_editor(
+                "codemirror-container",
+                &initial_content,
+                &on_change,
+            ) {
+                Ok(id) => {
+                    on_change.forget();
+                    editor_id.set(Some(id));
+                }
+                Err(e) => {
+                    web_sys::console::error_1(&e);
+                }
+            }
+        });
+    };
+
+    // Cleanup editor on unmount
+    use_drop(move || {
+        if let Some(id) = editor_id.read().as_ref() {
+            js::destroy_editor(id);
+        }
+    });
 
     // Load tree on mount
     use_effect(move || {
@@ -151,6 +212,12 @@ pub fn Templates() -> Element {
             let config = CONFIG.read().clone();
             match api::get_template_content(&config, &path).await {
                 Ok(content) => {
+                    // Update CodeMirror editor content (drop borrow before setting signals)
+                    {
+                        if let Some(id) = editor_id.read().as_ref() {
+                            js::set_editor_content(id, &content);
+                        }
+                    }
                     editor_content.set(content.clone());
                     original_content.set(content);
                     selected_path.set(Some(path));
@@ -173,7 +240,12 @@ pub fn Templates() -> Element {
     let save_current = move |_| {
         let path = selected_path.read().clone();
         if let Some(path) = path {
-            let content = editor_content.read().clone();
+            // Read content from CodeMirror editor
+            let content = if let Some(id) = editor_id.read().as_ref() {
+                js::get_editor_content(id)
+            } else {
+                editor_content.read().clone()
+            };
             spawn(async move {
                 let config = CONFIG.read().clone();
                 match api::save_template(&config, &path, &content).await {
@@ -342,12 +414,11 @@ pub fn Templates() -> Element {
                             }
                         }
 
-                        // Editor textarea
-                        textarea {
-                            class: "flex-1 w-full border rounded-b p-3 font-mono text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-300",
-                            value: "{editor_content}",
-                            oninput: move |e| editor_content.set(e.value().clone()),
-                            spellcheck: "false",
+                        // CodeMirror editor container
+                        div {
+                            id: "codemirror-container",
+                            class: "flex-1 w-full border rounded-b overflow-auto",
+                            onmounted: on_editor_mounted,
                         }
 
                         // Preview section

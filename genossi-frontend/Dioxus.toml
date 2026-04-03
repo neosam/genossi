@@ -42,7 +42,7 @@ watch_path = ["src", "assets"]
 style = ["/tailwind.css"]
 
 # Javascript code file
-script = []
+script = ["/assets/codemirror-bundle.js"]
 
 [web.resource.dev]
 
