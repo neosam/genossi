@@ -11,7 +11,7 @@ members = [
     "genossi_mail",
 ]
 resolver = "2"
-exclude = ["genossi-frontend", ".claude/worktrees/codemirror-template-editor/genossi-frontend", ".claude/worktrees/smtp-config-ui/genossi-frontend"]
+exclude = ["genossi-frontend", ".claude/worktrees/codemirror-template-editor/genossi-frontend", ".claude/worktrees/smtp-config-ui/genossi-frontend", ".claude/worktrees/typst-syntax-highlighting/genossi-frontend"]
 
 [workspace.package]
 version = "0.1.0"
