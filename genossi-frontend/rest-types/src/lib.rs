@@ -158,6 +158,18 @@ pub struct MemberTO {
     pub version: Option<Uuid>,
 }
 
+impl MemberTO {
+    pub fn is_active(&self, reference_date: &time::Date) -> bool {
+        if self.join_date > *reference_date {
+            return false;
+        }
+        match self.exit_date {
+            Some(exit) => exit > *reference_date,
+            None => true,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ActionTypeTO {
     Eintritt,
@@ -419,4 +431,87 @@ pub struct MigratedFlagMismatchTO {
     pub member_number: i64,
     pub flag_value: bool,
     pub computed_status: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use time::{Date, Month};
+
+    fn make_member(join_date: Date, exit_date: Option<Date>) -> MemberTO {
+        MemberTO {
+            id: None,
+            member_number: 1,
+            first_name: "Test".to_string(),
+            last_name: "User".to_string(),
+            email: None,
+            company: None,
+            comment: None,
+            street: None,
+            house_number: None,
+            postal_code: None,
+            city: None,
+            join_date,
+            shares_at_joining: 1,
+            current_shares: 1,
+            current_balance: 0,
+            action_count: 0,
+            migrated: false,
+            exit_date,
+            bank_account: None,
+            created: None,
+            deleted: None,
+            version: None,
+        }
+    }
+
+    #[test]
+    fn test_is_active_no_exit_date() {
+        let ref_date = Date::from_calendar_date(2026, Month::April, 1).unwrap();
+        let member = make_member(
+            Date::from_calendar_date(2025, Month::January, 1).unwrap(),
+            None,
+        );
+        assert!(member.is_active(&ref_date));
+    }
+
+    #[test]
+    fn test_is_active_exit_date_in_future() {
+        let ref_date = Date::from_calendar_date(2026, Month::April, 1).unwrap();
+        let member = make_member(
+            Date::from_calendar_date(2025, Month::January, 1).unwrap(),
+            Some(Date::from_calendar_date(2027, Month::January, 1).unwrap()),
+        );
+        assert!(member.is_active(&ref_date));
+    }
+
+    #[test]
+    fn test_is_active_exit_date_in_past() {
+        let ref_date = Date::from_calendar_date(2026, Month::April, 1).unwrap();
+        let member = make_member(
+            Date::from_calendar_date(2025, Month::January, 1).unwrap(),
+            Some(Date::from_calendar_date(2026, Month::March, 1).unwrap()),
+        );
+        assert!(!member.is_active(&ref_date));
+    }
+
+    #[test]
+    fn test_is_active_join_date_in_future() {
+        let ref_date = Date::from_calendar_date(2026, Month::April, 1).unwrap();
+        let member = make_member(
+            Date::from_calendar_date(2027, Month::January, 1).unwrap(),
+            None,
+        );
+        assert!(!member.is_active(&ref_date));
+    }
+
+    #[test]
+    fn test_is_active_exit_date_equals_reference() {
+        let ref_date = Date::from_calendar_date(2026, Month::April, 1).unwrap();
+        let member = make_member(
+            Date::from_calendar_date(2025, Month::January, 1).unwrap(),
+            Some(Date::from_calendar_date(2026, Month::April, 1).unwrap()),
+        );
+        assert!(!member.is_active(&ref_date));
+    }
 }

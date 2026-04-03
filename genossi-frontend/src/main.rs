@@ -12,6 +12,7 @@ mod error;
 mod i18n;
 mod js;
 mod loader;
+mod member_utils;
 mod page;
 mod router;
 mod service;

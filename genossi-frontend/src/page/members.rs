@@ -3,30 +3,9 @@ use dioxus::prelude::*;
 use crate::component::TopBar;
 use crate::i18n::use_i18n;
 use crate::i18n::Key;
+use crate::member_utils::{is_active, today};
 use crate::router::Route;
 use crate::service::member::{refresh_members, MEMBERS};
-use rest_types::MemberTO;
-
-fn is_active(member: &MemberTO, reference_date: &time::Date) -> bool {
-    if member.join_date > *reference_date {
-        return false;
-    }
-    match member.exit_date {
-        Some(exit) => exit > *reference_date,
-        None => true,
-    }
-}
-
-fn today() -> time::Date {
-    let today = js_sys::Date::new_0();
-    let year = today.get_full_year() as i32;
-    let month: time::Month = (today.get_month() as u8 + 1)
-        .try_into()
-        .unwrap_or(time::Month::January);
-    let day = today.get_date() as u8;
-    time::Date::from_calendar_date(year, month, day)
-        .unwrap_or_else(|_| time::Date::from_calendar_date(2025, time::Month::January, 1).unwrap())
-}
 
 fn format_date_iso(date: &time::Date) -> String {
     format!(
