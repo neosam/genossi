@@ -165,8 +165,9 @@ type ValidationService =
 
 type ConfigDao = genossi_config::dao_sqlite::ConfigDaoSqlite;
 type ConfigService = genossi_config::service::ConfigServiceImpl<ConfigDao>;
-type SentMailDao = genossi_mail::dao_sqlite::SentMailDaoSqlite;
-type MailServiceType = genossi_mail::service::MailServiceImpl<ConfigService, SentMailDao>;
+type MailJobDao = genossi_mail::dao_sqlite::MailJobDaoSqlite;
+type MailRecipientDao = genossi_mail::dao_sqlite::MailRecipientDaoSqlite;
+type MailServiceType = genossi_mail::service::MailServiceImpl<ConfigService, MailJobDao, MailRecipientDao>;
 
 // RestStateImpl with all services
 #[derive(Clone)]
@@ -183,6 +184,10 @@ pub struct RestStateImpl {
     pdf_generator: Arc<genossi_service_impl::pdf_generation::PdfGenerator>,
     config_service: Arc<ConfigService>,
     mail_service: Arc<MailServiceType>,
+    // Worker dependencies (kept for spawning the background worker)
+    worker_config_service: Arc<ConfigService>,
+    worker_job_dao: Arc<MailJobDao>,
+    worker_recipient_dao: Arc<MailRecipientDao>,
 }
 
 impl RestStateImpl {
@@ -272,10 +277,21 @@ impl RestStateImpl {
         let config_dao = ConfigDao::new(pool.clone());
         let config_service = Arc::new(ConfigService::new(config_dao));
 
-        let sent_mail_dao = SentMailDao::new(pool.clone());
+        let mail_job_dao = MailJobDao::new(pool.clone());
+        let mail_recipient_dao = MailRecipientDao::new(pool.clone());
         let config_dao_for_mail = ConfigDao::new(pool.clone());
         let config_service_for_mail = ConfigService::new(config_dao_for_mail);
-        let mail_service = Arc::new(MailServiceType::new(config_service_for_mail, sent_mail_dao));
+        let mail_service = Arc::new(MailServiceType::new(
+            config_service_for_mail,
+            mail_job_dao,
+            mail_recipient_dao,
+        ));
+
+        // Create separate instances for the worker (worker needs its own DAOs)
+        let worker_job_dao = Arc::new(MailJobDao::new(pool.clone()));
+        let worker_recipient_dao = Arc::new(MailRecipientDao::new(pool.clone()));
+        let worker_config_dao = ConfigDao::new(pool.clone());
+        let worker_config_service = Arc::new(ConfigService::new(worker_config_dao));
 
         Self {
             member_service,
@@ -290,7 +306,21 @@ impl RestStateImpl {
             pdf_generator,
             config_service,
             mail_service,
+            worker_config_service,
+            worker_job_dao,
+            worker_recipient_dao,
         }
+    }
+}
+
+impl RestStateImpl {
+    pub fn start_mail_worker(&self) {
+        let config_service = self.worker_config_service.clone();
+        let job_dao = self.worker_job_dao.clone();
+        let recipient_dao = self.worker_recipient_dao.clone();
+        tokio::spawn(async move {
+            genossi_mail::worker::start_mail_worker(config_service, job_dao, recipient_dao).await;
+        });
     }
 }
 

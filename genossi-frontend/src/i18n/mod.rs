@@ -216,6 +216,15 @@ pub enum Key {
     MailSentAt,
     MailSentSuccess,
     MailSentFailed,
+    MailJobs,
+    MailJobProgress,
+    MailJobDone,
+    MailJobRunning,
+    MailJobFailed,
+    MailJobPending,
+    MailRetry,
+    MailRecipients,
+    MailJobCreated,
 
     // SMTP Settings
     SmtpSettings,

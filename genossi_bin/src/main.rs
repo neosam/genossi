@@ -37,6 +37,10 @@ async fn main() {
         .await
         .expect("Failed to provision default templates");
 
+    // Start background mail worker
+    rest_state.start_mail_worker();
+    tracing::info!("Mail worker started");
+
     // Start server using the rest crate's start_server function
     genossi_rest::start_server(rest_state).await;
 }

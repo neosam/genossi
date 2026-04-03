@@ -343,13 +343,8 @@ pub fn ConfigPage() -> Element {
                                                     success_msg.set(None);
                                                     let config = CONFIG.read().clone();
                                                     match api::send_test_mail(&config, &addr).await {
-                                                        Ok(result) => {
-                                                            if result.status == "sent" {
-                                                                success_msg.set(Some(i18n.t(Key::SmtpTestSuccess).to_string()));
-                                                            } else {
-                                                                let err_msg = result.error.unwrap_or_default();
-                                                                error.set(Some(format!("{}: {}", i18n.t(Key::SmtpTestFailed), err_msg)));
-                                                            }
+                                                        Ok(()) => {
+                                                            success_msg.set(Some(i18n.t(Key::SmtpTestSuccess).to_string()));
                                                         }
                                                         Err(e) => {
                                                             error.set(Some(format!("{}: {}", i18n.t(Key::SmtpTestFailed), e)));

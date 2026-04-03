@@ -7,7 +7,7 @@ use genossi_rest_types::{
     MigrationStatusTO, ValidationResultTO,
 };
 use genossi_config::rest::{ConfigEntryTO, SetConfigRequest};
-use genossi_mail::rest::{SendBulkMailRequest, SendMailRequest, SentMailTO, TestMailRequest};
+use genossi_mail::rest::{SendBulkMailRequest, BulkRecipient, SendMailRequest, MailJobTO, MailJobDetailTO, TestMailRequest};
 use reqwest::StatusCode;
 use sqlx::SqlitePool;
 use std::sync::Arc;
@@ -2865,128 +2865,34 @@ async fn test_config_validation_invalid_bool() {
 // ============================================================
 
 #[tokio::test]
-async fn test_mail_sent_list_empty() {
+async fn test_mail_jobs_list_empty() {
     let server = setup().await;
     let client = reqwest::Client::new();
 
     let response = client
-        .get(server.url("/api/mail/sent"))
+        .get(server.url("/api/mail/jobs"))
         .send()
         .await
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let mails: Vec<SentMailTO> = response.json().await.unwrap();
-    assert!(mails.is_empty());
+    let jobs: Vec<MailJobTO> = response.json().await.unwrap();
+    assert!(jobs.is_empty());
 }
 
 #[tokio::test]
-async fn test_mail_send_missing_config() {
+async fn test_mail_create_bulk_job() {
     let server = setup().await;
     let client = reqwest::Client::new();
 
-    let response = client
-        .post(server.url("/api/mail/send"))
-        .json(&SendMailRequest {
-            to_address: "user@example.com".to_string(),
-            subject: "Test".to_string(),
-            body: "Hello".to_string(),
-        })
-        .send()
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-}
-
-#[tokio::test]
-async fn test_mail_send_with_config_stores_failed() {
-    let server = setup().await;
-    let client = reqwest::Client::new();
-
-    // Set up SMTP config pointing to unreachable server
-    for (key, value, vtype) in [
-        ("smtp_host", "127.0.0.1", "string"),
-        ("smtp_port", "19999", "int"),
-        ("smtp_user", "user", "string"),
-        ("smtp_pass", "pass", "secret"),
-        ("smtp_from", "sender@example.com", "string"),
-        ("smtp_tls", "none", "string"),
-    ] {
-        client
-            .put(server.url(&format!("/api/config/{}", key)))
-            .json(&SetConfigRequest {
-                value: value.to_string(),
-                value_type: vtype.to_string(),
-            })
-            .send()
-            .await
-            .unwrap();
-    }
-
-    // Send mail (will fail because no SMTP server running)
-    let response = client
-        .post(server.url("/api/mail/send"))
-        .json(&SendMailRequest {
-            to_address: "user@example.com".to_string(),
-            subject: "Test Subject".to_string(),
-            body: "Test Body".to_string(),
-        })
-        .send()
-        .await
-        .unwrap();
-
-    assert_eq!(response.status(), StatusCode::OK);
-    let sent: SentMailTO = response.json().await.unwrap();
-    assert_eq!(sent.status, "failed");
-    assert!(sent.error.is_some());
-    assert_eq!(sent.to_address, "user@example.com");
-    assert_eq!(sent.subject, "Test Subject");
-
-    // Verify it appears in sent list
-    let response = client
-        .get(server.url("/api/mail/sent"))
-        .send()
-        .await
-        .unwrap();
-    let mails: Vec<SentMailTO> = response.json().await.unwrap();
-    assert_eq!(mails.len(), 1);
-    assert_eq!(mails[0].status, "failed");
-}
-
-#[tokio::test]
-async fn test_mail_send_bulk_with_config() {
-    let server = setup().await;
-    let client = reqwest::Client::new();
-
-    // Set up SMTP config pointing to unreachable server
-    for (key, value, vtype) in [
-        ("smtp_host", "127.0.0.1", "string"),
-        ("smtp_port", "19999", "int"),
-        ("smtp_user", "user", "string"),
-        ("smtp_pass", "pass", "secret"),
-        ("smtp_from", "sender@example.com", "string"),
-        ("smtp_tls", "none", "string"),
-    ] {
-        client
-            .put(server.url(&format!("/api/config/{}", key)))
-            .json(&SetConfigRequest {
-                value: value.to_string(),
-                value_type: vtype.to_string(),
-            })
-            .send()
-            .await
-            .unwrap();
-    }
-
-    // Send bulk mail to 3 recipients
+    // Create bulk mail job (no SMTP config needed for job creation)
     let response = client
         .post(server.url("/api/mail/send-bulk"))
         .json(&SendBulkMailRequest {
             to_addresses: vec![
-                "alice@example.com".to_string(),
-                "bob@example.com".to_string(),
-                "carol@example.com".to_string(),
+                BulkRecipient { address: "alice@example.com".to_string(), member_id: None },
+                BulkRecipient { address: "bob@example.com".to_string(), member_id: None },
+                BulkRecipient { address: "carol@example.com".to_string(), member_id: None },
             ],
             subject: "Bulk Test".to_string(),
             body: "Hello everyone".to_string(),
@@ -2995,25 +2901,61 @@ async fn test_mail_send_bulk_with_config() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
-    let results: Vec<SentMailTO> = response.json().await.unwrap();
-    assert_eq!(results.len(), 3);
-    assert_eq!(results[0].to_address, "alice@example.com");
-    assert_eq!(results[1].to_address, "bob@example.com");
-    assert_eq!(results[2].to_address, "carol@example.com");
-    for r in &results {
-        assert_eq!(r.status, "failed"); // no real SMTP server
-        assert_eq!(r.subject, "Bulk Test");
-    }
+    assert_eq!(response.status(), 202);
+    let job: MailJobTO = response.json().await.unwrap();
+    assert_eq!(job.subject, "Bulk Test");
+    assert_eq!(job.status, "running");
+    assert_eq!(job.total_count, 3);
+    assert_eq!(job.sent_count, 0);
+    assert_eq!(job.failed_count, 0);
 
-    // All 3 should appear in sent list
+    // Verify job appears in job list
     let response = client
-        .get(server.url("/api/mail/sent"))
+        .get(server.url("/api/mail/jobs"))
         .send()
         .await
         .unwrap();
-    let mails: Vec<SentMailTO> = response.json().await.unwrap();
-    assert_eq!(mails.len(), 3);
+    let jobs: Vec<MailJobTO> = response.json().await.unwrap();
+    assert_eq!(jobs.len(), 1);
+    assert_eq!(jobs[0].total_count, 3);
+
+    // Verify job detail shows recipients
+    let response = client
+        .get(server.url(&format!("/api/mail/jobs/{}", job.id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let detail: MailJobDetailTO = response.json().await.unwrap();
+    assert_eq!(detail.recipients.len(), 3);
+    assert_eq!(detail.recipients[0].to_address, "alice@example.com");
+    assert_eq!(detail.recipients[1].to_address, "bob@example.com");
+    assert_eq!(detail.recipients[2].to_address, "carol@example.com");
+    for r in &detail.recipients {
+        assert_eq!(r.status, "pending");
+    }
+}
+
+#[tokio::test]
+async fn test_mail_create_single_job() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/mail/send"))
+        .json(&SendMailRequest {
+            to_address: "user@example.com".to_string(),
+            subject: "Single Test".to_string(),
+            body: "Hello".to_string(),
+        })
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 202);
+    let job: MailJobTO = response.json().await.unwrap();
+    assert_eq!(job.total_count, 1);
+    assert_eq!(job.status, "running");
 }
 
 #[tokio::test]
@@ -3032,28 +2974,55 @@ async fn test_mail_send_bulk_empty_list() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
-    let results: Vec<SentMailTO> = response.json().await.unwrap();
-    assert!(results.is_empty());
+    // Empty recipients should return 500 (DataAccess error)
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
 }
 
 #[tokio::test]
-async fn test_mail_send_bulk_missing_config() {
+async fn test_mail_retry_job() {
     let server = setup().await;
     let client = reqwest::Client::new();
 
+    // Create a job
     let response = client
         .post(server.url("/api/mail/send-bulk"))
         .json(&SendBulkMailRequest {
-            to_addresses: vec!["user@example.com".to_string()],
-            subject: "Test".to_string(),
-            body: "Body".to_string(),
+            to_addresses: vec![
+                BulkRecipient { address: "a@example.com".to_string(), member_id: None },
+                BulkRecipient { address: "b@example.com".to_string(), member_id: None },
+            ],
+            subject: "Retry Test".to_string(),
+            body: "Hello".to_string(),
         })
         .send()
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(response.status(), 202);
+    let job: MailJobTO = response.json().await.unwrap();
+
+    // Retry (no failed recipients yet, so no-op)
+    let response = client
+        .post(server.url(&format!("/api/mail/jobs/{}/retry", job.id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let retried: MailJobTO = response.json().await.unwrap();
+    assert_eq!(retried.status, "running");
+}
+
+#[tokio::test]
+async fn test_mail_job_not_found() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(server.url("/api/mail/jobs/00000000-0000-0000-0000-000000000000"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
@@ -3074,7 +3043,7 @@ async fn test_mail_test_missing_config() {
 }
 
 #[tokio::test]
-async fn test_mail_test_with_config_stores_result() {
+async fn test_mail_test_with_config() {
     let server = setup().await;
     let client = reqwest::Client::new();
 
@@ -3107,9 +3076,6 @@ async fn test_mail_test_with_config_stores_result() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
-    let result: SentMailTO = response.json().await.unwrap();
-    assert_eq!(result.status, "failed");
-    assert_eq!(result.subject, "Genossi Test-E-Mail");
-    assert_eq!(result.to_address, "test@example.com");
+    // Test mail with unreachable server returns 502 (SMTP error)
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
 }

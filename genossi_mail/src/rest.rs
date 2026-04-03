@@ -1,5 +1,5 @@
 use axum::body::Body;
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::response::Response;
 use axum::routing::{get, post};
 use axum::Router;
@@ -8,8 +8,8 @@ use std::sync::Arc;
 use tracing::instrument;
 use utoipa::{OpenApi, ToSchema};
 
-use crate::dao::SentMail;
-use crate::service::{MailService, MailServiceError};
+use crate::dao::{MailJob, MailRecipient};
+use crate::service::{MailService, MailServiceError, RecipientInput};
 
 pub trait MailRestState: Clone + Send + Sync + 'static {
     type MailService: MailService;
@@ -17,19 +17,39 @@ pub trait MailRestState: Clone + Send + Sync + 'static {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
-pub struct SentMailTO {
+pub struct MailJobTO {
     #[schema(example = "123e4567-e89b-12d3-a456-426614174000")]
     pub id: String,
     pub created: String,
-    pub to_address: String,
     pub subject: String,
     pub body: String,
+    #[schema(example = "running")]
+    pub status: String,
+    pub total_count: i64,
+    pub sent_count: i64,
+    pub failed_count: i64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct MailRecipientTO {
+    #[schema(example = "123e4567-e89b-12d3-a456-426614174000")]
+    pub id: String,
+    pub to_address: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub member_id: Option<String>,
     #[schema(example = "sent")]
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sent_at: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct MailJobDetailTO {
+    #[serde(flatten)]
+    pub job: MailJobTO,
+    pub recipients: Vec<MailRecipientTO>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
@@ -43,9 +63,16 @@ pub struct SendMailRequest {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct BulkRecipient {
+    #[schema(example = "user@example.com")]
+    pub address: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub member_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct SendBulkMailRequest {
-    #[schema(example = json!(["user1@example.com", "user2@example.com"]))]
-    pub to_addresses: Vec<String>,
+    pub to_addresses: Vec<BulkRecipient>,
     #[schema(example = "Test Subject")]
     pub subject: String,
     #[schema(example = "Hello, this is a test email.")]
@@ -64,17 +91,30 @@ fn format_datetime(dt: &time::PrimitiveDateTime) -> String {
         .unwrap_or_else(|_| dt.to_string())
 }
 
-impl From<&SentMail> for SentMailTO {
-    fn from(mail: &SentMail) -> Self {
+impl From<&MailJob> for MailJobTO {
+    fn from(job: &MailJob) -> Self {
         Self {
-            id: mail.id.to_string(),
-            created: format_datetime(&mail.created),
-            to_address: mail.to_address.to_string(),
-            subject: mail.subject.to_string(),
-            body: mail.body.to_string(),
-            status: mail.status.to_string(),
-            error: mail.error.as_deref().map(String::from),
-            sent_at: mail.sent_at.as_ref().map(format_datetime),
+            id: job.id.to_string(),
+            created: format_datetime(&job.created),
+            subject: job.subject.to_string(),
+            body: job.body.to_string(),
+            status: job.status.to_string(),
+            total_count: job.total_count,
+            sent_count: job.sent_count,
+            failed_count: job.failed_count,
+        }
+    }
+}
+
+impl From<&MailRecipient> for MailRecipientTO {
+    fn from(r: &MailRecipient) -> Self {
+        Self {
+            id: r.id.to_string(),
+            to_address: r.to_address.to_string(),
+            member_id: r.member_id.map(|m| m.to_string()),
+            status: r.status.to_string(),
+            error: r.error.as_deref().map(String::from),
+            sent_at: r.sent_at.as_ref().map(format_datetime),
         }
     }
 }
@@ -96,6 +136,13 @@ fn error_handler(result: Result<Response, MailServiceError>) -> Response {
                 serde_json::json!({"error": msg.to_string()}).to_string(),
             ))
             .unwrap(),
+        Err(MailServiceError::NotFound) => Response::builder()
+            .status(404)
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                serde_json::json!({"error": "Not found"}).to_string(),
+            ))
+            .unwrap(),
         Err(MailServiceError::DataAccess(msg)) => {
             tracing::error!("Mail data access error: {}", msg);
             Response::builder()
@@ -111,14 +158,16 @@ pub fn generate_route<S: MailRestState>() -> Router<S> {
         .route("/send", post(send_mail::<S>))
         .route("/send-bulk", post(send_bulk_mail::<S>))
         .route("/test", post(send_test_mail::<S>))
-        .route("/sent", get(get_sent_mails::<S>))
+        .route("/jobs", get(get_jobs::<S>))
+        .route("/jobs/{id}", get(get_job_detail::<S>))
+        .route("/jobs/{id}/retry", post(retry_job::<S>))
 }
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(send_mail, send_bulk_mail, send_test_mail, get_sent_mails),
-    components(schemas(SentMailTO, SendMailRequest, SendBulkMailRequest, TestMailRequest)),
-    tags((name = "Mail", description = "Email sending and history endpoints"))
+    paths(send_mail, send_bulk_mail, send_test_mail, get_jobs, get_job_detail, retry_job),
+    components(schemas(MailJobTO, MailRecipientTO, MailJobDetailTO, SendMailRequest, SendBulkMailRequest, BulkRecipient, TestMailRequest)),
+    tags((name = "Mail", description = "Email sending and job management endpoints"))
 )]
 pub struct ApiDoc;
 
@@ -129,10 +178,8 @@ pub struct ApiDoc;
     path = "/send",
     request_body = SendMailRequest,
     responses(
-        (status = 200, description = "Mail sent (or failed with error details)", body = SentMailTO),
-        (status = 400, description = "SMTP config missing"),
-        (status = 422, description = "Invalid request"),
-        (status = 502, description = "SMTP error"),
+        (status = 202, description = "Mail job created", body = MailJobTO),
+        (status = 400, description = "Invalid request"),
         (status = 500, description = "Internal server error"),
     ),
 )]
@@ -142,13 +189,20 @@ pub async fn send_mail<S: MailRestState>(
 ) -> Response {
     error_handler(
         (async {
-            let result = state
+            let job = state
                 .mail_service()
-                .send_mail(&body.to_address, &body.subject, &body.body)
+                .create_job(
+                    &body.subject,
+                    &body.body,
+                    vec![RecipientInput {
+                        address: body.to_address,
+                        member_id: None,
+                    }],
+                )
                 .await?;
-            let to = SentMailTO::from(&result);
+            let to = MailJobTO::from(&job);
             Ok(Response::builder()
-                .status(200)
+                .status(202)
                 .header("Content-Type", "application/json")
                 .body(Body::new(serde_json::to_string(&to).unwrap()))
                 .unwrap())
@@ -164,10 +218,8 @@ pub async fn send_mail<S: MailRestState>(
     path = "/send-bulk",
     request_body = SendBulkMailRequest,
     responses(
-        (status = 200, description = "Mails sent (each with individual status)", body = [SentMailTO]),
-        (status = 400, description = "SMTP config missing"),
-        (status = 422, description = "Invalid request"),
-        (status = 502, description = "SMTP error"),
+        (status = 202, description = "Bulk mail job created", body = MailJobTO),
+        (status = 400, description = "Empty recipients or invalid request"),
         (status = 500, description = "Internal server error"),
     ),
 )]
@@ -177,15 +229,24 @@ pub async fn send_bulk_mail<S: MailRestState>(
 ) -> Response {
     error_handler(
         (async {
-            let results = state
+            let recipients: Vec<RecipientInput> = body
+                .to_addresses
+                .into_iter()
+                .map(|r| RecipientInput {
+                    address: r.address,
+                    member_id: r.member_id.and_then(|id| uuid::Uuid::parse_str(&id).ok()),
+                })
+                .collect();
+
+            let job = state
                 .mail_service()
-                .send_mails(&body.to_addresses, &body.subject, &body.body)
+                .create_job(&body.subject, &body.body, recipients)
                 .await?;
-            let tos: Vec<SentMailTO> = results.iter().map(SentMailTO::from).collect();
+            let to = MailJobTO::from(&job);
             Ok(Response::builder()
-                .status(200)
+                .status(202)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::to_string(&tos).unwrap()))
+                .body(Body::new(serde_json::to_string(&to).unwrap()))
                 .unwrap())
         })
         .await,
@@ -199,7 +260,7 @@ pub async fn send_bulk_mail<S: MailRestState>(
     path = "/test",
     request_body = TestMailRequest,
     responses(
-        (status = 200, description = "Test mail sent (or failed with error details)", body = SentMailTO),
+        (status = 200, description = "Test mail sent successfully"),
         (status = 400, description = "SMTP config missing"),
         (status = 502, description = "SMTP error"),
         (status = 500, description = "Internal server error"),
@@ -211,15 +272,16 @@ pub async fn send_test_mail<S: MailRestState>(
 ) -> Response {
     error_handler(
         (async {
-            let result = state
+            state
                 .mail_service()
                 .send_test_mail(&body.to_address)
                 .await?;
-            let to = SentMailTO::from(&result);
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::to_string(&to).unwrap()))
+                .body(Body::new(
+                    serde_json::json!({"success": true}).to_string(),
+                ))
                 .unwrap())
         })
         .await,
@@ -230,26 +292,100 @@ pub async fn send_test_mail<S: MailRestState>(
 #[utoipa::path(
     get,
     tag = "Mail",
-    path = "/sent",
+    path = "/jobs",
     responses(
-        (status = 200, description = "List of sent mails", body = [SentMailTO]),
+        (status = 200, description = "List of mail jobs", body = [MailJobTO]),
         (status = 500, description = "Internal server error"),
     ),
 )]
-pub async fn get_sent_mails<S: MailRestState>(state: State<S>) -> Response {
+pub async fn get_jobs<S: MailRestState>(state: State<S>) -> Response {
     error_handler(
         (async {
-            let mails: Vec<SentMailTO> = state
+            let jobs: Vec<MailJobTO> = state
                 .mail_service()
-                .get_sent_mails()
+                .get_jobs()
                 .await?
                 .iter()
-                .map(SentMailTO::from)
+                .map(MailJobTO::from)
                 .collect();
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::to_string(&mails).unwrap()))
+                .body(Body::new(serde_json::to_string(&jobs).unwrap()))
+                .unwrap())
+        })
+        .await,
+    )
+}
+
+#[instrument(skip(state))]
+#[utoipa::path(
+    get,
+    tag = "Mail",
+    path = "/jobs/{id}",
+    params(
+        ("id" = String, Path, description = "Mail job UUID")
+    ),
+    responses(
+        (status = 200, description = "Mail job with recipients", body = MailJobDetailTO),
+        (status = 404, description = "Job not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
+pub async fn get_job_detail<S: MailRestState>(
+    state: State<S>,
+    Path(id): Path<String>,
+) -> Response {
+    error_handler(
+        (async {
+            let job_id = uuid::Uuid::parse_str(&id)
+                .map_err(|_| MailServiceError::NotFound)?;
+            let (job, recipients) = state
+                .mail_service()
+                .get_job_with_recipients(job_id)
+                .await?;
+            let detail = MailJobDetailTO {
+                job: MailJobTO::from(&job),
+                recipients: recipients.iter().map(MailRecipientTO::from).collect(),
+            };
+            Ok(Response::builder()
+                .status(200)
+                .header("Content-Type", "application/json")
+                .body(Body::new(serde_json::to_string(&detail).unwrap()))
+                .unwrap())
+        })
+        .await,
+    )
+}
+
+#[instrument(skip(state))]
+#[utoipa::path(
+    post,
+    tag = "Mail",
+    path = "/jobs/{id}/retry",
+    params(
+        ("id" = String, Path, description = "Mail job UUID")
+    ),
+    responses(
+        (status = 200, description = "Failed recipients retried", body = MailJobTO),
+        (status = 404, description = "Job not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
+pub async fn retry_job<S: MailRestState>(
+    state: State<S>,
+    Path(id): Path<String>,
+) -> Response {
+    error_handler(
+        (async {
+            let job_id = uuid::Uuid::parse_str(&id)
+                .map_err(|_| MailServiceError::NotFound)?;
+            let job = state.mail_service().retry_job(job_id).await?;
+            let to = MailJobTO::from(&job);
+            Ok(Response::builder()
+                .status(200)
+                .header("Content-Type", "application/json")
+                .body(Body::new(serde_json::to_string(&to).unwrap()))
                 .unwrap())
         })
         .await,
