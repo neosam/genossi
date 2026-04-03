@@ -10,7 +10,7 @@ use crate::i18n::{use_i18n, Key};
 use crate::member_utils::{is_active, today};
 use crate::page::AccessDeniedPage;
 use crate::service::config::CONFIG;
-use crate::service::member::{refresh_members, MEMBERS};
+use crate::service::member::{refresh_members, MEMBERS, SELECTED_MEMBER_IDS};
 
 fn format_member(m: &MemberTO) -> String {
     format!("#{} {} {}", m.member_number, m.first_name, m.last_name)
@@ -44,8 +44,11 @@ pub fn MailPage() -> Element {
     let mut expanded_job_id = use_signal(|| None::<String>);
     let mut job_detail = use_signal(|| None::<MailJobDetailTO>);
 
-    // Compose form state
-    let mut selected_member_ids = use_signal(|| Vec::<Uuid>::new());
+    // Compose form state — initialize from global selection (member list checkboxes)
+    let mut selected_member_ids = use_signal(|| {
+        let global = SELECTED_MEMBER_IDS.read();
+        global.selected_ids.clone()
+    });
     let mut subject = use_signal(|| String::new());
     let mut body = use_signal(|| String::new());
     let mut sending = use_signal(|| false);
