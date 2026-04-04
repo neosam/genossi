@@ -9,11 +9,34 @@ use tracing::instrument;
 use utoipa::{OpenApi, ToSchema};
 
 use crate::dao::{MailJob, MailRecipient};
-use crate::service::{MailService, MailServiceError, RecipientInput};
+use crate::service::{AttachmentInput, MailService, MailServiceError, RecipientInput};
+
+/// Resolved document info for attachment validation.
+pub struct ResolvedDocument {
+    pub document_id: uuid::Uuid,
+    pub member_id: uuid::Uuid,
+    pub file_name: String,
+    pub mime_type: String,
+    pub relative_path: String,
+}
 
 pub trait MailRestState: Clone + Send + Sync + 'static {
     type MailService: MailService;
     fn mail_service(&self) -> Arc<Self::MailService>;
+    /// Resolve a document by ID. Returns None if not found or soft-deleted.
+    fn resolve_document(
+        &self,
+        document_id: uuid::Uuid,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Option<ResolvedDocument>> + Send + '_>,
+    >;
+    /// Get attachments for a recipient.
+    fn get_recipient_attachments(
+        &self,
+        recipient_id: uuid::Uuid,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Vec<MailAttachmentTO>> + Send + '_>,
+    >;
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
@@ -31,6 +54,12 @@ pub struct MailJobTO {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct MailAttachmentTO {
+    pub document_id: String,
+    pub file_name: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct MailRecipientTO {
     #[schema(example = "123e4567-e89b-12d3-a456-426614174000")]
     pub id: String,
@@ -43,6 +72,8 @@ pub struct MailRecipientTO {
     pub error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sent_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<MailAttachmentTO>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
@@ -77,6 +108,8 @@ pub struct SendBulkMailRequest {
     pub subject: String,
     #[schema(example = "Hello, this is a test email.")]
     pub body: String,
+    #[serde(default)]
+    pub attachment_ids: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
@@ -115,6 +148,7 @@ impl From<&MailRecipient> for MailRecipientTO {
             status: r.status.to_string(),
             error: r.error.as_deref().map(String::from),
             sent_at: r.sent_at.as_ref().map(format_datetime),
+            attachments: vec![],
         }
     }
 }
@@ -166,7 +200,7 @@ pub fn generate_route<S: MailRestState>() -> Router<S> {
 #[derive(OpenApi)]
 #[openapi(
     paths(send_mail, send_bulk_mail, send_test_mail, get_jobs, get_job_detail, retry_job),
-    components(schemas(MailJobTO, MailRecipientTO, MailJobDetailTO, SendMailRequest, SendBulkMailRequest, BulkRecipient, TestMailRequest)),
+    components(schemas(MailJobTO, MailRecipientTO, MailJobDetailTO, MailAttachmentTO, SendMailRequest, SendBulkMailRequest, BulkRecipient, TestMailRequest)),
     tags((name = "Mail", description = "Email sending and job management endpoints"))
 )]
 pub struct ApiDoc;
@@ -198,6 +232,7 @@ pub async fn send_mail<S: MailRestState>(
                         address: body.to_address,
                         member_id: None,
                     }],
+                    vec![],
                 )
                 .await?;
             let to = MailJobTO::from(&job);
@@ -238,9 +273,46 @@ pub async fn send_bulk_mail<S: MailRestState>(
                 })
                 .collect();
 
+            // Resolve and validate attachments
+            let mut attachment_inputs = Vec::new();
+            if !body.attachment_ids.is_empty() {
+                if recipients.len() > 1 {
+                    return Err(MailServiceError::DataAccess(Arc::from(
+                        "Attachments are only supported for single-recipient sends",
+                    )));
+                }
+                let recipient_member_id = recipients
+                    .first()
+                    .and_then(|r| r.member_id);
+
+                for att_id_str in &body.attachment_ids {
+                    let doc_id = uuid::Uuid::parse_str(att_id_str)
+                        .map_err(|_| MailServiceError::NotFound)?;
+
+                    let doc = state
+                        .resolve_document(doc_id)
+                        .await
+                        .ok_or(MailServiceError::NotFound)?;
+
+                    // Validate ownership
+                    if Some(doc.member_id) != recipient_member_id {
+                        return Err(MailServiceError::DataAccess(Arc::from(
+                            "Attachment does not belong to the recipient's member",
+                        )));
+                    }
+
+                    attachment_inputs.push(AttachmentInput {
+                        document_id: doc.document_id,
+                        file_name: doc.file_name,
+                        mime_type: doc.mime_type,
+                        relative_path: doc.relative_path,
+                    });
+                }
+            }
+
             let job = state
                 .mail_service()
-                .create_job(&body.subject, &body.body, recipients)
+                .create_job(&body.subject, &body.body, recipients, attachment_inputs)
                 .await?;
             let to = MailJobTO::from(&job);
             Ok(Response::builder()
@@ -344,9 +416,15 @@ pub async fn get_job_detail<S: MailRestState>(
                 .mail_service()
                 .get_job_with_recipients(job_id)
                 .await?;
+            let mut recipient_tos = Vec::new();
+            for r in recipients.iter() {
+                let mut to = MailRecipientTO::from(r);
+                to.attachments = state.get_recipient_attachments(r.id).await;
+                recipient_tos.push(to);
+            }
             let detail = MailJobDetailTO {
                 job: MailJobTO::from(&job),
-                recipients: recipients.iter().map(MailRecipientTO::from).collect(),
+                recipients: recipient_tos,
             };
             Ok(Response::builder()
                 .status(200)

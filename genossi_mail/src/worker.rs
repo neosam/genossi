@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
-use crate::dao::{MailJobDao, MailRecipientDao};
+use crate::dao::{MailJobDao, MailRecipientAttachmentDao, MailRecipientDao};
 use crate::service::{build_transport, load_smtp_config, MailServiceError};
 use genossi_config::service::ConfigService;
+use genossi_service::document_storage::DocumentStorage;
 
 const DEFAULT_SEND_INTERVAL_SECONDS: u64 = 36;
 const IDLE_POLL_SECONDS: u64 = 5;
@@ -43,14 +44,18 @@ async fn update_job_with_retry<J: MailJobDao>(job_dao: &J, job: &crate::dao::Mai
     false
 }
 
-pub async fn start_mail_worker<C, J, R>(
+pub async fn start_mail_worker<C, J, R, A, D>(
     config_service: Arc<C>,
     job_dao: Arc<J>,
     recipient_dao: Arc<R>,
+    attachment_dao: Arc<A>,
+    document_storage: Arc<D>,
 ) where
     C: ConfigService,
     J: MailJobDao,
     R: MailRecipientDao,
+    A: MailRecipientAttachmentDao,
+    D: DocumentStorage + 'static,
 {
     loop {
         let next = match recipient_dao.next_pending().await {
@@ -76,12 +81,27 @@ pub async fn start_mail_worker<C, J, R>(
             }
         };
 
+        // Load attachments for this recipient
+        let attachments = match attachment_dao.find_by_recipient_id(next.id).await {
+            Ok(atts) => atts,
+            Err(e) => {
+                tracing::error!(
+                    "Worker: failed to load attachments for recipient {}: {:?}",
+                    next.id,
+                    e
+                );
+                Arc::from(vec![])
+            }
+        };
+
         // Load SMTP config and send
         let send_result = send_mail_for_recipient(
             config_service.as_ref(),
             &next.to_address,
             &job.subject,
             &job.body,
+            &attachments,
+            document_storage.as_ref(),
         )
         .await;
 
@@ -139,32 +159,68 @@ pub async fn start_mail_worker<C, J, R>(
     }
 }
 
-async fn send_mail_for_recipient<C: ConfigService>(
+async fn send_mail_for_recipient<C: ConfigService, D: DocumentStorage>(
     config_service: &C,
     to: &str,
     subject: &str,
     body: &str,
+    attachments: &[crate::dao::MailRecipientAttachment],
+    document_storage: &D,
 ) -> Result<(), MailServiceError> {
+    use lettre::message::{Attachment, MultiPart, SinglePart};
     use lettre::{AsyncTransport, Message};
 
     let smtp_config = load_smtp_config(config_service).await?;
     let transport = build_transport(&smtp_config)?;
 
-    let email = Message::builder()
-        .from(
-            smtp_config
-                .from
-                .parse()
-                .map_err(|e: lettre::address::AddressError| {
-                    MailServiceError::SmtpError(Arc::from(format!("Invalid from address: {}", e)))
-                })?,
-        )
-        .to(to.parse().map_err(|e: lettre::address::AddressError| {
-            MailServiceError::SmtpError(Arc::from(format!("Invalid to address: {}", e)))
-        })?)
-        .subject(subject)
-        .body(body.to_string())
-        .map_err(|e| MailServiceError::SmtpError(Arc::from(e.to_string())))?;
+    let from = smtp_config
+        .from
+        .parse()
+        .map_err(|e: lettre::address::AddressError| {
+            MailServiceError::SmtpError(Arc::from(format!("Invalid from address: {}", e)))
+        })?;
+    let to_addr = to.parse().map_err(|e: lettre::address::AddressError| {
+        MailServiceError::SmtpError(Arc::from(format!("Invalid to address: {}", e)))
+    })?;
+
+    let email = if attachments.is_empty() {
+        // Plain text mail (unchanged path)
+        Message::builder()
+            .from(from)
+            .to(to_addr)
+            .subject(subject)
+            .body(body.to_string())
+            .map_err(|e| MailServiceError::SmtpError(Arc::from(e.to_string())))?
+    } else {
+        // Multipart mail with attachments
+        let text_part = SinglePart::plain(body.to_string());
+        let mut multipart = MultiPart::mixed().singlepart(text_part);
+
+        for att in attachments {
+            let file_bytes = document_storage
+                .load(&att.relative_path)
+                .await
+                .map_err(|e| {
+                    MailServiceError::SmtpError(Arc::from(format!(
+                        "Failed to load attachment file '{}': {}",
+                        att.relative_path, e
+                    )))
+                })?;
+
+            let content_type = lettre::message::header::ContentType::parse(&att.mime_type)
+                .unwrap_or(lettre::message::header::ContentType::parse("application/octet-stream").unwrap());
+
+            let attachment = Attachment::new(att.file_name.to_string()).body(file_bytes, content_type);
+            multipart = multipart.singlepart(attachment);
+        }
+
+        Message::builder()
+            .from(from)
+            .to(to_addr)
+            .subject(subject)
+            .multipart(multipart)
+            .map_err(|e| MailServiceError::SmtpError(Arc::from(e.to_string())))?
+    };
 
     transport
         .send(email)

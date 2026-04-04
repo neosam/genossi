@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use genossi_dao_impl_sqlite::{TransactionDaoImpl, TransactionImpl};
+use uuid::Uuid as UuidType;
 #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
 use genossi_service::permission::MockContext;
 #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
@@ -187,7 +188,8 @@ type ConfigDao = genossi_config::dao_sqlite::ConfigDaoSqlite;
 type ConfigService = genossi_config::service::ConfigServiceImpl<ConfigDao>;
 type MailJobDao = genossi_mail::dao_sqlite::MailJobDaoSqlite;
 type MailRecipientDao = genossi_mail::dao_sqlite::MailRecipientDaoSqlite;
-type MailServiceType = genossi_mail::service::MailServiceImpl<ConfigService, MailJobDao, MailRecipientDao>;
+type MailRecipientAttachmentDao = genossi_mail::dao_sqlite::MailRecipientAttachmentDaoSqlite;
+type MailServiceType = genossi_mail::service::MailServiceImpl<ConfigService, MailJobDao, MailRecipientDao, MailRecipientAttachmentDao>;
 
 // RestStateImpl with all services
 #[derive(Clone)]
@@ -209,6 +211,9 @@ pub struct RestStateImpl {
     worker_config_service: Arc<ConfigService>,
     worker_job_dao: Arc<MailJobDao>,
     worker_recipient_dao: Arc<MailRecipientDao>,
+    worker_attachment_dao: Arc<MailRecipientAttachmentDao>,
+    // Pool for direct document resolution queries
+    pool: Arc<SqlitePool>,
 }
 
 impl RestStateImpl {
@@ -310,17 +315,20 @@ impl RestStateImpl {
 
         let mail_job_dao = MailJobDao::new(pool.clone());
         let mail_recipient_dao = MailRecipientDao::new(pool.clone());
+        let mail_attachment_dao = MailRecipientAttachmentDao::new(pool.clone());
         let config_dao_for_mail = ConfigDao::new(pool.clone());
         let config_service_for_mail = ConfigService::new(config_dao_for_mail);
         let mail_service = Arc::new(MailServiceType::new(
             config_service_for_mail,
             mail_job_dao,
             mail_recipient_dao,
+            mail_attachment_dao,
         ));
 
         // Create separate instances for the worker (worker needs its own DAOs)
         let worker_job_dao = Arc::new(MailJobDao::new(pool.clone()));
         let worker_recipient_dao = Arc::new(MailRecipientDao::new(pool.clone()));
+        let worker_attachment_dao = Arc::new(MailRecipientAttachmentDao::new(pool.clone()));
         let worker_config_dao = ConfigDao::new(pool.clone());
         let worker_config_service = Arc::new(ConfigService::new(worker_config_dao));
 
@@ -341,6 +349,8 @@ impl RestStateImpl {
             worker_config_service,
             worker_job_dao,
             worker_recipient_dao,
+            worker_attachment_dao,
+            pool,
         }
     }
 }
@@ -350,8 +360,17 @@ impl RestStateImpl {
         let config_service = self.worker_config_service.clone();
         let job_dao = self.worker_job_dao.clone();
         let recipient_dao = self.worker_recipient_dao.clone();
+        let attachment_dao = self.worker_attachment_dao.clone();
+        let document_storage = self.document_storage.clone();
         tokio::spawn(async move {
-            genossi_mail::worker::start_mail_worker(config_service, job_dao, recipient_dao).await;
+            genossi_mail::worker::start_mail_worker(
+                config_service,
+                job_dao,
+                recipient_dao,
+                attachment_dao,
+                document_storage,
+            )
+            .await;
         });
     }
 }
@@ -360,6 +379,66 @@ impl genossi_mail::rest::MailRestState for RestStateImpl {
     type MailService = MailServiceType;
     fn mail_service(&self) -> Arc<Self::MailService> {
         self.mail_service.clone()
+    }
+    fn resolve_document(
+        &self,
+        document_id: UuidType,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = Option<genossi_mail::rest::ResolvedDocument>,
+                > + Send
+                + '_,
+        >,
+    > {
+        let pool = self.pool.clone();
+        Box::pin(async move {
+            let id_bytes = document_id.as_bytes().to_vec();
+            let row: Option<(Vec<u8>, String, String, String)> = sqlx::query_as(
+                "SELECT member_id, file_name, mime_type, relative_path \
+                 FROM member_document WHERE id = ? AND deleted IS NULL",
+            )
+            .bind(id_bytes)
+            .fetch_optional(pool.as_ref())
+            .await
+            .ok()?;
+
+            let (member_id_bytes, file_name, mime_type, relative_path) = row?;
+            let member_id = UuidType::from_slice(&member_id_bytes).ok()?;
+
+            Some(genossi_mail::rest::ResolvedDocument {
+                document_id,
+                member_id,
+                file_name,
+                mime_type,
+                relative_path,
+            })
+        })
+    }
+    fn get_recipient_attachments(
+        &self,
+        recipient_id: UuidType,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Vec<genossi_mail::rest::MailAttachmentTO>>
+                + Send
+                + '_,
+        >,
+    > {
+        let attachment_dao = self.worker_attachment_dao.clone();
+        Box::pin(async move {
+            use genossi_mail::dao::MailRecipientAttachmentDao;
+            match attachment_dao.find_by_recipient_id(recipient_id).await {
+                Ok(atts) => atts
+                    .iter()
+                    .map(|a| genossi_mail::rest::MailAttachmentTO {
+                        document_id: a.document_id.to_string(),
+                        file_name: a.file_name.to_string(),
+                    })
+                    .collect(),
+                Err(_) => vec![],
+            }
+        })
     }
 }
 

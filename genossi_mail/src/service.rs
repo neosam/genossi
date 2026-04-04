@@ -3,7 +3,10 @@ use mockall::automock;
 use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::dao::{MailJob, MailJobDao, MailRecipient, MailRecipientDao};
+use crate::dao::{
+    MailJob, MailJobDao, MailRecipient, MailRecipientAttachment, MailRecipientAttachmentDao,
+    MailRecipientDao,
+};
 use genossi_config::dao::ConfigEntry;
 use genossi_config::service::ConfigService;
 
@@ -29,15 +32,24 @@ pub struct RecipientInput {
     pub member_id: Option<Uuid>,
 }
 
+pub struct AttachmentInput {
+    pub document_id: Uuid,
+    pub file_name: String,
+    pub mime_type: String,
+    pub relative_path: String,
+}
+
 #[automock]
 #[async_trait]
 pub trait MailService: Send + Sync + 'static {
     /// Create a mail job with the given recipients. Returns the created job.
+    /// If attachment_inputs is non-empty, recipients must contain exactly one entry.
     async fn create_job(
         &self,
         subject: &str,
         body: &str,
         recipients: Vec<RecipientInput>,
+        attachment_inputs: Vec<AttachmentInput>,
     ) -> Result<MailJob, MailServiceError>;
 
     /// Get all mail jobs ordered by created DESC.
@@ -155,35 +167,46 @@ pub fn build_transport(
     Ok(transport)
 }
 
-pub struct MailServiceImpl<C: ConfigService, J: MailJobDao, R: MailRecipientDao> {
+pub struct MailServiceImpl<C: ConfigService, J: MailJobDao, R: MailRecipientDao, A: MailRecipientAttachmentDao> {
     config_service: Arc<C>,
     job_dao: Arc<J>,
     recipient_dao: Arc<R>,
+    attachment_dao: Arc<A>,
 }
 
-impl<C: ConfigService, J: MailJobDao, R: MailRecipientDao> MailServiceImpl<C, J, R> {
-    pub fn new(config_service: C, job_dao: J, recipient_dao: R) -> Self {
+impl<C: ConfigService, J: MailJobDao, R: MailRecipientDao, A: MailRecipientAttachmentDao>
+    MailServiceImpl<C, J, R, A>
+{
+    pub fn new(config_service: C, job_dao: J, recipient_dao: R, attachment_dao: A) -> Self {
         Self {
             config_service: Arc::new(config_service),
             job_dao: Arc::new(job_dao),
             recipient_dao: Arc::new(recipient_dao),
+            attachment_dao: Arc::new(attachment_dao),
         }
     }
 }
 
 #[async_trait]
-impl<C: ConfigService, J: MailJobDao, R: MailRecipientDao> MailService
-    for MailServiceImpl<C, J, R>
+impl<C: ConfigService, J: MailJobDao, R: MailRecipientDao, A: MailRecipientAttachmentDao>
+    MailService for MailServiceImpl<C, J, R, A>
 {
     async fn create_job(
         &self,
         subject: &str,
         body: &str,
         recipients: Vec<RecipientInput>,
+        attachment_inputs: Vec<AttachmentInput>,
     ) -> Result<MailJob, MailServiceError> {
         if recipients.is_empty() {
             return Err(MailServiceError::DataAccess(Arc::from(
                 "Recipients list cannot be empty",
+            )));
+        }
+
+        if !attachment_inputs.is_empty() && recipients.len() > 1 {
+            return Err(MailServiceError::DataAccess(Arc::from(
+                "Attachments are only supported for single-recipient sends",
             )));
         }
 
@@ -219,6 +242,17 @@ impl<C: ConfigService, J: MailJobDao, R: MailRecipientDao> MailService
                 sent_at: None,
             };
             self.recipient_dao.create(&recipient).await?;
+
+            for att in &attachment_inputs {
+                let attachment = MailRecipientAttachment {
+                    recipient_id: recipient.id,
+                    document_id: att.document_id,
+                    file_name: Arc::from(att.file_name.as_str()),
+                    mime_type: Arc::from(att.mime_type.as_str()),
+                    relative_path: Arc::from(att.relative_path.as_str()),
+                };
+                self.attachment_dao.create(&attachment).await?;
+            }
         }
 
         Ok(job)
@@ -311,7 +345,7 @@ impl<C: ConfigService, J: MailJobDao, R: MailRecipientDao> MailService
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dao::{MockMailJobDao, MockMailRecipientDao};
+    use crate::dao::{MockMailJobDao, MockMailRecipientAttachmentDao, MockMailRecipientDao};
     use genossi_config::dao::ConfigEntry;
     use genossi_config::service::MockConfigService;
 
@@ -362,7 +396,7 @@ mod tests {
             .times(2)
             .returning(|_| Ok(()));
 
-        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao);
+        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao, MockMailRecipientAttachmentDao::new());
         let result = service
             .create_job(
                 "Test Subject",
@@ -377,6 +411,7 @@ mod tests {
                         member_id: None,
                     },
                 ],
+                vec![],
             )
             .await
             .unwrap();
@@ -393,9 +428,9 @@ mod tests {
         let job_dao = MockMailJobDao::new();
         let recipient_dao = MockMailRecipientDao::new();
 
-        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao);
+        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao, MockMailRecipientAttachmentDao::new());
         let result = service
-            .create_job("Test", "Body", vec![])
+            .create_job("Test", "Body", vec![], vec![])
             .await;
 
         assert!(matches!(result, Err(MailServiceError::DataAccess(_))));
@@ -411,7 +446,7 @@ mod tests {
             .expect_all()
             .returning(|| Ok(vec![].into()));
 
-        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao);
+        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao, MockMailRecipientAttachmentDao::new());
         let result = service.get_jobs().await.unwrap();
         assert!(result.is_empty());
     }
@@ -454,7 +489,7 @@ mod tests {
                 Ok(vec![].into())
             });
 
-        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao);
+        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao, MockMailRecipientAttachmentDao::new());
         let (found_job, recipients) = service.get_job_with_recipients(job_id).await.unwrap();
         assert_eq!(found_job.id, job_id);
         assert!(recipients.is_empty());
@@ -537,7 +572,7 @@ mod tests {
                 Ok(())
             });
 
-        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao);
+        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao, MockMailRecipientAttachmentDao::new());
         let result = service.retry_job(job_id).await.unwrap();
         assert_eq!(result.status.as_ref(), "running");
     }
@@ -550,7 +585,7 @@ mod tests {
         let job_dao = MockMailJobDao::new();
         let recipient_dao = MockMailRecipientDao::new();
 
-        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao);
+        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao, MockMailRecipientAttachmentDao::new());
         let result = service.send_test_mail("to@example.com").await;
         assert!(matches!(result, Err(MailServiceError::ConfigMissing(_))));
     }
@@ -566,7 +601,7 @@ mod tests {
         let job_dao = MockMailJobDao::new();
         let recipient_dao = MockMailRecipientDao::new();
 
-        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao);
+        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao, MockMailRecipientAttachmentDao::new());
         let result = service.send_test_mail("to@example.com").await;
         // SMTP will fail since no real server, but it should be SmtpError not ConfigMissing
         assert!(matches!(result, Err(MailServiceError::SmtpError(_))));
@@ -610,7 +645,7 @@ mod tests {
             .expect_find_sent_member_ids_by_job_id()
             .returning(move |_| Ok(sent_ids_clone.clone()));
 
-        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao);
+        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao, MockMailRecipientAttachmentDao::new());
         let result = service.get_reached_member_ids(job_id).await.unwrap();
         assert_eq!(result.len(), 2);
         assert!(result.contains(&member1));
@@ -627,8 +662,83 @@ mod tests {
             .expect_find_by_id()
             .returning(|_| Err(crate::dao::MailDaoError::NotFound));
 
-        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao);
+        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao, MockMailRecipientAttachmentDao::new());
         let result = service.get_reached_member_ids(Uuid::new_v4()).await;
         assert!(matches!(result, Err(MailServiceError::NotFound)));
+    }
+
+    #[tokio::test]
+    async fn test_create_job_with_attachments_single_recipient() {
+        let config_mock = MockConfigService::new();
+        let mut job_dao = MockMailJobDao::new();
+        let mut recipient_dao = MockMailRecipientDao::new();
+        let mut attachment_dao = MockMailRecipientAttachmentDao::new();
+
+        job_dao.expect_create().returning(|_| Ok(()));
+        recipient_dao.expect_create().times(1).returning(|_| Ok(()));
+        attachment_dao.expect_create().times(2).returning(|_| Ok(()));
+
+        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao, attachment_dao);
+        let result = service
+            .create_job(
+                "Subject",
+                "Body",
+                vec![RecipientInput {
+                    address: "a@example.com".into(),
+                    member_id: Some(Uuid::new_v4()),
+                }],
+                vec![
+                    AttachmentInput {
+                        document_id: Uuid::new_v4(),
+                        file_name: "doc1.pdf".into(),
+                        mime_type: "application/pdf".into(),
+                        relative_path: "aaa.pdf".into(),
+                    },
+                    AttachmentInput {
+                        document_id: Uuid::new_v4(),
+                        file_name: "doc2.pdf".into(),
+                        mime_type: "application/pdf".into(),
+                        relative_path: "bbb.pdf".into(),
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result.total_count, 1);
+    }
+
+    #[tokio::test]
+    async fn test_create_job_attachments_rejected_for_multiple_recipients() {
+        let config_mock = MockConfigService::new();
+        let job_dao = MockMailJobDao::new();
+        let recipient_dao = MockMailRecipientDao::new();
+        let attachment_dao = MockMailRecipientAttachmentDao::new();
+
+        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao, attachment_dao);
+        let result = service
+            .create_job(
+                "Subject",
+                "Body",
+                vec![
+                    RecipientInput {
+                        address: "a@example.com".into(),
+                        member_id: None,
+                    },
+                    RecipientInput {
+                        address: "b@example.com".into(),
+                        member_id: None,
+                    },
+                ],
+                vec![AttachmentInput {
+                    document_id: Uuid::new_v4(),
+                    file_name: "doc.pdf".into(),
+                    mime_type: "application/pdf".into(),
+                    relative_path: "aaa.pdf".into(),
+                }],
+            )
+            .await;
+
+        assert!(matches!(result, Err(MailServiceError::DataAccess(_))));
     }
 }

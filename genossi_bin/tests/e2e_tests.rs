@@ -3043,6 +3043,7 @@ async fn test_mail_create_bulk_job() {
             ],
             subject: "Bulk Test".to_string(),
             body: "Hello everyone".to_string(),
+            attachment_ids: vec![],
         })
         .send()
         .await
@@ -3116,6 +3117,7 @@ async fn test_mail_send_bulk_empty_list() {
             to_addresses: vec![],
             subject: "Empty".to_string(),
             body: "Body".to_string(),
+            attachment_ids: vec![],
         })
         .send()
         .await
@@ -3140,6 +3142,7 @@ async fn test_mail_retry_job() {
             ],
             subject: "Retry Test".to_string(),
             body: "Hello".to_string(),
+            attachment_ids: vec![],
         })
         .send()
         .await
@@ -3316,6 +3319,7 @@ async fn test_members_not_reached_by_job() {
             ],
             subject: "GV Einladung".to_string(),
             body: "Einladung zur Generalversammlung".to_string(),
+            attachment_ids: vec![],
         })
         .send()
         .await
@@ -3393,6 +3397,7 @@ async fn test_members_not_reached_sent_excluded() {
             }],
             subject: "Test".to_string(),
             body: "Test".to_string(),
+            attachment_ids: vec![],
         })
         .send()
         .await
@@ -3562,4 +3567,177 @@ async fn test_get_user_preference_after_upsert() {
     let result: UserPreferenceTO = response.json().await.unwrap();
     assert_eq!(result.key.as_deref(), Some("member_list_columns"));
     assert_eq!(result.value, r#"["member_number","last_name"]"#);
+}
+
+// ===== Mail Attachment E2E Tests =====
+
+async fn upload_test_document(
+    client: &reqwest::Client,
+    server: &genossi_rest::test_server::test_support::TestServer,
+    member_id: uuid::Uuid,
+) -> MemberDocumentTO {
+    let file_content = b"fake pdf content for attachment";
+    let file_part = reqwest::multipart::Part::bytes(file_content.to_vec())
+        .file_name("test_attachment.pdf")
+        .mime_str("application/pdf")
+        .unwrap();
+    let form = reqwest::multipart::Form::new()
+        .text("document_type", "join_confirmation")
+        .part("file", file_part);
+
+    let response = client
+        .post(server.url(&format!("/api/members/{}/documents", member_id)))
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    response.json().await.unwrap()
+}
+
+#[tokio::test]
+async fn test_mail_send_with_attachment() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let member = create_test_member(&client, &server).await;
+    let member_id = member.id.unwrap();
+    let doc = upload_test_document(&client, &server, member_id).await;
+    let doc_id = doc.id.unwrap();
+
+    // Send mail with attachment
+    let response = client
+        .post(server.url("/api/mail/send-bulk"))
+        .json(&SendBulkMailRequest {
+            to_addresses: vec![BulkRecipient {
+                address: "max@example.com".to_string(),
+                member_id: Some(member_id.to_string()),
+            }],
+            subject: "With Attachment".to_string(),
+            body: "See attached".to_string(),
+            attachment_ids: vec![doc_id.to_string()],
+        })
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 202);
+    let job: MailJobTO = response.json().await.unwrap();
+    assert_eq!(job.total_count, 1);
+
+    // Verify attachment shows in job detail
+    let response = client
+        .get(server.url(&format!("/api/mail/jobs/{}", job.id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let detail: MailJobDetailTO = response.json().await.unwrap();
+    assert_eq!(detail.recipients.len(), 1);
+}
+
+#[tokio::test]
+async fn test_mail_attachment_wrong_member() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Create two members
+    let member1 = create_test_member(&client, &server).await;
+    let member1_id = member1.id.unwrap();
+
+    let mut member2_data = sample_member();
+    member2_data.member_number = 2;
+    member2_data.first_name = "Other".to_string();
+    member2_data.email = Some("other@example.com".to_string());
+    let response = client
+        .post(server.url("/api/members"))
+        .json(&member2_data)
+        .send()
+        .await
+        .unwrap();
+    let member2: MemberTO = response.json().await.unwrap();
+    let member2_id = member2.id.unwrap();
+
+    // Upload document to member1
+    let doc = upload_test_document(&client, &server, member1_id).await;
+    let doc_id = doc.id.unwrap();
+
+    // Try to send to member2 with member1's document — should fail
+    let response = client
+        .post(server.url("/api/mail/send-bulk"))
+        .json(&SendBulkMailRequest {
+            to_addresses: vec![BulkRecipient {
+                address: "other@example.com".to_string(),
+                member_id: Some(member2_id.to_string()),
+            }],
+            subject: "Wrong Attachment".to_string(),
+            body: "This should fail".to_string(),
+            attachment_ids: vec![doc_id.to_string()],
+        })
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 500); // DataAccess error -> 500
+}
+
+#[tokio::test]
+async fn test_mail_attachments_rejected_for_multiple_recipients() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let member = create_test_member(&client, &server).await;
+    let member_id = member.id.unwrap();
+    let doc = upload_test_document(&client, &server, member_id).await;
+    let doc_id = doc.id.unwrap();
+
+    let response = client
+        .post(server.url("/api/mail/send-bulk"))
+        .json(&SendBulkMailRequest {
+            to_addresses: vec![
+                BulkRecipient {
+                    address: "max@example.com".to_string(),
+                    member_id: Some(member_id.to_string()),
+                },
+                BulkRecipient {
+                    address: "other@example.com".to_string(),
+                    member_id: None,
+                },
+            ],
+            subject: "Multi + Attachment".to_string(),
+            body: "Should fail".to_string(),
+            attachment_ids: vec![doc_id.to_string()],
+        })
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 500); // DataAccess error -> 500
+}
+
+#[tokio::test]
+async fn test_mail_without_attachment_unchanged() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Send mail without attachments (existing behavior)
+    let response = client
+        .post(server.url("/api/mail/send-bulk"))
+        .json(&SendBulkMailRequest {
+            to_addresses: vec![
+                BulkRecipient { address: "a@example.com".to_string(), member_id: None },
+                BulkRecipient { address: "b@example.com".to_string(), member_id: None },
+            ],
+            subject: "No Attachments".to_string(),
+            body: "Plain mail".to_string(),
+            attachment_ids: vec![],
+        })
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 202);
+    let job: MailJobTO = response.json().await.unwrap();
+    assert_eq!(job.total_count, 2);
+    assert_eq!(job.status, "running");
 }

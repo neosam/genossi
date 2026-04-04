@@ -513,6 +513,8 @@ pub struct SendBulkMailRequest {
     pub to_addresses: Vec<BulkRecipient>,
     pub subject: String,
     pub body: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachment_ids: Vec<String>,
 }
 
 pub async fn send_bulk_mail(
@@ -520,6 +522,7 @@ pub async fn send_bulk_mail(
     recipients: &[BulkRecipient],
     subject: &str,
     body: &str,
+    attachment_ids: &[String],
 ) -> Result<MailJobTO, String> {
     info!("Sending bulk mail to {} recipients", recipients.len());
     let url = format!("{}/api/mail/send-bulk", config.backend);
@@ -527,6 +530,7 @@ pub async fn send_bulk_mail(
         to_addresses: recipients.to_vec(),
         subject: subject.to_string(),
         body: body.to_string(),
+        attachment_ids: attachment_ids.to_vec(),
     };
     let response = reqwest::Client::new()
         .post(url)

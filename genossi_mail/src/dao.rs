@@ -58,3 +58,22 @@ pub trait MailRecipientDao: Send + Sync + 'static {
         job_id: Uuid,
     ) -> Result<Arc<[Uuid]>, MailDaoError>;
 }
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MailRecipientAttachment {
+    pub recipient_id: Uuid,
+    pub document_id: Uuid,
+    pub file_name: Arc<str>,
+    pub mime_type: Arc<str>,
+    pub relative_path: Arc<str>,
+}
+
+#[automock]
+#[async_trait]
+pub trait MailRecipientAttachmentDao: Send + Sync + 'static {
+    async fn create(&self, attachment: &MailRecipientAttachment) -> Result<(), MailDaoError>;
+    async fn find_by_recipient_id(
+        &self,
+        recipient_id: Uuid,
+    ) -> Result<Arc<[MailRecipientAttachment]>, MailDaoError>;
+}

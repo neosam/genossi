@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use rest_types::MemberTO;
+use rest_types::{MemberDocumentTO, MemberTO};
 use uuid::Uuid;
 
 use crate::api::{self, BulkRecipient, MailJobTO, MailJobDetailTO};
@@ -53,6 +53,10 @@ pub fn MailPage() -> Element {
     let mut body = use_signal(|| String::new());
     let mut sending = use_signal(|| false);
 
+    // Attachment state
+    let mut available_documents = use_signal(|| Vec::<MemberDocumentTO>::new());
+    let mut selected_attachment_ids = use_signal(|| Vec::<Uuid>::new());
+
     // Member search state
     let mut search_query = use_signal(|| String::new());
     let mut show_dropdown = use_signal(|| false);
@@ -83,6 +87,24 @@ pub fn MailPage() -> Element {
 
     use_effect(move || {
         reload_jobs();
+    });
+
+    // Fetch documents when exactly one member is selected
+    use_effect(move || {
+        let ids = selected_member_ids.read().clone();
+        if ids.len() == 1 {
+            let member_id = ids[0];
+            spawn(async move {
+                let config = CONFIG.read().clone();
+                match api::get_member_documents(&config, member_id).await {
+                    Ok(docs) => available_documents.set(docs),
+                    Err(_) => available_documents.set(vec![]),
+                }
+            });
+        } else {
+            available_documents.set(vec![]);
+            selected_attachment_ids.set(vec![]);
+        }
     });
 
     // Count active members with email addresses
@@ -331,12 +353,58 @@ pub fn MailPage() -> Element {
                                     oninput: move |e| body.set(e.value()),
                                 }
                             }
+                            // Attachment selector — visible only for single recipient
+                            if selected_member_ids.read().len() == 1 {
+                                div {
+                                    label { class: "block text-sm font-medium text-gray-700 mb-1",
+                                        "Anhänge"
+                                    }
+                                    if available_documents.read().is_empty() {
+                                        p { class: "text-sm text-gray-400 italic",
+                                            "Keine Dokumente vorhanden"
+                                        }
+                                    } else {
+                                        div { class: "border rounded-md p-2 max-h-40 overflow-y-auto space-y-1",
+                                            for doc in available_documents.read().iter() {
+                                                {
+                                                    let doc_id = doc.id;
+                                                    let doc_type = doc.document_type.clone();
+                                                    let file_name = doc.file_name.clone();
+                                                    let is_checked = doc_id.map(|id| selected_attachment_ids.read().contains(&id)).unwrap_or(false);
+                                                    rsx! {
+                                                        label { class: "flex items-center gap-2 px-2 py-1 hover:bg-gray-50 rounded cursor-pointer text-sm",
+                                                            input {
+                                                                r#type: "checkbox",
+                                                                checked: is_checked,
+                                                                onchange: move |_| {
+                                                                    if let Some(id) = doc_id {
+                                                                        let mut ids = selected_attachment_ids.write();
+                                                                        if ids.contains(&id) {
+                                                                            ids.retain(|i| *i != id);
+                                                                        } else {
+                                                                            ids.push(id);
+                                                                        }
+                                                                    }
+                                                                },
+                                                            }
+                                                            span { class: "text-gray-600", "{doc_type}" }
+                                                            span { class: "text-gray-800 font-medium", "{file_name}" }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
                             button {
                                 class: "bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded disabled:opacity-50",
                                 disabled: *sending.read() || recipient_count == 0 || subject.read().is_empty(),
                                 onclick: move |_| {
                                     let subj = subject.read().clone();
                                     let b = body.read().clone();
+                                    let att_ids: Vec<String> = selected_attachment_ids.read().iter().map(|id| id.to_string()).collect();
                                     let i18n = i18n.clone();
                                     // Collect recipients with member_id
                                     let recipients: Vec<BulkRecipient> = {
@@ -360,10 +428,11 @@ pub fn MailPage() -> Element {
                                         error.set(None);
                                         success_msg.set(None);
                                         let config = CONFIG.read().clone();
-                                        match api::send_bulk_mail(&config, &recipients, &subj, &b).await {
+                                        match api::send_bulk_mail(&config, &recipients, &subj, &b, &att_ids).await {
                                             Ok(_job) => {
                                                 success_msg.set(Some(i18n.t(Key::MailJobCreated).to_string()));
                                                 selected_member_ids.set(Vec::new());
+                                                selected_attachment_ids.set(Vec::new());
                                                 subject.set(String::new());
                                                 body.set(String::new());
                                                 reload_jobs();

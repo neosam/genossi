@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 genossi_config = { path = "../genossi_config" }
+genossi_service = { path = "../genossi_service", features = ["utoipa"] }
 async-trait = { workspace = true }
 mockall = { workspace = true }
 sqlx = { workspace = true }

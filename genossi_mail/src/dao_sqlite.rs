@@ -4,7 +4,10 @@ use std::sync::Arc;
 use time::PrimitiveDateTime;
 use uuid::Uuid;
 
-use crate::dao::{MailDaoError, MailJob, MailJobDao, MailRecipient, MailRecipientDao};
+use crate::dao::{
+    MailDaoError, MailJob, MailJobDao, MailRecipient, MailRecipientDao,
+    MailRecipientAttachment, MailRecipientAttachmentDao,
+};
 
 fn parse_datetime(s: &str) -> Result<PrimitiveDateTime, time::error::Parse> {
     if let Ok(dt) =
@@ -329,6 +332,84 @@ impl MailRecipientDao for MailRecipientDaoSqlite {
     }
 }
 
+// MailRecipientAttachment SQLite
+
+#[derive(Debug, sqlx::FromRow)]
+struct MailRecipientAttachmentDb {
+    recipient_id: Vec<u8>,
+    document_id: Vec<u8>,
+    file_name: String,
+    mime_type: String,
+    relative_path: String,
+}
+
+impl TryFrom<&MailRecipientAttachmentDb> for MailRecipientAttachment {
+    type Error = MailDaoError;
+
+    fn try_from(db: &MailRecipientAttachmentDb) -> Result<Self, Self::Error> {
+        Ok(MailRecipientAttachment {
+            recipient_id: parse_uuid(&db.recipient_id)?,
+            document_id: parse_uuid(&db.document_id)?,
+            file_name: Arc::from(db.file_name.as_str()),
+            mime_type: Arc::from(db.mime_type.as_str()),
+            relative_path: Arc::from(db.relative_path.as_str()),
+        })
+    }
+}
+
+pub struct MailRecipientAttachmentDaoSqlite {
+    pool: Arc<SqlitePool>,
+}
+
+impl MailRecipientAttachmentDaoSqlite {
+    pub fn new(pool: Arc<SqlitePool>) -> Self {
+        Self { pool }
+    }
+}
+
+#[async_trait]
+impl MailRecipientAttachmentDao for MailRecipientAttachmentDaoSqlite {
+    async fn create(&self, attachment: &MailRecipientAttachment) -> Result<(), MailDaoError> {
+        let recipient_id = attachment.recipient_id.as_bytes().to_vec();
+        let document_id = attachment.document_id.as_bytes().to_vec();
+
+        sqlx::query(
+            "INSERT INTO mail_recipient_attachments (recipient_id, document_id, file_name, mime_type, relative_path) \
+             VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(recipient_id)
+        .bind(document_id)
+        .bind(attachment.file_name.as_ref())
+        .bind(attachment.mime_type.as_ref())
+        .bind(attachment.relative_path.as_ref())
+        .execute(self.pool.as_ref())
+        .await
+        .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
+
+        Ok(())
+    }
+
+    async fn find_by_recipient_id(
+        &self,
+        recipient_id: Uuid,
+    ) -> Result<Arc<[MailRecipientAttachment]>, MailDaoError> {
+        let recipient_id_bytes = recipient_id.as_bytes().to_vec();
+        let rows = sqlx::query_as::<_, MailRecipientAttachmentDb>(
+            "SELECT recipient_id, document_id, file_name, mime_type, relative_path \
+             FROM mail_recipient_attachments WHERE recipient_id = ?",
+        )
+        .bind(recipient_id_bytes)
+        .fetch_all(self.pool.as_ref())
+        .await
+        .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
+
+        rows.iter()
+            .map(MailRecipientAttachment::try_from)
+            .collect::<Result<Vec<_>, _>>()
+            .map(|v| v.into())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -371,6 +452,19 @@ mod tests {
         .execute(&pool)
         .await
         .expect("Failed to create mail_recipients table");
+        sqlx::query(
+            "CREATE TABLE mail_recipient_attachments (
+                recipient_id BLOB NOT NULL REFERENCES mail_recipients(id),
+                document_id BLOB NOT NULL,
+                file_name TEXT NOT NULL,
+                mime_type TEXT NOT NULL,
+                relative_path TEXT NOT NULL,
+                PRIMARY KEY (recipient_id, document_id)
+            )",
+        )
+        .execute(&pool)
+        .await
+        .expect("Failed to create mail_recipient_attachments table");
         Arc::new(pool)
     }
 
@@ -641,5 +735,84 @@ mod tests {
         assert!(sent_ids.contains(&member1));
         assert!(sent_ids.contains(&member3));
         assert!(!sent_ids.contains(&member2));
+    }
+
+    // MailRecipientAttachment tests
+
+    #[tokio::test]
+    async fn test_attachment_create_and_find_by_recipient_id() {
+        let pool = setup_db().await;
+        let job_dao = MailJobDaoSqlite::new(pool.clone());
+        let recipient_dao = MailRecipientDaoSqlite::new(pool.clone());
+        let attachment_dao = MailRecipientAttachmentDaoSqlite::new(pool);
+
+        let job = sample_job();
+        job_dao.create(&job).await.unwrap();
+
+        let r = sample_recipient(job.id);
+        recipient_dao.create(&r).await.unwrap();
+
+        let doc_id = Uuid::new_v4();
+        let attachment = MailRecipientAttachment {
+            recipient_id: r.id,
+            document_id: doc_id,
+            file_name: Arc::from("report.pdf"),
+            mime_type: Arc::from("application/pdf"),
+            relative_path: Arc::from("abc123.pdf"),
+        };
+        attachment_dao.create(&attachment).await.unwrap();
+
+        let found = attachment_dao.find_by_recipient_id(r.id).await.unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].document_id, doc_id);
+        assert_eq!(found[0].file_name.as_ref(), "report.pdf");
+        assert_eq!(found[0].mime_type.as_ref(), "application/pdf");
+        assert_eq!(found[0].relative_path.as_ref(), "abc123.pdf");
+    }
+
+    #[tokio::test]
+    async fn test_attachment_multiple_per_recipient() {
+        let pool = setup_db().await;
+        let job_dao = MailJobDaoSqlite::new(pool.clone());
+        let recipient_dao = MailRecipientDaoSqlite::new(pool.clone());
+        let attachment_dao = MailRecipientAttachmentDaoSqlite::new(pool);
+
+        let job = sample_job();
+        job_dao.create(&job).await.unwrap();
+
+        let r = sample_recipient(job.id);
+        recipient_dao.create(&r).await.unwrap();
+
+        let a1 = MailRecipientAttachment {
+            recipient_id: r.id,
+            document_id: Uuid::new_v4(),
+            file_name: Arc::from("doc1.pdf"),
+            mime_type: Arc::from("application/pdf"),
+            relative_path: Arc::from("aaa.pdf"),
+        };
+        let a2 = MailRecipientAttachment {
+            recipient_id: r.id,
+            document_id: Uuid::new_v4(),
+            file_name: Arc::from("doc2.pdf"),
+            mime_type: Arc::from("application/pdf"),
+            relative_path: Arc::from("bbb.pdf"),
+        };
+        attachment_dao.create(&a1).await.unwrap();
+        attachment_dao.create(&a2).await.unwrap();
+
+        let found = attachment_dao.find_by_recipient_id(r.id).await.unwrap();
+        assert_eq!(found.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_attachment_empty_for_unknown_recipient() {
+        let pool = setup_db().await;
+        let attachment_dao = MailRecipientAttachmentDaoSqlite::new(pool);
+
+        let found = attachment_dao
+            .find_by_recipient_id(Uuid::new_v4())
+            .await
+            .unwrap();
+        assert!(found.is_empty());
     }
 }
