@@ -4,7 +4,7 @@ use genossi_bin::RestStateImpl;
 use genossi_rest::test_server::test_support::start_test_server;
 use genossi_rest_types::{
     ActionTypeTO, MemberActionTO, MemberDocumentTO, MemberImportResultTO, MemberTO,
-    MigrationStatusTO, UserPreferenceTO, ValidationResultTO,
+    MigrationStatusTO, SalutationTO, UserPreferenceTO, ValidationResultTO,
 };
 use genossi_config::rest::{ConfigEntryTO, SetConfigRequest};
 use genossi_mail::rest::{SendBulkMailRequest, BulkRecipient, SendMailRequest, MailJobTO, MailJobDetailTO, TestMailRequest};
@@ -34,6 +34,8 @@ fn sample_member() -> MemberTO {
         member_number: 1,
         first_name: "Max".to_string(),
         last_name: "Mustermann".to_string(),
+        salutation: None,
+        title: None,
         email: Some("max@example.com".to_string()),
         company: None,
         comment: None,
@@ -3740,4 +3742,97 @@ async fn test_mail_without_attachment_unchanged() {
     let job: MailJobTO = response.json().await.unwrap();
     assert_eq!(job.total_count, 2);
     assert_eq!(job.status, "running");
+}
+
+#[tokio::test]
+async fn test_create_member_with_salutation_and_title() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let mut member = sample_member();
+    member.salutation = Some(SalutationTO::Herr);
+    member.title = Some("Dr.".to_string());
+
+    let response = client
+        .post(server.url("/api/members"))
+        .json(&member)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let created: MemberTO = response.json().await.unwrap();
+    assert_eq!(created.salutation, Some(SalutationTO::Herr));
+    assert_eq!(created.title.as_deref(), Some("Dr."));
+
+    // Read back
+    let id = created.id.unwrap();
+    let response = client
+        .get(server.url(&format!("/api/members/{}", id)))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let fetched: MemberTO = response.json().await.unwrap();
+    assert_eq!(fetched.salutation, Some(SalutationTO::Herr));
+    assert_eq!(fetched.title.as_deref(), Some("Dr."));
+}
+
+#[tokio::test]
+async fn test_update_member_salutation_and_title() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Create without salutation/title
+    let response = client
+        .post(server.url("/api/members"))
+        .json(&sample_member())
+        .send()
+        .await
+        .unwrap();
+
+    let created: MemberTO = response.json().await.unwrap();
+    let id = created.id.unwrap();
+    assert_eq!(created.salutation, None);
+    assert_eq!(created.title, None);
+
+    // Update with salutation and title
+    let mut updated = created.clone();
+    updated.salutation = Some(SalutationTO::Frau);
+    updated.title = Some("Prof. Dr.".to_string());
+
+    let response = client
+        .put(server.url(&format!("/api/members/{}", id)))
+        .json(&updated)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let result: MemberTO = response.json().await.unwrap();
+    assert_eq!(result.salutation, Some(SalutationTO::Frau));
+    assert_eq!(result.title.as_deref(), Some("Prof. Dr."));
+}
+
+#[tokio::test]
+async fn test_create_member_with_firma_salutation() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let mut member = sample_member();
+    member.salutation = Some(SalutationTO::Firma);
+    member.title = None;
+
+    let response = client
+        .post(server.url("/api/members"))
+        .json(&member)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let created: MemberTO = response.json().await.unwrap();
+    assert_eq!(created.salutation, Some(SalutationTO::Firma));
+    assert_eq!(created.title, None);
 }

@@ -1,11 +1,12 @@
 use crate::i18n::Key;
-use rest_types::MemberTO;
+use rest_types::{MemberTO, SalutationTO};
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum InputType {
     Text,
     Number,
-    None, // read-only, no input
+    Select, // dropdown selection
+    None,   // read-only, no input
 }
 
 #[derive(Clone)]
@@ -21,6 +22,8 @@ pub struct ColumnDef {
 
 fn noop_set(_m: &mut MemberTO, _v: &str) {}
 
+fn render_salutation(m: &MemberTO, _i18n: &crate::i18n::I18n) -> String { m.salutation.as_ref().map(|s| s.as_str().to_string()).unwrap_or_default() }
+fn render_title(m: &MemberTO, _i18n: &crate::i18n::I18n) -> String { m.title.clone().unwrap_or_default() }
 fn render_member_number(m: &MemberTO, _i18n: &crate::i18n::I18n) -> String { m.member_number.to_string() }
 fn render_last_name(m: &MemberTO, _i18n: &crate::i18n::I18n) -> String { m.last_name.clone() }
 fn render_first_name(m: &MemberTO, _i18n: &crate::i18n::I18n) -> String { m.first_name.clone() }
@@ -62,6 +65,18 @@ pub static ALL_COLUMNS: &[ColumnDef] = &[
         render: render_first_name,
         get_value: |m| m.first_name.clone(),
         set_value: |m, v| { m.first_name = v.to_string(); },
+    },
+    ColumnDef {
+        key: "salutation", label_key: Key::Salutation, editable: true, input_type: InputType::Select,
+        render: render_salutation,
+        get_value: |m| m.salutation.as_ref().map(|s| s.as_str().to_string()).unwrap_or_default(),
+        set_value: |m, v| { m.salutation = if v.is_empty() { None } else { SalutationTO::from_str(v) }; },
+    },
+    ColumnDef {
+        key: "title", label_key: Key::Title, editable: true, input_type: InputType::Text,
+        render: render_title,
+        get_value: |m| opt_str(&m.title),
+        set_value: |m, v| { m.title = set_opt(v); },
     },
     ColumnDef {
         key: "email", label_key: Key::Email, editable: true, input_type: InputType::Text,

@@ -234,6 +234,8 @@ fn build_member(t: &TestMember) -> genossi_service::member::Member {
         member_number: t.member_number,
         first_name: Arc::from(t.first_name),
         last_name: Arc::from(t.last_name),
+        salutation: None,
+        title: None,
         email: t.email.map(Arc::from),
         company: t.company.map(Arc::from),
         comment: t.comment.map(Arc::from),

@@ -6,11 +6,42 @@ use uuid::Uuid;
 use crate::DaoError;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Salutation {
+    Herr,
+    Frau,
+    Firma,
+}
+
+impl Salutation {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Salutation::Herr => "Herr",
+            Salutation::Frau => "Frau",
+            Salutation::Firma => "Firma",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Result<Self, DaoError> {
+        match s {
+            "Herr" => Ok(Salutation::Herr),
+            "Frau" => Ok(Salutation::Frau),
+            "Firma" => Ok(Salutation::Firma),
+            _ => Err(DaoError::ParseError(Arc::from(format!(
+                "Unknown salutation: {}",
+                s
+            )))),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MemberEntity {
     pub id: Uuid,
     pub member_number: i64,
     pub first_name: Arc<str>,
     pub last_name: Arc<str>,
+    pub salutation: Option<Salutation>,
+    pub title: Option<Arc<str>>,
     pub email: Option<Arc<str>>,
     pub company: Option<Arc<str>>,
     pub comment: Option<Arc<str>>,
@@ -125,6 +156,8 @@ mod tests {
             member_number,
             first_name: Arc::from("Test"),
             last_name: Arc::from("User"),
+            salutation: None,
+            title: None,
             email: None,
             company: None,
             comment: None,
@@ -238,5 +271,27 @@ mod tests {
         };
         let result = dao.next_member_number(mock_tx()).await.unwrap();
         assert_eq!(result, 101);
+    }
+
+    #[test]
+    fn test_salutation_roundtrip() {
+        for variant in &[Salutation::Herr, Salutation::Frau, Salutation::Firma] {
+            let s = variant.as_str();
+            let parsed = Salutation::from_str(s).unwrap();
+            assert_eq!(&parsed, variant);
+        }
+    }
+
+    #[test]
+    fn test_salutation_as_str() {
+        assert_eq!(Salutation::Herr.as_str(), "Herr");
+        assert_eq!(Salutation::Frau.as_str(), "Frau");
+        assert_eq!(Salutation::Firma.as_str(), "Firma");
+    }
+
+    #[test]
+    fn test_salutation_invalid_value() {
+        let result = Salutation::from_str("Invalid");
+        assert!(result.is_err());
     }
 }

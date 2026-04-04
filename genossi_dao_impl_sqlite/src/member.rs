@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use genossi_dao::member::{MemberDao, MemberEntity};
+use genossi_dao::member::{MemberDao, MemberEntity, Salutation};
 use genossi_dao::DaoError;
 use sqlx::SqlitePool;
 use std::sync::Arc;
@@ -42,6 +42,8 @@ struct MemberDb {
     member_number: i64,
     first_name: String,
     last_name: String,
+    salutation: Option<String>,
+    title: Option<String>,
     email: Option<String>,
     company: Option<String>,
     comment: Option<String>,
@@ -71,6 +73,12 @@ impl TryFrom<&MemberDb> for MemberEntity {
             member_number: db.member_number,
             first_name: Arc::from(db.first_name.as_str()),
             last_name: Arc::from(db.last_name.as_str()),
+            salutation: db
+                .salutation
+                .as_deref()
+                .map(Salutation::from_str)
+                .transpose()?,
+            title: db.title.as_deref().map(Arc::from),
             email: db.email.as_deref().map(Arc::from),
             company: db.company.as_deref().map(Arc::from),
             comment: db.comment.as_deref().map(Arc::from),
@@ -113,7 +121,7 @@ impl MemberDao for MemberDaoImpl {
 
     async fn dump_all(&self, tx: Self::Transaction) -> Result<Arc<[MemberEntity]>, DaoError> {
         let rows = sqlx::query_as::<_, MemberDb>(
-            "SELECT id, member_number, first_name, last_name, email, company, comment, \
+            "SELECT id, member_number, first_name, last_name, salutation, title, email, company, comment, \
              street, house_number, postal_code, city, join_date, shares_at_joining, \
              current_shares, current_balance, action_count, migrated, exit_date, bank_account, created, deleted, version \
              FROM member ORDER BY member_number",
@@ -144,6 +152,8 @@ impl MemberDao for MemberDaoImpl {
             .map_err(|e| DaoError::ParseError(Arc::from(e.to_string())))?;
         let first_name = entity.first_name.to_string();
         let last_name = entity.last_name.to_string();
+        let salutation = entity.salutation.as_ref().map(|s| s.as_str().to_string());
+        let title = entity.title.as_deref().map(String::from);
         let email = entity.email.as_deref().map(String::from);
         let company = entity.company.as_deref().map(String::from);
         let comment = entity.comment.as_deref().map(String::from);
@@ -156,15 +166,17 @@ impl MemberDao for MemberDaoImpl {
         let bank_account = entity.bank_account.as_deref().map(String::from);
 
         sqlx::query(
-            "INSERT INTO member (id, member_number, first_name, last_name, email, company, comment, \
+            "INSERT INTO member (id, member_number, first_name, last_name, salutation, title, email, company, comment, \
              street, house_number, postal_code, city, join_date, shares_at_joining, \
              current_shares, current_balance, action_count, migrated, exit_date, bank_account, created, version) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(id)
         .bind(entity.member_number)
         .bind(first_name)
         .bind(last_name)
+        .bind(salutation)
+        .bind(title)
         .bind(email)
         .bind(company)
         .bind(comment)
@@ -200,6 +212,8 @@ impl MemberDao for MemberDaoImpl {
         let new_version = Uuid::new_v4().as_bytes().to_vec();
         let first_name = entity.first_name.to_string();
         let last_name = entity.last_name.to_string();
+        let salutation = entity.salutation.as_ref().map(|s| s.as_str().to_string());
+        let title = entity.title.as_deref().map(String::from);
         let email = entity.email.as_deref().map(String::from);
         let company = entity.company.as_deref().map(String::from);
         let comment = entity.comment.as_deref().map(String::from);
@@ -236,7 +250,7 @@ impl MemberDao for MemberDaoImpl {
         }
 
         let rows_affected = sqlx::query(
-            "UPDATE member SET member_number = ?, first_name = ?, last_name = ?, email = ?, \
+            "UPDATE member SET member_number = ?, first_name = ?, last_name = ?, salutation = ?, title = ?, email = ?, \
              company = ?, comment = ?, street = ?, house_number = ?, postal_code = ?, city = ?, \
              join_date = ?, shares_at_joining = ?, current_shares = ?, current_balance = ?, \
              action_count = ?, migrated = ?, exit_date = ?, bank_account = ?, deleted = ?, version = ? \
@@ -245,6 +259,8 @@ impl MemberDao for MemberDaoImpl {
         .bind(entity.member_number)
         .bind(first_name)
         .bind(last_name)
+        .bind(salutation)
+        .bind(title)
         .bind(email)
         .bind(company)
         .bind(comment)

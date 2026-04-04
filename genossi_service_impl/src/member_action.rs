@@ -678,6 +678,8 @@ mod tests {
             member_number: 1,
             first_name: Arc::from("Test"),
             last_name: Arc::from("User"),
+            salutation: None,
+            title: None,
             email: None,
             company: None,
             comment: None,

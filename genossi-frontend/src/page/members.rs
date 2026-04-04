@@ -3,6 +3,7 @@ use dioxus::prelude::*;
 use gloo_timers::future::TimeoutFuture;
 use uuid::Uuid;
 
+use rest_types::SalutationTO;
 use crate::api::{self, MailJobTO};
 use crate::columns::{self, ALL_COLUMNS, ColumnDef, InputType};
 use crate::component::TopBar;
@@ -557,7 +558,47 @@ pub fn Members() -> Element {
                                             // Dynamic column cells
                                             for col in active_columns.iter() {
                                                 {
-                                                    if is_edit_mode && col.editable {
+                                                    if is_edit_mode && col.editable && col.input_type == InputType::Select {
+                                                        let col_key = col.key;
+                                                        let mid = member_id.unwrap_or(Uuid::nil());
+                                                        let current_value = row_edits.read().get(&mid)
+                                                            .map(|m| (col.get_value)(m))
+                                                            .unwrap_or_else(|| (col.get_value)(member));
+                                                        rsx! {
+                                                            td { class: "px-2 py-1",
+                                                                select {
+                                                                    class: "w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500",
+                                                                    value: "{current_value}",
+                                                                    onchange: move |e| {
+                                                                        if let Some(id) = member_id {
+                                                                            let val = e.value();
+                                                                            let mut edits = row_edits.write();
+                                                                            let entry = if !edits.contains_key(&id) {
+                                                                                let orig = MEMBERS.read().items.iter()
+                                                                                    .find(|m| m.id == Some(id))
+                                                                                    .cloned();
+                                                                                if let Some(orig) = orig {
+                                                                                    edits.insert(id, orig);
+                                                                                }
+                                                                                edits.get_mut(&id)
+                                                                            } else {
+                                                                                edits.get_mut(&id)
+                                                                            };
+                                                                            let Some(entry) = entry else { return; };
+                                                                            if let Some(col_def) = ALL_COLUMNS.iter().find(|c| c.key == col_key) {
+                                                                                (col_def.set_value)(entry, &val);
+                                                                            }
+                                                                            row_errors.write().remove(&id);
+                                                                        }
+                                                                    },
+                                                                    option { value: "", selected: current_value.is_empty(), "" }
+                                                                    for s in SalutationTO::all() {
+                                                                        option { value: "{s.as_str()}", selected: current_value == s.as_str(), {s.as_str()} }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    } else if is_edit_mode && col.editable {
                                                         let col_key = col.key;
                                                         let mid = member_id.unwrap_or(Uuid::nil());
                                                         // Get current value from edits or original

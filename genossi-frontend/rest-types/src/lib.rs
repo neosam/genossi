@@ -107,12 +107,49 @@ pub struct UserTO {
     pub claims: HashMap<String, String>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SalutationTO {
+    Herr,
+    Frau,
+    Firma,
+}
+
+impl SalutationTO {
+    pub fn all() -> &'static [SalutationTO] {
+        &[
+            SalutationTO::Herr,
+            SalutationTO::Frau,
+            SalutationTO::Firma,
+        ]
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            SalutationTO::Herr => "Herr",
+            SalutationTO::Frau => "Frau",
+            SalutationTO::Firma => "Firma",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "Herr" => Some(SalutationTO::Herr),
+            "Frau" => Some(SalutationTO::Frau),
+            "Firma" => Some(SalutationTO::Firma),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MemberTO {
     pub id: Option<Uuid>,
     pub member_number: i64,
     pub first_name: String,
     pub last_name: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub salutation: Option<SalutationTO>,
+    pub title: Option<String>,
     pub email: Option<String>,
     pub company: Option<String>,
     pub comment: Option<String>,
@@ -464,6 +501,8 @@ mod tests {
             member_number: 1,
             first_name: "Test".to_string(),
             last_name: "User".to_string(),
+            salutation: None,
+            title: None,
             email: None,
             company: None,
             comment: None,

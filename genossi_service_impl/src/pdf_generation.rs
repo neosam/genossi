@@ -343,6 +343,8 @@ mod tests {
             member_number: 1001,
             first_name: Arc::from("Max"),
             last_name: Arc::from("Mustermann"),
+            salutation: None,
+            title: None,
             email: Some(Arc::from("max@example.com")),
             company: None,
             comment: None,

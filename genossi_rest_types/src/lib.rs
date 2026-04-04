@@ -1,3 +1,4 @@
+use genossi_dao::member::Salutation;
 use genossi_dao::member_action::ActionType;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -104,6 +105,33 @@ pub mod iso8601_date_required {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub enum SalutationTO {
+    Herr,
+    Frau,
+    Firma,
+}
+
+impl From<&Salutation> for SalutationTO {
+    fn from(s: &Salutation) -> Self {
+        match s {
+            Salutation::Herr => SalutationTO::Herr,
+            Salutation::Frau => SalutationTO::Frau,
+            Salutation::Firma => SalutationTO::Firma,
+        }
+    }
+}
+
+impl From<&SalutationTO> for Salutation {
+    fn from(s: &SalutationTO) -> Self {
+        match s {
+            SalutationTO::Herr => Salutation::Herr,
+            SalutationTO::Frau => Salutation::Frau,
+            SalutationTO::Firma => Salutation::Firma,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct MemberTO {
     #[schema(example = "123e4567-e89b-12d3-a456-426614174000")]
@@ -114,6 +142,10 @@ pub struct MemberTO {
     pub first_name: String,
     #[schema(example = "Mustermann")]
     pub last_name: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub salutation: Option<SalutationTO>,
+    #[schema(example = "Dr.")]
+    pub title: Option<String>,
     #[schema(example = "max@example.com")]
     pub email: Option<String>,
     #[schema(example = "Muster GmbH")]
@@ -178,6 +210,8 @@ impl From<&genossi_service::member::Member> for MemberTO {
             member_number: m.member_number,
             first_name: m.first_name.to_string(),
             last_name: m.last_name.to_string(),
+            salutation: m.salutation.as_ref().map(SalutationTO::from),
+            title: m.title.as_deref().map(String::from),
             email: m.email.as_deref().map(String::from),
             company: m.company.as_deref().map(String::from),
             comment: m.comment.as_deref().map(String::from),
@@ -245,6 +279,8 @@ impl From<&MemberTO> for genossi_service::member::Member {
             member_number: to.member_number,
             first_name: Arc::from(to.first_name.as_str()),
             last_name: Arc::from(to.last_name.as_str()),
+            salutation: to.salutation.as_ref().map(Salutation::from),
+            title: to.title.as_deref().map(Arc::from),
             email: to.email.as_deref().map(Arc::from),
             company: to.company.as_deref().map(Arc::from),
             comment: to.comment.as_deref().map(Arc::from),

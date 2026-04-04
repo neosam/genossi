@@ -1,0 +1,2 @@
+ALTER TABLE member ADD COLUMN salutation TEXT;
+ALTER TABLE member ADD COLUMN title TEXT;

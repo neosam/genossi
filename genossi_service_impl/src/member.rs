@@ -192,6 +192,8 @@ impl<Deps: MemberServiceDeps> MemberService for MemberServiceImpl<Deps> {
             member_number,
             first_name: item.first_name.clone(),
             last_name: item.last_name.clone(),
+            salutation: item.salutation.clone(),
+            title: item.title.clone(),
             email: item.email.clone(),
             company: item.company.clone(),
             comment: item.comment.clone(),

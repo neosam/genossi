@@ -86,6 +86,8 @@ pub enum Key {
     CurrentBalance,
     ExitDate,
     BankAccount,
+    Salutation,
+    Title,
     CreateMember,
     EditMember,
 

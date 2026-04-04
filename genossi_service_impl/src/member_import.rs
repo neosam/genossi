@@ -392,6 +392,8 @@ impl<Deps: MemberImportServiceDeps> MemberImportService for MemberImportServiceI
                         member_number: parsed.member_number,
                         first_name: parsed.first_name.clone(),
                         last_name: parsed.last_name.clone(),
+                        salutation: None,
+                        title: None,
                         email: parsed.email.clone(),
                         company: parsed.company.clone(),
                         comment: parsed.comment.clone(),

@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use genossi_dao::member::MemberEntity;
+use genossi_dao::member::{MemberEntity, Salutation};
 use mockall::automock;
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -14,6 +14,8 @@ pub struct Member {
     pub member_number: i64,
     pub first_name: Arc<str>,
     pub last_name: Arc<str>,
+    pub salutation: Option<Salutation>,
+    pub title: Option<Arc<str>>,
     pub email: Option<Arc<str>>,
     pub company: Option<Arc<str>>,
     pub comment: Option<Arc<str>>,
@@ -41,6 +43,8 @@ impl From<&MemberEntity> for Member {
             member_number: entity.member_number,
             first_name: entity.first_name.clone(),
             last_name: entity.last_name.clone(),
+            salutation: entity.salutation.clone(),
+            title: entity.title.clone(),
             email: entity.email.clone(),
             company: entity.company.clone(),
             comment: entity.comment.clone(),
@@ -70,6 +74,8 @@ impl From<&Member> for MemberEntity {
             member_number: member.member_number,
             first_name: member.first_name.clone(),
             last_name: member.last_name.clone(),
+            salutation: member.salutation.clone(),
+            title: member.title.clone(),
             email: member.email.clone(),
             company: member.company.clone(),
             comment: member.comment.clone(),
@@ -131,4 +137,68 @@ pub trait MemberService {
         context: Authentication<Self::Context>,
         tx: Option<Self::Transaction>,
     ) -> Result<(), ServiceError>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_member() -> Member {
+        let date = time::Date::from_calendar_date(2025, time::Month::January, 1).unwrap();
+        let datetime = time::PrimitiveDateTime::new(date, time::Time::MIDNIGHT);
+        Member {
+            id: Uuid::new_v4(),
+            member_number: 1,
+            first_name: Arc::from("Test"),
+            last_name: Arc::from("User"),
+            salutation: Some(Salutation::Herr),
+            title: Some(Arc::from("Dr.")),
+            email: None,
+            company: None,
+            comment: None,
+            street: None,
+            house_number: None,
+            postal_code: None,
+            city: None,
+            join_date: date,
+            shares_at_joining: 1,
+            current_shares: 1,
+            current_balance: 0,
+            action_count: 0,
+            migrated: false,
+            exit_date: None,
+            bank_account: None,
+            created: datetime,
+            deleted: None,
+            version: Uuid::new_v4(),
+        }
+    }
+
+    #[test]
+    fn test_member_to_entity_preserves_salutation_and_title() {
+        let member = make_member();
+        let entity = MemberEntity::from(&member);
+        assert_eq!(entity.salutation, Some(Salutation::Herr));
+        assert_eq!(entity.title.as_deref(), Some("Dr."));
+    }
+
+    #[test]
+    fn test_entity_to_member_preserves_salutation_and_title() {
+        let member = make_member();
+        let entity = MemberEntity::from(&member);
+        let back = Member::from(&entity);
+        assert_eq!(back.salutation, Some(Salutation::Herr));
+        assert_eq!(back.title.as_deref(), Some("Dr."));
+    }
+
+    #[test]
+    fn test_none_salutation_roundtrip() {
+        let mut member = make_member();
+        member.salutation = None;
+        member.title = None;
+        let entity = MemberEntity::from(&member);
+        let back = Member::from(&entity);
+        assert_eq!(back.salutation, None);
+        assert_eq!(back.title, None);
+    }
 }
