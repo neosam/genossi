@@ -198,6 +198,7 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::AllMembers => "All members".into(),
 
         Key::Columns => "Columns".into(),
+        Key::Done => "Done".into(),
 
         Key::NoDataFound => "No data found.".into(),
         Key::ErrorLoadingData => "Error loading data.".into(),

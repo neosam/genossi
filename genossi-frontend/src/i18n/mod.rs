@@ -254,8 +254,9 @@ pub enum Key {
     NotReachedByMailJob,
     AllMembers,
 
-    // Column picker
+    // Column picker / inline edit
     Columns,
+    Done,
 
     // Messages
     NoDataFound,
