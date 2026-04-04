@@ -28,6 +28,10 @@
         wasm-pack = pkgs.wasm-pack.override {
           rustPlatform = pkgs.rustPlatform;
         };
+        codemirrorNpmDeps = pkgs.fetchNpmDeps {
+          src = ./codemirror;
+          hash = "sha256-hcsT6XBCM9qfbu6ZdBo0nEehOGvOROvOu33P89zkDGQ=";
+        };
         frontend-build = pkgs.rustPlatform.buildRustPackage rec {
           pname = "genossi-frontend";
           version = "0.1.0";
@@ -75,6 +79,13 @@
               tailwindcss -i ./input.css -o ./assets/tailwind.css --minify
             fi
             
+            echo "Building CodeMirror bundle..."
+            cd codemirror
+            export npm_config_cache=${codemirrorNpmDeps}
+            npm ci --ignore-scripts
+            node build.mjs
+            cd ..
+
             echo "Building Dioxus frontend..."
             # Try building with cargo directly to avoid wasm-opt issues
             mkdir -p dist
@@ -123,6 +134,7 @@
 </head>
 <body>
     <div id="main"></div>
+    <script type="module" src="/codemirror-bundle.js"></script>
     <script type="module">
         import init from '/genossi-frontend.js';
         init();
@@ -134,6 +146,11 @@ EOF
               # Copy CSS if it exists
               if [ -f "assets/tailwind.css" ]; then
                 cp assets/tailwind.css dist/
+              fi
+
+              # Copy CodeMirror bundle
+              if [ -f "assets/codemirror-bundle.js" ]; then
+                cp assets/codemirror-bundle.js dist/
               fi
             else
               echo "Error: WASM file not found"
