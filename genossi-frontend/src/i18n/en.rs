@@ -197,6 +197,8 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::NotReachedByMailJob => "Not reached by mail job".into(),
         Key::AllMembers => "All members".into(),
 
+        Key::Columns => "Columns".into(),
+
         Key::NoDataFound => "No data found.".into(),
         Key::ErrorLoadingData => "Error loading data.".into(),
         Key::ConfirmDelete => "Are you sure you want to delete this member?".into(),

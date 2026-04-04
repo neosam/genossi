@@ -8,6 +8,7 @@ pub mod pdf_generation;
 pub mod permission;
 pub mod session;
 pub mod template_storage;
+pub mod user_preference;
 pub mod user_service;
 pub mod uuid_service;
 pub mod validation;

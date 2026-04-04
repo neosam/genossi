@@ -10,6 +10,7 @@ pub mod member_import;
 pub mod permission;
 pub mod session;
 pub mod user_service;
+pub mod user_preference;
 pub mod uuid_service;
 pub mod validation;
 

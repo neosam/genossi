@@ -439,6 +439,20 @@ pub struct MigratedFlagMismatchTO {
     pub computed_status: String,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct UserPreferenceTO {
+    pub id: Option<Uuid>,
+    pub key: Option<String>,
+    pub value: String,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub created: Option<time::PrimitiveDateTime>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<Uuid>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

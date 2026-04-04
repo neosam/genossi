@@ -1,6 +1,7 @@
 use dioxus::prelude::*;
 
 use crate::api::{self, MailJobTO};
+use crate::columns::{self, ALL_COLUMNS, ColumnDef};
 use crate::component::TopBar;
 use crate::i18n::use_i18n;
 use crate::i18n::Key;
@@ -30,14 +31,42 @@ fn parse_date_iso(s: &str) -> Option<time::Date> {
     time::Date::from_calendar_date(year, month, day).ok()
 }
 
+const PREFERENCE_KEY: &str = "member_list_columns";
+
 #[component]
 pub fn Members() -> Element {
     let i18n = use_i18n();
     let nav = navigator();
 
+    // Column selection state
+    let mut selected_columns: Signal<Vec<String>> = use_signal(columns::default_column_keys);
+    let mut columns_loaded = use_signal(|| false);
+    let mut column_picker_open = use_signal(|| false);
+
     use_effect(move || {
         spawn(async move {
             refresh_members().await;
+        });
+    });
+
+    // Load column preferences from backend
+    use_effect(move || {
+        spawn(async move {
+            let config = CONFIG.read().clone();
+            if !config.backend.is_empty() {
+                if let Ok(Some(pref)) = api::get_user_preference(&config, PREFERENCE_KEY).await {
+                    if let Ok(keys) = serde_json::from_str::<Vec<String>>(&pref.value) {
+                        let valid_keys: Vec<String> = keys
+                            .into_iter()
+                            .filter(|k| ALL_COLUMNS.iter().any(|c| c.key == k.as_str()))
+                            .collect();
+                        if !valid_keys.is_empty() {
+                            selected_columns.set(valid_keys);
+                        }
+                    }
+                }
+                columns_loaded.set(true);
+            }
         });
     });
 
@@ -123,6 +152,9 @@ pub fn Members() -> Element {
     let all_filtered_selected = !filtered_ids.is_empty()
         && filtered_ids.iter().all(|id| selection.is_selected(id));
 
+    // Resolve selected columns to column definitions
+    let active_columns: Vec<&ColumnDef> = columns::columns_for_keys(&selected_columns.read());
+
     rsx! {
         TopBar {}
         div { class: "container mx-auto px-4 py-8",
@@ -133,10 +165,68 @@ pub fn Members() -> Element {
                         "({filtered_members.len()})"
                     }
                 }
-                button {
-                    class: "px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700",
-                    onclick: move |_| { nav.push(Route::MemberDetails { id: "new".to_string() }); },
-                    {i18n.t(Key::Create)}
+                div { class: "flex items-center gap-2",
+                    // Column picker button
+                    div { class: "relative",
+                        button {
+                            class: "px-4 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 text-sm",
+                            onclick: move |_| {
+                                let current = *column_picker_open.read();
+                                column_picker_open.set(!current);
+                            },
+                            {i18n.t(Key::Columns)}
+                        }
+                        if *column_picker_open.read() {
+                            div {
+                                class: "absolute right-0 mt-2 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-20 py-2 max-h-96 overflow-y-auto",
+                                for col in ALL_COLUMNS.iter() {
+                                    {
+                                        let col_key = col.key.to_string();
+                                        let col_key_clone = col_key.clone();
+                                        let is_selected = selected_columns.read().contains(&col_key);
+                                        rsx! {
+                                            label {
+                                                class: "flex items-center gap-2 px-4 py-1.5 hover:bg-gray-50 cursor-pointer text-sm",
+                                                input {
+                                                    r#type: "checkbox",
+                                                    class: "rounded border-gray-300 text-blue-600 focus:ring-blue-500",
+                                                    checked: is_selected,
+                                                    onchange: move |_| {
+                                                        let mut cols = selected_columns.read().clone();
+                                                        if cols.contains(&col_key_clone) {
+                                                            cols.retain(|c| c != &col_key_clone);
+                                                        } else {
+                                                            // Insert at the position matching ALL_COLUMNS order
+                                                            let target_idx = ALL_COLUMNS.iter().position(|c| c.key == col_key_clone).unwrap_or(usize::MAX);
+                                                            let insert_pos = cols.iter().position(|c| {
+                                                                ALL_COLUMNS.iter().position(|ac| ac.key == c.as_str()).unwrap_or(0) > target_idx
+                                                            }).unwrap_or(cols.len());
+                                                            cols.insert(insert_pos, col_key_clone.clone());
+                                                        }
+                                                        selected_columns.set(cols.clone());
+                                                        // Persist to backend
+                                                        spawn(async move {
+                                                            let config = CONFIG.read().clone();
+                                                            if !config.backend.is_empty() {
+                                                                let json = serde_json::to_string(&cols).unwrap_or_default();
+                                                                let _ = api::set_user_preference(&config, PREFERENCE_KEY, &json).await;
+                                                            }
+                                                        });
+                                                    },
+                                                }
+                                                {i18n.t(col.label_key.clone())}
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    button {
+                        class: "px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700",
+                        onclick: move |_| { nav.push(Route::MemberDetails { id: "new".to_string() }); },
+                        {i18n.t(Key::Create)}
+                    }
                 }
             }
 
@@ -290,6 +380,7 @@ pub fn Members() -> Element {
                     table { class: "w-full",
                         thead {
                             tr { class: "border-b bg-gray-50",
+                                // Checkbox column header
                                 th { class: "px-3 py-3 w-12",
                                     {
                                         let filtered_ids_clone = filtered_ids.clone();
@@ -319,32 +410,11 @@ pub fn Members() -> Element {
                                         }
                                     }
                                 }
-                                th { class: "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider",
-                                    {i18n.t(Key::MemberNumber)}
-                                }
-                                th { class: "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider",
-                                    {i18n.t(Key::LastName)}
-                                }
-                                th { class: "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider",
-                                    {i18n.t(Key::FirstName)}
-                                }
-                                th { class: "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider",
-                                    {i18n.t(Key::City)}
-                                }
-                                th { class: "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider",
-                                    {i18n.t(Key::CurrentShares)}
-                                }
-                                th { class: "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider",
-                                    {i18n.t(Key::JoinDate)}
-                                }
-                                th { class: "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider",
-                                    {i18n.t(Key::ExitDate)}
-                                }
-                                th { class: "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider",
-                                    {i18n.t(Key::MigrationStatus)}
-                                }
-                                th { class: "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider",
-                                    {i18n.t(Key::Active)}
+                                // Dynamic column headers
+                                for col in active_columns.iter() {
+                                    th { class: "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider",
+                                        {i18n.t(col.label_key.clone())}
+                                    }
                                 }
                             }
                         }
@@ -352,7 +422,6 @@ pub fn Members() -> Element {
                             for member in filtered_members.iter() {
                                 {
                                     let member_id = member.id;
-                                    let join_date = i18n.format_date(&member.join_date);
                                     let active = is_active(member, &ref_date);
                                     let is_checked = member_id.map(|id| selection.is_selected(&id)).unwrap_or(false);
                                     rsx! {
@@ -363,6 +432,7 @@ pub fn Members() -> Element {
                                                     nav.push(Route::MemberDetails { id: id.to_string() });
                                                 }
                                             },
+                                            // Checkbox column
                                             td {
                                                 class: "px-3 py-2",
                                                 onclick: move |e| {
@@ -379,35 +449,10 @@ pub fn Members() -> Element {
                                                     }
                                                 }
                                             }
-                                            td { class: "px-6 py-4 font-medium", "{member.member_number}" }
-                                            td { class: "px-6 py-4", {member.last_name.clone()} }
-                                            td { class: "px-6 py-4", {member.first_name.clone()} }
-                                            td { class: "px-6 py-4", {member.city.clone().unwrap_or_default()} }
-                                            td { class: "px-6 py-4", "{member.current_shares}" }
-                                            td { class: "px-6 py-4", "{join_date}" }
-                                            td { class: "px-6 py-4",
-                                                {member.exit_date.as_ref().map(|d| i18n.format_date(d)).unwrap_or_default()}
-                                            }
-                                            td { class: "px-6 py-4",
-                                                if member.migrated {
-                                                    span { class: "px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800",
-                                                        {i18n.t(Key::Migrated)}
-                                                    }
-                                                } else {
-                                                    span { class: "px-2 py-1 text-xs font-semibold rounded-full bg-orange-100 text-orange-800",
-                                                        {i18n.t(Key::Pending)}
-                                                    }
-                                                }
-                                            }
-                                            td { class: "px-6 py-4",
-                                                if active {
-                                                    span { class: "px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800",
-                                                        {i18n.t(Key::Active)}
-                                                    }
-                                                } else {
-                                                    span { class: "px-2 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800",
-                                                        {i18n.t(Key::Inactive)}
-                                                    }
+                                            // Dynamic column cells
+                                            for col in active_columns.iter() {
+                                                td { class: "px-6 py-4",
+                                                    {(col.render)(member, &i18n)}
                                                 }
                                             }
                                         }

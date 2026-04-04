@@ -9,6 +9,7 @@ pub mod permission;
 pub mod session;
 pub mod template;
 pub mod test_server;
+pub mod user_preference;
 pub mod validation;
 
 use async_trait::async_trait;
@@ -158,6 +159,10 @@ pub trait RestStateDef: Clone + Send + Sync + 'static + genossi_config::rest::Co
         + Send
         + Sync
         + 'static;
+    type UserPreferenceService: genossi_service::user_preference::UserPreferenceService<Context = ContextType>
+        + Send
+        + Sync
+        + 'static;
 
     fn member_service(&self) -> Arc<Self::MemberService>;
     fn permission_service(&self) -> Arc<Self::PermissionService>;
@@ -167,6 +172,7 @@ pub trait RestStateDef: Clone + Send + Sync + 'static + genossi_config::rest::Co
     fn member_document_service(&self) -> Arc<Self::MemberDocumentService>;
     fn document_storage(&self) -> Arc<Self::DocumentStorage>;
     fn validation_service(&self) -> Arc<Self::ValidationService>;
+    fn user_preference_service(&self) -> Arc<Self::UserPreferenceService>;
     fn template_storage(&self) -> Arc<genossi_service_impl::template_storage::TemplateStorage>;
     fn pdf_generator(&self) -> Arc<genossi_service_impl::pdf_generation::PdfGenerator>;
 }
@@ -181,6 +187,7 @@ pub trait RestStateDef: Clone + Send + Sync + 'static + genossi_config::rest::Co
         (path = "/api/permission", api = permission::ApiDoc),
         (path = "/api/validation", api = validation::ApiDoc),
         (path = "/api/templates", api = template::ApiDoc),
+        (path = "/api/user-preferences", api = user_preference::ApiDoc),
         (path = "/api/config", api = genossi_config::rest::ApiDoc),
         (path = "/api/mail", api = genossi_mail::rest::ApiDoc)
     )
@@ -330,6 +337,7 @@ pub async fn create_app<RestState: RestStateDef>(rest_state: RestState) -> Route
         .nest("/api/validation", validation::generate_route())
         .nest("/api/templates", template::generate_route())
         .nest("/api/templates/render", template::generate_render_route())
+        .nest("/api/user-preferences", user_preference::generate_route())
         .nest("/api/config", genossi_config::rest::generate_route())
         .nest("/api/mail", genossi_mail::rest::generate_route())
         .with_state(rest_state.clone())

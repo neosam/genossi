@@ -604,6 +604,43 @@ impl From<&genossi_service::validation::MigratedFlagMismatch> for MigratedFlagMi
     }
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct UserPreferenceTO {
+    #[schema(example = "123e4567-e89b-12d3-a456-426614174000")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<Uuid>,
+
+    #[schema(example = "member_list_columns")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+
+    #[schema(example = r#"["member_number","last_name","first_name"]"#)]
+    pub value: String,
+
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    pub created: Option<time::PrimitiveDateTime>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<Uuid>,
+}
+
+impl From<&genossi_service::user_preference::UserPreference> for UserPreferenceTO {
+    fn from(p: &genossi_service::user_preference::UserPreference) -> Self {
+        Self {
+            id: Some(p.id),
+            key: Some(p.key.to_string()),
+            value: p.value.to_string(),
+            created: Some(p.created),
+            version: Some(p.version),
+        }
+    }
+}
+
 impl From<&genossi_service::member_action::MigrationStatus> for MigrationStatusTO {
     fn from(s: &genossi_service::member_action::MigrationStatus) -> Self {
         Self {

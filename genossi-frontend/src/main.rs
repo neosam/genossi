@@ -7,6 +7,7 @@ mod api;
 mod app;
 mod auth;
 mod base_types;
+mod columns;
 mod component;
 mod error;
 mod i18n;

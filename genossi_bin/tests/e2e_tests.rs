@@ -4,7 +4,7 @@ use genossi_bin::RestStateImpl;
 use genossi_rest::test_server::test_support::start_test_server;
 use genossi_rest_types::{
     ActionTypeTO, MemberActionTO, MemberDocumentTO, MemberImportResultTO, MemberTO,
-    MigrationStatusTO, ValidationResultTO,
+    MigrationStatusTO, UserPreferenceTO, ValidationResultTO,
 };
 use genossi_config::rest::{ConfigEntryTO, SetConfigRequest};
 use genossi_mail::rest::{SendBulkMailRequest, BulkRecipient, SendMailRequest, MailJobTO, MailJobDetailTO, TestMailRequest};
@@ -3435,4 +3435,131 @@ async fn test_members_not_reached_invalid_job_id() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+// ===== User Preferences E2E Tests =====
+
+#[tokio::test]
+async fn test_get_user_preference_not_found() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(server.url("/api/user-preferences/member_list_columns"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_upsert_user_preference_create() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let body = UserPreferenceTO {
+        id: None,
+        key: None,
+        value: r#"["member_number","last_name","first_name"]"#.to_string(),
+        created: None,
+        version: None,
+    };
+
+    let response = client
+        .put(server.url("/api/user-preferences/member_list_columns"))
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let result: UserPreferenceTO = response.json().await.unwrap();
+    assert!(result.id.is_some());
+    assert_eq!(result.key.as_deref(), Some("member_list_columns"));
+    assert_eq!(
+        result.value,
+        r#"["member_number","last_name","first_name"]"#
+    );
+    assert!(result.version.is_some());
+}
+
+#[tokio::test]
+async fn test_upsert_user_preference_update() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Create
+    let body = UserPreferenceTO {
+        id: None,
+        key: None,
+        value: r#"["member_number","last_name"]"#.to_string(),
+        created: None,
+        version: None,
+    };
+    let response = client
+        .put(server.url("/api/user-preferences/member_list_columns"))
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let created: UserPreferenceTO = response.json().await.unwrap();
+
+    // Update
+    let body = UserPreferenceTO {
+        id: None,
+        key: None,
+        value: r#"["member_number","last_name","city"]"#.to_string(),
+        created: None,
+        version: None,
+    };
+    let response = client
+        .put(server.url("/api/user-preferences/member_list_columns"))
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let updated: UserPreferenceTO = response.json().await.unwrap();
+
+    assert_eq!(updated.id, created.id);
+    assert_eq!(
+        updated.value,
+        r#"["member_number","last_name","city"]"#
+    );
+    // Version should change on update
+    assert_ne!(updated.version, created.version);
+}
+
+#[tokio::test]
+async fn test_get_user_preference_after_upsert() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Create preference
+    let body = UserPreferenceTO {
+        id: None,
+        key: None,
+        value: r#"["member_number","last_name"]"#.to_string(),
+        created: None,
+        version: None,
+    };
+    client
+        .put(server.url("/api/user-preferences/member_list_columns"))
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+
+    // Get it back
+    let response = client
+        .get(server.url("/api/user-preferences/member_list_columns"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let result: UserPreferenceTO = response.json().await.unwrap();
+    assert_eq!(result.key.as_deref(), Some("member_list_columns"));
+    assert_eq!(result.value, r#"["member_number","last_name"]"#);
 }

@@ -615,6 +615,34 @@ pub async fn send_test_mail(config: &Config, to_address: &str) -> Result<(), Str
     Ok(())
 }
 
+// User Preferences API
+pub async fn get_user_preference(config: &Config, key: &str) -> Result<Option<rest_types::UserPreferenceTO>, reqwest::Error> {
+    info!("Fetching user preference: {key}");
+    let url = format!("{}/api/user-preferences/{}", config.backend, key);
+    let response = reqwest::get(url).await?;
+    if response.status() == reqwest::StatusCode::NOT_FOUND {
+        return Ok(None);
+    }
+    response.error_for_status_ref()?;
+    Ok(Some(response.json().await?))
+}
+
+pub async fn set_user_preference(config: &Config, key: &str, value: &str) -> Result<rest_types::UserPreferenceTO, reqwest::Error> {
+    info!("Setting user preference: {key}");
+    let url = format!("{}/api/user-preferences/{}", config.backend, key);
+    let body = rest_types::UserPreferenceTO {
+        id: None,
+        key: None,
+        value: value.to_string(),
+        created: None,
+        version: None,
+    };
+    let client = reqwest::Client::new();
+    let response = client.put(url).json(&body).send().await?;
+    response.error_for_status_ref()?;
+    Ok(response.json().await?)
+}
+
 // Validation API
 pub async fn get_validation(config: &Config) -> Result<ValidationResultTO, reqwest::Error> {
     info!("Fetching validation results");

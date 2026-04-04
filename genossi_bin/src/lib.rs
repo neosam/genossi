@@ -12,6 +12,7 @@ use genossi_service_impl::member_action::MemberActionServiceDeps;
 use genossi_service_impl::member_document::MemberDocumentServiceDeps;
 use genossi_service_impl::member_import::MemberImportServiceDeps;
 use genossi_service_impl::permission::PermissionServiceDeps;
+use genossi_service_impl::user_preference::UserPreferenceServiceDeps;
 use genossi_service_impl::validation::ValidationServiceDeps;
 use sqlx::SqlitePool;
 
@@ -163,6 +164,25 @@ impl ValidationServiceDeps for ValidationServiceDependencies {
 type ValidationService =
     genossi_service_impl::validation::ValidationServiceImpl<ValidationServiceDependencies>;
 
+type UserPreferenceDao = genossi_dao_impl_sqlite::user_preference::UserPreferenceDaoImpl;
+
+pub struct UserPreferenceServiceDependencies;
+
+unsafe impl Send for UserPreferenceServiceDependencies {}
+unsafe impl Sync for UserPreferenceServiceDependencies {}
+
+impl UserPreferenceServiceDeps for UserPreferenceServiceDependencies {
+    type Context = Context;
+    type Transaction = Transaction;
+    type UserPreferenceDao = UserPreferenceDao;
+    type PermissionService = PermissionService;
+    type UuidService = UuidService;
+    type TransactionDao = TransactionDao;
+}
+
+type UserPreferenceService =
+    genossi_service_impl::user_preference::UserPreferenceServiceImpl<UserPreferenceServiceDependencies>;
+
 type ConfigDao = genossi_config::dao_sqlite::ConfigDaoSqlite;
 type ConfigService = genossi_config::service::ConfigServiceImpl<ConfigDao>;
 type MailJobDao = genossi_mail::dao_sqlite::MailJobDaoSqlite;
@@ -180,6 +200,7 @@ pub struct RestStateImpl {
     session_service: Arc<SessionService>,
     document_storage: Arc<DocumentStorage>,
     validation_service: Arc<ValidationService>,
+    user_preference_service: Arc<UserPreferenceService>,
     template_storage: Arc<genossi_service_impl::template_storage::TemplateStorage>,
     pdf_generator: Arc<genossi_service_impl::pdf_generation::PdfGenerator>,
     config_service: Arc<ConfigService>,
@@ -252,6 +273,16 @@ impl RestStateImpl {
                 transaction_dao: transaction_dao.clone(),
             });
 
+        let user_preference_dao = Arc::new(UserPreferenceDao::new(pool.clone()));
+
+        let user_preference_service =
+            Arc::new(genossi_service_impl::user_preference::UserPreferenceServiceImpl {
+                user_preference_dao,
+                permission_service: permission_service.clone(),
+                uuid_service: uuid_service.clone(),
+                transaction_dao: transaction_dao.clone(),
+            });
+
         let member_import_service =
             Arc::new(genossi_service_impl::member_import::MemberImportServiceImpl {
                 member_dao,
@@ -302,6 +333,7 @@ impl RestStateImpl {
             session_service,
             document_storage,
             validation_service,
+            user_preference_service,
             template_storage,
             pdf_generator,
             config_service,
@@ -347,6 +379,7 @@ impl genossi_rest::RestStateDef for RestStateImpl {
     type MemberDocumentService = MemberDocumentService;
     type DocumentStorage = DocumentStorage;
     type ValidationService = ValidationService;
+    type UserPreferenceService = UserPreferenceService;
 
     fn member_service(&self) -> Arc<Self::MemberService> {
         self.member_service.clone()
@@ -378,6 +411,10 @@ impl genossi_rest::RestStateDef for RestStateImpl {
 
     fn validation_service(&self) -> Arc<Self::ValidationService> {
         self.validation_service.clone()
+    }
+
+    fn user_preference_service(&self) -> Arc<Self::UserPreferenceService> {
+        self.user_preference_service.clone()
     }
 
     fn template_storage(&self) -> Arc<genossi_service_impl::template_storage::TemplateStorage> {
