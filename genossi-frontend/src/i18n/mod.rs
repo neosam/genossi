@@ -228,6 +228,11 @@ pub enum Key {
     MailRetry,
     MailRecipients,
     MailJobCreated,
+    MailTemplateVariables,
+    MailTemplateMore,
+    MailTemplatePreview,
+    MailTemplatePreviewSelect,
+    MailTemplateError,
 
     // SMTP Settings
     SmtpSettings,

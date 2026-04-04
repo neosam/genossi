@@ -17,6 +17,37 @@ use genossi_service_impl::user_preference::UserPreferenceServiceDeps;
 use genossi_service_impl::validation::ValidationServiceDeps;
 use sqlx::SqlitePool;
 
+pub struct PoolMemberResolver {
+    pool: Arc<SqlitePool>,
+}
+
+impl PoolMemberResolver {
+    pub fn new(pool: Arc<SqlitePool>) -> Self {
+        Self { pool }
+    }
+}
+
+#[async_trait::async_trait]
+impl genossi_mail::template::MemberResolver for PoolMemberResolver {
+    async fn find_member_by_id(
+        &self,
+        id: UuidType,
+    ) -> Result<Option<genossi_dao::member::MemberEntity>, genossi_mail::service::MailServiceError> {
+        use genossi_dao::TransactionDao as _;
+        use genossi_dao::member::MemberDao as _;
+        let transaction_dao = TransactionDaoImpl::new(self.pool.clone());
+        let member_dao = genossi_dao_impl_sqlite::member::MemberDaoImpl::new(self.pool.clone());
+        let tx = transaction_dao
+            .transaction()
+            .await
+            .map_err(|e| genossi_mail::service::MailServiceError::DataAccess(Arc::from(format!("{:?}", e))))?;
+        member_dao
+            .find_by_id(id, tx)
+            .await
+            .map_err(|e| genossi_mail::service::MailServiceError::DataAccess(Arc::from(format!("{:?}", e))))
+    }
+}
+
 // Type aliases for clarity
 #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
 type Context = MockContext;
@@ -362,6 +393,7 @@ impl RestStateImpl {
         let recipient_dao = self.worker_recipient_dao.clone();
         let attachment_dao = self.worker_attachment_dao.clone();
         let document_storage = self.document_storage.clone();
+        let member_resolver = Arc::new(PoolMemberResolver::new(self.pool.clone()));
         tokio::spawn(async move {
             genossi_mail::worker::start_mail_worker(
                 config_service,
@@ -369,6 +401,7 @@ impl RestStateImpl {
                 recipient_dao,
                 attachment_dao,
                 document_storage,
+                member_resolver,
             )
             .await;
         });
@@ -379,6 +412,58 @@ impl genossi_mail::rest::MailRestState for RestStateImpl {
     type MailService = MailServiceType;
     fn mail_service(&self) -> Arc<Self::MailService> {
         self.mail_service.clone()
+    }
+    fn resolve_member(
+        &self,
+        member_id: UuidType,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = Option<genossi_dao::member::MemberEntity>,
+                > + Send
+                + '_,
+        >,
+    > {
+        let pool = self.pool.clone();
+        Box::pin(async move {
+            use genossi_dao::TransactionDao as _;
+            use genossi_dao::member::MemberDao as _;
+            let transaction_dao = TransactionDaoImpl::new(pool.clone());
+            let member_dao = genossi_dao_impl_sqlite::member::MemberDaoImpl::new(pool);
+            let tx = transaction_dao.transaction().await.ok()?;
+            member_dao.find_by_id(member_id, tx).await.ok()?
+        })
+    }
+    fn resolve_members(
+        &self,
+        member_ids: &[UuidType],
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Vec<genossi_dao::member::MemberEntity>>
+                + Send
+                + '_,
+        >,
+    > {
+        let pool = self.pool.clone();
+        let ids = member_ids.to_vec();
+        Box::pin(async move {
+            use genossi_dao::TransactionDao as _;
+            use genossi_dao::member::MemberDao as _;
+            let transaction_dao = TransactionDaoImpl::new(pool.clone());
+            let member_dao = genossi_dao_impl_sqlite::member::MemberDaoImpl::new(pool);
+            let tx = match transaction_dao.transaction().await {
+                Ok(tx) => tx,
+                Err(_) => return vec![],
+            };
+            let all = match member_dao.all(tx).await {
+                Ok(all) => all,
+                Err(_) => return vec![],
+            };
+            all.iter()
+                .filter(|m| ids.contains(&m.id))
+                .cloned()
+                .collect()
+        })
     }
     fn resolve_document(
         &self,

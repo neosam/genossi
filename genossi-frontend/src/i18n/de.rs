@@ -174,6 +174,11 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::MailRetry => "Erneut senden".into(),
         Key::MailRecipients => "Empfänger".into(),
         Key::MailJobCreated => "Auftrag erstellt".into(),
+        Key::MailTemplateVariables => "Variablen".into(),
+        Key::MailTemplateMore => "Mehr".into(),
+        Key::MailTemplatePreview => "Vorschau".into(),
+        Key::MailTemplatePreviewSelect => "Mitglied für Vorschau auswählen".into(),
+        Key::MailTemplateError => "Template-Fehler".into(),
 
         Key::SmtpSettings => "SMTP-Einstellungen".into(),
         Key::SmtpHost => "SMTP-Server".into(),

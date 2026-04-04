@@ -546,6 +546,47 @@ pub async fn send_bulk_mail(
     response.json().await.map_err(|e| e.to_string())
 }
 
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct PreviewRequest {
+    pub subject: String,
+    pub body: String,
+    pub member_id: String,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct PreviewResponse {
+    pub subject: String,
+    pub body: String,
+    #[serde(default)]
+    pub errors: Vec<String>,
+}
+
+pub async fn preview_mail(
+    config: &Config,
+    subject: &str,
+    body: &str,
+    member_id: &str,
+) -> Result<PreviewResponse, String> {
+    let url = format!("{}/api/mail/preview", config.backend);
+    let req = PreviewRequest {
+        subject: subject.to_string(),
+        body: body.to_string(),
+        member_id: member_id.to_string(),
+    };
+    let response = reqwest::Client::new()
+        .post(url)
+        .json(&req)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        return Err(format!("{}: {}", status, text));
+    }
+    response.json().await.map_err(|e| e.to_string())
+}
+
 pub async fn get_mail_jobs(config: &Config) -> Result<Vec<MailJobTO>, String> {
     info!("Fetching mail jobs");
     let url = format!("{}/api/mail/jobs", config.backend);

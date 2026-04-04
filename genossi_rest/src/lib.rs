@@ -93,6 +93,9 @@ impl From<genossi_mail::service::MailServiceError> for RestError {
             genossi_mail::service::MailServiceError::SmtpError(msg) => {
                 RestError::InternalError(msg.to_string())
             }
+            genossi_mail::service::MailServiceError::TemplateValidation(msg) => {
+                RestError::BadRequest(msg.to_string())
+            }
         }
     }
 }

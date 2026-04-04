@@ -2,4 +2,5 @@ pub mod dao;
 pub mod dao_sqlite;
 pub mod service;
 pub mod rest;
+pub mod template;
 pub mod worker;

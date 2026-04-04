@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 genossi_config = { path = "../genossi_config" }
+genossi_dao = { path = "../genossi_dao" }
 genossi_service = { path = "../genossi_service", features = ["utoipa"] }
 async-trait = { workspace = true }
 mockall = { workspace = true }
@@ -20,3 +21,4 @@ time = { workspace = true }
 axum = { workspace = true }
 utoipa = { workspace = true }
 lettre = { workspace = true }
+minijinja = "2"

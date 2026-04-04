@@ -16,6 +16,7 @@ pub enum MailServiceError {
     SmtpError(Arc<str>),
     DataAccess(Arc<str>),
     NotFound,
+    TemplateValidation(Arc<str>),
 }
 
 impl From<crate::dao::MailDaoError> for MailServiceError {

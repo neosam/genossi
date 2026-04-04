@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 use rest_types::{MemberDocumentTO, MemberTO};
 use uuid::Uuid;
 
-use crate::api::{self, BulkRecipient, MailJobTO, MailJobDetailTO};
+use crate::api::{self, BulkRecipient, MailJobTO, MailJobDetailTO, PreviewResponse};
 use crate::auth::RequirePrivilege;
 use crate::component::TopBar;
 use crate::component::member_search::filter_members;
@@ -56,6 +56,35 @@ pub fn MailPage() -> Element {
     // Attachment state
     let mut available_documents = use_signal(|| Vec::<MemberDocumentTO>::new());
     let mut selected_attachment_ids = use_signal(|| Vec::<Uuid>::new());
+
+    // Template variable buttons
+    let primary_vars = [
+        ("first_name", "Vorname"),
+        ("last_name", "Nachname"),
+        ("salutation", "Anrede"),
+        ("title", "Titel"),
+        ("member_number", "Nr."),
+        ("company", "Firma"),
+    ];
+    let secondary_vars = [
+        ("street", "Straße"),
+        ("house_number", "Hausnr."),
+        ("postal_code", "PLZ"),
+        ("city", "Stadt"),
+        ("join_date", "Beitrittsdatum"),
+        ("shares_at_joining", "Anteile (Beitritt)"),
+        ("current_shares", "Anteile (aktuell)"),
+        ("current_balance", "Guthaben"),
+        ("exit_date", "Austrittsdatum"),
+        ("bank_account", "Bankverbindung"),
+        ("email", "E-Mail"),
+    ];
+    let mut show_more_vars = use_signal(|| false);
+
+    // Preview state
+    let mut preview_member_id = use_signal(|| None::<Uuid>);
+    let mut preview_result = use_signal(|| None::<PreviewResponse>);
+    let mut preview_loading = use_signal(|| false);
 
     // Member search state
     let mut search_query = use_signal(|| String::new());
@@ -336,6 +365,66 @@ pub fn MailPage() -> Element {
                                 }
                             }
 
+                            // Template variable buttons
+                            div { class: "bg-gray-50 rounded-lg p-3",
+                                label { class: "block text-xs font-medium text-gray-500 mb-2",
+                                    {i18n.t(Key::MailTemplateVariables)}
+                                }
+                                div { class: "flex flex-wrap gap-1",
+                                    for (var_name, label) in primary_vars.iter() {
+                                        {
+                                            let vn = var_name.to_string();
+                                            let vn2 = var_name.to_string();
+                                            let lbl = label.to_string();
+                                            rsx! {
+                                                button {
+                                                    class: "bg-blue-100 hover:bg-blue-200 text-blue-800 px-2 py-1 rounded text-xs font-mono",
+                                                    r#type: "button",
+                                                    title: "{vn}",
+                                                    onclick: move |_| {
+                                                        let insert = format!("{{{{ {} }}}}", vn2);
+                                                        body.write().push_str(&insert);
+                                                    },
+                                                    "{lbl}"
+                                                }
+                                            }
+                                        }
+                                    }
+                                    if *show_more_vars.read() {
+                                        for (var_name, label) in secondary_vars.iter() {
+                                            {
+                                                let vn2 = var_name.to_string();
+                                                let lbl = label.to_string();
+                                                rsx! {
+                                                    button {
+                                                        class: "bg-gray-100 hover:bg-gray-200 text-gray-700 px-2 py-1 rounded text-xs font-mono",
+                                                        r#type: "button",
+                                                        onclick: move |_| {
+                                                            let insert = format!("{{{{ {} }}}}", vn2);
+                                                            body.write().push_str(&insert);
+                                                        },
+                                                        "{lbl}"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    button {
+                                        class: "text-gray-500 hover:text-gray-700 px-2 py-1 text-xs underline",
+                                        r#type: "button",
+                                        onclick: move |_| {
+                                            let current = *show_more_vars.read();
+                                            show_more_vars.set(!current);
+                                        },
+                                        if *show_more_vars.read() {
+                                            "Weniger"
+                                        } else {
+                                            {i18n.t(Key::MailTemplateMore)}
+                                        }
+                                    }
+                                }
+                            }
+
                             div {
                                 label { class: "block text-sm font-medium text-gray-700 mb-1", {i18n.t(Key::MailSubject)} }
                                 input {
@@ -353,6 +442,120 @@ pub fn MailPage() -> Element {
                                     oninput: move |e| body.set(e.value()),
                                 }
                             }
+                            // Template Preview
+                            div { class: "bg-gray-50 rounded-lg p-4",
+                                h3 { class: "text-sm font-medium text-gray-700 mb-2",
+                                    {i18n.t(Key::MailTemplatePreview)}
+                                }
+                                // Preview member selector
+                                div { class: "mb-3",
+                                    select {
+                                        class: "w-full border rounded px-3 py-2 text-sm",
+                                        onchange: move |e| {
+                                            let val = e.value();
+                                            if val.is_empty() {
+                                                preview_member_id.set(None);
+                                                preview_result.set(None);
+                                            } else if let Ok(id) = val.parse::<Uuid>() {
+                                                preview_member_id.set(Some(id));
+                                                // Trigger preview
+                                                let subj = subject.read().clone();
+                                                let b = body.read().clone();
+                                                let mid = id.to_string();
+                                                spawn(async move {
+                                                    preview_loading.set(true);
+                                                    let config = CONFIG.read().clone();
+                                                    match api::preview_mail(&config, &subj, &b, &mid).await {
+                                                        Ok(result) => preview_result.set(Some(result)),
+                                                        Err(e) => preview_result.set(Some(PreviewResponse {
+                                                            subject: String::new(),
+                                                            body: String::new(),
+                                                            errors: vec![e],
+                                                        })),
+                                                    }
+                                                    preview_loading.set(false);
+                                                });
+                                            }
+                                        },
+                                        option { value: "", {i18n.t(Key::MailTemplatePreviewSelect)} }
+                                        {
+                                            let members = MEMBERS.read();
+                                            let ids = selected_member_ids.read();
+                                            rsx! {
+                                                for id in ids.iter() {
+                                                    {
+                                                        let member = members.items.iter().find(|m| m.id == Some(*id));
+                                                        if let Some(m) = member {
+                                                            let display = format_member(m);
+                                                            let mid = id.to_string();
+                                                            rsx! {
+                                                                option { value: "{mid}", "{display}" }
+                                                            }
+                                                        } else {
+                                                            rsx! {}
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                // Preview refresh button
+                                if preview_member_id.read().is_some() {
+                                    button {
+                                        class: "bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1 rounded text-sm mb-3",
+                                        r#type: "button",
+                                        disabled: *preview_loading.read(),
+                                        onclick: move |_| {
+                                            if let Some(mid) = *preview_member_id.read() {
+                                                let subj = subject.read().clone();
+                                                let b = body.read().clone();
+                                                let mid_str = mid.to_string();
+                                                spawn(async move {
+                                                    preview_loading.set(true);
+                                                    let config = CONFIG.read().clone();
+                                                    match api::preview_mail(&config, &subj, &b, &mid_str).await {
+                                                        Ok(result) => preview_result.set(Some(result)),
+                                                        Err(e) => preview_result.set(Some(PreviewResponse {
+                                                            subject: String::new(),
+                                                            body: String::new(),
+                                                            errors: vec![e],
+                                                        })),
+                                                    }
+                                                    preview_loading.set(false);
+                                                });
+                                            }
+                                        },
+                                        if *preview_loading.read() { "..." } else { {i18n.t(Key::MailTemplatePreview)} }
+                                    }
+                                }
+                                // Preview result
+                                if let Some(preview) = preview_result.read().as_ref() {
+                                    if !preview.errors.is_empty() {
+                                        div { class: "bg-red-50 border border-red-200 rounded p-3 text-sm text-red-700",
+                                            p { class: "font-medium mb-1", {i18n.t(Key::MailTemplateError)} }
+                                            for err in preview.errors.iter() {
+                                                p { "{err}" }
+                                            }
+                                        }
+                                    } else {
+                                        div { class: "bg-white border rounded p-3 text-sm",
+                                            p { class: "font-medium text-gray-700 mb-1",
+                                                "{i18n.t(Key::MailSubject)}: "
+                                                span { class: "font-normal", "{preview.subject}" }
+                                            }
+                                            pre { class: "whitespace-pre-wrap text-gray-600 mt-2",
+                                                "{preview.body}"
+                                            }
+                                        }
+                                    }
+                                } else if preview_member_id.read().is_none() {
+                                    p { class: "text-sm text-gray-400 italic",
+                                        {i18n.t(Key::MailTemplatePreviewSelect)}
+                                    }
+                                }
+                            }
+
                             // Attachment selector — visible only for single recipient
                             if selected_member_ids.read().len() == 1 {
                                 div {

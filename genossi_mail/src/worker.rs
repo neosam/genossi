@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::dao::{MailJobDao, MailRecipientAttachmentDao, MailRecipientDao};
 use crate::service::{build_transport, load_smtp_config, MailServiceError};
+use crate::template::{member_to_template_context, render_template, MemberResolver};
 use genossi_config::service::ConfigService;
 use genossi_service::document_storage::DocumentStorage;
 
@@ -44,18 +45,59 @@ async fn update_job_with_retry<J: MailJobDao>(job_dao: &J, job: &crate::dao::Mai
     false
 }
 
-pub async fn start_mail_worker<C, J, R, A, D>(
+async fn mark_recipient_failed<R: MailRecipientDao, J: MailJobDao>(
+    recipient_dao: &R,
+    job_dao: &J,
+    recipient: &crate::dao::MailRecipient,
+    job: &mut crate::dao::MailJob,
+    error_msg: &str,
+) {
+    let now = time::OffsetDateTime::now_utc();
+    let now_primitive = time::PrimitiveDateTime::new(now.date(), now.time());
+
+    let mut updated = recipient.clone();
+    updated.version = uuid::Uuid::new_v4();
+    updated.status = Arc::from("failed");
+    updated.error = Some(Arc::from(error_msg));
+    updated.sent_at = Some(now_primitive);
+
+    if let Err(e) = recipient_dao.update(&updated).await {
+        tracing::error!("Worker: failed to update recipient {}: {:?}", recipient.id, e);
+    }
+
+    job.failed_count += 1;
+    if job.sent_count + job.failed_count >= job.total_count {
+        if job.failed_count >= job.total_count {
+            job.status = Arc::from("failed");
+        } else {
+            job.status = Arc::from("done");
+        }
+    }
+    job.version = uuid::Uuid::new_v4();
+    update_job_with_retry(job_dao, job).await;
+
+    tracing::error!(
+        "Worker: {} (recipient {}, job {})",
+        error_msg,
+        recipient.id,
+        job.id
+    );
+}
+
+pub async fn start_mail_worker<C, J, R, A, D, M>(
     config_service: Arc<C>,
     job_dao: Arc<J>,
     recipient_dao: Arc<R>,
     attachment_dao: Arc<A>,
     document_storage: Arc<D>,
+    member_resolver: Arc<M>,
 ) where
     C: ConfigService,
     J: MailJobDao,
     R: MailRecipientDao,
     A: MailRecipientAttachmentDao,
     D: DocumentStorage + 'static,
+    M: MemberResolver,
 {
     loop {
         let next = match recipient_dao.next_pending().await {
@@ -94,12 +136,83 @@ pub async fn start_mail_worker<C, J, R, A, D>(
             }
         };
 
+        // Render template subject/body if recipient has a member_id
+        let (rendered_subject, rendered_body) = if let Some(member_id) = next.member_id {
+            match member_resolver.find_member_by_id(member_id).await {
+                Ok(Some(member)) => {
+                    let ctx = member_to_template_context(&member);
+                    let subject = match render_template(&job.subject, &ctx) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            mark_recipient_failed(
+                                recipient_dao.as_ref(),
+                                job_dao.as_ref(),
+                                &next,
+                                &mut job,
+                                &format!("Template render error (subject): {}", e.message),
+                            )
+                            .await;
+                            let interval = get_send_interval(config_service.as_ref()).await;
+                            tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
+                            continue;
+                        }
+                    };
+                    let body = match render_template(&job.body, &ctx) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            mark_recipient_failed(
+                                recipient_dao.as_ref(),
+                                job_dao.as_ref(),
+                                &next,
+                                &mut job,
+                                &format!("Template render error (body): {}", e.message),
+                            )
+                            .await;
+                            let interval = get_send_interval(config_service.as_ref()).await;
+                            tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
+                            continue;
+                        }
+                    };
+                    (subject, body)
+                }
+                Ok(None) => {
+                    mark_recipient_failed(
+                        recipient_dao.as_ref(),
+                        job_dao.as_ref(),
+                        &next,
+                        &mut job,
+                        &format!("Member {} not found for template rendering", member_id),
+                    )
+                    .await;
+                    let interval = get_send_interval(config_service.as_ref()).await;
+                    tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
+                    continue;
+                }
+                Err(e) => {
+                    mark_recipient_failed(
+                        recipient_dao.as_ref(),
+                        job_dao.as_ref(),
+                        &next,
+                        &mut job,
+                        &format!("Failed to load member for template rendering: {:?}", e),
+                    )
+                    .await;
+                    let interval = get_send_interval(config_service.as_ref()).await;
+                    tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
+                    continue;
+                }
+            }
+        } else {
+            // No member_id — plain text passthrough
+            (job.subject.to_string(), job.body.to_string())
+        };
+
         // Load SMTP config and send
         let send_result = send_mail_for_recipient(
             config_service.as_ref(),
             &next.to_address,
-            &job.subject,
-            &job.body,
+            &rendered_subject,
+            &rendered_body,
             &attachments,
             document_storage.as_ref(),
         )

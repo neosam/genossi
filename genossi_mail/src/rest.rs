@@ -10,6 +10,8 @@ use utoipa::{OpenApi, ToSchema};
 
 use crate::dao::{MailJob, MailRecipient};
 use crate::service::{AttachmentInput, MailService, MailServiceError, RecipientInput};
+use crate::template::{member_to_template_context, render_template};
+use genossi_dao::member::MemberEntity;
 
 /// Resolved document info for attachment validation.
 pub struct ResolvedDocument {
@@ -36,6 +38,20 @@ pub trait MailRestState: Clone + Send + Sync + 'static {
         recipient_id: uuid::Uuid,
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = Vec<MailAttachmentTO>> + Send + '_>,
+    >;
+    /// Resolve a member by ID for template rendering.
+    fn resolve_member(
+        &self,
+        member_id: uuid::Uuid,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Option<MemberEntity>> + Send + '_>,
+    >;
+    /// Resolve multiple members by IDs for template validation.
+    fn resolve_members(
+        &self,
+        member_ids: &[uuid::Uuid],
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Vec<MemberEntity>> + Send + '_>,
     >;
 }
 
@@ -118,6 +134,24 @@ pub struct TestMailRequest {
     pub to_address: String,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct PreviewRequest {
+    #[schema(example = "Hallo {{ first_name }}")]
+    pub subject: String,
+    #[schema(example = "Liebe/r {{ first_name }} {{ last_name }}...")]
+    pub body: String,
+    #[schema(example = "123e4567-e89b-12d3-a456-426614174000")]
+    pub member_id: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct PreviewResponse {
+    pub subject: String,
+    pub body: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub errors: Vec<String>,
+}
+
 fn format_datetime(dt: &time::PrimitiveDateTime) -> String {
     dt.assume_utc()
         .format(&time::format_description::well_known::Iso8601::DEFAULT)
@@ -177,6 +211,13 @@ fn error_handler(result: Result<Response, MailServiceError>) -> Response {
                 serde_json::json!({"error": "Not found"}).to_string(),
             ))
             .unwrap(),
+        Err(MailServiceError::TemplateValidation(msg)) => Response::builder()
+            .status(400)
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                serde_json::json!({"error": msg.to_string()}).to_string(),
+            ))
+            .unwrap(),
         Err(MailServiceError::DataAccess(msg)) => {
             tracing::error!("Mail data access error: {}", msg);
             Response::builder()
@@ -191,6 +232,7 @@ pub fn generate_route<S: MailRestState>() -> Router<S> {
     Router::new()
         .route("/send", post(send_mail::<S>))
         .route("/send-bulk", post(send_bulk_mail::<S>))
+        .route("/preview", post(preview_mail::<S>))
         .route("/test", post(send_test_mail::<S>))
         .route("/jobs", get(get_jobs::<S>))
         .route("/jobs/{id}", get(get_job_detail::<S>))
@@ -199,8 +241,8 @@ pub fn generate_route<S: MailRestState>() -> Router<S> {
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(send_mail, send_bulk_mail, send_test_mail, get_jobs, get_job_detail, retry_job),
-    components(schemas(MailJobTO, MailRecipientTO, MailJobDetailTO, MailAttachmentTO, SendMailRequest, SendBulkMailRequest, BulkRecipient, TestMailRequest)),
+    paths(send_mail, send_bulk_mail, preview_mail, send_test_mail, get_jobs, get_job_detail, retry_job),
+    components(schemas(MailJobTO, MailRecipientTO, MailJobDetailTO, MailAttachmentTO, SendMailRequest, SendBulkMailRequest, BulkRecipient, TestMailRequest, PreviewRequest, PreviewResponse)),
     tags((name = "Mail", description = "Email sending and job management endpoints"))
 )]
 pub struct ApiDoc;
@@ -273,6 +315,29 @@ pub async fn send_bulk_mail<S: MailRestState>(
                 })
                 .collect();
 
+            // Validate all recipients have member_id
+            if recipients.iter().any(|r| r.member_id.is_none()) {
+                return Err(MailServiceError::TemplateValidation(Arc::from(
+                    "All recipients must have a member_id for template rendering",
+                )));
+            }
+
+            // Validate templates against all recipient members
+            let member_ids: Vec<uuid::Uuid> = recipients
+                .iter()
+                .filter_map(|r| r.member_id)
+                .collect();
+            let members = state.resolve_members(&member_ids).await;
+            if let Err(errors) = crate::template::validate_template(
+                &body.subject,
+                &body.body,
+                &members,
+            ) {
+                return Err(MailServiceError::TemplateValidation(Arc::from(
+                    errors.join("; "),
+                )));
+            }
+
             // Resolve and validate attachments
             let mut attachment_inputs = Vec::new();
             if !body.attachment_ids.is_empty() {
@@ -323,6 +388,80 @@ pub async fn send_bulk_mail<S: MailRestState>(
         })
         .await,
     )
+}
+
+#[instrument(skip(state))]
+#[utoipa::path(
+    post,
+    tag = "Mail",
+    path = "/preview",
+    request_body = PreviewRequest,
+    responses(
+        (status = 200, description = "Rendered preview", body = PreviewResponse),
+        (status = 404, description = "Member not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
+pub async fn preview_mail<S: MailRestState>(
+    state: State<S>,
+    axum::Json(body): axum::Json<PreviewRequest>,
+) -> Response {
+    let member_id = match uuid::Uuid::parse_str(&body.member_id) {
+        Ok(id) => id,
+        Err(_) => {
+            return Response::builder()
+                .status(400)
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({"error": "Invalid member_id"}).to_string(),
+                ))
+                .unwrap();
+        }
+    };
+
+    let member = match state.resolve_member(member_id).await {
+        Some(m) => m,
+        None => {
+            return Response::builder()
+                .status(404)
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({"error": "Member not found"}).to_string(),
+                ))
+                .unwrap();
+        }
+    };
+
+    let ctx = member_to_template_context(&member);
+    let mut errors = Vec::new();
+
+    let rendered_subject = match render_template(&body.subject, &ctx) {
+        Ok(s) => s,
+        Err(e) => {
+            errors.push(format!("Subject: {}", e.message));
+            String::new()
+        }
+    };
+
+    let rendered_body = match render_template(&body.body, &ctx) {
+        Ok(s) => s,
+        Err(e) => {
+            errors.push(format!("Body: {}", e.message));
+            String::new()
+        }
+    };
+
+    let response = PreviewResponse {
+        subject: rendered_subject,
+        body: rendered_body,
+        errors,
+    };
+
+    Response::builder()
+        .status(200)
+        .header("Content-Type", "application/json")
+        .body(Body::new(serde_json::to_string(&response).unwrap()))
+        .unwrap()
 }
 
 #[instrument(skip(state))]
