@@ -257,6 +257,11 @@ pub enum Key {
     SelectedCount,
     SendMailToSelected,
 
+    // Mail templates
+    MailTemplateFormal,
+    MailTemplateInformal,
+    MailTemplateSelect,
+
     // Member filter
     NotReachedByMailJob,
     AllMembers,

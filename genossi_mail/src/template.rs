@@ -272,4 +272,104 @@ mod tests {
         let result = render_template(template, &ctx).unwrap();
         assert_eq!(result, "Aktiv");
     }
+
+    const TEMPLATE_FORMAL: &str = r#"Sehr geehrte{% if salutation == "Herr" %}r Herr{% elif salutation == "Frau" %} Frau{% else %}s Mitglied{% endif %}{% if title %} {{ title }}{% endif %} {{ last_name }},"#;
+
+    const TEMPLATE_INFORMAL: &str = r#"{% if salutation == "Herr" %}Lieber{% elif salutation == "Frau" %}Liebe{% else %}Hallo{% endif %}{% if title %} {{ title }}{% endif %} {{ first_name }},"#;
+
+    #[test]
+    fn test_formal_template_herr_with_title() {
+        let member = make_member("Max", "Mustermann");
+        let ctx = member_to_template_context(&member);
+        let result = render_template(TEMPLATE_FORMAL, &ctx).unwrap();
+        assert_eq!(result, "Sehr geehrter Herr Dr. Mustermann,");
+    }
+
+    #[test]
+    fn test_formal_template_frau_without_title() {
+        let mut member = make_member("Erika", "Muster");
+        member.salutation = Some(Salutation::Frau);
+        member.title = None;
+        let ctx = member_to_template_context(&member);
+        let result = render_template(TEMPLATE_FORMAL, &ctx).unwrap();
+        assert_eq!(result, "Sehr geehrte Frau Muster,");
+    }
+
+    #[test]
+    fn test_formal_template_no_salutation() {
+        let mut member = make_member("Simon", "Goller");
+        member.salutation = None;
+        member.title = None;
+        let ctx = member_to_template_context(&member);
+        let result = render_template(TEMPLATE_FORMAL, &ctx).unwrap();
+        assert_eq!(result, "Sehr geehrtes Mitglied Goller,");
+    }
+
+    #[test]
+    fn test_formal_template_frau_with_title() {
+        let mut member = make_member("Anna", "Schmidt");
+        member.salutation = Some(Salutation::Frau);
+        member.title = Some(Arc::from("Prof."));
+        let ctx = member_to_template_context(&member);
+        let result = render_template(TEMPLATE_FORMAL, &ctx).unwrap();
+        assert_eq!(result, "Sehr geehrte Frau Prof. Schmidt,");
+    }
+
+    #[test]
+    fn test_formal_template_no_salutation_with_title() {
+        let mut member = make_member("Alex", "Weber");
+        member.salutation = None;
+        member.title = Some(Arc::from("Dr."));
+        let ctx = member_to_template_context(&member);
+        let result = render_template(TEMPLATE_FORMAL, &ctx).unwrap();
+        assert_eq!(result, "Sehr geehrtes Mitglied Dr. Weber,");
+    }
+
+    #[test]
+    fn test_informal_template_herr_with_title() {
+        let member = make_member("Max", "Mustermann");
+        let ctx = member_to_template_context(&member);
+        let result = render_template(TEMPLATE_INFORMAL, &ctx).unwrap();
+        assert_eq!(result, "Lieber Dr. Max,");
+    }
+
+    #[test]
+    fn test_informal_template_frau_without_title() {
+        let mut member = make_member("Erika", "Muster");
+        member.salutation = Some(Salutation::Frau);
+        member.title = None;
+        let ctx = member_to_template_context(&member);
+        let result = render_template(TEMPLATE_INFORMAL, &ctx).unwrap();
+        assert_eq!(result, "Liebe Erika,");
+    }
+
+    #[test]
+    fn test_informal_template_no_salutation() {
+        let mut member = make_member("Simon", "Goller");
+        member.salutation = None;
+        member.title = None;
+        let ctx = member_to_template_context(&member);
+        let result = render_template(TEMPLATE_INFORMAL, &ctx).unwrap();
+        assert_eq!(result, "Hallo Simon,");
+    }
+
+    #[test]
+    fn test_informal_template_frau_with_title() {
+        let mut member = make_member("Anna", "Schmidt");
+        member.salutation = Some(Salutation::Frau);
+        member.title = Some(Arc::from("Prof."));
+        let ctx = member_to_template_context(&member);
+        let result = render_template(TEMPLATE_INFORMAL, &ctx).unwrap();
+        assert_eq!(result, "Liebe Prof. Anna,");
+    }
+
+    #[test]
+    fn test_informal_template_no_salutation_with_title() {
+        let mut member = make_member("Alex", "Weber");
+        member.salutation = None;
+        member.title = Some(Arc::from("Dr."));
+        let ctx = member_to_template_context(&member);
+        let result = render_template(TEMPLATE_INFORMAL, &ctx).unwrap();
+        assert_eq!(result, "Hallo Dr. Alex,");
+    }
 }

@@ -198,6 +198,10 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::SmtpSaving => "Saving...".into(),
         Key::AdvancedConfig => "Advanced Configuration".into(),
 
+        Key::MailTemplateFormal => "Formal".into(),
+        Key::MailTemplateInformal => "Informal".into(),
+        Key::MailTemplateSelect => "Select template...".into(),
+
         Key::SelectedCount => "selected".into(),
         Key::SendMailToSelected => "Send mail".into(),
 
