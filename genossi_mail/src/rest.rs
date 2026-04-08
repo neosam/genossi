@@ -126,6 +126,8 @@ pub struct SendBulkMailRequest {
     pub body: String,
     #[serde(default)]
     pub attachment_ids: Vec<String>,
+    #[serde(default)]
+    pub static_document_ids: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
@@ -275,6 +277,7 @@ pub async fn send_mail<S: MailRestState>(
                         member_id: None,
                     }],
                     vec![],
+                    vec![],
                 )
                 .await?;
             let to = MailJobTO::from(&job);
@@ -375,9 +378,22 @@ pub async fn send_bulk_mail<S: MailRestState>(
                 }
             }
 
+            let mut static_document_ids: Vec<uuid::Uuid> = Vec::new();
+            for sid in &body.static_document_ids {
+                let parsed = uuid::Uuid::parse_str(sid)
+                    .map_err(|_| MailServiceError::NotFound)?;
+                static_document_ids.push(parsed);
+            }
+
             let job = state
                 .mail_service()
-                .create_job(&body.subject, &body.body, recipients, attachment_inputs)
+                .create_job(
+                    &body.subject,
+                    &body.body,
+                    recipients,
+                    attachment_inputs,
+                    static_document_ids,
+                )
                 .await?;
             let to = MailJobTO::from(&job);
             Ok(Response::builder()

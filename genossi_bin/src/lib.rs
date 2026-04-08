@@ -220,11 +220,27 @@ type ConfigService = genossi_config::service::ConfigServiceImpl<ConfigDao>;
 type MailJobDao = genossi_mail::dao_sqlite::MailJobDaoSqlite;
 type MailRecipientDao = genossi_mail::dao_sqlite::MailRecipientDaoSqlite;
 type MailRecipientAttachmentDao = genossi_mail::dao_sqlite::MailRecipientAttachmentDaoSqlite;
-type MailServiceType = genossi_mail::service::MailServiceImpl<ConfigService, MailJobDao, MailRecipientDao, MailRecipientAttachmentDao>;
+type StaticDocumentDaoType = genossi_mail::dao_sqlite::StaticDocumentDaoSqlite;
+type MailJobStaticAttachmentDaoType =
+    genossi_mail::dao_sqlite::MailJobStaticAttachmentDaoSqlite;
+type MailServiceType = genossi_mail::service::MailServiceImpl<
+    ConfigService,
+    MailJobDao,
+    MailRecipientDao,
+    MailRecipientAttachmentDao,
+    StaticDocumentDaoType,
+    MailJobStaticAttachmentDaoType,
+>;
+type StaticDocumentServiceType =
+    genossi_mail::static_document_service::StaticDocumentServiceImpl<
+        StaticDocumentDaoType,
+        DocumentStorage,
+    >;
 
 // RestStateImpl with all services
 #[derive(Clone)]
 pub struct RestStateImpl {
+    public_stats_cache: std::sync::Arc<genossi_rest::public_stats::PublicStatsCache>,
     member_service: Arc<MemberService>,
     member_import_service: Arc<MemberImportService>,
     member_action_service: Arc<MemberActionService>,
@@ -238,11 +254,13 @@ pub struct RestStateImpl {
     pdf_generator: Arc<genossi_service_impl::pdf_generation::PdfGenerator>,
     config_service: Arc<ConfigService>,
     mail_service: Arc<MailServiceType>,
+    static_document_service: Arc<StaticDocumentServiceType>,
     // Worker dependencies (kept for spawning the background worker)
     worker_config_service: Arc<ConfigService>,
     worker_job_dao: Arc<MailJobDao>,
     worker_recipient_dao: Arc<MailRecipientDao>,
     worker_attachment_dao: Arc<MailRecipientAttachmentDao>,
+    worker_static_attachment_dao: Arc<MailJobStaticAttachmentDaoType>,
     // Pool for direct document resolution queries
     pool: Arc<SqlitePool>,
 }
@@ -347,6 +365,9 @@ impl RestStateImpl {
         let mail_job_dao = MailJobDao::new(pool.clone());
         let mail_recipient_dao = MailRecipientDao::new(pool.clone());
         let mail_attachment_dao = MailRecipientAttachmentDao::new(pool.clone());
+        let mail_static_dao = StaticDocumentDaoType::new(pool.clone());
+        let mail_job_static_attachment_dao =
+            MailJobStaticAttachmentDaoType::new(pool.clone());
         let config_dao_for_mail = ConfigDao::new(pool.clone());
         let config_service_for_mail = ConfigService::new(config_dao_for_mail);
         let mail_service = Arc::new(MailServiceType::new(
@@ -354,16 +375,28 @@ impl RestStateImpl {
             mail_job_dao,
             mail_recipient_dao,
             mail_attachment_dao,
+            mail_static_dao,
+            mail_job_static_attachment_dao,
+        ));
+
+        let static_document_dao_for_service =
+            Arc::new(StaticDocumentDaoType::new(pool.clone()));
+        let static_document_service = Arc::new(StaticDocumentServiceType::new(
+            static_document_dao_for_service,
+            document_storage.clone(),
         ));
 
         // Create separate instances for the worker (worker needs its own DAOs)
         let worker_job_dao = Arc::new(MailJobDao::new(pool.clone()));
         let worker_recipient_dao = Arc::new(MailRecipientDao::new(pool.clone()));
         let worker_attachment_dao = Arc::new(MailRecipientAttachmentDao::new(pool.clone()));
+        let worker_static_attachment_dao =
+            Arc::new(MailJobStaticAttachmentDaoType::new(pool.clone()));
         let worker_config_dao = ConfigDao::new(pool.clone());
         let worker_config_service = Arc::new(ConfigService::new(worker_config_dao));
 
         Self {
+            public_stats_cache: std::sync::Arc::new(genossi_rest::public_stats::PublicStatsCache::new()),
             member_service,
             member_import_service,
             member_action_service,
@@ -377,10 +410,12 @@ impl RestStateImpl {
             pdf_generator,
             config_service,
             mail_service,
+            static_document_service,
             worker_config_service,
             worker_job_dao,
             worker_recipient_dao,
             worker_attachment_dao,
+            worker_static_attachment_dao,
             pool,
         }
     }
@@ -392,6 +427,7 @@ impl RestStateImpl {
         let job_dao = self.worker_job_dao.clone();
         let recipient_dao = self.worker_recipient_dao.clone();
         let attachment_dao = self.worker_attachment_dao.clone();
+        let static_attachment_dao = self.worker_static_attachment_dao.clone();
         let document_storage = self.document_storage.clone();
         let member_resolver = Arc::new(PoolMemberResolver::new(self.pool.clone()));
         tokio::spawn(async move {
@@ -400,6 +436,7 @@ impl RestStateImpl {
                 job_dao,
                 recipient_dao,
                 attachment_dao,
+                static_attachment_dao,
                 document_storage,
                 member_resolver,
             )
@@ -527,6 +564,40 @@ impl genossi_mail::rest::MailRestState for RestStateImpl {
     }
 }
 
+impl genossi_rest::public_stats::PublicStatsState for RestStateImpl {
+    fn public_stats_cache(&self) -> &genossi_rest::public_stats::PublicStatsCache {
+        &self.public_stats_cache
+    }
+
+    fn get_public_stats_enabled(
+        &self,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<bool>> + Send + '_>> {
+        let config_service = self.config_service.clone();
+        Box::pin(async move {
+            use genossi_config::service::ConfigService;
+            match config_service.get("public_stats_enabled").await {
+                Ok(entry) => Some(entry.value.as_ref() == "true"),
+                Err(_) => Some(false),
+            }
+        })
+    }
+
+    fn get_active_member_count(
+        &self,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<u64>> + Send + '_>> {
+        let pool = self.pool.clone();
+        Box::pin(async move {
+            use genossi_dao::TransactionDao as _;
+            use genossi_dao::member::MemberDao as _;
+            let transaction_dao = TransactionDaoImpl::new(pool.clone());
+            let member_dao = genossi_dao_impl_sqlite::member::MemberDaoImpl::new(pool);
+            let tx = transaction_dao.transaction().await.ok()?;
+            let today = time::OffsetDateTime::now_utc().date();
+            member_dao.count_active(today, tx).await.ok()
+        })
+    }
+}
+
 impl genossi_config::rest::ConfigRestState for RestStateImpl {
     type ConfigService = ConfigService;
     fn config_service(&self) -> Arc<Self::ConfigService> {
@@ -544,6 +615,7 @@ impl genossi_rest::RestStateDef for RestStateImpl {
     type DocumentStorage = DocumentStorage;
     type ValidationService = ValidationService;
     type UserPreferenceService = UserPreferenceService;
+    type StaticDocumentService = StaticDocumentServiceType;
 
     fn member_service(&self) -> Arc<Self::MemberService> {
         self.member_service.clone()
@@ -579,6 +651,10 @@ impl genossi_rest::RestStateDef for RestStateImpl {
 
     fn user_preference_service(&self) -> Arc<Self::UserPreferenceService> {
         self.user_preference_service.clone()
+    }
+
+    fn static_document_service(&self) -> Arc<Self::StaticDocumentService> {
+        self.static_document_service.clone()
     }
 
     fn template_storage(&self) -> Arc<genossi_service_impl::template_storage::TemplateStorage> {

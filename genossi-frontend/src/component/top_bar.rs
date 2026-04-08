@@ -78,6 +78,11 @@ pub fn TopBar() -> Element {
                             Link { class: "hover:underline px-3 py-2 md:py-4", to: Route::MailPage {}, {i18n.t(Key::Mail)} }
                         }
                     }
+                    if show_admin {
+                        li {
+                            Link { class: "hover:underline px-3 py-2 md:py-4", to: Route::StaticDocumentsPage {}, "Dokumente" }
+                        }
+                    }
                     if show_permissions {
                         li {
                             Link { class: "hover:underline px-3 py-2 md:py-4", to: Route::Permissions {}, {i18n.t(Key::Permissions)} }

@@ -292,6 +292,18 @@ impl MemberDao for MemberDaoImpl {
         Ok(())
     }
 
+    async fn count_active(&self, today: time::Date, tx: Self::Transaction) -> Result<u64, genossi_dao::DaoError> {
+        let today_str = format_date(&today);
+        let count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM member WHERE deleted IS NULL AND (exit_date IS NULL OR exit_date > ?)",
+        )
+        .bind(today_str)
+        .fetch_one(tx.tx.lock().await.as_mut())
+        .await
+        .map_err(|e| genossi_dao::DaoError::DatabaseError(std::sync::Arc::from(e.to_string())))?;
+        Ok(count as u64)
+    }
+
     async fn update_migrated(
         &self,
         id: Uuid,

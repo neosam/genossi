@@ -6,7 +6,9 @@ pub mod member;
 pub mod member_action;
 pub mod member_document;
 pub mod permission;
+pub mod public_stats;
 pub mod session;
+pub mod static_document;
 pub mod template;
 pub mod test_server;
 pub mod user_preference;
@@ -166,6 +168,10 @@ pub trait RestStateDef: Clone + Send + Sync + 'static + genossi_config::rest::Co
         + Send
         + Sync
         + 'static;
+    type StaticDocumentService: genossi_mail::static_document_service::StaticDocumentService
+        + Send
+        + Sync
+        + 'static;
 
     fn member_service(&self) -> Arc<Self::MemberService>;
     fn permission_service(&self) -> Arc<Self::PermissionService>;
@@ -176,6 +182,7 @@ pub trait RestStateDef: Clone + Send + Sync + 'static + genossi_config::rest::Co
     fn document_storage(&self) -> Arc<Self::DocumentStorage>;
     fn validation_service(&self) -> Arc<Self::ValidationService>;
     fn user_preference_service(&self) -> Arc<Self::UserPreferenceService>;
+    fn static_document_service(&self) -> Arc<Self::StaticDocumentService>;
     fn template_storage(&self) -> Arc<genossi_service_impl::template_storage::TemplateStorage>;
     fn pdf_generator(&self) -> Arc<genossi_service_impl::pdf_generation::PdfGenerator>;
 }
@@ -192,7 +199,8 @@ pub trait RestStateDef: Clone + Send + Sync + 'static + genossi_config::rest::Co
         (path = "/api/templates", api = template::ApiDoc),
         (path = "/api/user-preferences", api = user_preference::ApiDoc),
         (path = "/api/config", api = genossi_config::rest::ApiDoc),
-        (path = "/api/mail", api = genossi_mail::rest::ApiDoc)
+        (path = "/api/mail", api = genossi_mail::rest::ApiDoc),
+        (path = "/api/static-documents", api = static_document::ApiDoc)
     )
 )]
 pub struct ApiDoc;
@@ -284,7 +292,7 @@ async fn context_extractor<RestState: RestStateDef>(
     session::context_extractor(rest_state, request, next).await
 }
 
-pub async fn create_app<RestState: RestStateDef>(rest_state: RestState) -> Router {
+pub async fn create_app<RestState: RestStateDef + public_stats::PublicStatsState>(rest_state: RestState) -> Router {
     let mut api_doc = ApiDoc::openapi();
     let base = std::env::var("BASE_PATH").unwrap_or("http://localhost:3000/".into());
     api_doc.servers = Some(vec![utoipa::openapi::ServerBuilder::new()
@@ -297,6 +305,9 @@ pub async fn create_app<RestState: RestStateDef>(rest_state: RestState) -> Route
         let dev_doc = dev::api_doc();
         api_doc.merge(dev_doc);
     }
+
+    let public_stats_doc = public_stats::ApiDoc::openapi();
+    api_doc.merge(public_stats_doc);
 
     let swagger_router = SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", api_doc);
 
@@ -343,6 +354,10 @@ pub async fn create_app<RestState: RestStateDef>(rest_state: RestState) -> Route
         .nest("/api/user-preferences", user_preference::generate_route())
         .nest("/api/config", genossi_config::rest::generate_route())
         .nest("/api/mail", genossi_mail::rest::generate_route())
+        .nest(
+            "/api/static-documents",
+            static_document::generate_route::<RestState>(),
+        )
         .with_state(rest_state.clone())
         .layer(middleware::from_fn_with_state(
             rest_state.clone(),
@@ -418,6 +433,11 @@ pub async fn create_app<RestState: RestStateDef>(rest_state: RestState) -> Route
     #[cfg(not(feature = "oidc"))]
     let app = app.layer(CookieManagerLayer::new());
 
+    // Public routes (no auth required)
+    let app = app
+        .nest("/api/public", public_stats::generate_route::<RestState>())
+        .with_state(rest_state.clone());
+
     // Dev-only routes (no auth required, only compiled in debug builds)
     #[cfg(debug_assertions)]
     let app = app
@@ -433,7 +453,7 @@ pub async fn serve_app(app: Router, listener: tokio::net::TcpListener) {
         .expect("Could not start server");
 }
 
-pub async fn start_server<RestState: RestStateDef>(rest_state: RestState) {
+pub async fn start_server<RestState: RestStateDef + public_stats::PublicStatsState>(rest_state: RestState) {
     let app = create_app(rest_state).await;
 
     info!("Running server at {}", bind_address());

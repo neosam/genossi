@@ -6,6 +6,7 @@ pub use crate::page::MailPage;
 pub use crate::page::MemberDetails;
 pub use crate::page::Members;
 pub use crate::page::Permissions;
+pub use crate::page::StaticDocumentsPage;
 pub use crate::page::Templates;
 pub use crate::page::Validation;
 
@@ -27,4 +28,6 @@ pub enum Route {
     ConfigPage {},
     #[route("/mail")]
     MailPage {},
+    #[route("/documents")]
+    StaticDocumentsPage {},
 }

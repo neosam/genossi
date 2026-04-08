@@ -4,8 +4,8 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::dao::{
-    MailJob, MailJobDao, MailRecipient, MailRecipientAttachment, MailRecipientAttachmentDao,
-    MailRecipientDao,
+    MailJob, MailJobDao, MailJobStaticAttachment, MailJobStaticAttachmentDao, MailRecipient,
+    MailRecipientAttachment, MailRecipientAttachmentDao, MailRecipientDao, StaticDocumentDao,
 };
 use genossi_config::dao::ConfigEntry;
 use genossi_config::service::ConfigService;
@@ -45,12 +45,14 @@ pub struct AttachmentInput {
 pub trait MailService: Send + Sync + 'static {
     /// Create a mail job with the given recipients. Returns the created job.
     /// If attachment_inputs is non-empty, recipients must contain exactly one entry.
+    /// `static_document_ids` are job-level attachments delivered to every recipient.
     async fn create_job(
         &self,
         subject: &str,
         body: &str,
         recipients: Vec<RecipientInput>,
         attachment_inputs: Vec<AttachmentInput>,
+        static_document_ids: Vec<Uuid>,
     ) -> Result<MailJob, MailServiceError>;
 
     /// Get all mail jobs ordered by created DESC.
@@ -168,29 +170,59 @@ pub fn build_transport(
     Ok(transport)
 }
 
-pub struct MailServiceImpl<C: ConfigService, J: MailJobDao, R: MailRecipientDao, A: MailRecipientAttachmentDao> {
+pub struct MailServiceImpl<
+    C: ConfigService,
+    J: MailJobDao,
+    R: MailRecipientDao,
+    A: MailRecipientAttachmentDao,
+    S: StaticDocumentDao,
+    M: MailJobStaticAttachmentDao,
+> {
     config_service: Arc<C>,
     job_dao: Arc<J>,
     recipient_dao: Arc<R>,
     attachment_dao: Arc<A>,
+    static_document_dao: Arc<S>,
+    mail_job_static_attachment_dao: Arc<M>,
 }
 
-impl<C: ConfigService, J: MailJobDao, R: MailRecipientDao, A: MailRecipientAttachmentDao>
-    MailServiceImpl<C, J, R, A>
+impl<
+        C: ConfigService,
+        J: MailJobDao,
+        R: MailRecipientDao,
+        A: MailRecipientAttachmentDao,
+        S: StaticDocumentDao,
+        M: MailJobStaticAttachmentDao,
+    > MailServiceImpl<C, J, R, A, S, M>
 {
-    pub fn new(config_service: C, job_dao: J, recipient_dao: R, attachment_dao: A) -> Self {
+    pub fn new(
+        config_service: C,
+        job_dao: J,
+        recipient_dao: R,
+        attachment_dao: A,
+        static_document_dao: S,
+        mail_job_static_attachment_dao: M,
+    ) -> Self {
         Self {
             config_service: Arc::new(config_service),
             job_dao: Arc::new(job_dao),
             recipient_dao: Arc::new(recipient_dao),
             attachment_dao: Arc::new(attachment_dao),
+            static_document_dao: Arc::new(static_document_dao),
+            mail_job_static_attachment_dao: Arc::new(mail_job_static_attachment_dao),
         }
     }
 }
 
 #[async_trait]
-impl<C: ConfigService, J: MailJobDao, R: MailRecipientDao, A: MailRecipientAttachmentDao>
-    MailService for MailServiceImpl<C, J, R, A>
+impl<
+        C: ConfigService,
+        J: MailJobDao,
+        R: MailRecipientDao,
+        A: MailRecipientAttachmentDao,
+        S: StaticDocumentDao,
+        M: MailJobStaticAttachmentDao,
+    > MailService for MailServiceImpl<C, J, R, A, S, M>
 {
     async fn create_job(
         &self,
@@ -198,6 +230,7 @@ impl<C: ConfigService, J: MailJobDao, R: MailRecipientDao, A: MailRecipientAttac
         body: &str,
         recipients: Vec<RecipientInput>,
         attachment_inputs: Vec<AttachmentInput>,
+        static_document_ids: Vec<Uuid>,
     ) -> Result<MailJob, MailServiceError> {
         if recipients.is_empty() {
             return Err(MailServiceError::DataAccess(Arc::from(
@@ -209,6 +242,17 @@ impl<C: ConfigService, J: MailJobDao, R: MailRecipientDao, A: MailRecipientAttac
             return Err(MailServiceError::DataAccess(Arc::from(
                 "Attachments are only supported for single-recipient sends",
             )));
+        }
+
+        // Validate that every referenced static document exists and is not soft-deleted.
+        if !static_document_ids.is_empty() {
+            let found = self
+                .static_document_dao
+                .find_many_by_ids(&static_document_ids)
+                .await?;
+            if found.len() != static_document_ids.len() {
+                return Err(MailServiceError::NotFound);
+            }
         }
 
         let now = time::OffsetDateTime::now_utc();
@@ -254,6 +298,14 @@ impl<C: ConfigService, J: MailJobDao, R: MailRecipientDao, A: MailRecipientAttac
                 };
                 self.attachment_dao.create(&attachment).await?;
             }
+        }
+
+        for static_document_id in &static_document_ids {
+            let join = MailJobStaticAttachment {
+                mail_job_id: job.id,
+                static_document_id: *static_document_id,
+            };
+            self.mail_job_static_attachment_dao.create(&join).await?;
         }
 
         Ok(job)
@@ -346,7 +398,14 @@ impl<C: ConfigService, J: MailJobDao, R: MailRecipientDao, A: MailRecipientAttac
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dao::{MockMailJobDao, MockMailRecipientAttachmentDao, MockMailRecipientDao};
+    use crate::dao::{
+        MockMailJobDao, MockMailJobStaticAttachmentDao, MockMailRecipientAttachmentDao,
+        MockMailRecipientDao, MockStaticDocumentDao,
+    };
+
+    fn empty_static_mocks() -> (MockStaticDocumentDao, MockMailJobStaticAttachmentDao) {
+        (MockStaticDocumentDao::new(), MockMailJobStaticAttachmentDao::new())
+    }
     use genossi_config::dao::ConfigEntry;
     use genossi_config::service::MockConfigService;
 
@@ -397,7 +456,8 @@ mod tests {
             .times(2)
             .returning(|_| Ok(()));
 
-        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao, MockMailRecipientAttachmentDao::new());
+        let (sd_mock, msa_mock) = empty_static_mocks();
+        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao, MockMailRecipientAttachmentDao::new(), sd_mock, msa_mock);
         let result = service
             .create_job(
                 "Test Subject",
@@ -412,6 +472,7 @@ mod tests {
                         member_id: None,
                     },
                 ],
+                vec![],
                 vec![],
             )
             .await
@@ -429,9 +490,10 @@ mod tests {
         let job_dao = MockMailJobDao::new();
         let recipient_dao = MockMailRecipientDao::new();
 
-        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao, MockMailRecipientAttachmentDao::new());
+        let (sd_mock, msa_mock) = empty_static_mocks();
+        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao, MockMailRecipientAttachmentDao::new(), sd_mock, msa_mock);
         let result = service
-            .create_job("Test", "Body", vec![], vec![])
+            .create_job("Test", "Body", vec![], vec![], vec![])
             .await;
 
         assert!(matches!(result, Err(MailServiceError::DataAccess(_))));
@@ -447,7 +509,8 @@ mod tests {
             .expect_all()
             .returning(|| Ok(vec![].into()));
 
-        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao, MockMailRecipientAttachmentDao::new());
+        let (sd_mock, msa_mock) = empty_static_mocks();
+        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao, MockMailRecipientAttachmentDao::new(), sd_mock, msa_mock);
         let result = service.get_jobs().await.unwrap();
         assert!(result.is_empty());
     }
@@ -490,7 +553,8 @@ mod tests {
                 Ok(vec![].into())
             });
 
-        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao, MockMailRecipientAttachmentDao::new());
+        let (sd_mock, msa_mock) = empty_static_mocks();
+        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao, MockMailRecipientAttachmentDao::new(), sd_mock, msa_mock);
         let (found_job, recipients) = service.get_job_with_recipients(job_id).await.unwrap();
         assert_eq!(found_job.id, job_id);
         assert!(recipients.is_empty());
@@ -573,7 +637,8 @@ mod tests {
                 Ok(())
             });
 
-        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao, MockMailRecipientAttachmentDao::new());
+        let (sd_mock, msa_mock) = empty_static_mocks();
+        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao, MockMailRecipientAttachmentDao::new(), sd_mock, msa_mock);
         let result = service.retry_job(job_id).await.unwrap();
         assert_eq!(result.status.as_ref(), "running");
     }
@@ -586,7 +651,8 @@ mod tests {
         let job_dao = MockMailJobDao::new();
         let recipient_dao = MockMailRecipientDao::new();
 
-        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao, MockMailRecipientAttachmentDao::new());
+        let (sd_mock, msa_mock) = empty_static_mocks();
+        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao, MockMailRecipientAttachmentDao::new(), sd_mock, msa_mock);
         let result = service.send_test_mail("to@example.com").await;
         assert!(matches!(result, Err(MailServiceError::ConfigMissing(_))));
     }
@@ -602,7 +668,8 @@ mod tests {
         let job_dao = MockMailJobDao::new();
         let recipient_dao = MockMailRecipientDao::new();
 
-        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao, MockMailRecipientAttachmentDao::new());
+        let (sd_mock, msa_mock) = empty_static_mocks();
+        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao, MockMailRecipientAttachmentDao::new(), sd_mock, msa_mock);
         let result = service.send_test_mail("to@example.com").await;
         // SMTP will fail since no real server, but it should be SmtpError not ConfigMissing
         assert!(matches!(result, Err(MailServiceError::SmtpError(_))));
@@ -646,7 +713,8 @@ mod tests {
             .expect_find_sent_member_ids_by_job_id()
             .returning(move |_| Ok(sent_ids_clone.clone()));
 
-        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao, MockMailRecipientAttachmentDao::new());
+        let (sd_mock, msa_mock) = empty_static_mocks();
+        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao, MockMailRecipientAttachmentDao::new(), sd_mock, msa_mock);
         let result = service.get_reached_member_ids(job_id).await.unwrap();
         assert_eq!(result.len(), 2);
         assert!(result.contains(&member1));
@@ -663,7 +731,8 @@ mod tests {
             .expect_find_by_id()
             .returning(|_| Err(crate::dao::MailDaoError::NotFound));
 
-        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao, MockMailRecipientAttachmentDao::new());
+        let (sd_mock, msa_mock) = empty_static_mocks();
+        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao, MockMailRecipientAttachmentDao::new(), sd_mock, msa_mock);
         let result = service.get_reached_member_ids(Uuid::new_v4()).await;
         assert!(matches!(result, Err(MailServiceError::NotFound)));
     }
@@ -679,7 +748,8 @@ mod tests {
         recipient_dao.expect_create().times(1).returning(|_| Ok(()));
         attachment_dao.expect_create().times(2).returning(|_| Ok(()));
 
-        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao, attachment_dao);
+        let (sd_mock, msa_mock) = empty_static_mocks();
+        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao, attachment_dao, sd_mock, msa_mock);
         let result = service
             .create_job(
                 "Subject",
@@ -702,6 +772,7 @@ mod tests {
                         relative_path: "bbb.pdf".into(),
                     },
                 ],
+                vec![],
             )
             .await
             .unwrap();
@@ -716,7 +787,8 @@ mod tests {
         let recipient_dao = MockMailRecipientDao::new();
         let attachment_dao = MockMailRecipientAttachmentDao::new();
 
-        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao, attachment_dao);
+        let (sd_mock, msa_mock) = empty_static_mocks();
+        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao, attachment_dao, sd_mock, msa_mock);
         let result = service
             .create_job(
                 "Subject",
@@ -737,6 +809,7 @@ mod tests {
                     mime_type: "application/pdf".into(),
                     relative_path: "aaa.pdf".into(),
                 }],
+                vec![],
             )
             .await;
 

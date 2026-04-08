@@ -5,8 +5,9 @@ use time::PrimitiveDateTime;
 use uuid::Uuid;
 
 use crate::dao::{
-    MailDaoError, MailJob, MailJobDao, MailRecipient, MailRecipientDao,
-    MailRecipientAttachment, MailRecipientAttachmentDao,
+    MailDaoError, MailJob, MailJobDao, MailJobStaticAttachment, MailJobStaticAttachmentDao,
+    MailRecipient, MailRecipientAttachment, MailRecipientAttachmentDao, MailRecipientDao,
+    StaticDocument, StaticDocumentDao,
 };
 
 fn parse_datetime(s: &str) -> Result<PrimitiveDateTime, time::error::Parse> {
@@ -410,6 +411,211 @@ impl MailRecipientAttachmentDao for MailRecipientAttachmentDaoSqlite {
     }
 }
 
+// StaticDocument SQLite
+
+#[derive(Debug, sqlx::FromRow)]
+struct StaticDocumentDb {
+    id: Vec<u8>,
+    created: String,
+    deleted: Option<String>,
+    version: Vec<u8>,
+    name: String,
+    filename: String,
+    content_type: String,
+    size_bytes: i64,
+}
+
+impl TryFrom<&StaticDocumentDb> for StaticDocument {
+    type Error = MailDaoError;
+
+    fn try_from(db: &StaticDocumentDb) -> Result<Self, Self::Error> {
+        Ok(StaticDocument {
+            id: parse_uuid(&db.id)?,
+            created: parse_datetime(&db.created)
+                .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?,
+            deleted: parse_optional_datetime(&db.deleted)?,
+            version: parse_uuid(&db.version)?,
+            name: Arc::from(db.name.as_str()),
+            filename: Arc::from(db.filename.as_str()),
+            content_type: Arc::from(db.content_type.as_str()),
+            size_bytes: db.size_bytes,
+        })
+    }
+}
+
+pub struct StaticDocumentDaoSqlite {
+    pool: Arc<SqlitePool>,
+}
+
+impl StaticDocumentDaoSqlite {
+    pub fn new(pool: Arc<SqlitePool>) -> Self {
+        Self { pool }
+    }
+}
+
+#[async_trait]
+impl StaticDocumentDao for StaticDocumentDaoSqlite {
+    async fn create(&self, doc: &StaticDocument) -> Result<(), MailDaoError> {
+        let id = doc.id.as_bytes().to_vec();
+        let version = doc.version.as_bytes().to_vec();
+        let created = format_datetime(&doc.created)?;
+
+        sqlx::query(
+            "INSERT INTO static_documents (id, created, version, name, filename, \
+             content_type, size_bytes) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(id)
+        .bind(created)
+        .bind(version)
+        .bind(doc.name.as_ref())
+        .bind(doc.filename.as_ref())
+        .bind(doc.content_type.as_ref())
+        .bind(doc.size_bytes)
+        .execute(self.pool.as_ref())
+        .await
+        .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
+
+        Ok(())
+    }
+
+    async fn find_by_id(&self, id: Uuid) -> Result<Option<StaticDocument>, MailDaoError> {
+        let id_bytes = id.as_bytes().to_vec();
+        let row = sqlx::query_as::<_, StaticDocumentDb>(
+            "SELECT id, created, deleted, version, name, filename, content_type, size_bytes \
+             FROM static_documents WHERE id = ? AND deleted IS NULL",
+        )
+        .bind(id_bytes)
+        .fetch_optional(self.pool.as_ref())
+        .await
+        .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
+
+        row.as_ref().map(StaticDocument::try_from).transpose()
+    }
+
+    async fn find_many_by_ids(
+        &self,
+        ids: &[Uuid],
+    ) -> Result<Arc<[StaticDocument]>, MailDaoError> {
+        if ids.is_empty() {
+            return Ok(Arc::from(vec![]));
+        }
+        let placeholders = std::iter::repeat("?")
+            .take(ids.len())
+            .collect::<Vec<_>>()
+            .join(",");
+        let query = format!(
+            "SELECT id, created, deleted, version, name, filename, content_type, size_bytes \
+             FROM static_documents WHERE deleted IS NULL AND id IN ({})",
+            placeholders
+        );
+        let mut q = sqlx::query_as::<_, StaticDocumentDb>(&query);
+        for id in ids {
+            q = q.bind(id.as_bytes().to_vec());
+        }
+        let rows = q
+            .fetch_all(self.pool.as_ref())
+            .await
+            .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
+        rows.iter()
+            .map(StaticDocument::try_from)
+            .collect::<Result<Vec<_>, _>>()
+            .map(|v| v.into())
+    }
+
+    async fn all_active(&self) -> Result<Arc<[StaticDocument]>, MailDaoError> {
+        let rows = sqlx::query_as::<_, StaticDocumentDb>(
+            "SELECT id, created, deleted, version, name, filename, content_type, size_bytes \
+             FROM static_documents WHERE deleted IS NULL ORDER BY name",
+        )
+        .fetch_all(self.pool.as_ref())
+        .await
+        .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
+        rows.iter()
+            .map(StaticDocument::try_from)
+            .collect::<Result<Vec<_>, _>>()
+            .map(|v| v.into())
+    }
+
+    async fn soft_delete(&self, id: Uuid) -> Result<(), MailDaoError> {
+        let id_bytes = id.as_bytes().to_vec();
+        let now = time::OffsetDateTime::now_utc();
+        let now_primitive = time::PrimitiveDateTime::new(now.date(), now.time());
+        let deleted = format_datetime(&now_primitive)?;
+        let new_version = Uuid::new_v4().as_bytes().to_vec();
+
+        let rows_affected = sqlx::query(
+            "UPDATE static_documents SET deleted = ?, version = ? \
+             WHERE id = ? AND deleted IS NULL",
+        )
+        .bind(deleted)
+        .bind(new_version)
+        .bind(id_bytes)
+        .execute(self.pool.as_ref())
+        .await
+        .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?
+        .rows_affected();
+
+        if rows_affected == 0 {
+            return Err(MailDaoError::NotFound);
+        }
+        Ok(())
+    }
+}
+
+// MailJobStaticAttachment SQLite
+
+pub struct MailJobStaticAttachmentDaoSqlite {
+    pool: Arc<SqlitePool>,
+}
+
+impl MailJobStaticAttachmentDaoSqlite {
+    pub fn new(pool: Arc<SqlitePool>) -> Self {
+        Self { pool }
+    }
+}
+
+#[async_trait]
+impl MailJobStaticAttachmentDao for MailJobStaticAttachmentDaoSqlite {
+    async fn create(&self, entity: &MailJobStaticAttachment) -> Result<(), MailDaoError> {
+        let mail_job_id = entity.mail_job_id.as_bytes().to_vec();
+        let static_document_id = entity.static_document_id.as_bytes().to_vec();
+
+        sqlx::query(
+            "INSERT INTO mail_job_static_attachments (mail_job_id, static_document_id) \
+             VALUES (?, ?)",
+        )
+        .bind(mail_job_id)
+        .bind(static_document_id)
+        .execute(self.pool.as_ref())
+        .await
+        .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
+
+        Ok(())
+    }
+
+    async fn find_static_documents_by_job_id(
+        &self,
+        mail_job_id: Uuid,
+    ) -> Result<Arc<[StaticDocument]>, MailDaoError> {
+        let id_bytes = mail_job_id.as_bytes().to_vec();
+        let rows = sqlx::query_as::<_, StaticDocumentDb>(
+            "SELECT sd.id, sd.created, sd.deleted, sd.version, sd.name, sd.filename, \
+             sd.content_type, sd.size_bytes \
+             FROM static_documents sd \
+             INNER JOIN mail_job_static_attachments msa ON msa.static_document_id = sd.id \
+             WHERE msa.mail_job_id = ? AND sd.deleted IS NULL",
+        )
+        .bind(id_bytes)
+        .fetch_all(self.pool.as_ref())
+        .await
+        .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
+        rows.iter()
+            .map(StaticDocument::try_from)
+            .collect::<Result<Vec<_>, _>>()
+            .map(|v| v.into())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -465,6 +671,31 @@ mod tests {
         .execute(&pool)
         .await
         .expect("Failed to create mail_recipient_attachments table");
+        sqlx::query(
+            "CREATE TABLE static_documents (
+                id BLOB PRIMARY KEY NOT NULL,
+                created TEXT NOT NULL,
+                deleted TEXT,
+                version BLOB NOT NULL,
+                name TEXT NOT NULL,
+                filename TEXT NOT NULL,
+                content_type TEXT NOT NULL,
+                size_bytes INTEGER NOT NULL
+            )",
+        )
+        .execute(&pool)
+        .await
+        .expect("Failed to create static_documents table");
+        sqlx::query(
+            "CREATE TABLE mail_job_static_attachments (
+                mail_job_id BLOB NOT NULL REFERENCES mail_jobs(id),
+                static_document_id BLOB NOT NULL REFERENCES static_documents(id),
+                PRIMARY KEY (mail_job_id, static_document_id)
+            )",
+        )
+        .execute(&pool)
+        .await
+        .expect("Failed to create mail_job_static_attachments table");
         Arc::new(pool)
     }
 
@@ -802,6 +1033,146 @@ mod tests {
 
         let found = attachment_dao.find_by_recipient_id(r.id).await.unwrap();
         assert_eq!(found.len(), 2);
+    }
+
+    // StaticDocument tests
+
+    fn sample_static_document() -> StaticDocument {
+        StaticDocument {
+            id: Uuid::new_v4(),
+            created: sample_datetime(),
+            deleted: None,
+            version: Uuid::new_v4(),
+            name: Arc::from("Satzung"),
+            filename: Arc::from("satzung.pdf"),
+            content_type: Arc::from("application/pdf"),
+            size_bytes: 12345,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_static_document_create_and_find() {
+        let pool = setup_db().await;
+        let dao = StaticDocumentDaoSqlite::new(pool);
+
+        let doc = sample_static_document();
+        dao.create(&doc).await.unwrap();
+
+        let found = dao.find_by_id(doc.id).await.unwrap().unwrap();
+        assert_eq!(found.id, doc.id);
+        assert_eq!(found.name.as_ref(), "Satzung");
+        assert_eq!(found.filename.as_ref(), "satzung.pdf");
+        assert_eq!(found.content_type.as_ref(), "application/pdf");
+        assert_eq!(found.size_bytes, 12345);
+    }
+
+    #[tokio::test]
+    async fn test_static_document_soft_delete_hides_from_find() {
+        let pool = setup_db().await;
+        let dao = StaticDocumentDaoSqlite::new(pool);
+
+        let doc = sample_static_document();
+        dao.create(&doc).await.unwrap();
+
+        dao.soft_delete(doc.id).await.unwrap();
+        assert!(dao.find_by_id(doc.id).await.unwrap().is_none());
+        assert!(dao.all_active().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_static_document_all_active_sorted_by_name() {
+        let pool = setup_db().await;
+        let dao = StaticDocumentDaoSqlite::new(pool);
+
+        let mut a = sample_static_document();
+        a.id = Uuid::new_v4();
+        a.name = Arc::from("Zeta");
+        let mut b = sample_static_document();
+        b.id = Uuid::new_v4();
+        b.name = Arc::from("Alpha");
+        dao.create(&a).await.unwrap();
+        dao.create(&b).await.unwrap();
+
+        let all = dao.all_active().await.unwrap();
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0].name.as_ref(), "Alpha");
+        assert_eq!(all[1].name.as_ref(), "Zeta");
+    }
+
+    #[tokio::test]
+    async fn test_static_document_find_many_by_ids() {
+        let pool = setup_db().await;
+        let dao = StaticDocumentDaoSqlite::new(pool);
+
+        let mut a = sample_static_document();
+        a.id = Uuid::new_v4();
+        let mut b = sample_static_document();
+        b.id = Uuid::new_v4();
+        dao.create(&a).await.unwrap();
+        dao.create(&b).await.unwrap();
+
+        let found = dao.find_many_by_ids(&[a.id, b.id]).await.unwrap();
+        assert_eq!(found.len(), 2);
+
+        let empty = dao.find_many_by_ids(&[]).await.unwrap();
+        assert!(empty.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_mail_job_static_attachment_create_and_find() {
+        let pool = setup_db().await;
+        let job_dao = MailJobDaoSqlite::new(pool.clone());
+        let static_dao = StaticDocumentDaoSqlite::new(pool.clone());
+        let join_dao = MailJobStaticAttachmentDaoSqlite::new(pool);
+
+        let job = sample_job();
+        job_dao.create(&job).await.unwrap();
+
+        let doc = sample_static_document();
+        static_dao.create(&doc).await.unwrap();
+
+        let join = MailJobStaticAttachment {
+            mail_job_id: job.id,
+            static_document_id: doc.id,
+        };
+        join_dao.create(&join).await.unwrap();
+
+        let docs = join_dao
+            .find_static_documents_by_job_id(job.id)
+            .await
+            .unwrap();
+        assert_eq!(docs.len(), 1);
+        assert_eq!(docs[0].id, doc.id);
+        assert_eq!(docs[0].name.as_ref(), "Satzung");
+    }
+
+    #[tokio::test]
+    async fn test_mail_job_static_attachment_skips_soft_deleted() {
+        let pool = setup_db().await;
+        let job_dao = MailJobDaoSqlite::new(pool.clone());
+        let static_dao = StaticDocumentDaoSqlite::new(pool.clone());
+        let join_dao = MailJobStaticAttachmentDaoSqlite::new(pool);
+
+        let job = sample_job();
+        job_dao.create(&job).await.unwrap();
+
+        let doc = sample_static_document();
+        static_dao.create(&doc).await.unwrap();
+
+        let join = MailJobStaticAttachment {
+            mail_job_id: job.id,
+            static_document_id: doc.id,
+        };
+        join_dao.create(&join).await.unwrap();
+
+        // Soft-delete the document; the join still exists but the worker shouldn't see it.
+        static_dao.soft_delete(doc.id).await.unwrap();
+
+        let docs = join_dao
+            .find_static_documents_by_job_id(job.id)
+            .await
+            .unwrap();
+        assert!(docs.is_empty());
     }
 
     #[tokio::test]

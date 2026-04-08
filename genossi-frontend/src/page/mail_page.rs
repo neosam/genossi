@@ -69,6 +69,11 @@ pub fn MailPage() -> Element {
     let mut available_documents = use_signal(|| Vec::<MemberDocumentTO>::new());
     let mut selected_attachment_ids = use_signal(|| Vec::<Uuid>::new());
 
+    // Static documents (global, available for every bulk send)
+    let mut available_static_documents =
+        use_signal(|| Vec::<crate::api::StaticDocumentTO>::new());
+    let mut selected_static_document_ids = use_signal(|| Vec::<String>::new());
+
     // Template variable buttons
     let primary_vars = [
         ("first_name", "Vorname"),
@@ -146,6 +151,16 @@ pub fn MailPage() -> Element {
             available_documents.set(vec![]);
             selected_attachment_ids.set(vec![]);
         }
+    });
+
+    // Load available static documents once on mount
+    use_effect(move || {
+        spawn(async move {
+            let config = CONFIG.read().clone();
+            if let Ok(docs) = api::list_static_documents(&config).await {
+                available_static_documents.set(docs);
+            }
+        });
     });
 
     // Count active members with email addresses
@@ -631,6 +646,44 @@ pub fn MailPage() -> Element {
                                 }
                             }
 
+                            // Static document multiselect (applies to every recipient in this bulk send)
+                            if !available_static_documents.read().is_empty() {
+                                div { class: "mt-4 p-3 border border-gray-200 rounded bg-gray-50",
+                                    div { class: "text-sm font-medium text-gray-700 mb-2", "Statische Dokumente anhängen (alle Empfänger erhalten diese)" }
+                                    div { class: "flex flex-col space-y-1 max-h-40 overflow-y-auto",
+                                        for sd in available_static_documents.read().iter() {
+                                            {
+                                                let sd_id = sd.id.clone();
+                                                let sd_name = sd.name.clone();
+                                                let sd_filename = sd.filename.clone();
+                                                let is_checked = selected_static_document_ids.read().contains(&sd_id);
+                                                let sd_id_for_change = sd_id.clone();
+                                                rsx! {
+                                                    label { class: "flex items-center space-x-2 text-sm",
+                                                        input {
+                                                            r#type: "checkbox",
+                                                            checked: is_checked,
+                                                            onchange: move |evt| {
+                                                                let id = sd_id_for_change.clone();
+                                                                let mut ids = selected_static_document_ids.write();
+                                                                if evt.checked() {
+                                                                    if !ids.contains(&id) {
+                                                                        ids.push(id);
+                                                                    }
+                                                                } else {
+                                                                    ids.retain(|x| x != &id);
+                                                                }
+                                                            },
+                                                        }
+                                                        span { "{sd_name} ({sd_filename})" }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
                             button {
                                 class: "bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded disabled:opacity-50",
                                 disabled: *sending.read() || recipient_count == 0 || subject.read().is_empty(),
@@ -638,6 +691,7 @@ pub fn MailPage() -> Element {
                                     let subj = subject.read().clone();
                                     let b = body.read().clone();
                                     let att_ids: Vec<String> = selected_attachment_ids.read().iter().map(|id| id.to_string()).collect();
+                                    let static_ids: Vec<String> = selected_static_document_ids.read().clone();
                                     let i18n = i18n.clone();
                                     // Collect recipients with member_id
                                     let recipients: Vec<BulkRecipient> = {
@@ -661,11 +715,12 @@ pub fn MailPage() -> Element {
                                         error.set(None);
                                         success_msg.set(None);
                                         let config = CONFIG.read().clone();
-                                        match api::send_bulk_mail(&config, &recipients, &subj, &b, &att_ids).await {
+                                        match api::send_bulk_mail(&config, &recipients, &subj, &b, &att_ids, &static_ids).await {
                                             Ok(_job) => {
                                                 success_msg.set(Some(i18n.t(Key::MailJobCreated).to_string()));
                                                 selected_member_ids.set(Vec::new());
                                                 selected_attachment_ids.set(Vec::new());
+                                                selected_static_document_ids.set(Vec::new());
                                                 subject.set(String::new());
                                                 body.set(String::new());
                                                 reload_jobs();

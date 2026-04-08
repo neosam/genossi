@@ -132,6 +132,16 @@ pub trait MemberDao {
             .cloned())
     }
 
+    async fn count_active(&self, today: time::Date, tx: Self::Transaction) -> Result<u64, DaoError> {
+        let all_entities = self.dump_all(tx).await?;
+        let count = all_entities
+            .iter()
+            .filter(|e| e.deleted.is_none())
+            .filter(|e| e.exit_date.map_or(true, |d| d > today))
+            .count();
+        Ok(count as u64)
+    }
+
     async fn next_member_number(&self, tx: Self::Transaction) -> Result<i64, DaoError> {
         let all_entities = self.dump_all(tx).await?;
         let max = all_entities
@@ -149,6 +159,10 @@ mod tests {
     use crate::MockTransaction;
 
     fn make_entity(member_number: i64, deleted: Option<time::PrimitiveDateTime>) -> MemberEntity {
+        make_entity_with_exit(member_number, deleted, None)
+    }
+
+    fn make_entity_with_exit(member_number: i64, deleted: Option<time::PrimitiveDateTime>, exit_date: Option<time::Date>) -> MemberEntity {
         let date = time::Date::from_calendar_date(2025, time::Month::January, 1).unwrap();
         let datetime = time::PrimitiveDateTime::new(date, time::Time::MIDNIGHT);
         MemberEntity {
@@ -171,7 +185,7 @@ mod tests {
             current_balance: 0,
             action_count: 0,
             migrated: false,
-            exit_date: None,
+            exit_date,
             bank_account: None,
             created: datetime,
             deleted,
@@ -271,6 +285,87 @@ mod tests {
         };
         let result = dao.next_member_number(mock_tx()).await.unwrap();
         assert_eq!(result, 101);
+    }
+
+    #[tokio::test]
+    async fn test_count_active_all_active() {
+        let dao = TestMemberDao {
+            entities: Arc::from(vec![
+                make_entity(1, None),
+                make_entity(2, None),
+                make_entity(3, None),
+            ]),
+        };
+        let today = time::Date::from_calendar_date(2025, time::Month::June, 1).unwrap();
+        let count = dao.count_active(today, mock_tx()).await.unwrap();
+        assert_eq!(count, 3);
+    }
+
+    #[tokio::test]
+    async fn test_count_active_excludes_deleted() {
+        let deleted_at = time::PrimitiveDateTime::new(
+            time::Date::from_calendar_date(2025, time::Month::March, 1).unwrap(),
+            time::Time::MIDNIGHT,
+        );
+        let dao = TestMemberDao {
+            entities: Arc::from(vec![
+                make_entity(1, None),
+                make_entity(2, Some(deleted_at)),
+            ]),
+        };
+        let today = time::Date::from_calendar_date(2025, time::Month::June, 1).unwrap();
+        let count = dao.count_active(today, mock_tx()).await.unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[tokio::test]
+    async fn test_count_active_excludes_past_exit_date() {
+        let past_exit = time::Date::from_calendar_date(2025, time::Month::January, 15).unwrap();
+        let dao = TestMemberDao {
+            entities: Arc::from(vec![
+                make_entity(1, None),
+                make_entity_with_exit(2, None, Some(past_exit)),
+            ]),
+        };
+        let today = time::Date::from_calendar_date(2025, time::Month::June, 1).unwrap();
+        let count = dao.count_active(today, mock_tx()).await.unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[tokio::test]
+    async fn test_count_active_includes_future_exit_date() {
+        let future_exit = time::Date::from_calendar_date(2025, time::Month::December, 31).unwrap();
+        let dao = TestMemberDao {
+            entities: Arc::from(vec![
+                make_entity(1, None),
+                make_entity_with_exit(2, None, Some(future_exit)),
+            ]),
+        };
+        let today = time::Date::from_calendar_date(2025, time::Month::June, 1).unwrap();
+        let count = dao.count_active(today, mock_tx()).await.unwrap();
+        assert_eq!(count, 2);
+    }
+
+    #[tokio::test]
+    async fn test_count_active_empty() {
+        let dao = TestMemberDao {
+            entities: Arc::from(vec![]),
+        };
+        let today = time::Date::from_calendar_date(2025, time::Month::June, 1).unwrap();
+        let count = dao.count_active(today, mock_tx()).await.unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[tokio::test]
+    async fn test_count_active_exit_date_today_not_counted() {
+        let today = time::Date::from_calendar_date(2025, time::Month::June, 1).unwrap();
+        let dao = TestMemberDao {
+            entities: Arc::from(vec![
+                make_entity_with_exit(1, None, Some(today)),
+            ]),
+        };
+        let count = dao.count_active(today, mock_tx()).await.unwrap();
+        assert_eq!(count, 0);
     }
 
     #[test]

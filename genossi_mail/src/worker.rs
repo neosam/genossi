@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use crate::dao::{MailJobDao, MailRecipientAttachmentDao, MailRecipientDao};
+use crate::dao::{
+    MailJobDao, MailJobStaticAttachmentDao, MailRecipientAttachment, MailRecipientAttachmentDao,
+    MailRecipientDao,
+};
 use crate::service::{build_transport, load_smtp_config, MailServiceError};
 use crate::template::{member_to_template_context, render_template, MemberResolver};
 use genossi_config::service::ConfigService;
@@ -84,11 +87,12 @@ async fn mark_recipient_failed<R: MailRecipientDao, J: MailJobDao>(
     );
 }
 
-pub async fn start_mail_worker<C, J, R, A, D, M>(
+pub async fn start_mail_worker<C, J, R, A, SA, D, M>(
     config_service: Arc<C>,
     job_dao: Arc<J>,
     recipient_dao: Arc<R>,
     attachment_dao: Arc<A>,
+    static_attachment_dao: Arc<SA>,
     document_storage: Arc<D>,
     member_resolver: Arc<M>,
 ) where
@@ -96,6 +100,7 @@ pub async fn start_mail_worker<C, J, R, A, D, M>(
     J: MailJobDao,
     R: MailRecipientDao,
     A: MailRecipientAttachmentDao,
+    SA: MailJobStaticAttachmentDao,
     D: DocumentStorage + 'static,
     M: MemberResolver,
 {
@@ -123,8 +128,8 @@ pub async fn start_mail_worker<C, J, R, A, D, M>(
             }
         };
 
-        // Load attachments for this recipient
-        let attachments = match attachment_dao.find_by_recipient_id(next.id).await {
+        // Load per-recipient attachments (member-bound documents)
+        let recipient_attachments = match attachment_dao.find_by_recipient_id(next.id).await {
             Ok(atts) => atts,
             Err(e) => {
                 tracing::error!(
@@ -135,6 +140,36 @@ pub async fn start_mail_worker<C, J, R, A, D, M>(
                 Arc::from(vec![])
             }
         };
+
+        // Load job-level static attachments and convert them to MailRecipientAttachment shape
+        // so they flow through the same send pipeline. The relative_path uses the canonical
+        // `static_documents/<uuid>` convention consumed by DocumentStorage.
+        let static_docs = match static_attachment_dao
+            .find_static_documents_by_job_id(next.mail_job_id)
+            .await
+        {
+            Ok(docs) => docs,
+            Err(e) => {
+                tracing::error!(
+                    "Worker: failed to load static attachments for job {}: {:?}",
+                    next.mail_job_id,
+                    e
+                );
+                Arc::from(vec![])
+            }
+        };
+
+        let mut attachments: Vec<MailRecipientAttachment> =
+            recipient_attachments.iter().cloned().collect();
+        for sd in static_docs.iter() {
+            attachments.push(MailRecipientAttachment {
+                recipient_id: next.id,
+                document_id: sd.id,
+                file_name: sd.filename.clone(),
+                mime_type: sd.content_type.clone(),
+                relative_path: Arc::from(sd.relative_path().as_str()),
+            });
+        }
 
         // Render template subject/body if recipient has a member_id
         let (rendered_subject, rendered_body) = if let Some(member_id) = next.member_id {

@@ -3071,6 +3071,7 @@ async fn test_mail_create_bulk_job() {
             subject: "Bulk Test".to_string(),
             body: "Hello everyone".to_string(),
             attachment_ids: vec![],
+            static_document_ids: vec![],
         })
         .send()
         .await
@@ -3142,6 +3143,7 @@ async fn test_mail_send_bulk_empty_list() {
             subject: "Empty".to_string(),
             body: "Body".to_string(),
             attachment_ids: vec![],
+            static_document_ids: vec![],
         })
         .send()
         .await
@@ -3182,6 +3184,7 @@ async fn test_mail_retry_job() {
             subject: "Retry Test".to_string(),
             body: "Hello".to_string(),
             attachment_ids: vec![],
+            static_document_ids: vec![],
         })
         .send()
         .await
@@ -3359,6 +3362,7 @@ async fn test_members_not_reached_by_job() {
             subject: "GV Einladung".to_string(),
             body: "Einladung zur Generalversammlung".to_string(),
             attachment_ids: vec![],
+            static_document_ids: vec![],
         })
         .send()
         .await
@@ -3437,6 +3441,7 @@ async fn test_members_not_reached_sent_excluded() {
             subject: "Test".to_string(),
             body: "Test".to_string(),
             attachment_ids: vec![],
+            static_document_ids: vec![],
         })
         .send()
         .await
@@ -3655,6 +3660,7 @@ async fn test_mail_send_with_attachment() {
             subject: "With Attachment".to_string(),
             body: "See attached".to_string(),
             attachment_ids: vec![doc_id.to_string()],
+            static_document_ids: vec![],
         })
         .send()
         .await
@@ -3712,6 +3718,7 @@ async fn test_mail_attachment_wrong_member() {
             subject: "Wrong Attachment".to_string(),
             body: "This should fail".to_string(),
             attachment_ids: vec![doc_id.to_string()],
+            static_document_ids: vec![],
         })
         .send()
         .await
@@ -3754,6 +3761,7 @@ async fn test_mail_attachments_rejected_for_multiple_recipients() {
             subject: "Multi + Attachment".to_string(),
             body: "Should fail".to_string(),
             attachment_ids: vec![doc_id.to_string()],
+            static_document_ids: vec![],
         })
         .send()
         .await
@@ -3794,6 +3802,7 @@ async fn test_mail_without_attachment_unchanged() {
             subject: "No Attachments".to_string(),
             body: "Plain mail".to_string(),
             attachment_ids: vec![],
+            static_document_ids: vec![],
         })
         .send()
         .await
@@ -3896,4 +3905,422 @@ async fn test_create_member_with_firma_salutation() {
     let created: MemberTO = response.json().await.unwrap();
     assert_eq!(created.salutation, Some(SalutationTO::Firma));
     assert_eq!(created.title, None);
+}
+
+// ===== Public Member Count Tests =====
+
+#[tokio::test]
+async fn test_public_member_count_403_when_config_not_set() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(server.url("/api/public/member-count"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn test_public_member_count_403_when_config_false() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Set config to false
+    client
+        .put(server.url("/api/config/public_stats_enabled"))
+        .json(&SetConfigRequest {
+            value: "false".to_string(),
+            value_type: "bool".to_string(),
+        })
+        .send()
+        .await
+        .unwrap();
+
+    let response = client
+        .get(server.url("/api/public/member-count"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn test_public_member_count_returns_count_when_enabled() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Enable public stats
+    client
+        .put(server.url("/api/config/public_stats_enabled"))
+        .json(&SetConfigRequest {
+            value: "true".to_string(),
+            value_type: "bool".to_string(),
+        })
+        .send()
+        .await
+        .unwrap();
+
+    // Create two members
+    let member1 = sample_member();
+    client
+        .post(server.url("/api/members"))
+        .json(&member1)
+        .send()
+        .await
+        .unwrap();
+
+    let mut member2 = sample_member();
+    member2.member_number = 2;
+    member2.first_name = "Erika".to_string();
+    client
+        .post(server.url("/api/members"))
+        .json(&member2)
+        .send()
+        .await
+        .unwrap();
+
+    let response = client
+        .get(server.url("/api/public/member-count"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["count"], 2);
+}
+
+#[tokio::test]
+async fn test_public_member_count_excludes_exited_and_deleted() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Enable public stats
+    client
+        .put(server.url("/api/config/public_stats_enabled"))
+        .json(&SetConfigRequest {
+            value: "true".to_string(),
+            value_type: "bool".to_string(),
+        })
+        .send()
+        .await
+        .unwrap();
+
+    // Create active member
+    let member1 = sample_member();
+    client
+        .post(server.url("/api/members"))
+        .json(&member1)
+        .send()
+        .await
+        .unwrap();
+
+    // Create member that will exit
+    let mut member2 = sample_member();
+    member2.member_number = 2;
+    member2.first_name = "Exited".to_string();
+    let response = client
+        .post(server.url("/api/members"))
+        .json(&member2)
+        .send()
+        .await
+        .unwrap();
+    let created2: MemberTO = response.json().await.unwrap();
+
+    // Create Austritt action with past date to make member2 exited
+    let austritt = MemberActionTO {
+        id: None,
+        member_id: created2.id.clone().unwrap(),
+        action_type: ActionTypeTO::Austritt,
+        date: time::Date::from_calendar_date(2020, time::Month::January, 1).unwrap(),
+        shares_change: 0,
+        transfer_member_id: None,
+        effective_date: Some(time::Date::from_calendar_date(2020, time::Month::January, 1).unwrap()),
+        comment: None,
+        created: None,
+        deleted: None,
+        version: None,
+    };
+    client
+        .post(server.url(&format!("/api/members/{}/actions", created2.id.unwrap())))
+        .json(&austritt)
+        .send()
+        .await
+        .unwrap();
+
+    // Create and delete a member
+    let mut member3 = sample_member();
+    member3.member_number = 3;
+    member3.first_name = "Deleted".to_string();
+    let response = client
+        .post(server.url("/api/members"))
+        .json(&member3)
+        .send()
+        .await
+        .unwrap();
+    let created3: MemberTO = response.json().await.unwrap();
+
+    client
+        .delete(server.url(&format!("/api/members/{}", created3.id.unwrap())))
+        .send()
+        .await
+        .unwrap();
+
+    let response = client
+        .get(server.url("/api/public/member-count"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: serde_json::Value = response.json().await.unwrap();
+    // Only the active member (member1) should be counted
+    // member2 has past exit_date, member3 is deleted
+    assert_eq!(body["count"], 1, "Only active members should be counted, got: {}", body);
+}
+
+#[tokio::test]
+async fn test_public_member_count_no_auth_required() {
+    let server = setup().await;
+    // Use a plain client with no auth headers
+    let client = reqwest::Client::new();
+
+    // Enable public stats
+    client
+        .put(server.url("/api/config/public_stats_enabled"))
+        .json(&SetConfigRequest {
+            value: "true".to_string(),
+            value_type: "bool".to_string(),
+        })
+        .send()
+        .await
+        .unwrap();
+
+    let response = client
+        .get(server.url("/api/public/member-count"))
+        .send()
+        .await
+        .unwrap();
+
+    // Should succeed without any auth
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["count"], 0);
+}
+
+// ----- Static Documents -----
+
+async fn upload_static_document(
+    server: &genossi_rest::test_server::test_support::TestServer,
+    name: &str,
+    filename: &str,
+    content_type: &str,
+    data: Vec<u8>,
+) -> serde_json::Value {
+    let client = reqwest::Client::new();
+    let part = reqwest::multipart::Part::bytes(data)
+        .file_name(filename.to_string())
+        .mime_str(content_type)
+        .unwrap();
+    let form = reqwest::multipart::Form::new()
+        .text("name", name.to_string())
+        .part("file", part);
+    let response = client
+        .post(server.url("/api/static-documents"))
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    response.json().await.unwrap()
+}
+
+#[tokio::test]
+async fn test_static_document_crud_happy_path() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Upload
+    let pdf_bytes = b"%PDF-1.4 fake pdf content".to_vec();
+    let doc = upload_static_document(
+        &server,
+        "Satzung",
+        "satzung.pdf",
+        "application/pdf",
+        pdf_bytes.clone(),
+    )
+    .await;
+    let doc_id = doc["id"].as_str().unwrap().to_string();
+    assert_eq!(doc["name"], "Satzung");
+    assert_eq!(doc["filename"], "satzung.pdf");
+    assert_eq!(doc["content_type"], "application/pdf");
+    assert_eq!(doc["size_bytes"].as_i64().unwrap(), pdf_bytes.len() as i64);
+
+    // List
+    let list: Vec<serde_json::Value> = client
+        .get(server.url("/api/static-documents"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0]["id"], doc_id);
+
+    // Download
+    let download = client
+        .get(server.url(&format!("/api/static-documents/{}", doc_id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(download.status(), StatusCode::OK);
+    assert_eq!(
+        download.headers().get("content-type").unwrap(),
+        "application/pdf"
+    );
+    let disposition = download
+        .headers()
+        .get("content-disposition")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
+    assert!(disposition.contains("satzung.pdf"));
+    let body_bytes = download.bytes().await.unwrap().to_vec();
+    assert_eq!(body_bytes, pdf_bytes);
+
+    // Delete
+    let delete = client
+        .delete(server.url(&format!("/api/static-documents/{}", doc_id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(delete.status(), StatusCode::NO_CONTENT);
+
+    // List is empty, download 404
+    let list: Vec<serde_json::Value> = client
+        .get(server.url("/api/static-documents"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(list.is_empty());
+    let download = client
+        .get(server.url(&format!("/api/static-documents/{}", doc_id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(download.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_static_document_rejects_disallowed_content_type() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let part = reqwest::multipart::Part::bytes(vec![0xDE, 0xAD, 0xBE, 0xEF])
+        .file_name("bad.exe")
+        .mime_str("application/x-msdownload")
+        .unwrap();
+    let form = reqwest::multipart::Form::new()
+        .text("name", "Bad".to_string())
+        .part("file", part);
+    let response = client
+        .post(server.url("/api/static-documents"))
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_bulk_mail_with_static_document_ids_succeeds() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Create a member so bulk mail has a recipient with member_id (template rendering needs it)
+    let mut member = sample_member();
+    member.email = Some("m@example.com".to_string());
+    let create_resp = client
+        .post(server.url("/api/members"))
+        .json(&member)
+        .send()
+        .await
+        .unwrap();
+    let created: MemberTO = create_resp.json().await.unwrap();
+    let member_id = created.id.unwrap();
+
+    // Upload a static document
+    let doc = upload_static_document(
+        &server,
+        "Flyer",
+        "flyer.pdf",
+        "application/pdf",
+        b"%PDF-1.4 flyer".to_vec(),
+    )
+    .await;
+    let doc_id = doc["id"].as_str().unwrap().to_string();
+
+    // Bulk send referencing the static document
+    let response = client
+        .post(server.url("/api/mail/send-bulk"))
+        .json(&SendBulkMailRequest {
+            to_addresses: vec![BulkRecipient {
+                address: "m@example.com".to_string(),
+                member_id: Some(member_id.to_string()),
+            }],
+            subject: "Hallo".to_string(),
+            body: "Anbei die Unterlagen.".to_string(),
+            attachment_ids: vec![],
+            static_document_ids: vec![doc_id],
+        })
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 202);
+    let job: MailJobTO = response.json().await.unwrap();
+    assert_eq!(job.total_count, 1);
+}
+
+#[tokio::test]
+async fn test_bulk_mail_with_unknown_static_document_id_fails() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let mut member = sample_member();
+    member.email = Some("m@example.com".to_string());
+    let create_resp = client
+        .post(server.url("/api/members"))
+        .json(&member)
+        .send()
+        .await
+        .unwrap();
+    let created: MemberTO = create_resp.json().await.unwrap();
+    let member_id = created.id.unwrap();
+
+    let response = client
+        .post(server.url("/api/mail/send-bulk"))
+        .json(&SendBulkMailRequest {
+            to_addresses: vec![BulkRecipient {
+                address: "m@example.com".to_string(),
+                member_id: Some(member_id.to_string()),
+            }],
+            subject: "Hallo".to_string(),
+            body: "Body".to_string(),
+            attachment_ids: vec![],
+            static_document_ids: vec![uuid::Uuid::new_v4().to_string()],
+        })
+        .send()
+        .await
+        .unwrap();
+    // NotFound maps to 404 in mail rest error_handler
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }

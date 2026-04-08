@@ -515,6 +515,8 @@ pub struct SendBulkMailRequest {
     pub body: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub attachment_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub static_document_ids: Vec<String>,
 }
 
 pub async fn send_bulk_mail(
@@ -523,6 +525,7 @@ pub async fn send_bulk_mail(
     subject: &str,
     body: &str,
     attachment_ids: &[String],
+    static_document_ids: &[String],
 ) -> Result<MailJobTO, String> {
     info!("Sending bulk mail to {} recipients", recipients.len());
     let url = format!("{}/api/mail/send-bulk", config.backend);
@@ -531,6 +534,7 @@ pub async fn send_bulk_mail(
         subject: subject.to_string(),
         body: body.to_string(),
         attachment_ids: attachment_ids.to_vec(),
+        static_document_ids: static_document_ids.to_vec(),
     };
     let response = reqwest::Client::new()
         .post(url)
@@ -695,4 +699,99 @@ pub async fn get_validation(config: &Config) -> Result<ValidationResultTO, reqwe
     let response = reqwest::get(url).await?;
     response.error_for_status_ref()?;
     Ok(response.json().await?)
+}
+
+// -------- Static Documents --------
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct StaticDocumentTO {
+    pub id: String,
+    pub name: String,
+    pub filename: String,
+    pub content_type: String,
+    pub size_bytes: i64,
+    pub created: String,
+}
+
+pub async fn list_static_documents(
+    config: &Config,
+) -> Result<Vec<StaticDocumentTO>, reqwest::Error> {
+    info!("Fetching static documents");
+    let url = format!("{}/api/static-documents", config.backend);
+    let response = reqwest::get(url).await?;
+    response.error_for_status_ref()?;
+    Ok(response.json().await?)
+}
+
+pub async fn upload_static_document(
+    config: &Config,
+    name: &str,
+    file: web_sys::File,
+) -> Result<StaticDocumentTO, String> {
+    use wasm_bindgen::JsCast;
+    use wasm_bindgen_futures::JsFuture;
+
+    let url = format!("{}/api/static-documents", config.backend);
+
+    let form_data =
+        web_sys::FormData::new().map_err(|e| format!("Failed to create FormData: {:?}", e))?;
+    form_data
+        .append_with_str("name", name)
+        .map_err(|e| format!("Failed to append name: {:?}", e))?;
+    form_data
+        .append_with_blob_and_filename("file", &file, &file.name())
+        .map_err(|e| format!("Failed to append file: {:?}", e))?;
+
+    let mut opts = web_sys::RequestInit::new();
+    opts.method("POST");
+    opts.body(Some(&form_data));
+
+    let request = web_sys::Request::new_with_str_and_init(&url, &opts)
+        .map_err(|e| format!("Failed to create request: {:?}", e))?;
+
+    let window = web_sys::window().ok_or("No window")?;
+    let resp_value = JsFuture::from(window.fetch_with_request(&request))
+        .await
+        .map_err(|e| format!("Fetch failed: {:?}", e))?;
+
+    let resp: web_sys::Response = resp_value
+        .dyn_into()
+        .map_err(|_| "Response is not a Response object".to_string())?;
+
+    if !resp.ok() {
+        let status = resp.status();
+        let text = JsFuture::from(resp.text().unwrap())
+            .await
+            .map_err(|e| format!("Failed to read error body: {:?}", e))?
+            .as_string()
+            .unwrap_or_default();
+        return Err(format!("Upload failed ({}): {}", status, text));
+    }
+
+    let json = JsFuture::from(resp.json().unwrap())
+        .await
+        .map_err(|e| format!("Failed to parse response: {:?}", e))?;
+
+    let doc: StaticDocumentTO = serde_wasm_bindgen::from_value(json)
+        .map_err(|e| format!("Failed to deserialize: {:?}", e))?;
+
+    Ok(doc)
+}
+
+pub async fn delete_static_document(
+    config: &Config,
+    id: &str,
+) -> Result<(), reqwest::Error> {
+    info!("Deleting static document {id}");
+    let url = format!("{}/api/static-documents/{id}", config.backend);
+    reqwest::Client::new()
+        .delete(url)
+        .send()
+        .await?
+        .error_for_status_ref()?;
+    Ok(())
+}
+
+pub fn static_document_download_url(config: &Config, id: &str) -> String {
+    format!("{}/api/static-documents/{id}", config.backend)
 }

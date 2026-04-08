@@ -77,3 +77,51 @@ pub trait MailRecipientAttachmentDao: Send + Sync + 'static {
         recipient_id: Uuid,
     ) -> Result<Arc<[MailRecipientAttachment]>, MailDaoError>;
 }
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StaticDocument {
+    pub id: Uuid,
+    pub created: time::PrimitiveDateTime,
+    pub deleted: Option<time::PrimitiveDateTime>,
+    pub version: Uuid,
+    pub name: Arc<str>,
+    pub filename: Arc<str>,
+    pub content_type: Arc<str>,
+    pub size_bytes: i64,
+}
+
+impl StaticDocument {
+    /// Relative path inside the DocumentStorage where the file bytes live.
+    pub fn relative_path(&self) -> String {
+        format!("static_documents/{}", self.id)
+    }
+}
+
+#[automock]
+#[async_trait]
+pub trait StaticDocumentDao: Send + Sync + 'static {
+    async fn create(&self, doc: &StaticDocument) -> Result<(), MailDaoError>;
+    async fn find_by_id(&self, id: Uuid) -> Result<Option<StaticDocument>, MailDaoError>;
+    async fn find_many_by_ids(
+        &self,
+        ids: &[Uuid],
+    ) -> Result<Arc<[StaticDocument]>, MailDaoError>;
+    async fn all_active(&self) -> Result<Arc<[StaticDocument]>, MailDaoError>;
+    async fn soft_delete(&self, id: Uuid) -> Result<(), MailDaoError>;
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MailJobStaticAttachment {
+    pub mail_job_id: Uuid,
+    pub static_document_id: Uuid,
+}
+
+#[automock]
+#[async_trait]
+pub trait MailJobStaticAttachmentDao: Send + Sync + 'static {
+    async fn create(&self, entity: &MailJobStaticAttachment) -> Result<(), MailDaoError>;
+    async fn find_static_documents_by_job_id(
+        &self,
+        mail_job_id: Uuid,
+    ) -> Result<Arc<[StaticDocument]>, MailDaoError>;
+}
