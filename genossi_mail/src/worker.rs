@@ -260,9 +260,10 @@ pub async fn start_mail_worker<C, J, R, A, SA, D, M>(
         updated_recipient.version = uuid::Uuid::new_v4();
 
         match send_result {
-            Ok(()) => {
+            Ok(message_id) => {
                 updated_recipient.status = Arc::from("sent");
                 updated_recipient.sent_at = Some(now_primitive);
+                updated_recipient.message_id = message_id.map(Arc::from);
                 job.sent_count += 1;
                 tracing::info!(
                     "Worker: sent mail to {} (job {})",
@@ -314,7 +315,7 @@ async fn send_mail_for_recipient<C: ConfigService, D: DocumentStorage>(
     body: &str,
     attachments: &[crate::dao::MailRecipientAttachment],
     document_storage: &D,
-) -> Result<(), MailServiceError> {
+) -> Result<Option<String>, MailServiceError> {
     use lettre::message::{Attachment, MultiPart, SinglePart};
     use lettre::{AsyncTransport, Message};
 
@@ -342,6 +343,7 @@ async fn send_mail_for_recipient<C: ConfigService, D: DocumentStorage>(
             .from(from)
             .to(to_addr)
             .subject(subject)
+            .message_id(None)
             .singlepart(text_part)
             .map_err(|e| MailServiceError::SmtpError(Arc::from(e.to_string())))?
     } else {
@@ -370,16 +372,27 @@ async fn send_mail_for_recipient<C: ConfigService, D: DocumentStorage>(
             .from(from)
             .to(to_addr)
             .subject(subject)
+            .message_id(None)
             .multipart(multipart)
             .map_err(|e| MailServiceError::SmtpError(Arc::from(e.to_string())))?
     };
+
+    // Capture the Message-ID header before sending so it matches what is
+    // transmitted. `lettre` auto-generates one during build.
+    let message_id = email
+        .headers()
+        .get_raw("Message-ID")
+        .and_then(|raw| crate::dao::normalize_message_id(raw));
+    if message_id.is_none() {
+        tracing::warn!("Worker: outgoing mail has no Message-ID header");
+    }
 
     transport
         .send(email)
         .await
         .map_err(|e| MailServiceError::SmtpError(Arc::from(e.to_string())))?;
 
-    Ok(())
+    Ok(message_id)
 }
 
 #[cfg(test)]
@@ -540,6 +553,56 @@ mod tests {
                 || text.contains("Content-Transfer-Encoding: base64"),
             "plain mail must declare a non-7bit transfer encoding, got:\n{}",
             text
+        );
+    }
+
+    #[test]
+    fn normalize_message_id_strips_angle_brackets() {
+        use crate::dao::normalize_message_id;
+        assert_eq!(
+            normalize_message_id("<abc.123@example.com>"),
+            Some("abc.123@example.com".to_string())
+        );
+        assert_eq!(
+            normalize_message_id("  <id@host>  "),
+            Some("id@host".to_string())
+        );
+        assert_eq!(
+            normalize_message_id("no-brackets@host"),
+            Some("no-brackets@host".to_string())
+        );
+        assert_eq!(normalize_message_id(""), None);
+        assert_eq!(normalize_message_id("<>"), None);
+    }
+
+    /// Building a lettre Message auto-generates a Message-ID header, which we
+    /// must be able to read back before sending so we can persist it.
+    #[test]
+    fn built_message_exposes_message_id_header() {
+        use lettre::message::SinglePart;
+        use lettre::Message;
+
+        let email = Message::builder()
+            .from("sender@example.com".parse().unwrap())
+            .to("recipient@example.com".parse().unwrap())
+            .subject("Test")
+            .message_id(None)
+            .singlepart(SinglePart::plain("hi".to_string()))
+            .expect("build mail");
+
+        let raw = email
+            .headers()
+            .get_raw("Message-ID")
+            .expect("lettre should set a Message-ID");
+        let normalized =
+            crate::dao::normalize_message_id(raw).expect("normalized Message-ID");
+        assert!(
+            !normalized.contains('<') && !normalized.contains('>'),
+            "normalized Message-ID must not contain angle brackets: {normalized}"
+        );
+        assert!(
+            normalized.contains('@'),
+            "Message-ID should have an at sign: {normalized}"
         );
     }
 

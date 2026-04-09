@@ -285,6 +285,7 @@ impl<
                 status: Arc::from("pending"),
                 error: None,
                 sent_at: None,
+                message_id: None,
             };
             self.recipient_dao.create(&recipient).await?;
 
@@ -597,6 +598,7 @@ mod tests {
             status: Arc::from("failed"),
             error: Some(Arc::from("Connection refused")),
             sent_at: None,
+            message_id: None,
         };
         let sent_recipient = MailRecipient {
             id: Uuid::new_v4(),
@@ -609,6 +611,7 @@ mod tests {
             status: Arc::from("sent"),
             error: None,
             sent_at: Some(now),
+            message_id: Some(Arc::from("abc@example.com")),
         };
         let recipients: Arc<[MailRecipient]> =
             vec![failed_recipient, sent_recipient].into();

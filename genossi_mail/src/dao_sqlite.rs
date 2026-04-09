@@ -191,6 +191,7 @@ struct MailRecipientDb {
     status: String,
     error: Option<String>,
     sent_at: Option<String>,
+    message_id: Option<String>,
 }
 
 impl TryFrom<&MailRecipientDb> for MailRecipient {
@@ -209,6 +210,7 @@ impl TryFrom<&MailRecipientDb> for MailRecipient {
             status: Arc::from(db.status.as_str()),
             error: db.error.as_deref().map(Arc::from),
             sent_at: parse_optional_datetime(&db.sent_at)?,
+            message_id: db.message_id.as_deref().map(Arc::from),
         })
     }
 }
@@ -233,8 +235,8 @@ impl MailRecipientDao for MailRecipientDaoSqlite {
         let member_id = recipient.member_id.map(|m| m.as_bytes().to_vec());
 
         sqlx::query(
-            "INSERT INTO mail_recipients (id, created, deleted, version, mail_job_id, to_address, member_id, status, error, sent_at) \
-             VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO mail_recipients (id, created, deleted, version, mail_job_id, to_address, member_id, status, error, sent_at, message_id) \
+             VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, NULL)",
         )
         .bind(id)
         .bind(created)
@@ -255,7 +257,7 @@ impl MailRecipientDao for MailRecipientDaoSqlite {
     async fn find_by_job_id(&self, job_id: Uuid) -> Result<Arc<[MailRecipient]>, MailDaoError> {
         let job_id_bytes = job_id.as_bytes().to_vec();
         let rows = sqlx::query_as::<_, MailRecipientDb>(
-            "SELECT id, created, deleted, version, mail_job_id, to_address, member_id, status, error, sent_at \
+            "SELECT id, created, deleted, version, mail_job_id, to_address, member_id, status, error, sent_at, message_id \
              FROM mail_recipients WHERE mail_job_id = ? ORDER BY created ASC",
         )
         .bind(job_id_bytes)
@@ -271,7 +273,7 @@ impl MailRecipientDao for MailRecipientDaoSqlite {
 
     async fn next_pending(&self) -> Result<Option<MailRecipient>, MailDaoError> {
         let row = sqlx::query_as::<_, MailRecipientDb>(
-            "SELECT r.id, r.created, r.deleted, r.version, r.mail_job_id, r.to_address, r.member_id, r.status, r.error, r.sent_at \
+            "SELECT r.id, r.created, r.deleted, r.version, r.mail_job_id, r.to_address, r.member_id, r.status, r.error, r.sent_at, r.message_id \
              FROM mail_recipients r \
              INNER JOIN mail_jobs j ON r.mail_job_id = j.id \
              WHERE r.status = 'pending' AND j.status = 'running' \
@@ -298,11 +300,12 @@ impl MailRecipientDao for MailRecipientDaoSqlite {
             .transpose()?;
 
         sqlx::query(
-            "UPDATE mail_recipients SET status = ?, error = ?, sent_at = ?, version = ? WHERE id = ?",
+            "UPDATE mail_recipients SET status = ?, error = ?, sent_at = ?, message_id = ?, version = ? WHERE id = ?",
         )
         .bind(recipient.status.as_ref())
         .bind(recipient.error.as_deref())
         .bind(sent_at)
+        .bind(recipient.message_id.as_deref())
         .bind(version)
         .bind(id)
         .execute(self.pool.as_ref())
@@ -652,7 +655,8 @@ mod tests {
                 member_id BLOB,
                 status TEXT NOT NULL,
                 error TEXT,
-                sent_at TEXT
+                sent_at TEXT,
+                message_id TEXT
             )",
         )
         .execute(&pool)
@@ -733,6 +737,7 @@ mod tests {
             status: Arc::from("pending"),
             error: None,
             sent_at: None,
+            message_id: None,
         }
     }
 
@@ -919,6 +924,39 @@ mod tests {
         let found = recipient_dao.find_by_job_id(job.id).await.unwrap();
         assert_eq!(found[0].status.as_ref(), "failed");
         assert_eq!(found[0].error.as_deref(), Some("Connection refused"));
+        assert!(found[0].message_id.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_recipient_update_persists_message_id() {
+        let pool = setup_db().await;
+        let job_dao = MailJobDaoSqlite::new(pool.clone());
+        let recipient_dao = MailRecipientDaoSqlite::new(pool);
+
+        let job = sample_job();
+        job_dao.create(&job).await.unwrap();
+
+        let r = sample_recipient(job.id);
+        recipient_dao.create(&r).await.unwrap();
+
+        // Fresh recipient has no message_id.
+        let found = recipient_dao.find_by_job_id(job.id).await.unwrap();
+        assert!(found[0].message_id.is_none());
+
+        // Successful send updates message_id.
+        let mut updated = r.clone();
+        updated.status = Arc::from("sent");
+        updated.sent_at = Some(sample_datetime());
+        updated.message_id = Some(Arc::from("abc.123@example.com"));
+        updated.version = Uuid::new_v4();
+        recipient_dao.update(&updated).await.unwrap();
+
+        let found = recipient_dao.find_by_job_id(job.id).await.unwrap();
+        assert_eq!(found[0].status.as_ref(), "sent");
+        assert_eq!(
+            found[0].message_id.as_deref(),
+            Some("abc.123@example.com")
+        );
     }
 
     #[tokio::test]

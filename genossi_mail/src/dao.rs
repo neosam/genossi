@@ -3,6 +3,17 @@ use mockall::automock;
 use std::sync::Arc;
 use uuid::Uuid;
 
+/// Normalize a Message-ID header value by stripping surrounding angle brackets
+/// and whitespace. Returns `None` for empty input.
+pub fn normalize_message_id(raw: &str) -> Option<String> {
+    let trimmed = raw.trim().trim_start_matches('<').trim_end_matches('>').trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum MailDaoError {
     DatabaseError(Arc<str>),
@@ -35,6 +46,7 @@ pub struct MailRecipient {
     pub status: Arc<str>,
     pub error: Option<Arc<str>>,
     pub sent_at: Option<time::PrimitiveDateTime>,
+    pub message_id: Option<Arc<str>>,
 }
 
 #[automock]
