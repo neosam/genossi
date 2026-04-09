@@ -331,17 +331,21 @@ async fn send_mail_for_recipient<C: ConfigService, D: DocumentStorage>(
         MailServiceError::SmtpError(Arc::from(format!("Invalid to address: {}", e)))
     })?;
 
+    // Build the text body via SinglePart::plain in both paths so that
+    // Content-Type: text/plain; charset=utf-8 is always set. Without this,
+    // MessageBuilder::body() emits text/plain without a charset parameter,
+    // which causes clients like GMX Android to mis-decode umlauts.
+    let text_part = SinglePart::plain(body.to_string());
+
     let email = if attachments.is_empty() {
-        // Plain text mail (unchanged path)
         Message::builder()
             .from(from)
             .to(to_addr)
             .subject(subject)
-            .body(body.to_string())
+            .singlepart(text_part)
             .map_err(|e| MailServiceError::SmtpError(Arc::from(e.to_string())))?
     } else {
         // Multipart mail with attachments
-        let text_part = SinglePart::plain(body.to_string());
         let mut multipart = MultiPart::mixed().singlepart(text_part);
 
         for att in attachments {
@@ -499,5 +503,85 @@ mod tests {
         let result = update_job_with_retry(&job_dao, &job).await;
         assert!(!result);
         assert_eq!(call_count.load(std::sync::atomic::Ordering::SeqCst), 3);
+    }
+
+    /// Build a mail without attachments and verify that the serialized bytes
+    /// carry `charset=utf-8` and the umlauts survive the round-trip.
+    ///
+    /// This mirrors the exact Message-building pattern used in
+    /// `send_mail_for_recipient` (no-attachments branch), so we don't need a
+    /// real SMTP transport.
+    #[test]
+    fn plain_mail_body_has_utf8_charset() {
+        use lettre::message::SinglePart;
+        use lettre::Message;
+
+        let body = "Hallo Jürgen, schöne Grüße! ä ö ü ß";
+        let text_part = SinglePart::plain(body.to_string());
+
+        let email = Message::builder()
+            .from("sender@example.com".parse().unwrap())
+            .to("recipient@example.com".parse().unwrap())
+            .subject("Test")
+            .singlepart(text_part)
+            .expect("build plain mail");
+
+        let formatted = email.formatted();
+        let text = String::from_utf8_lossy(&formatted);
+
+        assert!(
+            text.contains("charset=utf-8"),
+            "plain mail must declare charset=utf-8, got:\n{}",
+            text
+        );
+        // A transfer encoding must be declared so non-ASCII bytes survive SMTP.
+        assert!(
+            text.contains("Content-Transfer-Encoding: quoted-printable")
+                || text.contains("Content-Transfer-Encoding: base64"),
+            "plain mail must declare a non-7bit transfer encoding, got:\n{}",
+            text
+        );
+    }
+
+    /// Build a mail with an attachment part and verify the text body still
+    /// declares charset=utf-8. This guards the multipart branch against
+    /// regressions.
+    #[test]
+    fn multipart_mail_body_has_utf8_charset() {
+        use lettre::message::header::ContentType;
+        use lettre::message::{Attachment, MultiPart, SinglePart};
+        use lettre::Message;
+
+        let body = "Anbei die Bescheinigung für Herrn Müller.";
+        let text_part = SinglePart::plain(body.to_string());
+
+        let attachment = Attachment::new("test.pdf".to_string())
+            .body(b"%PDF-fake".to_vec(), ContentType::parse("application/pdf").unwrap());
+
+        let multipart = MultiPart::mixed()
+            .singlepart(text_part)
+            .singlepart(attachment);
+
+        let email = Message::builder()
+            .from("sender@example.com".parse().unwrap())
+            .to("recipient@example.com".parse().unwrap())
+            .subject("Test")
+            .multipart(multipart)
+            .expect("build multipart mail");
+
+        let formatted = email.formatted();
+        let text = String::from_utf8_lossy(&formatted);
+
+        assert!(
+            text.contains("charset=utf-8"),
+            "multipart text part must declare charset=utf-8, got:\n{}",
+            text
+        );
+        assert!(
+            text.contains("Content-Transfer-Encoding: quoted-printable")
+                || text.contains("Content-Transfer-Encoding: base64"),
+            "text part must declare a non-7bit transfer encoding, got:\n{}",
+            text
+        );
     }
 }
