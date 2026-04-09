@@ -795,3 +795,120 @@ pub async fn delete_static_document(
 pub fn static_document_download_url(config: &Config, id: &str) -> String {
     format!("{}/api/static-documents/{id}", config.backend)
 }
+
+// ── Inbox API ────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct InboundMailTO {
+    pub id: String,
+    pub from_address: String,
+    pub subject: String,
+    pub received_at: String,
+    pub has_attachments: bool,
+    pub has_html_body: bool,
+    pub status: String,
+    pub assigned_member_id: Option<String>,
+    pub assigned_member_name: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct InboundMailDetailTO {
+    pub id: String,
+    pub from_address: String,
+    pub subject: String,
+    pub received_at: String,
+    pub body_text: String,
+    pub has_attachments: bool,
+    pub has_html_body: bool,
+    pub status: String,
+    pub assigned_member_id: Option<String>,
+    pub assigned_member_name: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+struct AssignMemberReq {
+    member_id: String,
+}
+
+pub async fn get_imap_folders(config: &Config) -> Result<Vec<String>, String> {
+    let url = format!("{}/api/inbox/folders", config.backend);
+    let response = reqwest::get(url).await.map_err(|e| e.to_string())?;
+    response.error_for_status_ref().map_err(|e| e.to_string())?;
+    response.json().await.map_err(|e| e.to_string())
+}
+
+pub async fn get_inbox(config: &Config) -> Result<Vec<InboundMailTO>, String> {
+    let url = format!("{}/api/inbox", config.backend);
+    let response = reqwest::get(url).await.map_err(|e| e.to_string())?;
+    response.error_for_status_ref().map_err(|e| e.to_string())?;
+    response.json().await.map_err(|e| e.to_string())
+}
+
+pub async fn get_inbox_detail(config: &Config, id: &str) -> Result<InboundMailDetailTO, String> {
+    let url = format!("{}/api/inbox/{}", config.backend, id);
+    let response = reqwest::get(url).await.map_err(|e| e.to_string())?;
+    response.error_for_status_ref().map_err(|e| e.to_string())?;
+    response.json().await.map_err(|e| e.to_string())
+}
+
+pub async fn assign_inbox_mail(
+    config: &Config,
+    id: &str,
+    member_id: &str,
+) -> Result<InboundMailTO, String> {
+    let url = format!("{}/api/inbox/{}/assign", config.backend, id);
+    let response = reqwest::Client::new()
+        .post(url)
+        .json(&AssignMemberReq {
+            member_id: member_id.to_string(),
+        })
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    response.error_for_status_ref().map_err(|e| e.to_string())?;
+    response.json().await.map_err(|e| e.to_string())
+}
+
+pub async fn unassign_inbox_mail(config: &Config, id: &str) -> Result<InboundMailTO, String> {
+    let url = format!("{}/api/inbox/{}/unassign", config.backend, id);
+    let response = reqwest::Client::new()
+        .post(url)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    response.error_for_status_ref().map_err(|e| e.to_string())?;
+    response.json().await.map_err(|e| e.to_string())
+}
+
+pub async fn mark_inbox_mail_read(config: &Config, id: &str) -> Result<(), String> {
+    let url = format!("{}/api/inbox/{}/mark-read", config.backend, id);
+    let response = reqwest::Client::new()
+        .post(url)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    response.error_for_status_ref().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+pub async fn archive_inbox_mail(config: &Config, id: &str) -> Result<InboundMailTO, String> {
+    let url = format!("{}/api/inbox/{}/archive", config.backend, id);
+    let response = reqwest::Client::new()
+        .post(url)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    response.error_for_status_ref().map_err(|e| e.to_string())?;
+    response.json().await.map_err(|e| e.to_string())
+}
+
+pub async fn ignore_inbox_mail(config: &Config, id: &str) -> Result<InboundMailTO, String> {
+    let url = format!("{}/api/inbox/{}/ignore", config.backend, id);
+    let response = reqwest::Client::new()
+        .post(url)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    response.error_for_status_ref().map_err(|e| e.to_string())?;
+    response.json().await.map_err(|e| e.to_string())
+}

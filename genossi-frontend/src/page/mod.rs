@@ -1,6 +1,7 @@
 pub mod access_denied;
 pub mod config_page;
 pub mod home;
+pub mod inbox_page;
 pub mod mail_page;
 pub mod member_details;
 pub mod members;
@@ -13,6 +14,7 @@ pub mod validation;
 pub use access_denied::AccessDeniedPage;
 pub use config_page::ConfigPage;
 pub use home::Home;
+pub use inbox_page::InboxPage;
 pub use mail_page::MailPage;
 pub use member_details::MemberDetails;
 pub use members::Members;

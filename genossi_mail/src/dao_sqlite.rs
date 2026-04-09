@@ -5,9 +5,9 @@ use time::PrimitiveDateTime;
 use uuid::Uuid;
 
 use crate::dao::{
-    MailDaoError, MailJob, MailJobDao, MailJobStaticAttachment, MailJobStaticAttachmentDao,
-    MailRecipient, MailRecipientAttachment, MailRecipientAttachmentDao, MailRecipientDao,
-    StaticDocument, StaticDocumentDao,
+    InboundMail, InboundMailDao, MailDaoError, MailJob, MailJobDao, MailJobStaticAttachment,
+    MailJobStaticAttachmentDao, MailRecipient, MailRecipientAttachment, MailRecipientAttachmentDao,
+    MailRecipientDao, StaticDocument, StaticDocumentDao,
 };
 
 fn parse_datetime(s: &str) -> Result<PrimitiveDateTime, time::error::Parse> {
@@ -619,6 +619,182 @@ impl MailJobStaticAttachmentDao for MailJobStaticAttachmentDaoSqlite {
     }
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// InboundMail SQLite
+// ────────────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, sqlx::FromRow)]
+struct InboundMailDb {
+    id: Vec<u8>,
+    created: String,
+    version: Vec<u8>,
+    uid_validity: i64,
+    imap_uid: i64,
+    from_address: String,
+    subject: String,
+    received_at: String,
+    body_text: String,
+    has_attachments: i64,
+    has_html_body: i64,
+    raw_html_body: Option<String>,
+    in_reply_to: Option<String>,
+    status: String,
+    assigned_member_id: Option<Vec<u8>>,
+}
+
+impl TryFrom<&InboundMailDb> for InboundMail {
+    type Error = MailDaoError;
+
+    fn try_from(db: &InboundMailDb) -> Result<Self, Self::Error> {
+        Ok(InboundMail {
+            id: parse_uuid(&db.id)?,
+            created: parse_datetime(&db.created)
+                .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?,
+            version: parse_uuid(&db.version)?,
+            uid_validity: db.uid_validity,
+            imap_uid: db.imap_uid,
+            from_address: Arc::from(db.from_address.as_str()),
+            subject: Arc::from(db.subject.as_str()),
+            received_at: parse_datetime(&db.received_at)
+                .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?,
+            body_text: Arc::from(db.body_text.as_str()),
+            has_attachments: db.has_attachments != 0,
+            has_html_body: db.has_html_body != 0,
+            raw_html_body: db.raw_html_body.as_deref().map(Arc::from),
+            in_reply_to: db.in_reply_to.as_deref().map(Arc::from),
+            status: Arc::from(db.status.as_str()),
+            assigned_member_id: parse_optional_uuid(&db.assigned_member_id)?,
+        })
+    }
+}
+
+pub struct InboundMailDaoSqlite {
+    pool: Arc<SqlitePool>,
+}
+
+impl InboundMailDaoSqlite {
+    pub fn new(pool: Arc<SqlitePool>) -> Self {
+        Self { pool }
+    }
+}
+
+#[async_trait]
+impl InboundMailDao for InboundMailDaoSqlite {
+    async fn create(&self, mail: &InboundMail) -> Result<(), MailDaoError> {
+        let id = mail.id.as_bytes().to_vec();
+        let version = mail.version.as_bytes().to_vec();
+        let created = format_datetime(&mail.created)?;
+        let received_at = format_datetime(&mail.received_at)?;
+        let assigned = mail.assigned_member_id.map(|m| m.as_bytes().to_vec());
+
+        sqlx::query(
+            "INSERT INTO inbound_mails (id, created, version, uid_validity, imap_uid, from_address, subject, received_at, body_text, has_attachments, has_html_body, raw_html_body, in_reply_to, status, assigned_member_id) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(id)
+        .bind(created)
+        .bind(version)
+        .bind(mail.uid_validity)
+        .bind(mail.imap_uid)
+        .bind(mail.from_address.as_ref())
+        .bind(mail.subject.as_ref())
+        .bind(received_at)
+        .bind(mail.body_text.as_ref())
+        .bind(if mail.has_attachments { 1i64 } else { 0 })
+        .bind(if mail.has_html_body { 1i64 } else { 0 })
+        .bind(mail.raw_html_body.as_deref())
+        .bind(mail.in_reply_to.as_deref())
+        .bind(mail.status.as_ref())
+        .bind(assigned)
+        .execute(self.pool.as_ref())
+        .await
+        .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
+
+        Ok(())
+    }
+
+    async fn find_by_id(&self, id: Uuid) -> Result<Option<InboundMail>, MailDaoError> {
+        let id_bytes = id.as_bytes().to_vec();
+        let row = sqlx::query_as::<_, InboundMailDb>(
+            "SELECT id, created, version, uid_validity, imap_uid, from_address, subject, received_at, body_text, has_attachments, has_html_body, raw_html_body, in_reply_to, status, assigned_member_id \
+             FROM inbound_mails WHERE id = ?",
+        )
+        .bind(id_bytes)
+        .fetch_optional(self.pool.as_ref())
+        .await
+        .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
+
+        match row {
+            Some(ref db) => Ok(Some(InboundMail::try_from(db)?)),
+            None => Ok(None),
+        }
+    }
+
+    async fn list_active(&self) -> Result<Arc<[InboundMail]>, MailDaoError> {
+        let rows = sqlx::query_as::<_, InboundMailDb>(
+            "SELECT id, created, version, uid_validity, imap_uid, from_address, subject, received_at, body_text, has_attachments, has_html_body, raw_html_body, in_reply_to, status, assigned_member_id \
+             FROM inbound_mails WHERE status != 'ignored' ORDER BY received_at DESC",
+        )
+        .fetch_all(self.pool.as_ref())
+        .await
+        .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
+
+        rows.iter()
+            .map(InboundMail::try_from)
+            .collect::<Result<Vec<_>, _>>()
+            .map(|v| v.into())
+    }
+
+    async fn exists_by_uid(
+        &self,
+        uid_validity: i64,
+        imap_uid: i64,
+    ) -> Result<bool, MailDaoError> {
+        let row: Option<(i64,)> = sqlx::query_as(
+            "SELECT 1 FROM inbound_mails WHERE uid_validity = ? AND imap_uid = ? LIMIT 1",
+        )
+        .bind(uid_validity)
+        .bind(imap_uid)
+        .fetch_optional(self.pool.as_ref())
+        .await
+        .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
+        Ok(row.is_some())
+    }
+
+    async fn max_uid_for_validity(
+        &self,
+        uid_validity: i64,
+    ) -> Result<Option<i64>, MailDaoError> {
+        let row: Option<(Option<i64>,)> = sqlx::query_as(
+            "SELECT MAX(imap_uid) FROM inbound_mails WHERE uid_validity = ?",
+        )
+        .bind(uid_validity)
+        .fetch_optional(self.pool.as_ref())
+        .await
+        .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
+        Ok(row.and_then(|r| r.0))
+    }
+
+    async fn update(&self, mail: &InboundMail) -> Result<(), MailDaoError> {
+        let id = mail.id.as_bytes().to_vec();
+        let version = mail.version.as_bytes().to_vec();
+        let assigned = mail.assigned_member_id.map(|m| m.as_bytes().to_vec());
+
+        sqlx::query(
+            "UPDATE inbound_mails SET status = ?, assigned_member_id = ?, version = ? WHERE id = ?",
+        )
+        .bind(mail.status.as_ref())
+        .bind(assigned)
+        .bind(version)
+        .bind(id)
+        .execute(self.pool.as_ref())
+        .await
+        .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
+
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -700,6 +876,29 @@ mod tests {
         .execute(&pool)
         .await
         .expect("Failed to create mail_job_static_attachments table");
+        sqlx::query(
+            "CREATE TABLE inbound_mails (
+                id BLOB PRIMARY KEY NOT NULL,
+                created TEXT NOT NULL,
+                version BLOB NOT NULL,
+                uid_validity INTEGER NOT NULL,
+                imap_uid INTEGER NOT NULL,
+                from_address TEXT NOT NULL,
+                subject TEXT NOT NULL,
+                received_at TEXT NOT NULL,
+                body_text TEXT NOT NULL,
+                has_attachments INTEGER NOT NULL,
+                has_html_body INTEGER NOT NULL,
+                raw_html_body TEXT,
+                in_reply_to TEXT,
+                status TEXT NOT NULL,
+                assigned_member_id BLOB,
+                UNIQUE (uid_validity, imap_uid)
+            )",
+        )
+        .execute(&pool)
+        .await
+        .expect("Failed to create inbound_mails table");
         Arc::new(pool)
     }
 
@@ -1223,5 +1422,108 @@ mod tests {
             .await
             .unwrap();
         assert!(found.is_empty());
+    }
+
+    // ── InboundMail tests ───────────────────────────────────────────────
+
+    fn sample_inbound(uid_validity: i64, imap_uid: i64) -> InboundMail {
+        InboundMail {
+            id: Uuid::new_v4(),
+            created: sample_datetime(),
+            version: Uuid::new_v4(),
+            uid_validity,
+            imap_uid,
+            from_address: Arc::from("sender@example.com"),
+            subject: Arc::from("Re: Beitrag"),
+            received_at: sample_datetime(),
+            body_text: Arc::from("Hallo, hier meine Antwort."),
+            has_attachments: false,
+            has_html_body: false,
+            raw_html_body: None,
+            in_reply_to: None,
+            status: Arc::from("new"),
+            assigned_member_id: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_inbound_create_and_list() {
+        let pool = setup_db().await;
+        let dao = InboundMailDaoSqlite::new(pool);
+        dao.create(&sample_inbound(1, 10)).await.unwrap();
+        dao.create(&sample_inbound(1, 11)).await.unwrap();
+        let all = dao.list_active().await.unwrap();
+        assert_eq!(all.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_inbound_exists_by_uid() {
+        let pool = setup_db().await;
+        let dao = InboundMailDaoSqlite::new(pool);
+        assert!(!dao.exists_by_uid(1, 10).await.unwrap());
+        dao.create(&sample_inbound(1, 10)).await.unwrap();
+        assert!(dao.exists_by_uid(1, 10).await.unwrap());
+        assert!(!dao.exists_by_uid(1, 11).await.unwrap());
+        assert!(!dao.exists_by_uid(2, 10).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_inbound_max_uid() {
+        let pool = setup_db().await;
+        let dao = InboundMailDaoSqlite::new(pool);
+        assert_eq!(dao.max_uid_for_validity(1).await.unwrap(), None);
+        dao.create(&sample_inbound(1, 5)).await.unwrap();
+        dao.create(&sample_inbound(1, 12)).await.unwrap();
+        dao.create(&sample_inbound(1, 8)).await.unwrap();
+        dao.create(&sample_inbound(2, 100)).await.unwrap();
+        assert_eq!(dao.max_uid_for_validity(1).await.unwrap(), Some(12));
+        assert_eq!(dao.max_uid_for_validity(2).await.unwrap(), Some(100));
+    }
+
+    #[tokio::test]
+    async fn test_inbound_update_assigns_member() {
+        let pool = setup_db().await;
+        let dao = InboundMailDaoSqlite::new(pool);
+        let mail = sample_inbound(1, 10);
+        dao.create(&mail).await.unwrap();
+
+        let member_id = Uuid::new_v4();
+        let mut updated = mail.clone();
+        updated.status = Arc::from("assigned");
+        updated.assigned_member_id = Some(member_id);
+        updated.version = Uuid::new_v4();
+        dao.update(&updated).await.unwrap();
+
+        let found = dao.find_by_id(mail.id).await.unwrap().unwrap();
+        assert_eq!(found.status.as_ref(), "assigned");
+        assert_eq!(found.assigned_member_id, Some(member_id));
+    }
+
+    #[tokio::test]
+    async fn test_inbound_list_excludes_ignored() {
+        let pool = setup_db().await;
+        let dao = InboundMailDaoSqlite::new(pool);
+        let m1 = sample_inbound(1, 10);
+        let m2 = sample_inbound(1, 11);
+        dao.create(&m1).await.unwrap();
+        dao.create(&m2).await.unwrap();
+
+        let mut ignored = m2.clone();
+        ignored.status = Arc::from("ignored");
+        ignored.version = Uuid::new_v4();
+        dao.update(&ignored).await.unwrap();
+
+        let all = dao.list_active().await.unwrap();
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].id, m1.id);
+    }
+
+    #[tokio::test]
+    async fn test_inbound_dedup_unique_constraint() {
+        let pool = setup_db().await;
+        let dao = InboundMailDaoSqlite::new(pool);
+        dao.create(&sample_inbound(1, 10)).await.unwrap();
+        let res = dao.create(&sample_inbound(1, 10)).await;
+        assert!(res.is_err(), "duplicate (uid_validity, imap_uid) must fail");
     }
 }

@@ -137,3 +137,45 @@ pub trait MailJobStaticAttachmentDao: Send + Sync + 'static {
         mail_job_id: Uuid,
     ) -> Result<Arc<[StaticDocument]>, MailDaoError>;
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// Inbound mails (member-inbox)
+// ────────────────────────────────────────────────────────────────────────────
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InboundMail {
+    pub id: Uuid,
+    pub created: time::PrimitiveDateTime,
+    pub version: Uuid,
+    pub uid_validity: i64,
+    pub imap_uid: i64,
+    pub from_address: Arc<str>,
+    pub subject: Arc<str>,
+    pub received_at: time::PrimitiveDateTime,
+    pub body_text: Arc<str>,
+    pub has_attachments: bool,
+    pub has_html_body: bool,
+    pub raw_html_body: Option<Arc<str>>,
+    pub in_reply_to: Option<Arc<str>>,
+    pub status: Arc<str>,
+    pub assigned_member_id: Option<Uuid>,
+}
+
+#[automock]
+#[async_trait]
+pub trait InboundMailDao: Send + Sync + 'static {
+    async fn create(&self, mail: &InboundMail) -> Result<(), MailDaoError>;
+    async fn find_by_id(&self, id: Uuid) -> Result<Option<InboundMail>, MailDaoError>;
+    /// All mails whose status is not `ignored`, ordered by received_at DESC.
+    async fn list_active(&self) -> Result<Arc<[InboundMail]>, MailDaoError>;
+    async fn exists_by_uid(
+        &self,
+        uid_validity: i64,
+        imap_uid: i64,
+    ) -> Result<bool, MailDaoError>;
+    async fn max_uid_for_validity(
+        &self,
+        uid_validity: i64,
+    ) -> Result<Option<i64>, MailDaoError>;
+    async fn update(&self, mail: &InboundMail) -> Result<(), MailDaoError>;
+}

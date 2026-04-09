@@ -1,5 +1,8 @@
 pub mod dao;
 pub mod dao_sqlite;
+pub mod inbox;
+pub mod inbox_imap;
+pub mod inbox_rest;
 pub mod rest;
 pub mod service;
 pub mod static_document_service;

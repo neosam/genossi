@@ -22,3 +22,9 @@ axum = { workspace = true }
 utoipa = { workspace = true }
 lettre = { workspace = true }
 minijinja = "2"
+async-imap = { version = "0.10", default-features = false, features = ["runtime-tokio"] }
+tokio-rustls = "0.26"
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+webpki-roots = "0.26"
+mail-parser = "0.9"
+futures = "0.3"

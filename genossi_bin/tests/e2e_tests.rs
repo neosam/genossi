@@ -4324,3 +4324,167 @@ async fn test_bulk_mail_with_unknown_static_document_id_fails() {
     // NotFound maps to 404 in mail rest error_handler
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
+
+// ── Inbox E2E ────────────────────────────────────────────────────────────
+
+/// Seed a row in `inbound_mails` directly, bypassing IMAP, so we can exercise
+/// the REST side (list / detail / assign / ignore) without a real mail server.
+async fn seed_inbound_mail(
+    pool: &sqlx::SqlitePool,
+    uid: i64,
+    from: &str,
+    subject: &str,
+) -> uuid::Uuid {
+    let id = uuid::Uuid::new_v4();
+    let version = uuid::Uuid::new_v4();
+    let now = time::OffsetDateTime::now_utc();
+    let now_str = now
+        .format(&time::format_description::well_known::Iso8601::DEFAULT)
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO inbound_mails (id, created, version, uid_validity, imap_uid, from_address, subject, received_at, body_text, has_attachments, has_html_body, raw_html_body, in_reply_to, status, assigned_member_id) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, NULL, NULL, 'new', NULL)",
+    )
+    .bind(id.as_bytes().to_vec())
+    .bind(&now_str)
+    .bind(version.as_bytes().to_vec())
+    .bind(1i64)
+    .bind(uid)
+    .bind(from)
+    .bind(subject)
+    .bind(&now_str)
+    .bind("Hallo, hier meine Antwort.")
+    .execute(pool)
+    .await
+    .unwrap();
+    id
+}
+
+#[tokio::test]
+async fn test_inbox_list_empty() {
+    let (server, _pool) = setup_with_pool().await;
+    let client = reqwest::Client::new();
+    let response = client.get(server.url("/api/inbox")).send().await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert!(body.as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn test_inbox_list_returns_seeded_rows() {
+    let (server, pool) = setup_with_pool().await;
+    seed_inbound_mail(&pool, 10, "alice@example.com", "Re: Beitrag").await;
+    seed_inbound_mail(&pool, 11, "bob@example.com", "Re: Einladung").await;
+
+    let client = reqwest::Client::new();
+    let response = client.get(server.url("/api/inbox")).send().await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Vec<serde_json::Value> = response.json().await.unwrap();
+    assert_eq!(body.len(), 2);
+    let subjects: Vec<_> = body
+        .iter()
+        .map(|v| v["subject"].as_str().unwrap().to_string())
+        .collect();
+    assert!(subjects.iter().any(|s| s == "Re: Beitrag"));
+    assert!(subjects.iter().any(|s| s == "Re: Einladung"));
+}
+
+#[tokio::test]
+async fn test_inbox_detail() {
+    let (server, pool) = setup_with_pool().await;
+    let id = seed_inbound_mail(&pool, 5, "sender@example.com", "Hallo").await;
+    let client = reqwest::Client::new();
+    let response = client
+        .get(server.url(&format!("/api/inbox/{}", id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["from_address"], "sender@example.com");
+    assert_eq!(body["subject"], "Hallo");
+    assert_eq!(body["status"], "new");
+    assert!(body["body_text"].as_str().unwrap().contains("Antwort"));
+}
+
+#[tokio::test]
+async fn test_inbox_assign_and_unassign() {
+    let (server, pool) = setup_with_pool().await;
+    let client = reqwest::Client::new();
+
+    // Create a member to assign to
+    let member_resp = client
+        .post(server.url("/api/members"))
+        .json(&sample_member())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(member_resp.status(), StatusCode::OK);
+    let created: MemberTO = member_resp.json().await.unwrap();
+    let member_id = created.id.unwrap().to_string();
+
+    let mail_id = seed_inbound_mail(&pool, 7, "max@example.com", "Frage").await;
+
+    // Assign
+    let r = client
+        .post(server.url(&format!("/api/inbox/{}/assign", mail_id)))
+        .json(&serde_json::json!({ "member_id": member_id }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    let body: serde_json::Value = r.json().await.unwrap();
+    assert_eq!(body["status"], "assigned");
+    assert_eq!(body["assigned_member_id"], member_id);
+    assert!(body["assigned_member_name"]
+        .as_str()
+        .unwrap()
+        .contains("Max"));
+
+    // Unassign
+    let r = client
+        .post(server.url(&format!("/api/inbox/{}/unassign", mail_id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    let body: serde_json::Value = r.json().await.unwrap();
+    assert_eq!(body["status"], "new");
+}
+
+#[tokio::test]
+async fn test_inbox_ignore_removes_from_list() {
+    let (server, pool) = setup_with_pool().await;
+    let id = seed_inbound_mail(&pool, 3, "spam@example.com", "Werbung").await;
+    let client = reqwest::Client::new();
+
+    let r = client
+        .post(server.url(&format!("/api/inbox/{}/ignore", id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+
+    let list: Vec<serde_json::Value> = client
+        .get(server.url("/api/inbox"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(list.is_empty(), "ignored mails must not appear in /api/inbox");
+}
+
+#[tokio::test]
+async fn test_inbox_detail_not_found() {
+    let (server, _pool) = setup_with_pool().await;
+    let client = reqwest::Client::new();
+    let id = uuid::Uuid::new_v4();
+    let r = client
+        .get(server.url(&format!("/api/inbox/{}", id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), StatusCode::NOT_FOUND);
+}

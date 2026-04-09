@@ -2,6 +2,7 @@ use dioxus::prelude::*;
 
 pub use crate::page::ConfigPage;
 pub use crate::page::Home;
+pub use crate::page::InboxPage;
 pub use crate::page::MailPage;
 pub use crate::page::MemberDetails;
 pub use crate::page::Members;
@@ -28,6 +29,8 @@ pub enum Route {
     ConfigPage {},
     #[route("/mail")]
     MailPage {},
+    #[route("/inbox")]
+    InboxPage {},
     #[route("/documents")]
     StaticDocumentsPage {},
 }

@@ -42,6 +42,20 @@ pub fn ConfigPage() -> Element {
     let mut test_address = use_signal(|| String::new());
     let mut test_sending = use_signal(|| false);
 
+    // IMAP form state
+    let mut imap_host = use_signal(|| String::new());
+    let mut imap_port = use_signal(|| "993".to_string());
+    let mut imap_user = use_signal(|| String::new());
+    let mut imap_pass = use_signal(|| String::new());
+    let mut imap_pass_set = use_signal(|| false);
+    let mut imap_mailbox = use_signal(|| "INBOX".to_string());
+    let mut imap_archive_mailbox = use_signal(|| String::new());
+    let mut imap_poll_interval = use_signal(|| "300".to_string());
+    let mut imap_saving = use_signal(|| false);
+    let mut imap_folders = use_signal(|| Vec::<String>::new());
+    let mut imap_folders_loading = use_signal(|| false);
+    let mut imap_folders_loaded = use_signal(|| false);
+
     // New entry form state
     let mut new_key = use_signal(|| String::new());
     let mut new_value = use_signal(|| String::new());
@@ -78,6 +92,25 @@ pub fn ConfigPage() -> Element {
                     smtp_from_name.set(get_config_value(&data, "smtp_from_name"));
                     smtp_pass_set.set(has_config_key(&data, "smtp_pass"));
                     smtp_pass.set(String::new());
+
+                    // Populate IMAP form from entries
+                    imap_host.set(get_config_value(&data, "imap_host"));
+                    let imap_port_val = get_config_value(&data, "imap_port");
+                    if !imap_port_val.is_empty() {
+                        imap_port.set(imap_port_val);
+                    }
+                    imap_user.set(get_config_value(&data, "imap_user"));
+                    imap_pass_set.set(has_config_key(&data, "imap_pass"));
+                    imap_pass.set(String::new());
+                    let mailbox_val = get_config_value(&data, "imap_mailbox");
+                    if !mailbox_val.is_empty() {
+                        imap_mailbox.set(mailbox_val);
+                    }
+                    imap_archive_mailbox.set(get_config_value(&data, "imap_archive_mailbox"));
+                    let poll_val = get_config_value(&data, "imap_poll_interval_seconds");
+                    if !poll_val.is_empty() {
+                        imap_poll_interval.set(poll_val);
+                    }
 
                     entries.set(data);
                     error.set(None);
@@ -354,6 +387,232 @@ pub fn ConfigPage() -> Element {
                                                 });
                                             }},
                                             {i18n.t(Key::SmtpTestMail)}
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // IMAP Settings Section (Posteingang)
+                        div { class: "bg-white rounded-lg shadow p-6 mb-6",
+                            h2 { class: "text-xl font-semibold mb-4", "IMAP Posteingang" }
+                            div { class: "space-y-4",
+                                // Host + Port row
+                                div { class: "grid grid-cols-1 md:grid-cols-3 gap-4",
+                                    div { class: "md:col-span-2",
+                                        label { class: "block text-sm font-medium text-gray-700 mb-1",
+                                            "IMAP Host"
+                                        }
+                                        input {
+                                            class: "w-full border rounded px-3 py-2",
+                                            r#type: "text",
+                                            placeholder: "imap.example.com",
+                                            value: "{imap_host}",
+                                            oninput: move |e| imap_host.set(e.value()),
+                                        }
+                                    }
+                                    div {
+                                        label { class: "block text-sm font-medium text-gray-700 mb-1",
+                                            "Port"
+                                        }
+                                        input {
+                                            class: "w-full border rounded px-3 py-2",
+                                            r#type: "number",
+                                            placeholder: "993",
+                                            value: "{imap_port}",
+                                            oninput: move |e| imap_port.set(e.value()),
+                                        }
+                                    }
+                                }
+
+                                // Username + Password row
+                                div { class: "grid grid-cols-1 md:grid-cols-2 gap-4",
+                                    div {
+                                        label { class: "block text-sm font-medium text-gray-700 mb-1",
+                                            "Benutzername"
+                                        }
+                                        input {
+                                            class: "w-full border rounded px-3 py-2",
+                                            r#type: "text",
+                                            value: "{imap_user}",
+                                            oninput: move |e| imap_user.set(e.value()),
+                                        }
+                                    }
+                                    div {
+                                        label { class: "block text-sm font-medium text-gray-700 mb-1",
+                                            "Passwort"
+                                        }
+                                        input {
+                                            class: "w-full border rounded px-3 py-2",
+                                            r#type: "password",
+                                            placeholder: if *imap_pass_set.read() { "********" } else { "" },
+                                            value: "{imap_pass}",
+                                            oninput: move |e| imap_pass.set(e.value()),
+                                        }
+                                    }
+                                }
+
+                                // Load folders button
+                                if !*imap_folders_loaded.read() {
+                                    div { class: "pt-1",
+                                        button {
+                                            class: "text-sm text-blue-600 hover:underline disabled:opacity-50",
+                                            disabled: *imap_folders_loading.read() || imap_host.read().is_empty(),
+                                            onclick: move |_| {
+                                                spawn(async move {
+                                                    imap_folders_loading.set(true);
+                                                    let config = CONFIG.read().clone();
+                                                    match api::get_imap_folders(&config).await {
+                                                        Ok(folders) => {
+                                                            imap_folders.set(folders);
+                                                            imap_folders_loaded.set(true);
+                                                        }
+                                                        Err(e) => {
+                                                            error.set(Some(format!("Ordner laden fehlgeschlagen: {}", e)));
+                                                        }
+                                                    }
+                                                    imap_folders_loading.set(false);
+                                                });
+                                            },
+                                            if *imap_folders_loading.read() {
+                                                "Ordner werden geladen…"
+                                            } else {
+                                                "Ordner vom Server laden"
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Mailbox + Archive + Poll interval
+                                div { class: "grid grid-cols-1 md:grid-cols-3 gap-4",
+                                    div {
+                                        label { class: "block text-sm font-medium text-gray-700 mb-1",
+                                            "Postfach"
+                                        }
+                                        if *imap_folders_loaded.read() {
+                                            select {
+                                                class: "w-full border rounded px-3 py-2",
+                                                value: "{imap_mailbox}",
+                                                onchange: move |e| imap_mailbox.set(e.value()),
+                                                for folder in imap_folders.read().iter() {
+                                                    option {
+                                                        value: "{folder}",
+                                                        selected: *imap_mailbox.read() == *folder,
+                                                        "{folder}"
+                                                    }
+                                                }
+                                            }
+                                        } else {
+                                            input {
+                                                class: "w-full border rounded px-3 py-2",
+                                                r#type: "text",
+                                                placeholder: "INBOX",
+                                                value: "{imap_mailbox}",
+                                                oninput: move |e| imap_mailbox.set(e.value()),
+                                            }
+                                        }
+                                    }
+                                    div {
+                                        label { class: "block text-sm font-medium text-gray-700 mb-1",
+                                            "Archiv-Ordner"
+                                        }
+                                        if *imap_folders_loaded.read() {
+                                            select {
+                                                class: "w-full border rounded px-3 py-2",
+                                                value: "{imap_archive_mailbox}",
+                                                onchange: move |e| imap_archive_mailbox.set(e.value()),
+                                                option {
+                                                    value: "",
+                                                    selected: imap_archive_mailbox.read().is_empty(),
+                                                    "(keiner)"
+                                                }
+                                                for folder in imap_folders.read().iter() {
+                                                    option {
+                                                        value: "{folder}",
+                                                        selected: *imap_archive_mailbox.read() == *folder,
+                                                        "{folder}"
+                                                    }
+                                                }
+                                            }
+                                        } else {
+                                            input {
+                                                class: "w-full border rounded px-3 py-2",
+                                                r#type: "text",
+                                                placeholder: "Archive",
+                                                value: "{imap_archive_mailbox}",
+                                                oninput: move |e| imap_archive_mailbox.set(e.value()),
+                                            }
+                                        }
+                                    }
+                                    div {
+                                        label { class: "block text-sm font-medium text-gray-700 mb-1",
+                                            "Poll-Intervall (Sek.)"
+                                        }
+                                        input {
+                                            class: "w-full border rounded px-3 py-2",
+                                            r#type: "number",
+                                            placeholder: "300",
+                                            value: "{imap_poll_interval}",
+                                            oninput: move |e| imap_poll_interval.set(e.value()),
+                                        }
+                                    }
+                                }
+
+                                // Save button
+                                div { class: "flex items-center space-x-4 pt-2",
+                                    button {
+                                        class: "bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded disabled:opacity-50",
+                                        disabled: *imap_saving.read() || imap_host.read().is_empty(),
+                                        onclick: move |_| {
+                                            let host = imap_host.read().clone();
+                                            let port = imap_port.read().clone();
+                                            let user = imap_user.read().clone();
+                                            let pass = imap_pass.read().clone();
+                                            let pass_set = *imap_pass_set.read();
+                                            let mailbox = imap_mailbox.read().clone();
+                                            let archive = imap_archive_mailbox.read().clone();
+                                            let poll = imap_poll_interval.read().clone();
+                                            spawn(async move {
+                                                imap_saving.set(true);
+                                                error.set(None);
+                                                success_msg.set(None);
+                                                let config = CONFIG.read().clone();
+                                                let mut all_ok = true;
+
+                                                let mut entries_to_save: Vec<(&str, String, &str)> = vec![
+                                                    ("imap_host", host, "string"),
+                                                    ("imap_port", port, "int"),
+                                                    ("imap_user", user, "string"),
+                                                    ("imap_tls", "true".to_string(), "bool"),
+                                                    ("imap_mailbox", mailbox, "string"),
+                                                    ("imap_poll_interval_seconds", poll, "int"),
+                                                ];
+                                                if !archive.is_empty() {
+                                                    entries_to_save.push(("imap_archive_mailbox", archive, "string"));
+                                                }
+                                                if !pass.is_empty() || !pass_set {
+                                                    entries_to_save.push(("imap_pass", pass, "secret"));
+                                                }
+
+                                                for (key, value, vtype) in &entries_to_save {
+                                                    if let Err(e) = api::set_config_entry(&config, key, value, vtype).await {
+                                                        error.set(Some(format!("{}", e)));
+                                                        all_ok = false;
+                                                        break;
+                                                    }
+                                                }
+
+                                                if all_ok {
+                                                    success_msg.set(Some("IMAP-Einstellungen gespeichert".to_string()));
+                                                    reload();
+                                                }
+                                                imap_saving.set(false);
+                                            });
+                                        },
+                                        if *imap_saving.read() {
+                                            "Speichere…"
+                                        } else {
+                                            "Speichern"
                                         }
                                     }
                                 }

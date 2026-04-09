@@ -7,6 +7,11 @@ use std::sync::Arc;
 async fn main() {
     dotenv::dotenv().ok();
 
+    // Install rustls CryptoProvider before any TLS usage (required by rustls 0.23+).
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install rustls CryptoProvider");
+
     tracing_subscriber::fmt()
         .with_env_filter("genossi=debug,tower_http=debug")
         .init();
@@ -40,6 +45,9 @@ async fn main() {
     // Start background mail worker
     rest_state.start_mail_worker();
     tracing::info!("Mail worker started");
+
+    rest_state.start_inbox_worker();
+    tracing::info!("Inbox worker started");
 
     // Start server using the rest crate's start_server function
     genossi_rest::start_server(rest_state).await;

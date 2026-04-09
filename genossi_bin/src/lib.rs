@@ -223,6 +223,13 @@ type MailRecipientAttachmentDao = genossi_mail::dao_sqlite::MailRecipientAttachm
 type StaticDocumentDaoType = genossi_mail::dao_sqlite::StaticDocumentDaoSqlite;
 type MailJobStaticAttachmentDaoType =
     genossi_mail::dao_sqlite::MailJobStaticAttachmentDaoSqlite;
+type InboundMailDaoType = genossi_mail::dao_sqlite::InboundMailDaoSqlite;
+type InboxImapClientType = genossi_mail::inbox_imap::AsyncImapClient;
+type InboxServiceType = genossi_mail::inbox::InboxServiceImpl<
+    ConfigService,
+    InboundMailDaoType,
+    InboxImapClientType,
+>;
 type MailServiceType = genossi_mail::service::MailServiceImpl<
     ConfigService,
     MailJobDao,
@@ -254,7 +261,12 @@ pub struct RestStateImpl {
     pdf_generator: Arc<genossi_service_impl::pdf_generation::PdfGenerator>,
     config_service: Arc<ConfigService>,
     mail_service: Arc<MailServiceType>,
+    inbox_service: Arc<InboxServiceType>,
     static_document_service: Arc<StaticDocumentServiceType>,
+    // Inbox worker dependencies
+    worker_inbox_config_service: Arc<ConfigService>,
+    worker_inbox_dao: Arc<InboundMailDaoType>,
+    worker_inbox_imap_client: Arc<InboxImapClientType>,
     // Worker dependencies (kept for spawning the background worker)
     worker_config_service: Arc<ConfigService>,
     worker_job_dao: Arc<MailJobDao>,
@@ -386,6 +398,24 @@ impl RestStateImpl {
             document_storage.clone(),
         ));
 
+        // Inbox service and worker wiring
+        let inbox_dao = Arc::new(InboundMailDaoType::new(pool.clone()));
+        let inbox_imap_client = Arc::new(InboxImapClientType::new());
+        let inbox_config_dao = ConfigDao::new(pool.clone());
+        let inbox_config_service = Arc::new(ConfigService::new(inbox_config_dao));
+        let inbox_service = Arc::new(
+            genossi_mail::inbox::InboxServiceImpl::new(
+                inbox_config_service.clone(),
+                inbox_dao.clone(),
+                inbox_imap_client.clone(),
+            ),
+        );
+        let worker_inbox_config_dao = ConfigDao::new(pool.clone());
+        let worker_inbox_config_service =
+            Arc::new(ConfigService::new(worker_inbox_config_dao));
+        let worker_inbox_dao = Arc::new(InboundMailDaoType::new(pool.clone()));
+        let worker_inbox_imap_client = Arc::new(InboxImapClientType::new());
+
         // Create separate instances for the worker (worker needs its own DAOs)
         let worker_job_dao = Arc::new(MailJobDao::new(pool.clone()));
         let worker_recipient_dao = Arc::new(MailRecipientDao::new(pool.clone()));
@@ -410,7 +440,11 @@ impl RestStateImpl {
             pdf_generator,
             config_service,
             mail_service,
+            inbox_service,
             static_document_service,
+            worker_inbox_config_service,
+            worker_inbox_dao,
+            worker_inbox_imap_client,
             worker_config_service,
             worker_job_dao,
             worker_recipient_dao,
@@ -422,6 +456,15 @@ impl RestStateImpl {
 }
 
 impl RestStateImpl {
+    pub fn start_inbox_worker(&self) {
+        let config_service = self.worker_inbox_config_service.clone();
+        let dao = self.worker_inbox_dao.clone();
+        let imap_client = self.worker_inbox_imap_client.clone();
+        tokio::spawn(async move {
+            genossi_mail::inbox::start_inbox_worker(config_service, dao, imap_client).await;
+        });
+    }
+
     pub fn start_mail_worker(&self) {
         let config_service = self.worker_config_service.clone();
         let job_dao = self.worker_job_dao.clone();
@@ -442,6 +485,28 @@ impl RestStateImpl {
             )
             .await;
         });
+    }
+}
+
+impl genossi_mail::inbox_rest::InboxRestState for RestStateImpl {
+    type InboxService = InboxServiceType;
+    fn inbox_service(&self) -> Arc<Self::InboxService> {
+        self.inbox_service.clone()
+    }
+    fn resolve_member_name(
+        &self,
+        member_id: UuidType,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<String>> + Send + '_>> {
+        let pool = self.pool.clone();
+        Box::pin(async move {
+            use genossi_dao::member::MemberDao as _;
+            use genossi_dao::TransactionDao as _;
+            let transaction_dao = TransactionDaoImpl::new(pool.clone());
+            let member_dao = genossi_dao_impl_sqlite::member::MemberDaoImpl::new(pool);
+            let tx = transaction_dao.transaction().await.ok()?;
+            let m = member_dao.find_by_id(member_id, tx).await.ok()??;
+            Some(format!("{} {}", m.first_name, m.last_name))
+        })
     }
 }
 
