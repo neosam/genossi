@@ -4,32 +4,13 @@ use rest_types::MemberTO;
 use crate::api::{self, InboundMailDetailTO, InboundMailTO};
 use crate::auth::RequirePrivilege;
 use crate::component::TopBar;
+use crate::component::inbox::{InboxMailListItem, InboxReplyForm, InboxStatusBadge};
 use crate::page::AccessDeniedPage;
 use crate::service::config::CONFIG;
 use crate::service::member::{refresh_members, MEMBERS};
 
 fn format_member_option(m: &MemberTO) -> String {
     format!("#{} {} {}", m.member_number, m.first_name, m.last_name)
-}
-
-fn status_label(s: &str) -> &'static str {
-    match s {
-        "new" => "Neu",
-        "assigned" => "Zugeordnet",
-        "archived" => "Archiviert",
-        "ignored" => "Ignoriert",
-        _ => "?",
-    }
-}
-
-fn status_color(s: &str) -> &'static str {
-    match s {
-        "new" => "text-blue-600",
-        "assigned" => "text-green-600",
-        "archived" => "text-gray-500",
-        "ignored" => "text-gray-400",
-        _ => "text-gray-600",
-    }
 }
 
 #[component]
@@ -53,6 +34,7 @@ fn InboxPageInner() -> Element {
     let mut detail = use_signal(|| None::<InboundMailDetailTO>);
     let mut detail_loading = use_signal(|| false);
     let mut assign_search = use_signal(String::new);
+    let mut show_reply = use_signal(|| false);
 
     use_effect(move || {
         spawn(async move {
@@ -98,8 +80,8 @@ fn InboxPageInner() -> Element {
         selected_id.set(Some(id.clone()));
         detail.set(None);
         assign_search.set(String::new());
+        show_reply.set(false);
         load_detail(id.clone());
-        // Best-effort: mark as read server-side (IMAP \Seen). Ignore failures.
         spawn(async move {
             let cfg = CONFIG.read().clone();
             let _ = api::mark_inbox_mail_read(&cfg, &id).await;
@@ -212,37 +194,19 @@ fn InboxPageInner() -> Element {
                                 {
                                     let mid = mail.id.clone();
                                     let selected = selected_id.read().as_deref() == Some(mid.as_str());
-                                    let row_class = if selected {
-                                        "p-3 cursor-pointer bg-blue-50"
-                                    } else {
-                                        "p-3 cursor-pointer hover:bg-gray-50"
-                                    };
                                     let label = mail.assigned_member_name.clone()
                                         .unwrap_or_else(|| "nicht zugeordnet".to_string());
                                     let mid_click = mid.clone();
-                                    let mail_from = mail.from_address.clone();
-                                    let mail_subject = mail.subject.clone();
-                                    let mail_received = mail.received_at.clone();
-                                    let mail_status = mail.status.clone();
-                                    let mail_has_att = mail.has_attachments;
-                                    let status_c = status_color(&mail_status);
-                                    let status_l = status_label(&mail_status);
                                     rsx! {
-                                        li {
-                                            class: "{row_class}",
-                                            onclick: move |_| open_mail(mid_click.clone()),
-                                            div { class: "flex justify-between",
-                                                span { class: "font-medium truncate", "{mail_subject}" }
-                                                span { class: "text-xs {status_c}", "{status_l}" }
-                                            }
-                                            div { class: "text-sm text-gray-600 truncate", "{mail_from}" }
-                                            div { class: "flex justify-between text-xs text-gray-500",
-                                                span { "{mail_received}" }
-                                                span {
-                                                    if mail_has_att { "📎 " } else { "" }
-                                                    "{label}"
-                                                }
-                                            }
+                                        InboxMailListItem {
+                                            subject: mail.subject.clone(),
+                                            from_address: mail.from_address.clone(),
+                                            received_at: mail.received_at.clone(),
+                                            status: mail.status.clone(),
+                                            has_attachments: mail.has_attachments,
+                                            assigned_label: label,
+                                            selected: selected,
+                                            on_click: move |_| open_mail(mid_click.clone()),
                                         }
                                     }
                                 }
@@ -263,6 +227,9 @@ fn InboxPageInner() -> Element {
                             }
                             div { class: "text-xs text-gray-500",
                                 "Empfangen: {d.received_at}"
+                            }
+                            div { class: "text-xs",
+                                InboxStatusBadge { status: d.status.clone() }
                             }
                             if d.has_attachments {
                                 div { class: "text-xs text-amber-700",
@@ -288,7 +255,6 @@ fn InboxPageInner() -> Element {
                                     }
                                 }
                                 {
-                                    // Suggestion by sender email
                                     let members = MEMBERS.read().items.clone();
                                     let from_lower = d.from_address.to_lowercase();
                                     let suggestion = members.iter()
@@ -354,6 +320,14 @@ fn InboxPageInner() -> Element {
                                 }
                                 div { class: "flex gap-2 mt-3",
                                     button {
+                                        class: "text-sm px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded",
+                                        onclick: move |_| {
+                                            let current = *show_reply.read();
+                                            show_reply.set(!current);
+                                        },
+                                        if *show_reply.read() { "Antwort abbrechen" } else { "Antworten" }
+                                    }
+                                    button {
                                         class: "text-sm px-3 py-1 border rounded hover:bg-gray-100",
                                         onclick: unassign,
                                         "Zuordnung entfernen"
@@ -367,6 +341,38 @@ fn InboxPageInner() -> Element {
                                         class: "text-sm px-3 py-1 border rounded hover:bg-gray-100",
                                         onclick: ignore_btn,
                                         "Ignorieren"
+                                    }
+                                }
+
+                                if *show_reply.read() {
+                                    {
+                                        let reply_subject = if d.subject.starts_with("Re:") {
+                                            d.subject.clone()
+                                        } else {
+                                            format!("Re: {}", d.subject)
+                                        };
+                                        let mail_id = d.id.clone();
+                                        let from_addr = d.from_address.clone();
+                                        let member_id = d.assigned_member_id.clone();
+                                        rsx! {
+                                            InboxReplyForm {
+                                                mail_id: mail_id,
+                                                from_address: from_addr,
+                                                initial_subject: reply_subject,
+                                                assigned_member_id: member_id,
+                                                on_sent: move |_| {
+                                                    info.set(Some("Antwort gesendet".to_string()));
+                                                    show_reply.set(false);
+                                                    reload();
+                                                    if let Some(mid) = selected_id.read().clone() {
+                                                        load_detail(mid);
+                                                    }
+                                                },
+                                                on_error: move |e: String| {
+                                                    error.set(Some(e));
+                                                },
+                                            }
+                                        }
                                     }
                                 }
                             }

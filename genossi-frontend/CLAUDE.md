@@ -48,10 +48,16 @@ cargo test
 ### Key Architectural Patterns
 
 1. **Component-Service-State Pattern**:
-   - **Components** (`src/component/`): UI components using Dioxus RSX syntax
+   - **Components** (`src/component/`): Reusable UI components using Dioxus RSX syntax
    - **Services** (`src/service/`): Business logic and API communication with coroutines
    - **State** (`src/state/`): Data structures and domain models
    - **Pages** (`src/page/`): Full page components that compose smaller components
+
+2. **Component-First Principle** (IMPORTANT):
+   - **Always use reusable components instead of inline HTML/RSX.** When building UI, check `src/component/` for existing components first. If none fits, create a new reusable component.
+   - **Never duplicate UI logic across pages.** If two pages need similar UI (e.g., a subject input, a body textarea, a template selector), extract it into a shared component under `src/component/`.
+   - **Pages compose components, they don't contain raw HTML.** Pages should read like a high-level description of the UI, delegating rendering details to components.
+   - **Why:** Consistent styling across the app, single source of truth for behavior, and easier maintenance. Without this, pages that should look and behave identically will silently diverge in styling and logic.
 
 2. **API Communication**:
    - `src/api.rs`: REST API client functions

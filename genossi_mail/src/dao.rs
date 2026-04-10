@@ -32,6 +32,7 @@ pub struct MailJob {
     pub total_count: i64,
     pub sent_count: i64,
     pub failed_count: i64,
+    pub reply_to_inbound_mail_id: Option<Uuid>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -157,6 +158,7 @@ pub struct InboundMail {
     pub has_html_body: bool,
     pub raw_html_body: Option<Arc<str>>,
     pub in_reply_to: Option<Arc<str>>,
+    pub message_id: Option<Arc<str>>,
     pub status: Arc<str>,
     pub assigned_member_id: Option<Uuid>,
 }

@@ -68,6 +68,7 @@ struct MailJobDb {
     total_count: i64,
     sent_count: i64,
     failed_count: i64,
+    reply_to_inbound_mail_id: Option<Vec<u8>>,
 }
 
 impl TryFrom<&MailJobDb> for MailJob {
@@ -86,6 +87,7 @@ impl TryFrom<&MailJobDb> for MailJob {
             total_count: db.total_count,
             sent_count: db.sent_count,
             failed_count: db.failed_count,
+            reply_to_inbound_mail_id: parse_optional_uuid(&db.reply_to_inbound_mail_id)?,
         })
     }
 }
@@ -107,9 +109,13 @@ impl MailJobDao for MailJobDaoSqlite {
         let version = job.version.as_bytes().to_vec();
         let created = format_datetime(&job.created)?;
 
+        let reply_to = job
+            .reply_to_inbound_mail_id
+            .map(|u| u.as_bytes().to_vec());
+
         sqlx::query(
-            "INSERT INTO mail_jobs (id, created, deleted, version, subject, body, status, total_count, sent_count, failed_count) \
-             VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO mail_jobs (id, created, deleted, version, subject, body, status, total_count, sent_count, failed_count, reply_to_inbound_mail_id) \
+             VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(id)
         .bind(created)
@@ -120,6 +126,7 @@ impl MailJobDao for MailJobDaoSqlite {
         .bind(job.total_count)
         .bind(job.sent_count)
         .bind(job.failed_count)
+        .bind(reply_to)
         .execute(self.pool.as_ref())
         .await
         .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
@@ -130,7 +137,7 @@ impl MailJobDao for MailJobDaoSqlite {
     async fn find_by_id(&self, id: Uuid) -> Result<MailJob, MailDaoError> {
         let id_bytes = id.as_bytes().to_vec();
         let row = sqlx::query_as::<_, MailJobDb>(
-            "SELECT id, created, deleted, version, subject, body, status, total_count, sent_count, failed_count \
+            "SELECT id, created, deleted, version, subject, body, status, total_count, sent_count, failed_count, reply_to_inbound_mail_id \
              FROM mail_jobs WHERE id = ?",
         )
         .bind(id_bytes)
@@ -144,7 +151,7 @@ impl MailJobDao for MailJobDaoSqlite {
 
     async fn all(&self) -> Result<Arc<[MailJob]>, MailDaoError> {
         let rows = sqlx::query_as::<_, MailJobDb>(
-            "SELECT id, created, deleted, version, subject, body, status, total_count, sent_count, failed_count \
+            "SELECT id, created, deleted, version, subject, body, status, total_count, sent_count, failed_count, reply_to_inbound_mail_id \
              FROM mail_jobs ORDER BY created DESC",
         )
         .fetch_all(self.pool.as_ref())
@@ -638,6 +645,7 @@ struct InboundMailDb {
     has_html_body: i64,
     raw_html_body: Option<String>,
     in_reply_to: Option<String>,
+    message_id: Option<String>,
     status: String,
     assigned_member_id: Option<Vec<u8>>,
 }
@@ -662,6 +670,7 @@ impl TryFrom<&InboundMailDb> for InboundMail {
             has_html_body: db.has_html_body != 0,
             raw_html_body: db.raw_html_body.as_deref().map(Arc::from),
             in_reply_to: db.in_reply_to.as_deref().map(Arc::from),
+            message_id: db.message_id.as_deref().map(Arc::from),
             status: Arc::from(db.status.as_str()),
             assigned_member_id: parse_optional_uuid(&db.assigned_member_id)?,
         })
@@ -688,8 +697,8 @@ impl InboundMailDao for InboundMailDaoSqlite {
         let assigned = mail.assigned_member_id.map(|m| m.as_bytes().to_vec());
 
         sqlx::query(
-            "INSERT INTO inbound_mails (id, created, version, uid_validity, imap_uid, from_address, subject, received_at, body_text, has_attachments, has_html_body, raw_html_body, in_reply_to, status, assigned_member_id) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO inbound_mails (id, created, version, uid_validity, imap_uid, from_address, subject, received_at, body_text, has_attachments, has_html_body, raw_html_body, in_reply_to, message_id, status, assigned_member_id) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(id)
         .bind(created)
@@ -704,6 +713,7 @@ impl InboundMailDao for InboundMailDaoSqlite {
         .bind(if mail.has_html_body { 1i64 } else { 0 })
         .bind(mail.raw_html_body.as_deref())
         .bind(mail.in_reply_to.as_deref())
+        .bind(mail.message_id.as_deref())
         .bind(mail.status.as_ref())
         .bind(assigned)
         .execute(self.pool.as_ref())
@@ -716,7 +726,7 @@ impl InboundMailDao for InboundMailDaoSqlite {
     async fn find_by_id(&self, id: Uuid) -> Result<Option<InboundMail>, MailDaoError> {
         let id_bytes = id.as_bytes().to_vec();
         let row = sqlx::query_as::<_, InboundMailDb>(
-            "SELECT id, created, version, uid_validity, imap_uid, from_address, subject, received_at, body_text, has_attachments, has_html_body, raw_html_body, in_reply_to, status, assigned_member_id \
+            "SELECT id, created, version, uid_validity, imap_uid, from_address, subject, received_at, body_text, has_attachments, has_html_body, raw_html_body, in_reply_to, message_id, status, assigned_member_id \
              FROM inbound_mails WHERE id = ?",
         )
         .bind(id_bytes)
@@ -732,7 +742,7 @@ impl InboundMailDao for InboundMailDaoSqlite {
 
     async fn list_active(&self) -> Result<Arc<[InboundMail]>, MailDaoError> {
         let rows = sqlx::query_as::<_, InboundMailDb>(
-            "SELECT id, created, version, uid_validity, imap_uid, from_address, subject, received_at, body_text, has_attachments, has_html_body, raw_html_body, in_reply_to, status, assigned_member_id \
+            "SELECT id, created, version, uid_validity, imap_uid, from_address, subject, received_at, body_text, has_attachments, has_html_body, raw_html_body, in_reply_to, message_id, status, assigned_member_id \
              FROM inbound_mails WHERE status != 'ignored' ORDER BY received_at DESC",
         )
         .fetch_all(self.pool.as_ref())
@@ -814,7 +824,8 @@ mod tests {
                 status TEXT NOT NULL,
                 total_count INTEGER NOT NULL,
                 sent_count INTEGER NOT NULL DEFAULT 0,
-                failed_count INTEGER NOT NULL DEFAULT 0
+                failed_count INTEGER NOT NULL DEFAULT 0,
+                reply_to_inbound_mail_id BLOB
             )",
         )
         .execute(&pool)
@@ -891,6 +902,7 @@ mod tests {
                 has_html_body INTEGER NOT NULL,
                 raw_html_body TEXT,
                 in_reply_to TEXT,
+                message_id TEXT,
                 status TEXT NOT NULL,
                 assigned_member_id BLOB,
                 UNIQUE (uid_validity, imap_uid)
@@ -921,6 +933,7 @@ mod tests {
             total_count: 3,
             sent_count: 0,
             failed_count: 0,
+            reply_to_inbound_mail_id: None,
         }
     }
 
@@ -1441,6 +1454,7 @@ mod tests {
             has_html_body: false,
             raw_html_body: None,
             in_reply_to: None,
+            message_id: None,
             status: Arc::from("new"),
             assigned_member_id: None,
         }

@@ -331,6 +331,24 @@ type FooService = FooServiceImpl<FooServiceDependencies>;
 
 ## 5. Frontend (Dioxus + Tailwind)
 
+### Component-First Principle (MANDATORY)
+
+**All UI MUST be built from reusable components.** Pages compose components — they do not contain inline HTML/RSX for anything that could be a component.
+
+**Rules:**
+1. Before writing UI in a page, check `src/component/` for existing components
+2. If identical or similar UI exists on another page, extract it into a shared component
+3. Components live in `src/component/` organized by domain (e.g., `component/mail_compose/`)
+4. Base components (Button, TextInput, Select, etc.) live in `component/base_components.rs`
+5. Domain-specific components get their own module (e.g., `component/mail_compose/subject_input.rs`)
+
+**Why:** Without this rule, pages that should look and behave identically will silently diverge in styling and logic. A subject input on the mail page and a subject input on the inbox page should be the same component — not two similar-looking textareas with slightly different CSS classes.
+
+**Anti-patterns:**
+- Inline `<input class="...">` in a page file for something that exists as a component
+- Copy-pasting UI blocks between pages instead of extracting a component
+- A page file longer than ~150 lines of RSX without component extraction
+
 ### API Client (`api.rs`)
 ```rust
 pub async fn get_foos(config: &Config) -> Result<Vec<FooTO>, reqwest::Error> {

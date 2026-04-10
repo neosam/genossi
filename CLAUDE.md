@@ -124,6 +124,7 @@ Genossi is a REST API server built with a clean, layered architecture using Rust
 - **Transaction Management**: Explicit transaction handling with begin/commit/rollback
 - **Soft Deletes**: Entities use `deleted` timestamp instead of hard deletion
 - **Version Control**: Each entity has a `version` field for optimistic locking
+- **Component-First Frontend**: UI must be built from reusable components (`genossi-frontend/src/component/`), not inline HTML/RSX. When identical UI appears on multiple pages, extract it into a shared component. See `genossi-frontend/CLAUDE.md` for details.
 
 ### Entity Structure
 

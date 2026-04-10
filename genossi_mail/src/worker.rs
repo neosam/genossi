@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use crate::dao::{
-    MailJobDao, MailJobStaticAttachmentDao, MailRecipientAttachment, MailRecipientAttachmentDao,
-    MailRecipientDao,
+    InboundMailDao, MailJobDao, MailJobStaticAttachmentDao, MailRecipientAttachment,
+    MailRecipientAttachmentDao, MailRecipientDao,
 };
 use crate::service::{build_transport, load_smtp_config, MailServiceError};
 use crate::template::{member_to_template_context, render_template, MemberResolver};
@@ -87,7 +87,7 @@ async fn mark_recipient_failed<R: MailRecipientDao, J: MailJobDao>(
     );
 }
 
-pub async fn start_mail_worker<C, J, R, A, SA, D, M>(
+pub async fn start_mail_worker<C, J, R, A, SA, D, M, IB>(
     config_service: Arc<C>,
     job_dao: Arc<J>,
     recipient_dao: Arc<R>,
@@ -95,6 +95,7 @@ pub async fn start_mail_worker<C, J, R, A, SA, D, M>(
     static_attachment_dao: Arc<SA>,
     document_storage: Arc<D>,
     member_resolver: Arc<M>,
+    inbound_mail_dao: Arc<IB>,
 ) where
     C: ConfigService,
     J: MailJobDao,
@@ -103,6 +104,7 @@ pub async fn start_mail_worker<C, J, R, A, SA, D, M>(
     SA: MailJobStaticAttachmentDao,
     D: DocumentStorage + 'static,
     M: MemberResolver,
+    IB: InboundMailDao,
 {
     loop {
         let next = match recipient_dao.next_pending().await {
@@ -242,6 +244,23 @@ pub async fn start_mail_worker<C, J, R, A, SA, D, M>(
             (job.subject.to_string(), job.body.to_string())
         };
 
+        // Resolve In-Reply-To header for reply jobs
+        let reply_message_id: Option<String> = if let Some(inbound_id) = job.reply_to_inbound_mail_id {
+            match inbound_mail_dao.find_by_id(inbound_id).await {
+                Ok(Some(inbound)) => inbound.message_id.as_ref().map(|s| s.to_string()),
+                Ok(None) => {
+                    tracing::warn!("Worker: inbound mail {} not found for reply threading", inbound_id);
+                    None
+                }
+                Err(e) => {
+                    tracing::warn!("Worker: failed to load inbound mail for reply: {:?}", e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         // Load SMTP config and send
         let send_result = send_mail_for_recipient(
             config_service.as_ref(),
@@ -250,6 +269,7 @@ pub async fn start_mail_worker<C, J, R, A, SA, D, M>(
             &rendered_body,
             &attachments,
             document_storage.as_ref(),
+            reply_message_id.as_deref(),
         )
         .await;
 
@@ -315,6 +335,7 @@ async fn send_mail_for_recipient<C: ConfigService, D: DocumentStorage>(
     body: &str,
     attachments: &[crate::dao::MailRecipientAttachment],
     document_storage: &D,
+    in_reply_to: Option<&str>,
 ) -> Result<Option<String>, MailServiceError> {
     use lettre::message::{Attachment, MultiPart, SinglePart};
     use lettre::{AsyncTransport, Message};
@@ -338,12 +359,21 @@ async fn send_mail_for_recipient<C: ConfigService, D: DocumentStorage>(
     // which causes clients like GMX Android to mis-decode umlauts.
     let text_part = SinglePart::plain(body.to_string());
 
+    let mut builder = Message::builder()
+        .from(from)
+        .to(to_addr)
+        .subject(subject)
+        .message_id(None);
+
+    if let Some(ref_id) = in_reply_to {
+        let bracketed = format!("<{}>", ref_id);
+        builder = builder
+            .in_reply_to(bracketed.clone())
+            .references(bracketed);
+    }
+
     let email = if attachments.is_empty() {
-        Message::builder()
-            .from(from)
-            .to(to_addr)
-            .subject(subject)
-            .message_id(None)
+        builder
             .singlepart(text_part)
             .map_err(|e| MailServiceError::SmtpError(Arc::from(e.to_string())))?
     } else {
@@ -368,11 +398,7 @@ async fn send_mail_for_recipient<C: ConfigService, D: DocumentStorage>(
             multipart = multipart.singlepart(attachment);
         }
 
-        Message::builder()
-            .from(from)
-            .to(to_addr)
-            .subject(subject)
-            .message_id(None)
+        builder
             .multipart(multipart)
             .map_err(|e| MailServiceError::SmtpError(Arc::from(e.to_string())))?
     };
@@ -477,6 +503,7 @@ mod tests {
             total_count: 1,
             sent_count: 0,
             failed_count: 1,
+            reply_to_inbound_mail_id: None,
         }
     }
 
@@ -644,6 +671,64 @@ mod tests {
             text.contains("Content-Transfer-Encoding: quoted-printable")
                 || text.contains("Content-Transfer-Encoding: base64"),
             "text part must declare a non-7bit transfer encoding, got:\n{}",
+            text
+        );
+    }
+
+    /// Verify that building a reply mail includes In-Reply-To and References headers.
+    #[test]
+    fn reply_mail_includes_in_reply_to_header() {
+        use lettre::message::SinglePart;
+        use lettre::Message;
+
+        let ref_id = "abc.123@example.com";
+        let bracketed = format!("<{}>", ref_id);
+
+        let email = Message::builder()
+            .from("sender@example.com".parse().unwrap())
+            .to("recipient@example.com".parse().unwrap())
+            .subject("Re: Test")
+            .message_id(None)
+            .in_reply_to(bracketed.clone())
+            .references(bracketed)
+            .singlepart(SinglePart::plain("reply body".to_string()))
+            .expect("build reply mail");
+
+        let formatted = email.formatted();
+        let text = String::from_utf8_lossy(&formatted);
+
+        assert!(
+            text.contains("In-Reply-To: <abc.123@example.com>"),
+            "reply mail must contain In-Reply-To header, got:\n{}",
+            text
+        );
+        assert!(
+            text.contains("References: <abc.123@example.com>"),
+            "reply mail must contain References header, got:\n{}",
+            text
+        );
+    }
+
+    /// Verify that a non-reply mail does NOT include In-Reply-To headers.
+    #[test]
+    fn non_reply_mail_has_no_in_reply_to_header() {
+        use lettre::message::SinglePart;
+        use lettre::Message;
+
+        let email = Message::builder()
+            .from("sender@example.com".parse().unwrap())
+            .to("recipient@example.com".parse().unwrap())
+            .subject("Test")
+            .message_id(None)
+            .singlepart(SinglePart::plain("body".to_string()))
+            .expect("build plain mail");
+
+        let formatted = email.formatted();
+        let text = String::from_utf8_lossy(&formatted);
+
+        assert!(
+            !text.contains("In-Reply-To:"),
+            "non-reply mail must not contain In-Reply-To header, got:\n{}",
             text
         );
     }

@@ -229,6 +229,8 @@ type InboxServiceType = genossi_mail::inbox::InboxServiceImpl<
     ConfigService,
     InboundMailDaoType,
     InboxImapClientType,
+    MailJobDao,
+    MailRecipientDao,
 >;
 type MailServiceType = genossi_mail::service::MailServiceImpl<
     ConfigService,
@@ -403,11 +405,15 @@ impl RestStateImpl {
         let inbox_imap_client = Arc::new(InboxImapClientType::new());
         let inbox_config_dao = ConfigDao::new(pool.clone());
         let inbox_config_service = Arc::new(ConfigService::new(inbox_config_dao));
+        let inbox_job_dao = Arc::new(MailJobDao::new(pool.clone()));
+        let inbox_recipient_dao = Arc::new(MailRecipientDao::new(pool.clone()));
         let inbox_service = Arc::new(
             genossi_mail::inbox::InboxServiceImpl::new(
                 inbox_config_service.clone(),
                 inbox_dao.clone(),
                 inbox_imap_client.clone(),
+                inbox_job_dao,
+                inbox_recipient_dao,
             ),
         );
         let worker_inbox_config_dao = ConfigDao::new(pool.clone());
@@ -473,6 +479,7 @@ impl RestStateImpl {
         let static_attachment_dao = self.worker_static_attachment_dao.clone();
         let document_storage = self.document_storage.clone();
         let member_resolver = Arc::new(PoolMemberResolver::new(self.pool.clone()));
+        let inbound_mail_dao = Arc::new(InboundMailDaoType::new(self.pool.clone()));
         tokio::spawn(async move {
             genossi_mail::worker::start_mail_worker(
                 config_service,
@@ -482,6 +489,7 @@ impl RestStateImpl {
                 static_attachment_dao,
                 document_storage,
                 member_resolver,
+                inbound_mail_dao,
             )
             .await;
         });

@@ -269,6 +269,7 @@ impl<
             total_count: recipients.len() as i64,
             sent_count: 0,
             failed_count: 0,
+            reply_to_inbound_mail_id: None,
         };
 
         self.job_dao.create(&job).await?;
@@ -541,6 +542,7 @@ mod tests {
             total_count: 1,
             sent_count: 0,
             failed_count: 0,
+            reply_to_inbound_mail_id: None,
         };
         let job_clone = job.clone();
 
@@ -584,6 +586,7 @@ mod tests {
             total_count: 2,
             sent_count: 1,
             failed_count: 1,
+            reply_to_inbound_mail_id: None,
         };
         let job_clone = job.clone();
 
@@ -701,6 +704,7 @@ mod tests {
             total_count: 3,
             sent_count: 2,
             failed_count: 1,
+            reply_to_inbound_mail_id: None,
         };
         let job_clone = job.clone();
 

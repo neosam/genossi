@@ -11,7 +11,7 @@ use std::sync::Arc;
 use utoipa::{OpenApi, ToSchema};
 use uuid::Uuid;
 
-use crate::dao::InboundMail;
+use crate::dao::{InboundMail, MailJob};
 use crate::inbox::InboxService;
 use crate::service::MailServiceError;
 
@@ -49,6 +49,18 @@ pub struct InboundMailDetailTO {
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct AssignMemberRequest {
     pub member_id: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct ReplyRequest {
+    pub subject: String,
+    pub body: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct ReplyResponseTO {
+    pub job_id: String,
+    pub status: String,
 }
 
 fn format_dt(dt: &time::PrimitiveDateTime) -> String {
@@ -308,6 +320,40 @@ async fn ignore_inbox<S: InboxRestState>(
 }
 
 #[utoipa::path(
+    post,
+    path = "/{id}/reply",
+    tag = "inbox",
+    request_body = ReplyRequest,
+    params(("id" = String, Path, description = "Inbound mail id")),
+    responses(
+        (status = 202, description = "Reply job created", body = ReplyResponseTO),
+        (status = 404, description = "Inbound mail not found")
+    )
+)]
+async fn reply_inbox<S: InboxRestState>(
+    State(state): State<S>,
+    Path(id): Path<String>,
+    Json(req): Json<ReplyRequest>,
+) -> Response {
+    let svc = state.inbox_service();
+    let mail_id = match Uuid::parse_str(&id) {
+        Ok(u) => u,
+        Err(_) => return (StatusCode::BAD_REQUEST, "invalid id").into_response(),
+    };
+    match svc.reply(mail_id, &req.subject, &req.body).await {
+        Ok(job) => (
+            StatusCode::ACCEPTED,
+            Json(ReplyResponseTO {
+                job_id: job.id.to_string(),
+                status: job.status.to_string(),
+            }),
+        )
+            .into_response(),
+        Err(e) => map_error(e),
+    }
+}
+
+#[utoipa::path(
     get,
     path = "/folders",
     tag = "inbox",
@@ -334,6 +380,7 @@ pub fn generate_route<S: InboxRestState>() -> Router<S> {
         .route("/{id}/mark-read", post(mark_read_inbox::<S>))
         .route("/{id}/archive", post(archive_inbox::<S>))
         .route("/{id}/ignore", post(ignore_inbox::<S>))
+        .route("/{id}/reply", post(reply_inbox::<S>))
 }
 
 #[derive(OpenApi)]
@@ -347,8 +394,9 @@ pub fn generate_route<S: InboxRestState>() -> Router<S> {
         mark_read_inbox,
         archive_inbox,
         ignore_inbox,
+        reply_inbox,
     ),
-    components(schemas(InboundMailTO, InboundMailDetailTO, AssignMemberRequest)),
+    components(schemas(InboundMailTO, InboundMailDetailTO, AssignMemberRequest, ReplyRequest, ReplyResponseTO)),
     tags((name = "inbox", description = "Member inbox (incoming mails)"))
 )]
 pub struct InboxApiDoc;

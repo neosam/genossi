@@ -912,3 +912,24 @@ pub async fn ignore_inbox_mail(config: &Config, id: &str) -> Result<InboundMailT
     response.error_for_status_ref().map_err(|e| e.to_string())?;
     response.json().await.map_err(|e| e.to_string())
 }
+
+pub async fn reply_inbox_mail(
+    config: &Config,
+    id: &str,
+    subject: &str,
+    body: &str,
+) -> Result<(), String> {
+    let url = format!("{}/api/inbox/{}/reply", config.backend, id);
+    let payload = serde_json::json!({
+        "subject": subject,
+        "body": body,
+    });
+    let response = reqwest::Client::new()
+        .post(url)
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    response.error_for_status_ref().map_err(|e| e.to_string())?;
+    Ok(())
+}

@@ -2,6 +2,8 @@ pub mod base_components;
 pub mod dropdown_base;
 pub mod error_view;
 pub mod footer;
+pub mod inbox;
+pub mod mail_compose;
 pub mod member_search;
 pub mod modal;
 pub mod overlay;
