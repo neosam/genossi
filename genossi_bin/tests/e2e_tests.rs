@@ -8,6 +8,7 @@ use genossi_rest_types::{
 };
 use genossi_config::rest::{ConfigEntryTO, SetConfigRequest};
 use genossi_mail::rest::{SendBulkMailRequest, BulkRecipient, SendMailRequest, MailJobTO, MailJobDetailTO, TestMailRequest};
+use genossi_rest::mail_footer::FooterResponse;
 use reqwest::StatusCode;
 use sqlx::SqlitePool;
 use std::sync::Arc;
@@ -4487,4 +4488,66 @@ async fn test_inbox_detail_not_found() {
         .await
         .unwrap();
     assert_eq!(r.status(), StatusCode::NOT_FOUND);
+}
+
+// ============================================================
+// Mail Footer E2E Tests
+// ============================================================
+
+#[tokio::test]
+async fn test_mail_footer_no_config() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(server.url("/api/mail/footer"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let footer: FooterResponse = response.json().await.unwrap();
+    assert!(footer.footer.is_empty());
+}
+
+#[tokio::test]
+async fn test_mail_footer_with_config_and_sender_name() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Set mail_footer config
+    client
+        .put(server.url("/api/config/mail_footer"))
+        .json(&SetConfigRequest {
+            value: "Mit freundlichen Grüßen\n{{ sender_name }}".to_string(),
+            value_type: "string".to_string(),
+        })
+        .send()
+        .await
+        .unwrap();
+
+    // Set sender_name user preference
+    client
+        .put(server.url("/api/user-preferences/sender_name"))
+        .json(&UserPreferenceTO {
+            id: None,
+            key: Some("sender_name".to_string()),
+            value: "Anna Schmidt".to_string(),
+            created: None,
+            version: None,
+        })
+        .send()
+        .await
+        .unwrap();
+
+    // Get footer
+    let response = client
+        .get(server.url("/api/mail/footer"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let footer: FooterResponse = response.json().await.unwrap();
+    assert_eq!(footer.footer, "Mit freundlichen Grüßen\nAnna Schmidt");
 }

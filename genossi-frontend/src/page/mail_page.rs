@@ -55,6 +55,7 @@ pub fn MailPage() -> Element {
     let mut subject = use_signal(|| String::new());
     let mut body = use_signal(|| String::new());
     let mut sending = use_signal(|| false);
+    let mut cached_footer = use_signal(|| String::new());
 
     // Attachment state
     let mut available_documents = use_signal(|| Vec::<MemberDocumentTO>::new());
@@ -73,6 +74,19 @@ pub fn MailPage() -> Element {
     use_effect(move || {
         spawn(async move {
             refresh_members().await;
+        });
+    });
+
+    // Load footer on mount
+    use_effect(move || {
+        spawn(async move {
+            let config = CONFIG.read().clone();
+            if let Ok(footer) = api::get_mail_footer(&config).await {
+                cached_footer.set(footer.clone());
+                if !footer.is_empty() {
+                    body.set(format!("\n\n{}", footer));
+                }
+            }
         });
     });
 
@@ -365,7 +379,14 @@ pub fn MailPage() -> Element {
                                 on_change: move |val: String| subject.set(val),
                             }
                             TemplateSelector {
-                                on_select: move |template_body: String| body.set(template_body),
+                                on_select: move |template_body: String| {
+                                    let footer = cached_footer.read().clone();
+                                    if footer.is_empty() {
+                                        body.set(template_body);
+                                    } else {
+                                        body.set(format!("{}\n{}", template_body, footer));
+                                    }
+                                },
                             }
                             MailBodyEditor {
                                 value: body.read().clone(),

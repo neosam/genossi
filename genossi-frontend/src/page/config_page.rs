@@ -68,6 +68,14 @@ pub fn ConfigPage() -> Element {
     let mut edit_value = use_signal(|| String::new());
     let mut edit_value_type = use_signal(|| String::new());
 
+    // Mail footer state
+    let mut mail_footer = use_signal(|| String::new());
+    let mut mail_footer_saving = use_signal(|| false);
+
+    // Sender name state
+    let mut sender_name = use_signal(|| String::new());
+    let mut sender_name_saving = use_signal(|| false);
+
     // Advanced config collapsed state
     let mut show_advanced = use_signal(|| false);
 
@@ -112,6 +120,9 @@ pub fn ConfigPage() -> Element {
                         imap_poll_interval.set(poll_val);
                     }
 
+                    // Populate mail footer from entries
+                    mail_footer.set(get_config_value(&data, "mail_footer"));
+
                     entries.set(data);
                     error.set(None);
                 }
@@ -125,6 +136,13 @@ pub fn ConfigPage() -> Element {
 
     use_effect(move || {
         reload();
+        // Load sender_name user preference
+        spawn(async move {
+            let config = CONFIG.read().clone();
+            if let Ok(Some(pref)) = api::get_user_preference(&config, "sender_name").await {
+                sender_name.set(pref.value);
+            }
+        });
     });
 
     rsx! {
@@ -387,6 +405,99 @@ pub fn ConfigPage() -> Element {
                                                 });
                                             }},
                                             {i18n.t(Key::SmtpTestMail)}
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Mail Footer & Sender Name Section
+                        div { class: "bg-white rounded-lg shadow p-6 mb-6",
+                            h2 { class: "text-xl font-semibold mb-4", "Mail-Footer" }
+                            div { class: "space-y-4",
+                                div {
+                                    label { class: "block text-sm font-medium text-gray-700 mb-1",
+                                        "Absendername"
+                                    }
+                                    p { class: "text-xs text-gray-500 mb-1",
+                                        "Ihr Name, der im Footer als Absender erscheint. Wird pro Benutzer gespeichert."
+                                    }
+                                    div { class: "flex gap-2",
+                                        input {
+                                            class: "flex-1 border rounded px-3 py-2",
+                                            r#type: "text",
+                                            placeholder: "Anna Schmidt",
+                                            value: "{sender_name}",
+                                            oninput: move |e| sender_name.set(e.value()),
+                                        }
+                                        button {
+                                            class: "bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded disabled:opacity-50",
+                                            disabled: *sender_name_saving.read(),
+                                            onclick: {
+                                                let i18n = i18n.clone();
+                                                move |_| {
+                                                let name = sender_name.read().clone();
+                                                let i18n = i18n.clone();
+                                                spawn(async move {
+                                                    sender_name_saving.set(true);
+                                                    error.set(None);
+                                                    success_msg.set(None);
+                                                    let config = CONFIG.read().clone();
+                                                    match api::set_user_preference(&config, "sender_name", &name).await {
+                                                        Ok(_) => {
+                                                            success_msg.set(Some(i18n.t(Key::Save).to_string()));
+                                                        }
+                                                        Err(e) => {
+                                                            error.set(Some(format!("{}", e)));
+                                                        }
+                                                    }
+                                                    sender_name_saving.set(false);
+                                                });
+                                            }},
+                                            {i18n.t(Key::Save)}
+                                        }
+                                    }
+                                }
+                                div {
+                                    label { class: "block text-sm font-medium text-gray-700 mb-1",
+                                        "Footer-Vorlage"
+                                    }
+                                    p { class: "text-xs text-gray-500 mb-1",
+                                        "Template für den Mail-Footer. Verfügbare Variable: {{ sender_name }}"
+                                    }
+                                    textarea {
+                                        class: "w-full border rounded px-3 py-2 font-mono text-sm",
+                                        rows: 4,
+                                        placeholder: "Mit freundlichen Grüßen\n{{ sender_name }}\nMein Verein e.G.",
+                                        value: "{mail_footer}",
+                                        oninput: move |e| mail_footer.set(e.value()),
+                                    }
+                                    div { class: "flex justify-end mt-2",
+                                        button {
+                                            class: "bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded disabled:opacity-50",
+                                            disabled: *mail_footer_saving.read(),
+                                            onclick: {
+                                                let i18n = i18n.clone();
+                                                move |_| {
+                                                let footer = mail_footer.read().clone();
+                                                let i18n = i18n.clone();
+                                                spawn(async move {
+                                                    mail_footer_saving.set(true);
+                                                    error.set(None);
+                                                    success_msg.set(None);
+                                                    let config = CONFIG.read().clone();
+                                                    match api::set_config_entry(&config, "mail_footer", &footer, "string").await {
+                                                        Ok(_) => {
+                                                            success_msg.set(Some(i18n.t(Key::Save).to_string()));
+                                                        }
+                                                        Err(e) => {
+                                                            error.set(Some(format!("{}", e)));
+                                                        }
+                                                    }
+                                                    mail_footer_saving.set(false);
+                                                });
+                                            }},
+                                            {i18n.t(Key::Save)}
                                         }
                                     }
                                 }

@@ -115,6 +115,21 @@ pub fn validate_template(
     }
 }
 
+pub fn render_footer(template_str: &str, sender_name: &str) -> Result<String, TemplateError> {
+    let ctx = context! {
+        sender_name => sender_name,
+    };
+    let env = strict_env();
+    let tmpl = env
+        .template_from_str(template_str)
+        .map_err(|e| TemplateError {
+            message: format!("Footer template syntax error: {}", e),
+        })?;
+    tmpl.render(&ctx).map_err(|e| TemplateError {
+        message: format!("Footer template render error: {}", e),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -361,6 +376,43 @@ mod tests {
         let ctx = member_to_template_context(&member);
         let result = render_template(TEMPLATE_INFORMAL, &ctx).unwrap();
         assert_eq!(result, "Liebe Prof. Anna,");
+    }
+
+    #[test]
+    fn test_render_footer_with_sender_name() {
+        let result = render_footer("Mit freundlichen Grüßen\n{{ sender_name }}", "Anna Schmidt")
+            .unwrap();
+        assert_eq!(result, "Mit freundlichen Grüßen\nAnna Schmidt");
+    }
+
+    #[test]
+    fn test_render_footer_empty_sender_name() {
+        let result =
+            render_footer("Mit freundlichen Grüßen\n{{ sender_name }}", "").unwrap();
+        assert_eq!(result, "Mit freundlichen Grüßen\n");
+    }
+
+    #[test]
+    fn test_render_footer_no_variables() {
+        let result = render_footer("Mein Verein e.G.", "Anna Schmidt").unwrap();
+        assert_eq!(result, "Mein Verein e.G.");
+    }
+
+    #[test]
+    fn test_render_footer_invalid_template() {
+        let result = render_footer("{{ unclosed", "Anna");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("syntax error"));
+    }
+
+    #[test]
+    fn test_render_footer_multiline() {
+        let template = "Mit freundlichen Grüßen\n{{ sender_name }}\nMein Verein e.G.";
+        let result = render_footer(template, "Anna Schmidt").unwrap();
+        assert_eq!(
+            result,
+            "Mit freundlichen Grüßen\nAnna Schmidt\nMein Verein e.G."
+        );
     }
 
     #[test]

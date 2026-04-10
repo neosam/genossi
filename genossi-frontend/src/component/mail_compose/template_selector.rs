@@ -6,13 +6,13 @@ const TEMPLATE_FORMAL: &str = r#"Sehr geehrte{% if salutation == "Herr" %}r Herr
 
 
 
-Mit freundlichen Grüßen"#;
+Mit freundlichen Grüßen,"#;
 
 const TEMPLATE_INFORMAL: &str = r#"{% if salutation == "Herr" %}Lieber{% elif salutation == "Frau" %}Liebe{% else %}Hallo{% endif %}{% if title %} {{ title }}{% endif %} {{ first_name }},
 
 
 
-Viele Grüße"#;
+Viele Grüße,"#;
 
 #[component]
 pub fn TemplateSelector(on_select: EventHandler<String>) -> Element {

@@ -19,6 +19,20 @@ pub fn InboxReplyForm(
     let mut reply_subject = use_signal(move || initial_subject.clone());
     let mut reply_body = use_signal(String::new);
     let mut sending = use_signal(|| false);
+    let mut cached_footer = use_signal(|| String::new());
+
+    // Load footer on mount
+    use_effect(move || {
+        spawn(async move {
+            let config = CONFIG.read().clone();
+            if let Ok(footer) = api::get_mail_footer(&config).await {
+                cached_footer.set(footer.clone());
+                if !footer.is_empty() {
+                    reply_body.set(format!("\n\n{}", footer));
+                }
+            }
+        });
+    });
 
     rsx! {
         div { class: "border-t pt-3 mt-3 space-y-3",
@@ -30,7 +44,14 @@ pub fn InboxReplyForm(
                 on_change: move |val: String| reply_subject.set(val),
             }
             TemplateSelector {
-                on_select: move |template_body: String| reply_body.set(template_body),
+                on_select: move |template_body: String| {
+                    let footer = cached_footer.read().clone();
+                    if footer.is_empty() {
+                        reply_body.set(template_body);
+                    } else {
+                        reply_body.set(format!("{}\n{}", template_body, footer));
+                    }
+                },
             }
             TemplateVarButtons {
                 on_insert: move |var_text: String| {

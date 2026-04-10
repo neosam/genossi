@@ -664,6 +664,24 @@ pub async fn send_test_mail(config: &Config, to_address: &str) -> Result<(), Str
     Ok(())
 }
 
+#[derive(Clone, Debug, serde::Deserialize)]
+pub struct FooterResponse {
+    pub footer: String,
+}
+
+pub async fn get_mail_footer(config: &Config) -> Result<String, String> {
+    info!("Fetching mail footer");
+    let url = format!("{}/api/mail/footer", config.backend);
+    let response = reqwest::get(url).await.map_err(|e| e.to_string())?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        return Err(format!("{}: {}", status, text));
+    }
+    let footer: FooterResponse = response.json().await.map_err(|e| e.to_string())?;
+    Ok(footer.footer)
+}
+
 // User Preferences API
 pub async fn get_user_preference(config: &Config, key: &str) -> Result<Option<rest_types::UserPreferenceTO>, reqwest::Error> {
     info!("Fetching user preference: {key}");
