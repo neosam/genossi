@@ -15,6 +15,9 @@ use genossi_service::{
 use tracing::instrument;
 use utoipa::OpenApi;
 
+use genossi_rest_types::UserPreferenceTO;
+use genossi_service::user_preference::UserPreferenceService;
+
 use crate::{error_handler, Context, RestError, RestStateDef};
 
 #[derive(OpenApi)]
@@ -36,9 +39,11 @@ use crate::{error_handler, Context, RestError, RestStateDef};
         remove_role_privilege,
         get_role_privileges,
         get_user_privileges,
+        get_user_preference,
+        upsert_user_preference,
     ),
     components(
-        schemas(UserTO, RoleTO, PrivilegeTO, UserRole, RolePrivilege, UserResponseTO, RoleResponseTO, PrivilegeResponseTO)
+        schemas(UserTO, RoleTO, PrivilegeTO, UserRole, RolePrivilege, UserResponseTO, RoleResponseTO, PrivilegeResponseTO, UserPreferenceTO)
     ),
     tags(
         (name = "Permission", description = "User, role, and privilege management endpoints")
@@ -665,6 +670,85 @@ pub async fn get_user_privileges<RestState: RestStateDef>(
     )
 }
 
+// User Preference Management (Admin)
+
+/// Get a preference for a specific user (admin only)
+#[utoipa::path(
+    get,
+    path = "/user/{username}/preferences/{key}",
+    tags = ["Permission"],
+    params(
+        ("username" = String, Path, description = "Username to get preference for"),
+        ("key" = String, Path, description = "Preference key"),
+    ),
+    responses(
+        (status = 200, description = "User preference value", body = UserPreferenceTO),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden - admin privilege required"),
+        (status = 404, description = "Preference not found"),
+        (status = 500, description = "Internal server error"),
+    )
+)]
+#[instrument(skip(rest_state))]
+pub async fn get_user_preference<RestState: RestStateDef>(
+    State(rest_state): State<RestState>,
+    Path((username, key)): Path<(String, String)>,
+    Extension(context): Extension<Context>,
+) -> Response {
+    error_handler(
+        (async {
+            let auth_context = crate::extract_auth_context(Some(context))?;
+            let pref = rest_state
+                .user_preference_service()
+                .get_by_key_for_user(&username, &key, auth_context, None)
+                .await
+                .map_err(|e| service_error_to_rest_error(e))?;
+            let to = UserPreferenceTO::from(&pref);
+            Ok(Json(to).into_response())
+        })
+        .await,
+    )
+}
+
+/// Set a preference for a specific user (admin only)
+#[utoipa::path(
+    put,
+    path = "/user/{username}/preferences/{key}",
+    tags = ["Permission"],
+    params(
+        ("username" = String, Path, description = "Username to set preference for"),
+        ("key" = String, Path, description = "Preference key"),
+    ),
+    request_body = UserPreferenceTO,
+    responses(
+        (status = 200, description = "Preference updated", body = UserPreferenceTO),
+        (status = 401, description = "Unauthorized"),
+        (status = 403, description = "Forbidden - admin privilege required"),
+        (status = 500, description = "Internal server error"),
+    )
+)]
+#[instrument(skip(rest_state))]
+pub async fn upsert_user_preference<RestState: RestStateDef>(
+    State(rest_state): State<RestState>,
+    Path((username, key)): Path<(String, String)>,
+    Extension(context): Extension<Context>,
+    Json(body): Json<UserPreferenceTO>,
+) -> Response {
+    error_handler(
+        (async {
+            let auth_context = crate::extract_auth_context(Some(context))?;
+            let pref = rest_state
+                .user_preference_service()
+                .upsert_for_user(&username, &key, &body.value, auth_context, None)
+                .await
+                .map_err(|e| service_error_to_rest_error(e))?;
+            let to = UserPreferenceTO::from(&pref);
+            Ok(Json(to).into_response())
+        })
+        .await,
+    )
+}
+
 // Helper functions
 
 // Use the global extract_auth_context helper from lib.rs
@@ -693,7 +777,7 @@ fn service_error_to_rest_error(error: ServiceError) -> RestError {
 
 /// Generate router for permission management endpoints
 pub fn generate_route<RestState: RestStateDef>() -> axum::Router<RestState> {
-    use axum::routing::{delete, get, post};
+    use axum::routing::{delete, get, post, put};
 
     axum::Router::new()
         // User management
@@ -729,5 +813,10 @@ pub fn generate_route<RestState: RestStateDef>() -> axum::Router<RestState> {
         .route(
             "/user/{username}/privileges",
             get(get_user_privileges::<RestState>),
+        )
+        // User preferences (admin)
+        .route(
+            "/user/{username}/preferences/{key}",
+            get(get_user_preference::<RestState>).put(upsert_user_preference::<RestState>),
         )
 }

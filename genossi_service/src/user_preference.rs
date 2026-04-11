@@ -48,6 +48,7 @@ impl From<&UserPreference> for UserPreferenceEntity {
 }
 
 #[automock(type Context=(); type Transaction = genossi_dao::MockTransaction;)]
+#[allow(clippy::too_many_arguments)]
 #[async_trait]
 pub trait UserPreferenceService {
     type Context: Clone + Debug + PartialEq + Eq + Send + Sync + 'static;
@@ -62,6 +63,23 @@ pub trait UserPreferenceService {
 
     async fn upsert(
         &self,
+        key: &str,
+        value: &str,
+        context: Authentication<Self::Context>,
+        tx: Option<Self::Transaction>,
+    ) -> Result<UserPreference, ServiceError>;
+
+    async fn get_by_key_for_user(
+        &self,
+        username: &str,
+        key: &str,
+        context: Authentication<Self::Context>,
+        tx: Option<Self::Transaction>,
+    ) -> Result<UserPreference, ServiceError>;
+
+    async fn upsert_for_user(
+        &self,
+        username: &str,
         key: &str,
         value: &str,
         context: Authentication<Self::Context>,

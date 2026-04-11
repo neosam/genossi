@@ -7,7 +7,9 @@ pub fn InboxMailListItem(
     subject: String,
     from_address: String,
     received_at: String,
-    status: String,
+    replied: bool,
+    done: bool,
+    archived: bool,
     has_attachments: bool,
     assigned_label: String,
     selected: bool,
@@ -25,7 +27,7 @@ pub fn InboxMailListItem(
             onclick: move |_| on_click.call(()),
             div { class: "flex justify-between",
                 span { class: "font-medium truncate", "{subject}" }
-                InboxStatusBadge { status: status }
+                InboxStatusBadge { replied: replied, done: done, archived: archived }
             }
             div { class: "text-sm text-gray-600 truncate", "{from_address}" }
             div { class: "flex justify-between text-xs text-gray-500",

@@ -279,7 +279,7 @@ pub trait InboxService: Send + Sync + 'static {
     async fn unassign(&self, id: Uuid) -> Result<InboundMail, MailServiceError>;
     async fn mark_read(&self, id: Uuid) -> Result<InboundMail, MailServiceError>;
     async fn archive(&self, id: Uuid) -> Result<InboundMail, MailServiceError>;
-    async fn ignore(&self, id: Uuid) -> Result<InboundMail, MailServiceError>;
+    async fn mark_done(&self, id: Uuid) -> Result<InboundMail, MailServiceError>;
     async fn list_folders(&self) -> Result<Vec<String>, MailServiceError>;
     async fn reply(
         &self,
@@ -360,10 +360,6 @@ where
     ) -> Result<InboundMail, MailServiceError> {
         let mut mail = self.load_mail(id).await?;
         mail.assigned_member_id = Some(member_id);
-        // Move status out of `new` into `assigned`, but leave terminal states alone.
-        if mail.status.as_ref() == "new" || mail.status.as_ref() == "assigned" {
-            mail.status = Arc::from("assigned");
-        }
         mail.version = Uuid::new_v4();
         self.dao.update(&mail).await?;
         Ok(mail)
@@ -372,9 +368,6 @@ where
     async fn unassign(&self, id: Uuid) -> Result<InboundMail, MailServiceError> {
         let mut mail = self.load_mail(id).await?;
         mail.assigned_member_id = None;
-        if mail.status.as_ref() == "assigned" {
-            mail.status = Arc::from("new");
-        }
         mail.version = Uuid::new_v4();
         self.dao.update(&mail).await?;
         Ok(mail)
@@ -398,15 +391,15 @@ where
         self.imap_client
             .move_to_archive(&config, mail.imap_uid)
             .await?;
-        mail.status = Arc::from("archived");
+        mail.archived = true;
         mail.version = Uuid::new_v4();
         self.dao.update(&mail).await?;
         Ok(mail)
     }
 
-    async fn ignore(&self, id: Uuid) -> Result<InboundMail, MailServiceError> {
+    async fn mark_done(&self, id: Uuid) -> Result<InboundMail, MailServiceError> {
         let mut mail = self.load_mail(id).await?;
-        mail.status = Arc::from("ignored");
+        mail.done = true;
         mail.version = Uuid::new_v4();
         self.dao.update(&mail).await?;
         Ok(mail)
@@ -458,8 +451,7 @@ where
         };
         self.recipient_dao.create(&recipient).await?;
 
-        // Set inbound mail status to replied
-        mail.status = Arc::from("replied");
+        mail.replied = true;
         mail.version = Uuid::new_v4();
         self.dao.update(&mail).await?;
 
@@ -541,7 +533,9 @@ where
             raw_html_body: parsed.raw_html_body.as_deref().map(Arc::from),
             in_reply_to: parsed.in_reply_to.as_deref().map(Arc::from),
             message_id: parsed.message_id.as_deref().map(Arc::from),
-            status: Arc::from("new"),
+            replied: false,
+            done: false,
+            archived: false,
             assigned_member_id: None,
         };
         if let Err(e) = dao.create(&mail).await {
@@ -702,13 +696,15 @@ mod tests {
             raw_html_body: None,
             in_reply_to: None,
             message_id: None,
-            status: Arc::from("new"),
+            replied: false,
+            done: false,
+            archived: false,
             assigned_member_id: None,
         }
     }
 
     #[tokio::test]
-    async fn assign_member_sets_status_and_member() {
+    async fn assign_member_sets_member() {
         let mail = sample_mail();
         let mail_id = mail.id;
         let member_id = Uuid::new_v4();
@@ -723,12 +719,11 @@ mod tests {
         let imap = MockInboxImapClient::new();
         let svc = InboxServiceImpl::new(Arc::new(cfg), Arc::new(dao), Arc::new(imap), Arc::new(MockMailJobDao::new()), Arc::new(MockMailRecipientDao::new()));
         let updated = svc.assign_member(mail_id, member_id).await.unwrap();
-        assert_eq!(updated.status.as_ref(), "assigned");
         assert_eq!(updated.assigned_member_id, Some(member_id));
     }
 
     #[tokio::test]
-    async fn ignore_sets_status() {
+    async fn mark_done_sets_done_flag() {
         let mail = sample_mail();
         let mail_id = mail.id;
 
@@ -736,13 +731,16 @@ mod tests {
         let returned = mail.clone();
         dao.expect_find_by_id()
             .returning(move |_| Ok(Some(returned.clone())));
-        dao.expect_update().returning(|_| Ok(()));
+        dao.expect_update().returning(|m| {
+            assert!(m.done);
+            Ok(())
+        });
 
         let cfg = MockConfigService::new();
         let imap = MockInboxImapClient::new();
         let svc = InboxServiceImpl::new(Arc::new(cfg), Arc::new(dao), Arc::new(imap), Arc::new(MockMailJobDao::new()), Arc::new(MockMailRecipientDao::new()));
-        let updated = svc.ignore(mail_id).await.unwrap();
-        assert_eq!(updated.status.as_ref(), "ignored");
+        let updated = svc.mark_done(mail_id).await.unwrap();
+        assert!(updated.done);
     }
 
     #[tokio::test]
@@ -840,7 +838,7 @@ mod tests {
         dao.expect_find_by_id()
             .returning(move |_| Ok(Some(returned.clone())));
         dao.expect_update().returning(|m| {
-            assert_eq!(m.status.as_ref(), "replied");
+            assert!(m.replied);
             Ok(())
         });
 

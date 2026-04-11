@@ -710,6 +710,93 @@ pub async fn set_user_preference(config: &Config, key: &str, value: &str) -> Res
     Ok(response.json().await?)
 }
 
+// Permission API
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct UserResponseTO {
+    pub name: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RoleResponseTO {
+    pub name: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct UserRoleTO {
+    pub user: String,
+    pub role: String,
+}
+
+pub async fn get_all_users(config: &Config) -> Result<Vec<UserResponseTO>, reqwest::Error> {
+    info!("Fetching all users");
+    let url = format!("{}/api/permission/user", config.backend);
+    let response = reqwest::get(url).await?;
+    response.error_for_status_ref()?;
+    Ok(response.json().await?)
+}
+
+pub async fn get_user_roles(config: &Config, username: &str) -> Result<Vec<RoleResponseTO>, reqwest::Error> {
+    info!("Fetching roles for user: {username}");
+    let url = format!("{}/api/permission/user/{}/roles", config.backend, username);
+    let response = reqwest::get(url).await?;
+    response.error_for_status_ref()?;
+    Ok(response.json().await?)
+}
+
+pub async fn assign_user_role(config: &Config, user: &str, role: &str) -> Result<(), reqwest::Error> {
+    info!("Assigning role {role} to user {user}");
+    let url = format!("{}/api/permission/user-role", config.backend);
+    let body = UserRoleTO {
+        user: user.to_string(),
+        role: role.to_string(),
+    };
+    let client = reqwest::Client::new();
+    let response = client.post(url).json(&body).send().await?;
+    response.error_for_status_ref()?;
+    Ok(())
+}
+
+pub async fn remove_user_role(config: &Config, user: &str, role: &str) -> Result<(), reqwest::Error> {
+    info!("Removing role {role} from user {user}");
+    let url = format!("{}/api/permission/user-role", config.backend);
+    let body = UserRoleTO {
+        user: user.to_string(),
+        role: role.to_string(),
+    };
+    let client = reqwest::Client::new();
+    let response = client.delete(url).json(&body).send().await?;
+    response.error_for_status_ref()?;
+    Ok(())
+}
+
+pub async fn get_user_preference_admin(config: &Config, username: &str, key: &str) -> Result<Option<rest_types::UserPreferenceTO>, reqwest::Error> {
+    info!("Admin fetching preference {key} for user {username}");
+    let url = format!("{}/api/permission/user/{}/preferences/{}", config.backend, username, key);
+    let response = reqwest::get(url).await?;
+    if response.status() == reqwest::StatusCode::NOT_FOUND {
+        return Ok(None);
+    }
+    response.error_for_status_ref()?;
+    Ok(Some(response.json().await?))
+}
+
+pub async fn set_user_preference_admin(config: &Config, username: &str, key: &str, value: &str) -> Result<rest_types::UserPreferenceTO, reqwest::Error> {
+    info!("Admin setting preference {key} for user {username}");
+    let url = format!("{}/api/permission/user/{}/preferences/{}", config.backend, username, key);
+    let body = rest_types::UserPreferenceTO {
+        id: None,
+        key: None,
+        value: value.to_string(),
+        created: None,
+        version: None,
+    };
+    let client = reqwest::Client::new();
+    let response = client.put(url).json(&body).send().await?;
+    response.error_for_status_ref()?;
+    Ok(response.json().await?)
+}
+
 // Validation API
 pub async fn get_validation(config: &Config) -> Result<ValidationResultTO, reqwest::Error> {
     info!("Fetching validation results");
@@ -824,7 +911,9 @@ pub struct InboundMailTO {
     pub received_at: String,
     pub has_attachments: bool,
     pub has_html_body: bool,
-    pub status: String,
+    pub replied: bool,
+    pub done: bool,
+    pub archived: bool,
     pub assigned_member_id: Option<String>,
     pub assigned_member_name: Option<String>,
 }
@@ -838,7 +927,9 @@ pub struct InboundMailDetailTO {
     pub body_text: String,
     pub has_attachments: bool,
     pub has_html_body: bool,
-    pub status: String,
+    pub replied: bool,
+    pub done: bool,
+    pub archived: bool,
     pub assigned_member_id: Option<String>,
     pub assigned_member_name: Option<String>,
 }
@@ -920,8 +1011,8 @@ pub async fn archive_inbox_mail(config: &Config, id: &str) -> Result<InboundMail
     response.json().await.map_err(|e| e.to_string())
 }
 
-pub async fn ignore_inbox_mail(config: &Config, id: &str) -> Result<InboundMailTO, String> {
-    let url = format!("{}/api/inbox/{}/ignore", config.backend, id);
+pub async fn done_inbox_mail(config: &Config, id: &str) -> Result<InboundMailTO, String> {
+    let url = format!("{}/api/inbox/{}/done", config.backend, id);
     let response = reqwest::Client::new()
         .post(url)
         .send()

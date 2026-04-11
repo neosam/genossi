@@ -9,6 +9,8 @@ use std::sync::Arc;
 
 use crate::gen_service_impl;
 
+use genossi_service::permission::ADMIN_PRIVILEGE;
+
 const USER_PREFERENCE_SERVICE_PROCESS: &str = "user-preference-service";
 const VIEW_MEMBERS_PRIVILEGE: &str = "view_members";
 
@@ -98,6 +100,82 @@ impl<Deps: UserPreferenceServiceDeps> UserPreferenceService
                 let entity = genossi_dao::user_preference::UserPreferenceEntity {
                     id: self.uuid_service.new_v4().await,
                     user_id: Arc::from(user_id.as_str()),
+                    key: Arc::from(key),
+                    value: Arc::from(value),
+                    created,
+                    deleted: None,
+                    version: self.uuid_service.new_v4().await,
+                };
+                self.user_preference_dao
+                    .create(&entity, USER_PREFERENCE_SERVICE_PROCESS, tx.clone())
+                    .await?;
+                entity
+            }
+        };
+
+        self.transaction_dao.commit(tx).await?;
+        Ok(UserPreference::from(&result))
+    }
+
+    async fn get_by_key_for_user(
+        &self,
+        username: &str,
+        key: &str,
+        context: Authentication<Self::Context>,
+        tx: Option<Self::Transaction>,
+    ) -> Result<UserPreference, ServiceError> {
+        let tx = self.transaction_dao.use_transaction(tx).await?;
+
+        self.permission_service
+            .check_permission(ADMIN_PRIVILEGE, context)
+            .await?;
+
+        let entity = self
+            .user_preference_dao
+            .find_by_user_and_key(username, key, tx.clone())
+            .await?
+            .ok_or(ServiceError::EntityNotFound(uuid::Uuid::nil()))?;
+
+        self.transaction_dao.commit(tx).await?;
+        Ok(UserPreference::from(&entity))
+    }
+
+    async fn upsert_for_user(
+        &self,
+        username: &str,
+        key: &str,
+        value: &str,
+        context: Authentication<Self::Context>,
+        tx: Option<Self::Transaction>,
+    ) -> Result<UserPreference, ServiceError> {
+        let tx = self.transaction_dao.use_transaction(tx).await?;
+
+        self.permission_service
+            .check_permission(ADMIN_PRIVILEGE, context)
+            .await?;
+
+        let existing = self
+            .user_preference_dao
+            .find_by_user_and_key(username, key, tx.clone())
+            .await?;
+
+        let result = match existing {
+            Some(mut entity) => {
+                entity.value = Arc::from(value);
+                self.user_preference_dao
+                    .update(&entity, USER_PREFERENCE_SERVICE_PROCESS, tx.clone())
+                    .await?;
+                self.user_preference_dao
+                    .find_by_user_and_key(username, key, tx.clone())
+                    .await?
+                    .ok_or(ServiceError::EntityNotFound(entity.id))?
+            }
+            None => {
+                let now = time::OffsetDateTime::now_utc();
+                let created = time::PrimitiveDateTime::new(now.date(), now.time());
+                let entity = genossi_dao::user_preference::UserPreferenceEntity {
+                    id: self.uuid_service.new_v4().await,
+                    user_id: Arc::from(username),
                     key: Arc::from(key),
                     value: Arc::from(value),
                     created,

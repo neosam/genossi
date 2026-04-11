@@ -11,7 +11,7 @@ use std::sync::Arc;
 use utoipa::{OpenApi, ToSchema};
 use uuid::Uuid;
 
-use crate::dao::{InboundMail, MailJob};
+use crate::dao::InboundMail;
 use crate::inbox::InboxService;
 use crate::service::MailServiceError;
 
@@ -27,7 +27,9 @@ pub struct InboundMailTO {
     pub received_at: String,
     pub has_attachments: bool,
     pub has_html_body: bool,
-    pub status: String,
+    pub replied: bool,
+    pub done: bool,
+    pub archived: bool,
     pub assigned_member_id: Option<String>,
     pub assigned_member_name: Option<String>,
 }
@@ -41,7 +43,9 @@ pub struct InboundMailDetailTO {
     pub body_text: String,
     pub has_attachments: bool,
     pub has_html_body: bool,
-    pub status: String,
+    pub replied: bool,
+    pub done: bool,
+    pub archived: bool,
     pub assigned_member_id: Option<String>,
     pub assigned_member_name: Option<String>,
 }
@@ -76,7 +80,9 @@ fn to_list_to(mail: &InboundMail, assigned_name: Option<String>) -> InboundMailT
         received_at: format_dt(&mail.received_at),
         has_attachments: mail.has_attachments,
         has_html_body: mail.has_html_body,
-        status: mail.status.to_string(),
+        replied: mail.replied,
+        done: mail.done,
+        archived: mail.archived,
         assigned_member_id: mail.assigned_member_id.map(|id| id.to_string()),
         assigned_member_name: assigned_name,
     }
@@ -91,7 +97,9 @@ fn to_detail_to(mail: &InboundMail, assigned_name: Option<String>) -> InboundMai
         body_text: mail.body_text.to_string(),
         has_attachments: mail.has_attachments,
         has_html_body: mail.has_html_body,
-        status: mail.status.to_string(),
+        replied: mail.replied,
+        done: mail.done,
+        archived: mail.archived,
         assigned_member_id: mail.assigned_member_id.map(|id| id.to_string()),
         assigned_member_name: assigned_name,
     }
@@ -294,12 +302,12 @@ async fn archive_inbox<S: InboxRestState>(
 
 #[utoipa::path(
     post,
-    path = "/{id}/ignore",
+    path = "/{id}/done",
     tag = "inbox",
     params(("id" = String, Path, description = "Inbound mail id")),
-    responses((status = 200, description = "Ignored", body = InboundMailTO))
+    responses((status = 200, description = "Marked as done", body = InboundMailTO))
 )]
-async fn ignore_inbox<S: InboxRestState>(
+async fn done_inbox<S: InboxRestState>(
     State(state): State<S>,
     Path(id): Path<String>,
 ) -> Response {
@@ -308,7 +316,7 @@ async fn ignore_inbox<S: InboxRestState>(
         Ok(u) => u,
         Err(_) => return (StatusCode::BAD_REQUEST, "invalid id").into_response(),
     };
-    let mail = match svc.ignore(mail_id).await {
+    let mail = match svc.mark_done(mail_id).await {
         Ok(m) => m,
         Err(e) => return map_error(e),
     };
@@ -379,7 +387,7 @@ pub fn generate_route<S: InboxRestState>() -> Router<S> {
         .route("/{id}/unassign", post(unassign_inbox::<S>))
         .route("/{id}/mark-read", post(mark_read_inbox::<S>))
         .route("/{id}/archive", post(archive_inbox::<S>))
-        .route("/{id}/ignore", post(ignore_inbox::<S>))
+        .route("/{id}/done", post(done_inbox::<S>))
         .route("/{id}/reply", post(reply_inbox::<S>))
 }
 
@@ -393,7 +401,7 @@ pub fn generate_route<S: InboxRestState>() -> Router<S> {
         unassign_inbox,
         mark_read_inbox,
         archive_inbox,
-        ignore_inbox,
+        done_inbox,
         reply_inbox,
     ),
     components(schemas(InboundMailTO, InboundMailDetailTO, AssignMemberRequest, ReplyRequest, ReplyResponseTO)),

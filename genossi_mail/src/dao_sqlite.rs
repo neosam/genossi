@@ -646,7 +646,9 @@ struct InboundMailDb {
     raw_html_body: Option<String>,
     in_reply_to: Option<String>,
     message_id: Option<String>,
-    status: String,
+    replied: i64,
+    done: i64,
+    archived: i64,
     assigned_member_id: Option<Vec<u8>>,
 }
 
@@ -671,7 +673,9 @@ impl TryFrom<&InboundMailDb> for InboundMail {
             raw_html_body: db.raw_html_body.as_deref().map(Arc::from),
             in_reply_to: db.in_reply_to.as_deref().map(Arc::from),
             message_id: db.message_id.as_deref().map(Arc::from),
-            status: Arc::from(db.status.as_str()),
+            replied: db.replied != 0,
+            done: db.done != 0,
+            archived: db.archived != 0,
             assigned_member_id: parse_optional_uuid(&db.assigned_member_id)?,
         })
     }
@@ -697,8 +701,8 @@ impl InboundMailDao for InboundMailDaoSqlite {
         let assigned = mail.assigned_member_id.map(|m| m.as_bytes().to_vec());
 
         sqlx::query(
-            "INSERT INTO inbound_mails (id, created, version, uid_validity, imap_uid, from_address, subject, received_at, body_text, has_attachments, has_html_body, raw_html_body, in_reply_to, message_id, status, assigned_member_id) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO inbound_mails (id, created, version, uid_validity, imap_uid, from_address, subject, received_at, body_text, has_attachments, has_html_body, raw_html_body, in_reply_to, message_id, replied, done, archived, assigned_member_id) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(id)
         .bind(created)
@@ -714,7 +718,9 @@ impl InboundMailDao for InboundMailDaoSqlite {
         .bind(mail.raw_html_body.as_deref())
         .bind(mail.in_reply_to.as_deref())
         .bind(mail.message_id.as_deref())
-        .bind(mail.status.as_ref())
+        .bind(if mail.replied { 1i64 } else { 0 })
+        .bind(if mail.done { 1i64 } else { 0 })
+        .bind(if mail.archived { 1i64 } else { 0 })
         .bind(assigned)
         .execute(self.pool.as_ref())
         .await
@@ -726,7 +732,7 @@ impl InboundMailDao for InboundMailDaoSqlite {
     async fn find_by_id(&self, id: Uuid) -> Result<Option<InboundMail>, MailDaoError> {
         let id_bytes = id.as_bytes().to_vec();
         let row = sqlx::query_as::<_, InboundMailDb>(
-            "SELECT id, created, version, uid_validity, imap_uid, from_address, subject, received_at, body_text, has_attachments, has_html_body, raw_html_body, in_reply_to, message_id, status, assigned_member_id \
+            "SELECT id, created, version, uid_validity, imap_uid, from_address, subject, received_at, body_text, has_attachments, has_html_body, raw_html_body, in_reply_to, message_id, replied, done, archived, assigned_member_id \
              FROM inbound_mails WHERE id = ?",
         )
         .bind(id_bytes)
@@ -742,8 +748,8 @@ impl InboundMailDao for InboundMailDaoSqlite {
 
     async fn list_active(&self) -> Result<Arc<[InboundMail]>, MailDaoError> {
         let rows = sqlx::query_as::<_, InboundMailDb>(
-            "SELECT id, created, version, uid_validity, imap_uid, from_address, subject, received_at, body_text, has_attachments, has_html_body, raw_html_body, in_reply_to, message_id, status, assigned_member_id \
-             FROM inbound_mails WHERE status != 'ignored' ORDER BY received_at DESC",
+            "SELECT id, created, version, uid_validity, imap_uid, from_address, subject, received_at, body_text, has_attachments, has_html_body, raw_html_body, in_reply_to, message_id, replied, done, archived, assigned_member_id \
+             FROM inbound_mails ORDER BY received_at DESC",
         )
         .fetch_all(self.pool.as_ref())
         .await
@@ -791,9 +797,11 @@ impl InboundMailDao for InboundMailDaoSqlite {
         let assigned = mail.assigned_member_id.map(|m| m.as_bytes().to_vec());
 
         sqlx::query(
-            "UPDATE inbound_mails SET status = ?, assigned_member_id = ?, version = ? WHERE id = ?",
+            "UPDATE inbound_mails SET replied = ?, done = ?, archived = ?, assigned_member_id = ?, version = ? WHERE id = ?",
         )
-        .bind(mail.status.as_ref())
+        .bind(if mail.replied { 1i64 } else { 0 })
+        .bind(if mail.done { 1i64 } else { 0 })
+        .bind(if mail.archived { 1i64 } else { 0 })
         .bind(assigned)
         .bind(version)
         .bind(id)
@@ -903,7 +911,9 @@ mod tests {
                 raw_html_body TEXT,
                 in_reply_to TEXT,
                 message_id TEXT,
-                status TEXT NOT NULL,
+                replied INTEGER NOT NULL DEFAULT 0,
+                done INTEGER NOT NULL DEFAULT 0,
+                archived INTEGER NOT NULL DEFAULT 0,
                 assigned_member_id BLOB,
                 UNIQUE (uid_validity, imap_uid)
             )",
@@ -1455,7 +1465,9 @@ mod tests {
             raw_html_body: None,
             in_reply_to: None,
             message_id: None,
-            status: Arc::from("new"),
+            replied: false,
+            done: false,
+            archived: false,
             assigned_member_id: None,
         }
     }
@@ -1503,18 +1515,17 @@ mod tests {
 
         let member_id = Uuid::new_v4();
         let mut updated = mail.clone();
-        updated.status = Arc::from("assigned");
         updated.assigned_member_id = Some(member_id);
         updated.version = Uuid::new_v4();
         dao.update(&updated).await.unwrap();
 
         let found = dao.find_by_id(mail.id).await.unwrap().unwrap();
-        assert_eq!(found.status.as_ref(), "assigned");
         assert_eq!(found.assigned_member_id, Some(member_id));
+        assert!(!found.done);
     }
 
     #[tokio::test]
-    async fn test_inbound_list_excludes_ignored() {
+    async fn test_inbound_list_includes_done() {
         let pool = setup_db().await;
         let dao = InboundMailDaoSqlite::new(pool);
         let m1 = sample_inbound(1, 10);
@@ -1522,14 +1533,13 @@ mod tests {
         dao.create(&m1).await.unwrap();
         dao.create(&m2).await.unwrap();
 
-        let mut ignored = m2.clone();
-        ignored.status = Arc::from("ignored");
-        ignored.version = Uuid::new_v4();
-        dao.update(&ignored).await.unwrap();
+        let mut done = m2.clone();
+        done.done = true;
+        done.version = Uuid::new_v4();
+        dao.update(&done).await.unwrap();
 
         let all = dao.list_active().await.unwrap();
-        assert_eq!(all.len(), 1);
-        assert_eq!(all[0].id, m1.id);
+        assert_eq!(all.len(), 2);
     }
 
     #[tokio::test]

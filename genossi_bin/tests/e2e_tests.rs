@@ -4329,7 +4329,7 @@ async fn test_bulk_mail_with_unknown_static_document_id_fails() {
 // ── Inbox E2E ────────────────────────────────────────────────────────────
 
 /// Seed a row in `inbound_mails` directly, bypassing IMAP, so we can exercise
-/// the REST side (list / detail / assign / ignore) without a real mail server.
+/// the REST side (list / detail / assign / done) without a real mail server.
 async fn seed_inbound_mail(
     pool: &sqlx::SqlitePool,
     uid: i64,
@@ -4343,8 +4343,8 @@ async fn seed_inbound_mail(
         .format(&time::format_description::well_known::Iso8601::DEFAULT)
         .unwrap();
     sqlx::query(
-        "INSERT INTO inbound_mails (id, created, version, uid_validity, imap_uid, from_address, subject, received_at, body_text, has_attachments, has_html_body, raw_html_body, in_reply_to, status, assigned_member_id) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, NULL, NULL, 'new', NULL)",
+        "INSERT INTO inbound_mails (id, created, version, uid_validity, imap_uid, from_address, subject, received_at, body_text, has_attachments, has_html_body, raw_html_body, in_reply_to, replied, done, archived, assigned_member_id) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, NULL, NULL, 0, 0, 0, NULL)",
     )
     .bind(id.as_bytes().to_vec())
     .bind(&now_str)
@@ -4404,7 +4404,9 @@ async fn test_inbox_detail() {
     let body: serde_json::Value = response.json().await.unwrap();
     assert_eq!(body["from_address"], "sender@example.com");
     assert_eq!(body["subject"], "Hallo");
-    assert_eq!(body["status"], "new");
+    assert_eq!(body["replied"], false);
+    assert_eq!(body["done"], false);
+    assert_eq!(body["archived"], false);
     assert!(body["body_text"].as_str().unwrap().contains("Antwort"));
 }
 
@@ -4435,7 +4437,6 @@ async fn test_inbox_assign_and_unassign() {
         .unwrap();
     assert_eq!(r.status(), StatusCode::OK);
     let body: serde_json::Value = r.json().await.unwrap();
-    assert_eq!(body["status"], "assigned");
     assert_eq!(body["assigned_member_id"], member_id);
     assert!(body["assigned_member_name"]
         .as_str()
@@ -4450,22 +4451,25 @@ async fn test_inbox_assign_and_unassign() {
         .unwrap();
     assert_eq!(r.status(), StatusCode::OK);
     let body: serde_json::Value = r.json().await.unwrap();
-    assert_eq!(body["status"], "new");
+    assert!(body["assigned_member_id"].is_null());
 }
 
 #[tokio::test]
-async fn test_inbox_ignore_removes_from_list() {
+async fn test_inbox_done_marks_mail() {
     let (server, pool) = setup_with_pool().await;
     let id = seed_inbound_mail(&pool, 3, "spam@example.com", "Werbung").await;
     let client = reqwest::Client::new();
 
     let r = client
-        .post(server.url(&format!("/api/inbox/{}/ignore", id)))
+        .post(server.url(&format!("/api/inbox/{}/done", id)))
         .send()
         .await
         .unwrap();
     assert_eq!(r.status(), StatusCode::OK);
+    let body: serde_json::Value = r.json().await.unwrap();
+    assert_eq!(body["done"], true);
 
+    // Done mails still appear in the list (frontend filters client-side)
     let list: Vec<serde_json::Value> = client
         .get(server.url("/api/inbox"))
         .send()
@@ -4474,7 +4478,8 @@ async fn test_inbox_ignore_removes_from_list() {
         .json()
         .await
         .unwrap();
-    assert!(list.is_empty(), "ignored mails must not appear in /api/inbox");
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0]["done"], true);
 }
 
 #[tokio::test]
@@ -4550,4 +4555,157 @@ async fn test_mail_footer_with_config_and_sender_name() {
     assert_eq!(response.status(), StatusCode::OK);
     let footer: FooterResponse = response.json().await.unwrap();
     assert_eq!(footer.footer, "Mit freundlichen Grüßen\nAnna Schmidt");
+}
+
+// Admin User Preference Tests
+
+#[tokio::test]
+async fn test_admin_get_user_preference_not_found() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(server.url("/api/permission/user/DEVUSER/preferences/sender_name"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_admin_upsert_user_preference() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let body = UserPreferenceTO {
+        id: None,
+        key: None,
+        value: "Max Mustermann".to_string(),
+        created: None,
+        version: None,
+    };
+
+    let response = client
+        .put(server.url("/api/permission/user/DEVUSER/preferences/sender_name"))
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let pref: UserPreferenceTO = response.json().await.unwrap();
+    assert_eq!(pref.value, "Max Mustermann");
+    assert_eq!(pref.key.as_deref(), Some("sender_name"));
+}
+
+#[tokio::test]
+async fn test_admin_get_user_preference_after_upsert() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Create preference
+    let body = UserPreferenceTO {
+        id: None,
+        key: None,
+        value: "Test User".to_string(),
+        created: None,
+        version: None,
+    };
+
+    client
+        .put(server.url("/api/permission/user/DEVUSER/preferences/sender_name"))
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+
+    // Read it back
+    let response = client
+        .get(server.url("/api/permission/user/DEVUSER/preferences/sender_name"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let pref: UserPreferenceTO = response.json().await.unwrap();
+    assert_eq!(pref.value, "Test User");
+}
+
+#[tokio::test]
+async fn test_admin_upsert_user_preference_update() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let body = UserPreferenceTO {
+        id: None,
+        key: None,
+        value: "Original Name".to_string(),
+        created: None,
+        version: None,
+    };
+
+    client
+        .put(server.url("/api/permission/user/DEVUSER/preferences/sender_name"))
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+
+    // Update
+    let body2 = UserPreferenceTO {
+        id: None,
+        key: None,
+        value: "Updated Name".to_string(),
+        created: None,
+        version: None,
+    };
+
+    let response = client
+        .put(server.url("/api/permission/user/DEVUSER/preferences/sender_name"))
+        .json(&body2)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let pref: UserPreferenceTO = response.json().await.unwrap();
+    assert_eq!(pref.value, "Updated Name");
+}
+
+#[tokio::test]
+async fn test_admin_upsert_preference_for_other_user() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Set preference for "admin" user (different from DEVUSER)
+    let body = UserPreferenceTO {
+        id: None,
+        key: None,
+        value: "Admin Person".to_string(),
+        created: None,
+        version: None,
+    };
+
+    let response = client
+        .put(server.url("/api/permission/user/admin/preferences/sender_name"))
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let pref: UserPreferenceTO = response.json().await.unwrap();
+    assert_eq!(pref.value, "Admin Person");
+
+    // Read it back
+    let response = client
+        .get(server.url("/api/permission/user/admin/preferences/sender_name"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let pref: UserPreferenceTO = response.json().await.unwrap();
+    assert_eq!(pref.value, "Admin Person");
 }

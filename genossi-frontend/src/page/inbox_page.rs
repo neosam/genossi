@@ -35,6 +35,7 @@ fn InboxPageInner() -> Element {
     let mut detail_loading = use_signal(|| false);
     let mut assign_search = use_signal(String::new);
     let mut show_reply = use_signal(|| false);
+    let mut filter = use_signal(|| "open".to_string()); // "open", "done", "all"
 
     use_effect(move || {
         spawn(async move {
@@ -139,15 +140,15 @@ fn InboxPageInner() -> Element {
         });
     };
 
-    let ignore_btn = move |_| {
+    let done_btn = move |_| {
         let Some(mail_id) = selected_id.read().clone() else {
             return;
         };
         spawn(async move {
             let cfg = CONFIG.read().clone();
-            match api::ignore_inbox_mail(&cfg, &mail_id).await {
+            match api::done_inbox_mail(&cfg, &mail_id).await {
                 Ok(_) => {
-                    info.set(Some("Ignoriert".to_string()));
+                    info.set(Some("Erledigt".to_string()));
                     selected_id.set(None);
                     detail.set(None);
                     reload();
@@ -178,35 +179,82 @@ fn InboxPageInner() -> Element {
                 div { class: "w-1/2 border rounded",
                     div { class: "flex justify-between items-center px-3 py-2 bg-gray-50 border-b",
                         span { class: "font-semibold", "Eingänge" }
-                        button {
-                            class: "text-sm text-blue-600 hover:underline",
-                            onclick: move |_| reload(),
-                            "Neu laden"
+                        div { class: "flex gap-2 items-center",
+                            {
+                                let current = filter.read().clone();
+                                let btn_class = |f: &str| {
+                                    if current == f {
+                                        "text-xs px-2 py-0.5 rounded bg-blue-600 text-white"
+                                    } else {
+                                        "text-xs px-2 py-0.5 rounded border hover:bg-gray-100"
+                                    }
+                                };
+                                rsx! {
+                                    button {
+                                        class: btn_class("open"),
+                                        onclick: move |_| filter.set("open".to_string()),
+                                        "Offen"
+                                    }
+                                    button {
+                                        class: btn_class("done"),
+                                        onclick: move |_| filter.set("done".to_string()),
+                                        "Erledigt"
+                                    }
+                                    button {
+                                        class: btn_class("all"),
+                                        onclick: move |_| filter.set("all".to_string()),
+                                        "Alle"
+                                    }
+                                }
+                            }
+                            button {
+                                class: "text-sm text-blue-600 hover:underline",
+                                onclick: move |_| reload(),
+                                "Neu laden"
+                            }
                         }
                     }
                     if *loading.read() {
                         div { class: "p-3 text-gray-500", "Lädt…" }
-                    } else if mails.read().is_empty() {
-                        div { class: "p-3 text-gray-500", "Keine Mails." }
                     } else {
-                        ul { class: "divide-y",
-                            for mail in mails.read().iter().cloned() {
-                                {
-                                    let mid = mail.id.clone();
-                                    let selected = selected_id.read().as_deref() == Some(mid.as_str());
-                                    let label = mail.assigned_member_name.clone()
-                                        .unwrap_or_else(|| "nicht zugeordnet".to_string());
-                                    let mid_click = mid.clone();
-                                    rsx! {
-                                        InboxMailListItem {
-                                            subject: mail.subject.clone(),
-                                            from_address: mail.from_address.clone(),
-                                            received_at: mail.received_at.clone(),
-                                            status: mail.status.clone(),
-                                            has_attachments: mail.has_attachments,
-                                            assigned_label: label,
-                                            selected: selected,
-                                            on_click: move |_| open_mail(mid_click.clone()),
+                        {
+                            let current_filter = filter.read().clone();
+                            let filtered: Vec<_> = mails.read().iter().filter(|m| {
+                                match current_filter.as_str() {
+                                    "open" => !m.done,
+                                    "done" => m.done,
+                                    _ => true,
+                                }
+                            }).cloned().collect();
+                            if filtered.is_empty() {
+                                rsx! {
+                                    div { class: "p-3 text-gray-500", "Keine Mails." }
+                                }
+                            } else {
+                                rsx! {
+                                    ul { class: "divide-y",
+                                        for mail in filtered {
+                                            {
+                                                let mid = mail.id.clone();
+                                                let selected = selected_id.read().as_deref() == Some(mid.as_str());
+                                                let label = mail.assigned_member_name.clone()
+                                                    .unwrap_or_else(|| "nicht zugeordnet".to_string());
+                                                let mid_click = mid.clone();
+                                                rsx! {
+                                                    InboxMailListItem {
+                                                        subject: mail.subject.clone(),
+                                                        from_address: mail.from_address.clone(),
+                                                        received_at: mail.received_at.clone(),
+                                                        replied: mail.replied,
+                                                        done: mail.done,
+                                                        archived: mail.archived,
+                                                        has_attachments: mail.has_attachments,
+                                                        assigned_label: label,
+                                                        selected: selected,
+                                                        on_click: move |_| open_mail(mid_click.clone()),
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -229,7 +277,7 @@ fn InboxPageInner() -> Element {
                                 "Empfangen: {d.received_at}"
                             }
                             div { class: "text-xs",
-                                InboxStatusBadge { status: d.status.clone() }
+                                InboxStatusBadge { replied: d.replied, done: d.done, archived: d.archived }
                             }
                             if d.has_attachments {
                                 div { class: "text-xs text-amber-700",
@@ -338,9 +386,9 @@ fn InboxPageInner() -> Element {
                                         "Archivieren"
                                     }
                                     button {
-                                        class: "text-sm px-3 py-1 border rounded hover:bg-gray-100",
-                                        onclick: ignore_btn,
-                                        "Ignorieren"
+                                        class: "text-sm px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded",
+                                        onclick: done_btn,
+                                        "Erledigt"
                                     }
                                 }
 

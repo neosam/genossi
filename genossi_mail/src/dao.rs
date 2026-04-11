@@ -159,7 +159,9 @@ pub struct InboundMail {
     pub raw_html_body: Option<Arc<str>>,
     pub in_reply_to: Option<Arc<str>>,
     pub message_id: Option<Arc<str>>,
-    pub status: Arc<str>,
+    pub replied: bool,
+    pub done: bool,
+    pub archived: bool,
     pub assigned_member_id: Option<Uuid>,
 }
 
@@ -168,7 +170,7 @@ pub struct InboundMail {
 pub trait InboundMailDao: Send + Sync + 'static {
     async fn create(&self, mail: &InboundMail) -> Result<(), MailDaoError>;
     async fn find_by_id(&self, id: Uuid) -> Result<Option<InboundMail>, MailDaoError>;
-    /// All mails whose status is not `ignored`, ordered by received_at DESC.
+    /// All inbound mails, ordered by received_at DESC.
     async fn list_active(&self) -> Result<Arc<[InboundMail]>, MailDaoError>;
     async fn exists_by_uid(
         &self,
