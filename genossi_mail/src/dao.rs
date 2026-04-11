@@ -140,6 +140,46 @@ pub trait MailJobStaticAttachmentDao: Send + Sync + 'static {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// Communication timeline (unified view per member)
+// ────────────────────────────────────────────────────────────────────────────
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CommunicationDirection {
+    Inbound,
+    Outbound,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CommunicationEntry {
+    pub direction: CommunicationDirection,
+    pub date: time::PrimitiveDateTime,
+    pub subject: Arc<str>,
+
+    // Inbound-specific
+    pub inbox_id: Option<Uuid>,
+    pub from_address: Option<Arc<str>>,
+    pub inbound_done: Option<bool>,
+    pub inbound_replied: Option<bool>,
+    pub inbound_archived: Option<bool>,
+
+    // Outbound-specific
+    pub mail_job_id: Option<Uuid>,
+    pub recipient_id: Option<Uuid>,
+    pub to_address: Option<Arc<str>>,
+    pub outbound_status: Option<Arc<str>>,
+}
+
+#[automock]
+#[async_trait]
+pub trait CommunicationDao: Send + Sync + 'static {
+    async fn get_member_communications(
+        &self,
+        member_id: Uuid,
+    ) -> Result<Arc<[CommunicationEntry]>, MailDaoError>;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // Inbound mails (member-inbox)
 // ────────────────────────────────────────────────────────────────────────────
 

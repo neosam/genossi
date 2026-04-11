@@ -696,3 +696,98 @@ pub fn MailPage() -> Element {
         }
     }
 }
+
+// ── Mail Job Detail page (deep link from communication timeline) ─────
+
+#[component]
+pub fn MailJobDetail(id: String) -> Element {
+    let i18n = use_i18n();
+    let mut detail = use_signal(|| None::<MailJobDetailTO>);
+    let mut loading = use_signal(|| true);
+    let mut error = use_signal(|| None::<String>);
+
+    use_effect(move || {
+        let id = id.clone();
+        spawn(async move {
+            let config = CONFIG.read().clone();
+            match api::get_mail_job_detail(&config, &id).await {
+                Ok(d) => detail.set(Some(d)),
+                Err(e) => error.set(Some(e.to_string())),
+            }
+            loading.set(false);
+        });
+    });
+
+    rsx! {
+        TopBar {}
+        div { class: "max-w-4xl mx-auto p-6",
+            Link {
+                to: crate::router::Route::MailPage {},
+                class: "text-blue-600 hover:underline text-sm mb-4 inline-block",
+                "\u{2190} {i18n.t(Key::Back)}"
+            }
+
+            if *loading.read() {
+                div { class: "text-gray-500", {i18n.t(Key::Loading)} }
+            } else if let Some(ref err) = *error.read() {
+                div { class: "text-red-500", "{err}" }
+            } else if let Some(d) = detail.read().as_ref() {
+                div { class: "space-y-4",
+                    h1 { class: "text-2xl font-bold", "{d.job.subject}" }
+                    div { class: "flex items-center gap-4 text-sm",
+                        span { class: "{job_status_color(&d.job.status)} font-medium",
+                            {i18n.t(job_status_key(&d.job.status))}
+                        }
+                        span { class: "text-gray-500", "{d.job.created}" }
+                        span { class: "text-gray-500",
+                            "{d.job.sent_count}/{d.job.total_count} {i18n.t(Key::MailSent)}"
+                        }
+                    }
+
+                    // Mail body
+                    pre { class: "bg-gray-50 p-4 border rounded text-sm whitespace-pre-wrap max-h-96 overflow-auto",
+                        "{d.job.body}"
+                    }
+
+                    // Recipients table
+                    div { class: "border rounded-lg overflow-hidden",
+                        h3 { class: "text-sm font-medium text-gray-700 p-3 bg-gray-50",
+                            {i18n.t(Key::MailRecipients)}
+                        }
+                        table { class: "w-full text-sm",
+                            thead { tr { class: "border-b text-left text-gray-500 bg-gray-50",
+                                th { class: "py-2 px-3", {i18n.t(Key::MailTo)} }
+                                th { class: "py-2 px-3", {i18n.t(Key::MailStatus)} }
+                                th { class: "py-2 px-3", {i18n.t(Key::MailError)} }
+                            }}
+                            tbody {
+                                for r in d.recipients.iter() {
+                                    {
+                                        let r_status_color = match r.status.as_str() {
+                                            "sent" => "text-green-600",
+                                            "failed" => "text-red-600",
+                                            _ => "text-gray-400",
+                                        };
+                                        let r_status_text = match r.status.as_str() {
+                                            "sent" => i18n.t(Key::MailSent),
+                                            "failed" => i18n.t(Key::MailFailed),
+                                            _ => i18n.t(Key::MailJobPending),
+                                        };
+                                        let error_text = r.error.clone().unwrap_or_default();
+                                        rsx! {
+                                            tr { class: "border-b last:border-b-0",
+                                                td { class: "py-2 px-3", "{r.to_address}" }
+                                                td { class: "py-2 px-3 {r_status_color}", {r_status_text} }
+                                                td { class: "py-2 px-3 text-red-500 text-xs", "{error_text}" }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

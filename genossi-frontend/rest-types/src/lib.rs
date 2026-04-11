@@ -616,3 +616,40 @@ mod tests {
         assert!(member.exited_in_year(&ref_date));
     }
 }
+
+// ── Communication timeline types ──────────────────────────────────────────
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CommunicationDirection {
+    Inbound,
+    Outbound,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct InboundStatusTO {
+    pub done: bool,
+    pub replied: bool,
+    pub archived: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CommunicationEntryTO {
+    pub direction: CommunicationDirection,
+    pub date: String,
+    pub subject: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inbox_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from_address: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inbound_status: Option<InboundStatusTO>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mail_job_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recipient_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub to_address: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub outbound_status: Option<String>,
+}

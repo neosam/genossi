@@ -1,4 +1,5 @@
 pub mod base_components;
+pub mod communication_timeline;
 pub mod dropdown_base;
 pub mod error_view;
 pub mod footer;
@@ -9,6 +10,7 @@ pub mod modal;
 pub mod overlay;
 pub mod top_bar;
 
+pub use communication_timeline::CommunicationTimeline;
 pub use footer::Footer;
 pub use member_search::MemberSearch;
 pub use modal::Modal;

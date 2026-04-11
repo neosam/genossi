@@ -19,13 +19,24 @@ pub fn InboxPage() -> Element {
         RequirePrivilege {
             privilege: "admin",
             fallback: rsx! { AccessDeniedPage { required_privilege: "admin".to_string() } },
-            InboxPageInner {}
+            InboxPageInner { initial_id: None }
         }
     }
 }
 
 #[component]
-fn InboxPageInner() -> Element {
+pub fn InboxDetail(id: String) -> Element {
+    rsx! {
+        RequirePrivilege {
+            privilege: "admin",
+            fallback: rsx! { AccessDeniedPage { required_privilege: "admin".to_string() } },
+            InboxPageInner { initial_id: Some(id) }
+        }
+    }
+}
+
+#[component]
+fn InboxPageInner(initial_id: Option<String>) -> Element {
     let mut mails = use_signal(Vec::<InboundMailTO>::new);
     let mut loading = use_signal(|| true);
     let mut error = use_signal(|| None::<String>);
@@ -60,6 +71,26 @@ fn InboxPageInner() -> Element {
 
     use_effect(move || {
         reload();
+    });
+
+    // Auto-select mail when opened via deep link
+    let initial_id_clone = initial_id.clone();
+    use_effect(move || {
+        if let Some(ref id) = initial_id_clone {
+            let id = id.clone();
+            spawn(async move {
+                selected_id.set(Some(id.clone()));
+                detail_loading.set(true);
+                let cfg = CONFIG.read().clone();
+                match api::get_inbox_detail(&cfg, &id).await {
+                    Ok(d) => {
+                        detail.set(Some(d));
+                    }
+                    Err(e) => error.set(Some(e)),
+                }
+                detail_loading.set(false);
+            });
+        }
     });
 
     let load_detail = move |id: String| {

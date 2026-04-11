@@ -211,6 +211,17 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::Columns => "Spalten".into(),
         Key::Done => "Fertig".into(),
 
+        Key::Communication => "Kommunikation".into(),
+        Key::CommunicationInbound => "Eingang".into(),
+        Key::CommunicationOutbound => "Ausgang".into(),
+        Key::CommunicationNone => "Noch keine Kommunikation.".into(),
+        Key::CommunicationStatusSent => "Gesendet".into(),
+        Key::CommunicationStatusPending => "Ausstehend".into(),
+        Key::CommunicationStatusFailed => "Fehlgeschlagen".into(),
+        Key::CommunicationStatusDone => "Erledigt".into(),
+        Key::CommunicationStatusReplied => "Beantwortet".into(),
+        Key::CommunicationStatusArchived => "Archiviert".into(),
+
         Key::NoDataFound => "Keine Daten gefunden.".into(),
         Key::ErrorLoadingData => "Fehler beim Laden der Daten.".into(),
         Key::ConfirmDelete => "Sind Sie sicher, dass Sie dieses Mitglied löschen möchten?".into(),

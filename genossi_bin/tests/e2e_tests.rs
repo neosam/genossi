@@ -4709,3 +4709,148 @@ async fn test_admin_upsert_preference_for_other_user() {
     let pref: UserPreferenceTO = response.json().await.unwrap();
     assert_eq!(pref.value, "Admin Person");
 }
+
+// ── Communication timeline e2e tests ────────────────────────────────────
+
+#[tokio::test]
+async fn test_communication_timeline_empty() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Create a member
+    let resp = client
+        .post(server.url("/api/members"))
+        .json(&sample_member())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let member: MemberTO = resp.json().await.unwrap();
+    let member_id = member.id.unwrap();
+
+    // Get communications — should be empty
+    let resp = client
+        .get(server.url(&format!(
+            "/api/members/{}/communications",
+            member_id
+        )))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let entries: Vec<serde_json::Value> = resp.json().await.unwrap();
+    assert!(entries.is_empty());
+}
+
+#[tokio::test]
+async fn test_communication_timeline_with_outbound_and_inbound() {
+    let (server, pool) = setup_with_pool().await;
+    let client = reqwest::Client::new();
+
+    // Create a member
+    let resp = client
+        .post(server.url("/api/members"))
+        .json(&sample_member())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let member: MemberTO = resp.json().await.unwrap();
+    let member_id = member.id.unwrap();
+
+    // Seed an outbound mail recipient linked to this member
+    let job_id = uuid::Uuid::new_v4();
+    let recipient_id = uuid::Uuid::new_v4();
+    let now = time::OffsetDateTime::now_utc();
+    let earlier = now - time::Duration::hours(2);
+    let earlier_str = earlier
+        .format(&time::format_description::well_known::Iso8601::DEFAULT)
+        .unwrap();
+    let now_str = now
+        .format(&time::format_description::well_known::Iso8601::DEFAULT)
+        .unwrap();
+
+    sqlx::query(
+        "INSERT INTO mail_jobs (id, created, version, subject, body, status, total_count, sent_count, failed_count) \
+         VALUES (?, ?, ?, ?, ?, 'done', 1, 1, 0)",
+    )
+    .bind(job_id.as_bytes().to_vec())
+    .bind(&earlier_str)
+    .bind(uuid::Uuid::new_v4().as_bytes().to_vec())
+    .bind("Einladung HV")
+    .bind("Liebe Mitglieder...")
+    .execute(pool.as_ref())
+    .await
+    .unwrap();
+
+    sqlx::query(
+        "INSERT INTO mail_recipients (id, created, version, mail_job_id, to_address, member_id, status, sent_at) \
+         VALUES (?, ?, ?, ?, ?, ?, 'sent', ?)",
+    )
+    .bind(recipient_id.as_bytes().to_vec())
+    .bind(&earlier_str)
+    .bind(uuid::Uuid::new_v4().as_bytes().to_vec())
+    .bind(job_id.as_bytes().to_vec())
+    .bind("max@example.com")
+    .bind(member_id.as_bytes().to_vec())
+    .bind(&earlier_str)
+    .execute(pool.as_ref())
+    .await
+    .unwrap();
+
+    // Seed an inbound mail assigned to this member (more recent)
+    let inbound_id = uuid::Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO inbound_mails (id, created, version, uid_validity, imap_uid, from_address, subject, received_at, body_text, has_attachments, has_html_body, replied, done, archived, assigned_member_id) \
+         VALUES (?, ?, ?, 1, 99, ?, ?, ?, ?, 0, 0, 0, 1, 0, ?)",
+    )
+    .bind(inbound_id.as_bytes().to_vec())
+    .bind(&now_str)
+    .bind(uuid::Uuid::new_v4().as_bytes().to_vec())
+    .bind("max@example.com")
+    .bind("Re: Einladung HV")
+    .bind(&now_str)
+    .bind("Vielen Dank!")
+    .bind(member_id.as_bytes().to_vec())
+    .execute(pool.as_ref())
+    .await
+    .unwrap();
+
+    // Get communications
+    let resp = client
+        .get(server.url(&format!(
+            "/api/members/{}/communications",
+            member_id
+        )))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let entries: Vec<serde_json::Value> = resp.json().await.unwrap();
+    assert_eq!(entries.len(), 2);
+
+    // Newest first: inbound (now) then outbound (2h ago)
+    assert_eq!(entries[0]["direction"], "inbound");
+    assert_eq!(entries[0]["subject"], "Re: Einladung HV");
+    assert_eq!(entries[0]["inbox_id"], inbound_id.to_string());
+    assert_eq!(entries[0]["inbound_status"]["done"], true);
+    assert_eq!(entries[0]["inbound_status"]["replied"], false);
+
+    assert_eq!(entries[1]["direction"], "outbound");
+    assert_eq!(entries[1]["subject"], "Einladung HV");
+    assert_eq!(entries[1]["mail_job_id"], job_id.to_string());
+    assert_eq!(entries[1]["outbound_status"], "sent");
+}
+
+#[tokio::test]
+async fn test_communication_timeline_invalid_member_id() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .get(server.url("/api/members/not-a-uuid/communications"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}

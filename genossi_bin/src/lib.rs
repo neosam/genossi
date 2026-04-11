@@ -637,6 +637,15 @@ impl genossi_mail::rest::MailRestState for RestStateImpl {
     }
 }
 
+impl genossi_mail::communication_rest::CommunicationRestState for RestStateImpl {
+    type CommunicationDao = genossi_mail::dao_sqlite::CommunicationDaoSqlite;
+    fn communication_dao(&self) -> Arc<Self::CommunicationDao> {
+        Arc::new(genossi_mail::dao_sqlite::CommunicationDaoSqlite::new(
+            self.pool.clone(),
+        ))
+    }
+}
+
 impl genossi_rest::public_stats::PublicStatsState for RestStateImpl {
     fn public_stats_cache(&self) -> &genossi_rest::public_stats::PublicStatsCache {
         &self.public_stats_cache

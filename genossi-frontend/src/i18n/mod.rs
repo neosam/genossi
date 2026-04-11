@@ -270,6 +270,18 @@ pub enum Key {
     Columns,
     Done,
 
+    // Communication timeline
+    Communication,
+    CommunicationInbound,
+    CommunicationOutbound,
+    CommunicationNone,
+    CommunicationStatusSent,
+    CommunicationStatusPending,
+    CommunicationStatusFailed,
+    CommunicationStatusDone,
+    CommunicationStatusReplied,
+    CommunicationStatusArchived,
+
     // Messages
     NoDataFound,
     ErrorLoadingData,

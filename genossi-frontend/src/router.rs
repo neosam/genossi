@@ -3,7 +3,9 @@ use dioxus::prelude::*;
 pub use crate::page::ConfigPage;
 pub use crate::page::Home;
 pub use crate::page::InboxPage;
+pub use crate::page::inbox_page::InboxDetail;
 pub use crate::page::MailPage;
+pub use crate::page::mail_page::MailJobDetail;
 pub use crate::page::MemberDetails;
 pub use crate::page::Members;
 pub use crate::page::Permissions;
@@ -29,8 +31,12 @@ pub enum Route {
     ConfigPage {},
     #[route("/mail")]
     MailPage {},
+    #[route("/mail/jobs/:id")]
+    MailJobDetail { id: String },
     #[route("/inbox")]
     InboxPage {},
+    #[route("/inbox/:id")]
+    InboxDetail { id: String },
     #[route("/documents")]
     StaticDocumentsPage {},
 }

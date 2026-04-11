@@ -1,9 +1,9 @@
 use dioxus::prelude::*;
-use rest_types::{ActionTypeTO, DocumentTypeTO, MemberActionTO, MemberDocumentTO, MemberTO, MigrationStatusTO, SalutationTO};
+use rest_types::{ActionTypeTO, CommunicationEntryTO, DocumentTypeTO, MemberActionTO, MemberDocumentTO, MemberTO, MigrationStatusTO, SalutationTO};
 use uuid::Uuid;
 
 use crate::api::{self, FileTreeEntry};
-use crate::component::{MemberSearch, Modal, TopBar};
+use crate::component::{CommunicationTimeline, MemberSearch, Modal, TopBar};
 use crate::i18n::use_i18n;
 use crate::i18n::Key;
 use crate::router::Route;
@@ -114,6 +114,9 @@ pub fn MemberDetails(id: String) -> Element {
     let mut show_generate_doc = use_signal(|| false);
     let mut template_list = use_signal(|| Vec::<String>::new());
 
+    // Communication timeline state
+    let mut communications = use_signal(|| Vec::<CommunicationEntryTO>::new());
+
     // Load existing member + actions
     use_effect(move || {
         if !is_new {
@@ -149,6 +152,13 @@ pub fn MemberDetails(id: String) -> Element {
                     match api::get_migration_status(&config, uuid).await {
                         Ok(data) => {
                             migration_status.set(Some(data));
+                        }
+                        Err(_) => {}
+                    }
+                    // Load communication timeline
+                    match api::get_member_communications(&config, uuid).await {
+                        Ok(data) => {
+                            *communications.write() = data;
                         }
                         Err(_) => {}
                     }
@@ -1211,6 +1221,16 @@ pub fn MemberDetails(id: String) -> Element {
                                             }
                                         }
                                     }
+                                }
+                            }
+                        }
+
+                        // === Communication Timeline Section ===
+                        if !is_new {
+                            div { class: "mt-8",
+                                h2 { class: "text-2xl font-bold mb-4", {i18n.t(Key::Communication)} }
+                                CommunicationTimeline {
+                                    entries: communications.read().clone(),
                                 }
                             }
                         }

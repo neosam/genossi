@@ -1042,3 +1042,16 @@ pub async fn reply_inbox_mail(
     response.error_for_status_ref().map_err(|e| e.to_string())?;
     Ok(())
 }
+
+pub async fn get_member_communications(
+    config: &Config,
+    member_id: Uuid,
+) -> Result<Vec<rest_types::CommunicationEntryTO>, reqwest::Error> {
+    let url = format!(
+        "{}/api/members/{}/communications",
+        config.backend, member_id
+    );
+    let response = reqwest::get(url).await?;
+    response.error_for_status_ref()?;
+    Ok(response.json().await?)
+}

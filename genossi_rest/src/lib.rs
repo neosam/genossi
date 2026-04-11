@@ -138,7 +138,7 @@ type ContextType = MockContext;
 type ContextType = AuthenticatedContext;
 
 #[async_trait]
-pub trait RestStateDef: Clone + Send + Sync + 'static + genossi_config::rest::ConfigRestState + genossi_mail::rest::MailRestState + genossi_mail::inbox_rest::InboxRestState {
+pub trait RestStateDef: Clone + Send + Sync + 'static + genossi_config::rest::ConfigRestState + genossi_mail::rest::MailRestState + genossi_mail::inbox_rest::InboxRestState + genossi_mail::communication_rest::CommunicationRestState {
     type MemberService: genossi_service::member::MemberService<Context = ContextType>
         + Send
         + Sync
@@ -202,6 +202,7 @@ pub trait RestStateDef: Clone + Send + Sync + 'static + genossi_config::rest::Co
         (path = "/api/config", api = genossi_config::rest::ApiDoc),
         (path = "/api/mail", api = genossi_mail::rest::ApiDoc),
         (path = "/api/inbox", api = genossi_mail::inbox_rest::InboxApiDoc),
+        (path = "/api/members/{member_id}/communications", api = genossi_mail::communication_rest::CommunicationApiDoc),
         (path = "/api/static-documents", api = static_document::ApiDoc),
         (path = "/api/mail/footer", api = mail_footer::ApiDoc)
     )
@@ -359,6 +360,10 @@ pub async fn create_app<RestState: RestStateDef + public_stats::PublicStatsState
         .nest("/api/mail", genossi_mail::rest::generate_route())
         .nest("/api/mail/footer", mail_footer::generate_route::<RestState>())
         .nest("/api/inbox", genossi_mail::inbox_rest::generate_route::<RestState>())
+        .nest(
+            "/api/members/{member_id}/communications",
+            genossi_mail::communication_rest::generate_route::<RestState>(),
+        )
         .nest(
             "/api/static-documents",
             static_document::generate_route::<RestState>(),

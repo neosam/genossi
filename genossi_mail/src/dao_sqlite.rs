@@ -5,9 +5,10 @@ use time::PrimitiveDateTime;
 use uuid::Uuid;
 
 use crate::dao::{
-    InboundMail, InboundMailDao, MailDaoError, MailJob, MailJobDao, MailJobStaticAttachment,
-    MailJobStaticAttachmentDao, MailRecipient, MailRecipientAttachment, MailRecipientAttachmentDao,
-    MailRecipientDao, StaticDocument, StaticDocumentDao,
+    CommunicationDao, CommunicationDirection, CommunicationEntry, InboundMail, InboundMailDao,
+    MailDaoError, MailJob, MailJobDao, MailJobStaticAttachment, MailJobStaticAttachmentDao,
+    MailRecipient, MailRecipientAttachment, MailRecipientAttachmentDao, MailRecipientDao,
+    StaticDocument, StaticDocumentDao,
 };
 
 fn parse_datetime(s: &str) -> Result<PrimitiveDateTime, time::error::Parse> {
@@ -813,6 +814,127 @@ impl InboundMailDao for InboundMailDaoSqlite {
     }
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// Communication timeline (unified view per member)
+// ────────────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, sqlx::FromRow)]
+struct CommunicationEntryDb {
+    direction: String,
+    date: String,
+    subject: String,
+    inbox_id: Option<Vec<u8>>,
+    from_address: Option<String>,
+    inbound_done: Option<i64>,
+    inbound_replied: Option<i64>,
+    inbound_archived: Option<i64>,
+    mail_job_id: Option<Vec<u8>>,
+    recipient_id: Option<Vec<u8>>,
+    to_address: Option<String>,
+    outbound_status: Option<String>,
+}
+
+impl TryFrom<&CommunicationEntryDb> for CommunicationEntry {
+    type Error = MailDaoError;
+
+    fn try_from(db: &CommunicationEntryDb) -> Result<Self, Self::Error> {
+        let direction = match db.direction.as_str() {
+            "inbound" => CommunicationDirection::Inbound,
+            "outbound" => CommunicationDirection::Outbound,
+            other => {
+                return Err(MailDaoError::DatabaseError(
+                    Arc::from(format!("unknown direction: {other}")),
+                ))
+            }
+        };
+        Ok(CommunicationEntry {
+            direction,
+            date: parse_datetime(&db.date)
+                .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?,
+            subject: Arc::from(db.subject.as_str()),
+            inbox_id: parse_optional_uuid(&db.inbox_id)?,
+            from_address: db.from_address.as_deref().map(Arc::from),
+            inbound_done: db.inbound_done.map(|v| v != 0),
+            inbound_replied: db.inbound_replied.map(|v| v != 0),
+            inbound_archived: db.inbound_archived.map(|v| v != 0),
+            mail_job_id: parse_optional_uuid(&db.mail_job_id)?,
+            recipient_id: parse_optional_uuid(&db.recipient_id)?,
+            to_address: db.to_address.as_deref().map(Arc::from),
+            outbound_status: db.outbound_status.as_deref().map(Arc::from),
+        })
+    }
+}
+
+pub struct CommunicationDaoSqlite {
+    pool: Arc<SqlitePool>,
+}
+
+impl CommunicationDaoSqlite {
+    pub fn new(pool: Arc<SqlitePool>) -> Self {
+        Self { pool }
+    }
+}
+
+#[async_trait]
+impl CommunicationDao for CommunicationDaoSqlite {
+    async fn get_member_communications(
+        &self,
+        member_id: Uuid,
+    ) -> Result<Arc<[CommunicationEntry]>, MailDaoError> {
+        let member_bytes = member_id.as_bytes().to_vec();
+        let rows = sqlx::query_as::<_, CommunicationEntryDb>(
+            r#"
+            SELECT
+                'inbound' AS direction,
+                i.received_at AS date,
+                i.subject,
+                i.id AS inbox_id,
+                i.from_address,
+                i.done AS inbound_done,
+                i.replied AS inbound_replied,
+                i.archived AS inbound_archived,
+                NULL AS mail_job_id,
+                NULL AS recipient_id,
+                NULL AS to_address,
+                NULL AS outbound_status
+            FROM inbound_mails i
+            WHERE i.assigned_member_id = ?1
+
+            UNION ALL
+
+            SELECT
+                'outbound' AS direction,
+                COALESCE(r.sent_at, r.created) AS date,
+                j.subject,
+                NULL AS inbox_id,
+                NULL AS from_address,
+                NULL AS inbound_done,
+                NULL AS inbound_replied,
+                NULL AS inbound_archived,
+                j.id AS mail_job_id,
+                r.id AS recipient_id,
+                r.to_address,
+                r.status AS outbound_status
+            FROM mail_recipients r
+            JOIN mail_jobs j ON j.id = r.mail_job_id
+            WHERE r.member_id = ?1
+              AND r.deleted IS NULL
+              AND j.deleted IS NULL
+
+            ORDER BY date DESC
+            "#,
+        )
+        .bind(&member_bytes)
+        .fetch_all(self.pool.as_ref())
+        .await
+        .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
+
+        rows.iter()
+            .map(CommunicationEntry::try_from)
+            .collect::<Result<Arc<[_]>, _>>()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1549,5 +1671,125 @@ mod tests {
         dao.create(&sample_inbound(1, 10)).await.unwrap();
         let res = dao.create(&sample_inbound(1, 10)).await;
         assert!(res.is_err(), "duplicate (uid_validity, imap_uid) must fail");
+    }
+
+    // ── Communication timeline tests ─────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_communication_empty_for_unknown_member() {
+        let pool = setup_db().await;
+        let dao = CommunicationDaoSqlite::new(pool);
+        let result = dao
+            .get_member_communications(Uuid::new_v4())
+            .await
+            .unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_communication_returns_outbound_entries() {
+        let pool = setup_db().await;
+        let member_id = Uuid::new_v4();
+
+        // Create a mail job + recipient linked to the member
+        let job_dao = MailJobDaoSqlite::new(pool.clone());
+        let recipient_dao = MailRecipientDaoSqlite::new(pool.clone());
+        let job = sample_job();
+        job_dao.create(&job).await.unwrap();
+
+        let mut recipient = sample_recipient(job.id);
+        recipient.member_id = Some(member_id);
+        recipient.status = Arc::from("sent");
+        recipient_dao.create(&recipient).await.unwrap();
+
+        let dao = CommunicationDaoSqlite::new(pool);
+        let result = dao.get_member_communications(member_id).await.unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].direction, CommunicationDirection::Outbound);
+        assert_eq!(result[0].subject.as_ref(), "Test Subject");
+        assert_eq!(result[0].outbound_status.as_deref(), Some("sent"));
+        assert_eq!(result[0].mail_job_id, Some(job.id));
+        assert_eq!(result[0].recipient_id, Some(recipient.id));
+    }
+
+    #[tokio::test]
+    async fn test_communication_returns_inbound_entries() {
+        let pool = setup_db().await;
+        let member_id = Uuid::new_v4();
+
+        let inbound_dao = InboundMailDaoSqlite::new(pool.clone());
+        let mut mail = sample_inbound(1, 10);
+        mail.assigned_member_id = Some(member_id);
+        mail.done = true;
+        inbound_dao.create(&mail).await.unwrap();
+
+        let dao = CommunicationDaoSqlite::new(pool);
+        let result = dao.get_member_communications(member_id).await.unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].direction, CommunicationDirection::Inbound);
+        assert_eq!(result[0].subject.as_ref(), "Re: Beitrag");
+        assert_eq!(result[0].inbox_id, Some(mail.id));
+        assert_eq!(result[0].inbound_done, Some(true));
+        assert_eq!(result[0].inbound_replied, Some(false));
+        assert_eq!(result[0].inbound_archived, Some(false));
+    }
+
+    #[tokio::test]
+    async fn test_communication_merges_and_sorts_by_date_desc() {
+        let pool = setup_db().await;
+        let member_id = Uuid::new_v4();
+
+        // Outbound: earlier date (April 3)
+        let job_dao = MailJobDaoSqlite::new(pool.clone());
+        let recipient_dao = MailRecipientDaoSqlite::new(pool.clone());
+        let job = sample_job();
+        job_dao.create(&job).await.unwrap();
+        let mut recipient = sample_recipient(job.id);
+        recipient.member_id = Some(member_id);
+        recipient_dao.create(&recipient).await.unwrap();
+
+        // Inbound: later date (April 5)
+        let inbound_dao = InboundMailDaoSqlite::new(pool.clone());
+        let mut mail = sample_inbound(1, 20);
+        mail.assigned_member_id = Some(member_id);
+        mail.received_at = PrimitiveDateTime::new(
+            time::Date::from_calendar_date(2026, time::Month::April, 5).unwrap(),
+            time::Time::from_hms(10, 0, 0).unwrap(),
+        );
+        inbound_dao.create(&mail).await.unwrap();
+
+        let dao = CommunicationDaoSqlite::new(pool);
+        let result = dao.get_member_communications(member_id).await.unwrap();
+        assert_eq!(result.len(), 2);
+        // Newest first: inbound (April 5) then outbound (April 3)
+        assert_eq!(result[0].direction, CommunicationDirection::Inbound);
+        assert_eq!(result[1].direction, CommunicationDirection::Outbound);
+    }
+
+    #[tokio::test]
+    async fn test_communication_excludes_soft_deleted_outbound() {
+        let pool = setup_db().await;
+        let member_id = Uuid::new_v4();
+
+        let job_dao = MailJobDaoSqlite::new(pool.clone());
+        let recipient_dao = MailRecipientDaoSqlite::new(pool.clone());
+
+        let job = sample_job();
+        job_dao.create(&job).await.unwrap();
+
+        let mut recipient = sample_recipient(job.id);
+        recipient.member_id = Some(member_id);
+        recipient_dao.create(&recipient).await.unwrap();
+
+        // Soft-delete the recipient via raw SQL (DAO update doesn't cover deleted)
+        sqlx::query("UPDATE mail_recipients SET deleted = '2026-04-03T10:00:00' WHERE id = ?")
+            .bind(recipient.id.as_bytes().to_vec())
+            .execute(pool.as_ref())
+            .await
+            .unwrap();
+
+        let dao = CommunicationDaoSqlite::new(pool);
+        let result = dao.get_member_communications(member_id).await.unwrap();
+        assert!(result.is_empty());
     }
 }
