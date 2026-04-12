@@ -110,13 +110,12 @@ pub fn Permissions() -> Element {
 }
 
 #[component]
-fn UserRowComponent(idx: usize, users: Signal<Vec<UserRow>>) -> Element {
+fn UserRowComponent(idx: usize, mut users: Signal<Vec<UserRow>>) -> Element {
     let user = &users.read()[idx];
     let username = user.username.clone();
     let sender_name = user.sender_name.clone();
     let is_admin = user.is_admin;
 
-    let mut name_input = use_signal(move || sender_name.clone());
     let mut saving_name = use_signal(|| false);
     let mut toggling_admin = use_signal(|| false);
 
@@ -130,8 +129,14 @@ fn UserRowComponent(idx: usize, users: Signal<Vec<UserRow>>) -> Element {
                     input {
                         class: "border rounded px-2 py-1 text-sm flex-1",
                         r#type: "text",
-                        value: "{name_input}",
-                        oninput: move |e| name_input.set(e.value()),
+                        value: "{sender_name}",
+                        oninput: move |e| {
+                            let mut current = users.read().clone();
+                            if let Some(row) = current.get_mut(idx) {
+                                row.sender_name = e.value();
+                            }
+                            users.set(current);
+                        },
                     }
                     button {
                         class: "bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-sm disabled:opacity-50",
@@ -139,7 +144,7 @@ fn UserRowComponent(idx: usize, users: Signal<Vec<UserRow>>) -> Element {
                         onclick: {
                             let username = username.clone();
                             move |_| {
-                                let name = name_input.read().clone();
+                                let name = users.read()[idx].sender_name.clone();
                                 let username = username.clone();
                                 spawn(async move {
                                     saving_name.set(true);

@@ -123,6 +123,11 @@ pub fn ConfigPage() -> Element {
                     // Populate mail footer from entries
                     mail_footer.set(get_config_value(&data, "mail_footer"));
 
+                    // Load sender_name user preference
+                    if let Ok(Some(pref)) = api::get_user_preference(&config, "sender_name").await {
+                        sender_name.set(pref.value);
+                    }
+
                     entries.set(data);
                     error.set(None);
                 }
@@ -136,13 +141,6 @@ pub fn ConfigPage() -> Element {
 
     use_effect(move || {
         reload();
-        // Load sender_name user preference
-        spawn(async move {
-            let config = CONFIG.read().clone();
-            if let Ok(Some(pref)) = api::get_user_preference(&config, "sender_name").await {
-                sender_name.set(pref.value);
-            }
-        });
     });
 
     rsx! {

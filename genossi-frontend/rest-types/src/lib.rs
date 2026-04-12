@@ -536,7 +536,9 @@ pub struct UserPreferenceTO {
     pub value: String,
     #[serde(
         skip_serializing_if = "Option::is_none",
-        default
+        default,
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
     )]
     pub created: Option<time::PrimitiveDateTime>,
     #[serde(skip_serializing_if = "Option::is_none")]
