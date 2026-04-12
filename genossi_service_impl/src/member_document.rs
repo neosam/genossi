@@ -5,6 +5,7 @@ use genossi_dao::TransactionDao;
 use genossi_service::member_document::{
     DocumentType, MemberDocument, MemberDocumentService, UploadDocument,
 };
+use std::collections::HashMap;
 use genossi_service::permission::{Authentication, PermissionService};
 use genossi_service::uuid_service::UuidService;
 use genossi_service::{ServiceError, ValidationFailureItem};
@@ -206,6 +207,27 @@ impl<Deps: MemberDocumentServiceDeps> MemberDocumentService
 
         self.transaction_dao.commit(tx).await?;
         Ok(())
+    }
+
+    async fn count_by_type(
+        &self,
+        document_type: DocumentType,
+        context: Authentication<Self::Context>,
+        tx: Option<Self::Transaction>,
+    ) -> Result<HashMap<Uuid, i64>, ServiceError> {
+        let tx = self.transaction_dao.use_transaction(tx).await?;
+
+        self.permission_service
+            .check_permission(MANAGE_MEMBERS_PRIVILEGE, context)
+            .await?;
+
+        let counts = self
+            .member_document_dao
+            .count_by_type(document_type.as_str(), tx.clone())
+            .await?;
+
+        self.transaction_dao.commit(tx).await?;
+        Ok(counts)
     }
 }
 

@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use mockall::automock;
+use std::collections::HashMap;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -75,5 +76,20 @@ pub trait MemberDocumentDao {
             .cloned()
             .collect();
         Ok(filtered.into())
+    }
+
+    async fn count_by_type(
+        &self,
+        document_type: &str,
+        tx: Self::Transaction,
+    ) -> Result<HashMap<Uuid, i64>, DaoError> {
+        let all_entities = self.dump_all(tx).await?;
+        let mut counts: HashMap<Uuid, i64> = HashMap::new();
+        for entity in all_entities.iter() {
+            if entity.deleted.is_none() && entity.document_type.as_ref() == document_type {
+                *counts.entry(entity.member_id).or_insert(0) += 1;
+            }
+        }
+        Ok(counts)
     }
 }

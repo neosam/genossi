@@ -322,4 +322,9 @@ pub fn add_i18n_cs(i18n: &mut I18n<Key, Locale>) {
     i18n.add_text(Locale::Cs, Key::DeleteCustomEntry, "Smazat");
     i18n.add_text(Locale::Cs, Key::ConfirmDeleteCustomEntry, "Potvrdit smazání");
     i18n.add_text(Locale::Cs, Key::GenerateAndStore, "Generovat a uložit");
+    i18n.add_text(Locale::Cs, Key::DocumentUploadColumn, "Nahrát dokument");
+    i18n.add_text(Locale::Cs, Key::DocumentAlreadyExists, "existuje");
+    i18n.add_text(Locale::Cs, Key::Uploading, "nahrávání...");
+    i18n.add_text(Locale::Cs, Key::UploadFailed, "Chyba");
+    i18n.add_text(Locale::Cs, Key::SelectDocumentType, "Vyberte typ dokumentu");
 }

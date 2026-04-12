@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use dioxus::prelude::*;
 use gloo_timers::future::TimeoutFuture;
+use rest_types::DocumentTypeTO;
 use uuid::Uuid;
 
 use crate::api::{self, MailJobTO};
@@ -12,6 +13,14 @@ use crate::member_utils::{exited_in_year, is_active, today};
 use crate::router::Route;
 use crate::service::config::CONFIG;
 use crate::service::member::{refresh_members, MEMBERS, SELECTED_MEMBER_IDS};
+
+#[derive(Clone, Debug, PartialEq)]
+enum UploadStatus {
+    Existing,
+    Uploading,
+    Success,
+    Error(String),
+}
 
 fn format_date_iso(date: &time::Date) -> String {
     format!(
@@ -107,6 +116,73 @@ async fn save_row_if_dirty(
     }
 }
 
+fn get_file_from_input(input_id: &str) -> Option<web_sys::File> {
+    use wasm_bindgen::JsCast;
+    let window = web_sys::window()?;
+    let document = window.document()?;
+    let input = document
+        .get_element_by_id(input_id)?
+        .dyn_into::<web_sys::HtmlInputElement>()
+        .ok()?;
+    input.files()?.get(0)
+}
+
+async fn handle_upload(
+    member_id: Uuid,
+    upload_status: &mut Signal<HashMap<Uuid, UploadStatus>>,
+    upload_document_type: &mut Signal<Option<DocumentTypeTO>>,
+    upload_description: &mut Signal<String>,
+    document_counts: &mut Signal<HashMap<Uuid, i64>>,
+    toast_messages: &mut Signal<Vec<(u64, String)>>,
+    toast_counter: &mut Signal<u64>,
+) {
+    let doc_type = match upload_document_type.read().clone() {
+        Some(dt) => dt,
+        None => return,
+    };
+    let description = {
+        let desc = upload_description.read().clone();
+        if desc.trim().is_empty() { None } else { Some(desc) }
+    };
+
+    let input_id = format!("upload-file-{}", member_id);
+    let file = match get_file_from_input(&input_id) {
+        Some(f) => f,
+        None => {
+            upload_status.write().insert(member_id, UploadStatus::Error("No file selected".into()));
+            return;
+        }
+    };
+
+    upload_status.write().insert(member_id, UploadStatus::Uploading);
+
+    let config = CONFIG.read().clone();
+    match api::upload_member_document(
+        &config,
+        member_id,
+        doc_type.as_str(),
+        description.as_deref(),
+        file,
+    )
+    .await
+    {
+        Ok(_) => {
+            let is_singleton = matches!(doc_type, DocumentTypeTO::JoinDeclaration | DocumentTypeTO::JoinConfirmation);
+            if is_singleton {
+                upload_status.write().insert(member_id, UploadStatus::Existing);
+            } else {
+                upload_status.write().insert(member_id, UploadStatus::Success);
+            }
+            *document_counts.write().entry(member_id).or_insert(0) += 1;
+        }
+        Err(e) => {
+            let msg = format!("{}", e);
+            upload_status.write().insert(member_id, UploadStatus::Error(msg.clone()));
+            show_toast(toast_messages, toast_counter, msg);
+        }
+    }
+}
+
 #[component]
 pub fn Members() -> Element {
     let i18n = use_i18n();
@@ -157,6 +233,13 @@ pub fn Members() -> Element {
     let mut only_active = use_signal(|| true);
     let mut filter_exited_in_year = use_signal(|| false);
     let mut only_pending_migration = use_signal(|| false);
+
+    // Upload column state
+    let mut upload_column_active = use_signal(|| false);
+    let mut upload_document_type: Signal<Option<DocumentTypeTO>> = use_signal(|| None);
+    let mut upload_description = use_signal(String::new);
+    let mut upload_status: Signal<HashMap<Uuid, UploadStatus>> = use_signal(HashMap::new);
+    let mut document_counts: Signal<HashMap<Uuid, i64>> = use_signal(HashMap::new);
 
     // Mail job filter
     let mut mail_jobs: Signal<Vec<MailJobTO>> = use_signal(Vec::new);
@@ -288,6 +371,27 @@ pub fn Members() -> Element {
                                             }
                                         }
                                     }
+                                }
+                                // Separator + Upload column toggle
+                                div { class: "border-t border-gray-200 my-1" }
+                                label {
+                                    class: "flex items-center gap-2 px-4 py-1.5 hover:bg-gray-50 cursor-pointer text-sm font-medium",
+                                    input {
+                                        r#type: "checkbox",
+                                        class: "rounded border-gray-300 text-green-600 focus:ring-green-500",
+                                        checked: *upload_column_active.read(),
+                                        onchange: move |_| {
+                                            let new_val = !*upload_column_active.read();
+                                            upload_column_active.set(new_val);
+                                            if !new_val {
+                                                upload_document_type.set(None);
+                                                upload_description.set(String::new());
+                                                upload_status.write().clear();
+                                                document_counts.write().clear();
+                                            }
+                                        },
+                                    }
+                                    {i18n.t(Key::DocumentUploadColumn)}
                                 }
                             }
                         }
@@ -424,6 +528,82 @@ pub fn Members() -> Element {
                 }
             }
 
+            // Upload column settings (visible when upload column is active)
+            if *upload_column_active.read() {
+                div { class: "mb-4 flex items-center gap-4 bg-green-50 border border-green-200 rounded-lg px-4 py-3",
+                    div { class: "flex items-center gap-2",
+                        label { class: "text-sm font-medium text-green-800",
+                            {i18n.t(Key::DocumentType)}
+                        }
+                        select {
+                            class: "px-3 py-1.5 border border-green-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 text-sm",
+                            value: upload_document_type.read().as_ref().map(|dt| dt.as_str()).unwrap_or(""),
+                            onchange: move |e| {
+                                let val = e.value();
+                                if val.is_empty() {
+                                    upload_document_type.set(None);
+                                    document_counts.write().clear();
+                                    upload_status.write().clear();
+                                } else {
+                                    let dt = DocumentTypeTO::from_str(&val);
+                                    upload_document_type.set(dt.clone());
+                                    upload_status.write().clear();
+                                    // Load counts for new type
+                                    if let Some(doc_type) = dt {
+                                        let type_str = doc_type.as_str().to_string();
+                                        spawn(async move {
+                                            let config = CONFIG.read().clone();
+                                            match api::get_member_document_counts(&config, &type_str).await {
+                                                Ok(counts) => {
+                                                    document_counts.set(counts.clone());
+                                                    // Set existing status for members with documents
+                                                    let mut statuses = HashMap::new();
+                                                    for (member_id, _count) in counts.iter() {
+                                                        statuses.insert(*member_id, UploadStatus::Existing);
+                                                    }
+                                                    upload_status.set(statuses);
+                                                }
+                                                Err(e) => {
+                                                    tracing::error!("Failed to load document counts: {e}");
+                                                }
+                                            }
+                                        });
+                                    }
+                                }
+                            },
+                            option { value: "", "-- {i18n.t(Key::SelectDocumentType)} --" }
+                            for dt in DocumentTypeTO::all() {
+                                {
+                                    let label = match dt {
+                                        DocumentTypeTO::JoinDeclaration => i18n.t(Key::DocJoinDeclaration),
+                                        DocumentTypeTO::JoinConfirmation => i18n.t(Key::DocJoinConfirmation),
+                                        DocumentTypeTO::ShareIncrease => i18n.t(Key::DocShareIncrease),
+                                        DocumentTypeTO::Other => i18n.t(Key::DocOther),
+                                    };
+                                    rsx! {
+                                        option { value: "{dt.as_str()}", {label} }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    div { class: "flex items-center gap-2",
+                        label { class: "text-sm font-medium text-green-800",
+                            {i18n.t(Key::Description)}
+                        }
+                        input {
+                            class: "px-3 py-1.5 border border-green-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 text-sm w-64",
+                            r#type: "text",
+                            placeholder: "{i18n.t(Key::Description)} ({i18n.t(Key::DocOther)})",
+                            value: "{upload_description.read()}",
+                            oninput: move |e| {
+                                upload_description.set(e.value());
+                            },
+                        }
+                    }
+                }
+            }
+
             // Selection action bar (hidden in edit mode)
             if !is_edit_mode && selected_count > 0 {
                 div { class: "mb-4 flex items-center gap-4 bg-blue-50 border border-blue-200 rounded-lg px-4 py-3",
@@ -488,6 +668,11 @@ pub fn Members() -> Element {
                                         }
                                     }
                                 }
+                                if *upload_column_active.read() {
+                                    th { class: "px-6 py-3 text-left text-xs font-medium text-green-600 uppercase tracking-wider",
+                                        {i18n.t(Key::Documents)}
+                                    }
+                                }
                                 for col in active_columns.iter() {
                                     th { class: "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider",
                                         {i18n.t(col.label_key.clone())}
@@ -550,6 +735,70 @@ pub fn Members() -> Element {
                                                             r#type: "checkbox",
                                                             class: "w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 pointer-events-none",
                                                             checked: is_checked,
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            // Upload column cell
+                                            if *upload_column_active.read() {
+                                                {
+                                                    let mid = member_id.unwrap_or(Uuid::nil());
+                                                    let status = upload_status.read().get(&mid).cloned();
+                                                    let has_type = upload_document_type.read().is_some();
+                                                    rsx! {
+                                                        td {
+                                                            class: "px-4 py-2",
+                                                            onclick: move |e| { e.stop_propagation(); },
+                                                            if !has_type {
+                                                                // No document type selected
+                                                                span { class: "text-gray-400 text-sm italic",
+                                                                    {i18n.t(Key::SelectDocumentType)}
+                                                                }
+                                                            } else if let Some(UploadStatus::Existing) = &status {
+                                                                // Document already exists
+                                                                span { class: "text-green-600 text-sm font-medium",
+                                                                    "✓ {i18n.t(Key::DocumentAlreadyExists)}"
+                                                                }
+                                                            } else if let Some(UploadStatus::Uploading) = &status {
+                                                                // Upload in progress
+                                                                span { class: "text-blue-600 text-sm",
+                                                                    "⏳ {i18n.t(Key::Uploading)}"
+                                                                }
+                                                            } else if let Some(UploadStatus::Success) = &status {
+                                                                // Upload successful
+                                                                span { class: "text-green-600 text-sm font-medium",
+                                                                    "✓ {i18n.t(Key::Uploaded)}"
+                                                                }
+                                                            } else if let Some(UploadStatus::Error(err)) = &status {
+                                                                // Upload failed
+                                                                div { class: "flex flex-col gap-1",
+                                                                    span { class: "text-red-600 text-sm",
+                                                                        "✗ {err}"
+                                                                    }
+                                                                    input {
+                                                                        r#type: "file",
+                                                                        class: "text-xs",
+                                                                        id: "upload-file-{mid}",
+                                                                        onchange: move |_| {
+                                                                            spawn(async move {
+                                                                                handle_upload(mid, &mut upload_status, &mut upload_document_type, &mut upload_description, &mut document_counts, &mut toast_messages, &mut toast_counter).await;
+                                                                            });
+                                                                        },
+                                                                    }
+                                                                }
+                                                            } else {
+                                                                // Ready for upload
+                                                                input {
+                                                                    r#type: "file",
+                                                                    class: "text-sm file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:text-sm file:bg-green-50 file:text-green-700 hover:file:bg-green-100",
+                                                                    id: "upload-file-{mid}",
+                                                                    onchange: move |_| {
+                                                                        spawn(async move {
+                                                                            handle_upload(mid, &mut upload_status, &mut upload_document_type, &mut upload_description, &mut document_counts, &mut toast_messages, &mut toast_counter).await;
+                                                                        });
+                                                                    },
+                                                                }
+                                                            }
                                                         }
                                                     }
                                                 }

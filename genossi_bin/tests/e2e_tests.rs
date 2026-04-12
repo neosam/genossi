@@ -6,6 +6,7 @@ use genossi_rest_types::{
     ActionTypeTO, MemberActionTO, MemberDocumentTO, MemberImportResultTO, MemberTO,
     MigrationStatusTO, SalutationTO, UserPreferenceTO, ValidationResultTO,
 };
+use std::collections::HashMap;
 use genossi_config::rest::{ConfigEntryTO, SetConfigRequest};
 use genossi_mail::rest::{SendBulkMailRequest, BulkRecipient, SendMailRequest, MailJobTO, MailJobDetailTO, TestMailRequest};
 use genossi_rest::mail_footer::FooterResponse;
@@ -5162,4 +5163,178 @@ async fn test_normal_member_still_gets_auto_actions() {
     assert_eq!(actions.len(), 2);
     assert!(actions.iter().any(|a| matches!(a.action_type, ActionTypeTO::Eintritt)));
     assert!(actions.iter().any(|a| matches!(a.action_type, ActionTypeTO::Aufstockung)));
+}
+
+// ─── Document Counts Tests ───
+
+#[tokio::test]
+async fn test_document_counts_empty() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(server.url("/api/member-documents/counts?type=join_declaration"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let counts: HashMap<String, i64> = response.json().await.unwrap();
+    assert!(counts.is_empty());
+}
+
+#[tokio::test]
+async fn test_document_counts_with_data() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Create two members
+    let member1 = create_test_member(&client, &server).await;
+    let member1_id = member1.id.unwrap();
+
+    let mut member2_to = sample_member();
+    member2_to.member_number = 0;
+    member2_to.first_name = "Erika".to_string();
+    let resp = client
+        .post(server.url("/api/members"))
+        .json(&member2_to)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let member2: MemberTO = resp.json().await.unwrap();
+    let member2_id = member2.id.unwrap();
+
+    // Upload join_declaration for member1
+    let form = reqwest::multipart::Form::new()
+        .text("document_type", "join_declaration")
+        .part(
+            "file",
+            reqwest::multipart::Part::bytes(b"pdf1".to_vec())
+                .file_name("be1.pdf")
+                .mime_str("application/pdf")
+                .unwrap(),
+        );
+    let resp = client
+        .post(server.url(&format!("/api/members/{}/documents", member1_id)))
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED);
+
+    // Upload join_declaration for member2
+    let form = reqwest::multipart::Form::new()
+        .text("document_type", "join_declaration")
+        .part(
+            "file",
+            reqwest::multipart::Part::bytes(b"pdf2".to_vec())
+                .file_name("be2.pdf")
+                .mime_str("application/pdf")
+                .unwrap(),
+        );
+    let resp = client
+        .post(server.url(&format!("/api/members/{}/documents", member2_id)))
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED);
+
+    // Get counts for join_declaration
+    let response = client
+        .get(server.url("/api/member-documents/counts?type=join_declaration"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let counts: HashMap<String, i64> = response.json().await.unwrap();
+    assert_eq!(counts.len(), 2);
+    assert_eq!(counts[&member1_id.to_string()], 1);
+    assert_eq!(counts[&member2_id.to_string()], 1);
+
+    // Counts for other type should be empty
+    let response = client
+        .get(server.url("/api/member-documents/counts?type=join_confirmation"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let counts: HashMap<String, i64> = response.json().await.unwrap();
+    assert!(counts.is_empty());
+}
+
+#[tokio::test]
+async fn test_document_counts_excludes_deleted() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let member = create_test_member(&client, &server).await;
+    let member_id = member.id.unwrap();
+
+    // Upload document
+    let form = reqwest::multipart::Form::new()
+        .text("document_type", "join_declaration")
+        .part(
+            "file",
+            reqwest::multipart::Part::bytes(b"pdf".to_vec())
+                .file_name("be.pdf")
+                .mime_str("application/pdf")
+                .unwrap(),
+        );
+    let resp = client
+        .post(server.url(&format!("/api/members/{}/documents", member_id)))
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED);
+    let doc: MemberDocumentTO = resp.json().await.unwrap();
+    let doc_id = doc.id.unwrap();
+
+    // Delete it
+    let resp = client
+        .delete(server.url(&format!(
+            "/api/members/{}/documents/{}",
+            member_id, doc_id
+        )))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+    // Counts should be empty
+    let response = client
+        .get(server.url("/api/member-documents/counts?type=join_declaration"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let counts: HashMap<String, i64> = response.json().await.unwrap();
+    assert!(counts.is_empty());
+}
+
+#[tokio::test]
+async fn test_document_counts_invalid_type() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(server.url("/api/member-documents/counts?type=invalid_type"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_document_counts_missing_type() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(server.url("/api/member-documents/counts"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use rest_types::{MemberActionTO, MemberDocumentTO, MemberTO, MigrationStatusTO, UserTO, ValidationResultTO};
@@ -292,6 +293,26 @@ pub async fn generate_member_document(
 
     let response = response.error_for_status().map_err(|e| e.to_string())?;
     response.json().await.map_err(|e| e.to_string())
+}
+
+pub async fn get_member_document_counts(
+    config: &Config,
+    document_type: &str,
+) -> Result<HashMap<Uuid, i64>, String> {
+    info!("Fetching document counts for type {document_type}");
+    let url = format!(
+        "{}/api/member-documents/counts?type={document_type}",
+        config.backend
+    );
+    let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
+    let response = response.error_for_status().map_err(|e| e.to_string())?;
+    let string_counts: HashMap<String, i64> = response.json().await.map_err(|e| e.to_string())?;
+    // Convert String keys back to Uuid
+    let counts = string_counts
+        .into_iter()
+        .filter_map(|(k, v)| Uuid::parse_str(&k).ok().map(|id| (id, v)))
+        .collect();
+    Ok(counts)
 }
 
 // Template API

@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use genossi_dao::member_document::MemberDocumentEntity;
 use mockall::automock;
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
 use uuid::Uuid;
@@ -145,4 +146,11 @@ pub trait MemberDocumentService {
         context: Authentication<Self::Context>,
         tx: Option<Self::Transaction>,
     ) -> Result<(), ServiceError>;
+
+    async fn count_by_type(
+        &self,
+        document_type: DocumentType,
+        context: Authentication<Self::Context>,
+        tx: Option<Self::Transaction>,
+    ) -> Result<HashMap<Uuid, i64>, ServiceError>;
 }

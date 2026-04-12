@@ -143,6 +143,11 @@ pub enum Key {
     UploadDocument,
     Uploaded,
     GenerateAndStore,
+    DocumentUploadColumn,
+    DocumentAlreadyExists,
+    Uploading,
+    UploadFailed,
+    SelectDocumentType,
 
     ReferenceDate,
     Active,

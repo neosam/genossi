@@ -92,6 +92,11 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::UploadDocument => "Upload Document".into(),
         Key::Uploaded => "Uploaded".into(),
         Key::GenerateAndStore => "Generate & Store".into(),
+        Key::DocumentUploadColumn => "Upload Document".into(),
+        Key::DocumentAlreadyExists => "exists".into(),
+        Key::Uploading => "uploading...".into(),
+        Key::UploadFailed => "Error".into(),
+        Key::SelectDocumentType => "Select document type".into(),
 
         Key::ReferenceDate => "Reference Date".into(),
         Key::Active => "Active".into(),

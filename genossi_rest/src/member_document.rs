@@ -1,6 +1,6 @@
 use axum::{
     body::Body,
-    extract::{Multipart, Path, State},
+    extract::{Multipart, Path, Query, State},
     response::Response,
     routing::{delete, get, post},
     Extension, Router,
@@ -10,9 +10,11 @@ use genossi_service::document_storage::DocumentStorage;
 use genossi_service::member::MemberService;
 use genossi_service::member_document::{DocumentType, MemberDocumentService, UploadDocument};
 use genossi_service::template::TemplateError;
+use serde::Deserialize;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::instrument;
-use utoipa::{OpenApi, ToSchema};
+use utoipa::{IntoParams, OpenApi, ToSchema};
 use uuid::Uuid;
 
 use crate::{error_handler, Context, RestError, RestStateDef};
@@ -387,6 +389,63 @@ pub async fn generate_document<RestState: RestStateDef>(
     )
 }
 
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct CountsQuery {
+    /// Document type to count (join_declaration, join_confirmation, share_increase, other)
+    #[serde(rename = "type")]
+    document_type: Option<String>,
+}
+
+pub fn generate_counts_route<RestState: RestStateDef>() -> Router<RestState> {
+    Router::new().route("/counts", get(document_counts::<RestState>))
+}
+
+#[instrument(skip(rest_state))]
+#[utoipa::path(
+    get,
+    tag = "Member Documents",
+    path = "/counts",
+    params(CountsQuery),
+    responses(
+        (status = 200, description = "Document counts per member", body = HashMap<String, i64>),
+        (status = 400, description = "Invalid or missing document type"),
+        (status = 401, description = "Unauthorized"),
+    ),
+)]
+pub async fn document_counts<RestState: RestStateDef>(
+    rest_state: State<RestState>,
+    Extension(context): Extension<Context>,
+    Query(query): Query<CountsQuery>,
+) -> Response {
+    error_handler(
+        (async {
+            let doc_type_str = query
+                .document_type
+                .ok_or_else(|| RestError::BadRequest("'type' query parameter is required".to_string()))?;
+            let doc_type = DocumentType::from_str(&doc_type_str)
+                .ok_or_else(|| RestError::BadRequest(format!("Invalid document type: {}", doc_type_str)))?;
+
+            let counts = rest_state
+                .member_document_service()
+                .count_by_type(doc_type, crate::extract_auth_context(Some(context))?, None)
+                .await?;
+
+            // Convert Uuid keys to strings for JSON serialization
+            let string_counts: HashMap<String, i64> = counts
+                .into_iter()
+                .map(|(id, count)| (id.to_string(), count))
+                .collect();
+
+            Ok(Response::builder()
+                .status(200)
+                .header("Content-Type", "application/json")
+                .body(Body::new(serde_json::to_string(&string_counts).unwrap()))
+                .unwrap())
+        })
+        .await,
+    )
+}
+
 #[derive(OpenApi)]
 #[openapi(
     paths(list_documents, upload_document, download_document, delete_document, generate_document),
@@ -394,3 +453,10 @@ pub async fn generate_document<RestState: RestStateDef>(
     tags((name = "Member Documents", description = "Member document management endpoints"))
 )]
 pub struct ApiDoc;
+
+#[derive(OpenApi)]
+#[openapi(
+    paths(document_counts),
+    tags((name = "Member Documents", description = "Member document management endpoints"))
+)]
+pub struct CountsApiDoc;

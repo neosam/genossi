@@ -204,7 +204,8 @@ pub trait RestStateDef: Clone + Send + Sync + 'static + genossi_config::rest::Co
         (path = "/api/inbox", api = genossi_mail::inbox_rest::InboxApiDoc),
         (path = "/api/members/{member_id}/communications", api = genossi_mail::communication_rest::CommunicationApiDoc),
         (path = "/api/static-documents", api = static_document::ApiDoc),
-        (path = "/api/mail/footer", api = mail_footer::ApiDoc)
+        (path = "/api/mail/footer", api = mail_footer::ApiDoc),
+        (path = "/api/member-documents", api = member_document::CountsApiDoc)
     )
 )]
 pub struct ApiDoc;
@@ -363,6 +364,10 @@ pub async fn create_app<RestState: RestStateDef + public_stats::PublicStatsState
         .nest(
             "/api/members/{member_id}/communications",
             genossi_mail::communication_rest::generate_route::<RestState>(),
+        )
+        .nest(
+            "/api/member-documents",
+            member_document::generate_counts_route::<RestState>(),
         )
         .nest(
             "/api/static-documents",
