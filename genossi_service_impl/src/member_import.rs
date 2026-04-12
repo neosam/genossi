@@ -409,6 +409,7 @@ impl<Deps: MemberImportServiceDeps> MemberImportService for MemberImportServiceI
                         migrated: false,
                         exit_date: parsed.exit_date,
                         bank_account: parsed.bank_account.clone(),
+                        status: genossi_dao::member::MemberStatus::Normal,
                         created: time::PrimitiveDateTime::new(now.date(), now.time()),
                         deleted: None,
                         version: self.uuid_service.new_v4().await,

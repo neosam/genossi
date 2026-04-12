@@ -374,6 +374,7 @@ mod tests {
             migrated: false,
             exit_date: None,
             bank_account: None,
+            status: genossi_dao::member::MemberStatus::Normal,
             created: datetime,
             deleted,
             version: Uuid::new_v4(),

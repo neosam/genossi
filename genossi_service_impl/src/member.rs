@@ -209,6 +209,7 @@ impl<Deps: MemberServiceDeps> MemberService for MemberServiceImpl<Deps> {
             migrated: false,
             exit_date: item.exit_date,
             bank_account: item.bank_account.clone(),
+            status: item.status.clone(),
             created,
             deleted: None,
             version: self.uuid_service.new_v4().await,

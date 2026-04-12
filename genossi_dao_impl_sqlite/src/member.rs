@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use genossi_dao::member::{MemberDao, MemberEntity, Salutation};
+use genossi_dao::member::{MemberDao, MemberEntity, MemberStatus, Salutation};
 use genossi_dao::DaoError;
 use sqlx::SqlitePool;
 use std::sync::Arc;
@@ -59,6 +59,7 @@ struct MemberDb {
     migrated: bool,
     exit_date: Option<String>,
     bank_account: Option<String>,
+    status: Option<String>,
     created: String,
     deleted: Option<String>,
     version: Vec<u8>,
@@ -94,6 +95,12 @@ impl TryFrom<&MemberDb> for MemberEntity {
             migrated: db.migrated,
             exit_date: db.exit_date.as_ref().map(|d| parse_date(d)).transpose()?,
             bank_account: db.bank_account.as_deref().map(Arc::from),
+            status: db
+                .status
+                .as_deref()
+                .map(MemberStatus::from_str)
+                .transpose()?
+                .unwrap_or_default(),
             created: parse_datetime(&db.created)?,
             deleted: db
                 .deleted
@@ -123,7 +130,7 @@ impl MemberDao for MemberDaoImpl {
         let rows = sqlx::query_as::<_, MemberDb>(
             "SELECT id, member_number, first_name, last_name, salutation, title, email, company, comment, \
              street, house_number, postal_code, city, join_date, shares_at_joining, \
-             current_shares, current_balance, action_count, migrated, exit_date, bank_account, created, deleted, version \
+             current_shares, current_balance, action_count, migrated, exit_date, bank_account, status, created, deleted, version \
              FROM member ORDER BY member_number",
         )
         .fetch_all(tx.tx.lock().await.as_mut())
@@ -164,12 +171,13 @@ impl MemberDao for MemberDaoImpl {
         let join_date = format_date(&entity.join_date);
         let exit_date = entity.exit_date.as_ref().map(format_date);
         let bank_account = entity.bank_account.as_deref().map(String::from);
+        let status = entity.status.as_str().to_string();
 
         sqlx::query(
             "INSERT INTO member (id, member_number, first_name, last_name, salutation, title, email, company, comment, \
              street, house_number, postal_code, city, join_date, shares_at_joining, \
-             current_shares, current_balance, action_count, migrated, exit_date, bank_account, created, version) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             current_shares, current_balance, action_count, migrated, exit_date, bank_account, status, created, version) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(id)
         .bind(entity.member_number)
@@ -192,6 +200,7 @@ impl MemberDao for MemberDaoImpl {
         .bind(entity.migrated)
         .bind(exit_date)
         .bind(bank_account)
+        .bind(status)
         .bind(created)
         .bind(version)
         .execute(tx.tx.lock().await.as_mut())
@@ -224,6 +233,7 @@ impl MemberDao for MemberDaoImpl {
         let join_date = format_date(&entity.join_date);
         let exit_date = entity.exit_date.as_ref().map(format_date);
         let bank_account = entity.bank_account.as_deref().map(String::from);
+        let status = entity.status.as_str().to_string();
 
         let deleted = match entity.deleted {
             Some(dt) => {
@@ -253,7 +263,7 @@ impl MemberDao for MemberDaoImpl {
             "UPDATE member SET member_number = ?, first_name = ?, last_name = ?, salutation = ?, title = ?, email = ?, \
              company = ?, comment = ?, street = ?, house_number = ?, postal_code = ?, city = ?, \
              join_date = ?, shares_at_joining = ?, current_shares = ?, current_balance = ?, \
-             action_count = ?, migrated = ?, exit_date = ?, bank_account = ?, deleted = ?, version = ? \
+             action_count = ?, migrated = ?, exit_date = ?, bank_account = ?, status = ?, deleted = ?, version = ? \
              WHERE id = ? AND version = ? AND deleted IS NULL",
         )
         .bind(entity.member_number)
@@ -276,6 +286,7 @@ impl MemberDao for MemberDaoImpl {
         .bind(entity.migrated)
         .bind(exit_date)
         .bind(bank_account)
+        .bind(status)
         .bind(deleted)
         .bind(new_version)
         .bind(id)
@@ -295,7 +306,7 @@ impl MemberDao for MemberDaoImpl {
     async fn count_active(&self, today: time::Date, tx: Self::Transaction) -> Result<u64, genossi_dao::DaoError> {
         let today_str = format_date(&today);
         let count = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM member WHERE deleted IS NULL AND (exit_date IS NULL OR exit_date > ?)",
+            "SELECT COUNT(*) FROM member WHERE deleted IS NULL AND (status IS NULL OR status = 'Normal') AND (exit_date IS NULL OR exit_date > ?)",
         )
         .bind(today_str)
         .fetch_one(tx.tx.lock().await.as_mut())

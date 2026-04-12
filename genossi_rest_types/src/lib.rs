@@ -1,4 +1,4 @@
-use genossi_dao::member::Salutation;
+use genossi_dao::member::{MemberStatus, Salutation};
 use genossi_dao::member_action::ActionType;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -132,6 +132,36 @@ impl From<&SalutationTO> for Salutation {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub enum MemberStatusTO {
+    Normal,
+    FehlerhaftErfasst,
+}
+
+impl Default for MemberStatusTO {
+    fn default() -> Self {
+        MemberStatusTO::Normal
+    }
+}
+
+impl From<&MemberStatus> for MemberStatusTO {
+    fn from(s: &MemberStatus) -> Self {
+        match s {
+            MemberStatus::Normal => MemberStatusTO::Normal,
+            MemberStatus::FehlerhaftErfasst => MemberStatusTO::FehlerhaftErfasst,
+        }
+    }
+}
+
+impl From<&MemberStatusTO> for MemberStatus {
+    fn from(s: &MemberStatusTO) -> Self {
+        match s {
+            MemberStatusTO::Normal => MemberStatus::Normal,
+            MemberStatusTO::FehlerhaftErfasst => MemberStatus::FehlerhaftErfasst,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct MemberTO {
     #[schema(example = "123e4567-e89b-12d3-a456-426614174000")]
@@ -185,6 +215,8 @@ pub struct MemberTO {
     #[schema(example = "2025-06-30")]
     pub exit_date: Option<time::Date>,
     pub bank_account: Option<String>,
+    #[serde(default)]
+    pub status: MemberStatusTO,
     #[serde(
         skip_serializing_if = "Option::is_none",
         serialize_with = "iso8601_datetime::serialize",
@@ -227,6 +259,7 @@ impl From<&genossi_service::member::Member> for MemberTO {
             migrated: m.migrated,
             exit_date: m.exit_date,
             bank_account: m.bank_account.as_deref().map(String::from),
+            status: MemberStatusTO::from(&m.status),
             created: Some(m.created),
             deleted: m.deleted,
             version: Some(m.version),
@@ -296,6 +329,7 @@ impl From<&MemberTO> for genossi_service::member::Member {
             migrated: to.migrated,
             exit_date: to.exit_date,
             bank_account: to.bank_account.as_deref().map(Arc::from),
+            status: MemberStatus::from(&to.status),
             created: to.created.unwrap_or_else(|| {
                 let now = time::OffsetDateTime::now_utc();
                 time::PrimitiveDateTime::new(now.date(), now.time())

@@ -3,7 +3,6 @@ use dioxus::prelude::*;
 use gloo_timers::future::TimeoutFuture;
 use uuid::Uuid;
 
-use rest_types::SalutationTO;
 use crate::api::{self, MailJobTO};
 use crate::columns::{self, ALL_COLUMNS, ColumnDef, InputType};
 use crate::component::TopBar;
@@ -592,8 +591,13 @@ pub fn Members() -> Element {
                                                                         }
                                                                     },
                                                                     option { value: "", selected: current_value.is_empty(), "" }
-                                                                    for s in SalutationTO::all() {
-                                                                        option { value: "{s.as_str()}", selected: current_value == s.as_str(), {s.as_str()} }
+                                                                    {
+                                                                        let col_def = ALL_COLUMNS.iter().find(|c| c.key == col_key).unwrap();
+                                                                        rsx! {
+                                                                            for opt in col_def.select_options.iter() {
+                                                                                option { value: "{opt.value}", selected: current_value == opt.value, {opt.label} }
+                                                                            }
+                                                                        }
                                                                     }
                                                                 }
                                                             }

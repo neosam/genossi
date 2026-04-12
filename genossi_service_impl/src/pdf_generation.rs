@@ -360,6 +360,7 @@ mod tests {
             migrated: false,
             exit_date: None,
             bank_account: None,
+            status: genossi_dao::member::MemberStatus::Normal,
             created: time::PrimitiveDateTime::new(
                 time::Date::from_calendar_date(2024, time::Month::January, 15).unwrap(),
                 time::Time::from_hms(10, 0, 0).unwrap(),

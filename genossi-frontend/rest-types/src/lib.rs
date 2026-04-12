@@ -141,6 +141,50 @@ impl SalutationTO {
     }
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum MemberStatusTO {
+    Normal,
+    FehlerhaftErfasst,
+}
+
+impl MemberStatusTO {
+    pub fn all() -> &'static [MemberStatusTO] {
+        &[MemberStatusTO::Normal, MemberStatusTO::FehlerhaftErfasst]
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            MemberStatusTO::Normal => "Normal",
+            MemberStatusTO::FehlerhaftErfasst => "FehlerhaftErfasst",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "Normal" => Some(MemberStatusTO::Normal),
+            "FehlerhaftErfasst" => Some(MemberStatusTO::FehlerhaftErfasst),
+            _ => None,
+        }
+    }
+
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            MemberStatusTO::Normal => "Normal",
+            MemberStatusTO::FehlerhaftErfasst => "Fehlerhaft erfasst",
+        }
+    }
+
+    pub fn is_normal(&self) -> bool {
+        matches!(self, MemberStatusTO::Normal)
+    }
+}
+
+impl Default for MemberStatusTO {
+    fn default() -> Self {
+        MemberStatusTO::Normal
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MemberTO {
     pub id: Option<Uuid>,
@@ -177,6 +221,8 @@ pub struct MemberTO {
     )]
     pub exit_date: Option<time::Date>,
     pub bank_account: Option<String>,
+    #[serde(default)]
+    pub status: MemberStatusTO,
     #[serde(
         skip_serializing_if = "Option::is_none",
         serialize_with = "iso8601_datetime::serialize",
@@ -197,6 +243,9 @@ pub struct MemberTO {
 
 impl MemberTO {
     pub fn is_active(&self, reference_date: &time::Date) -> bool {
+        if !self.status.is_normal() {
+            return false;
+        }
         if self.join_date > *reference_date {
             return false;
         }

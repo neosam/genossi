@@ -111,6 +111,11 @@ pub enum Key {
     ActionUebertragungEmpfang,
     ActionUebertragungAbgabe,
 
+    // Member Status
+    MemberStatus,
+    MemberStatusNormal,
+    MemberStatusFehlerhaftErfasst,
+
     // Migration Status
     MigrationStatus,
     Migrated,

@@ -63,6 +63,10 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::ActionUebertragungEmpfang => "Uebertragung (Empfang)".into(),
         Key::ActionUebertragungAbgabe => "Uebertragung (Abgabe)".into(),
 
+        Key::MemberStatus => "Status".into(),
+        Key::MemberStatusNormal => "Normal".into(),
+        Key::MemberStatusFehlerhaftErfasst => "Fehlerhaft erfasst".into(),
+
         Key::MigrationStatus => "Migrationsstatus".into(),
         Key::Migrated => "Migriert".into(),
         Key::Pending => "Ausstehend".into(),

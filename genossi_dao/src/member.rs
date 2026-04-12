@@ -35,6 +35,42 @@ impl Salutation {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MemberStatus {
+    Normal,
+    FehlerhaftErfasst,
+}
+
+impl MemberStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            MemberStatus::Normal => "Normal",
+            MemberStatus::FehlerhaftErfasst => "FehlerhaftErfasst",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Result<Self, DaoError> {
+        match s {
+            "Normal" => Ok(MemberStatus::Normal),
+            "FehlerhaftErfasst" => Ok(MemberStatus::FehlerhaftErfasst),
+            _ => Err(DaoError::ParseError(Arc::from(format!(
+                "Unknown member status: {}",
+                s
+            )))),
+        }
+    }
+
+    pub fn is_normal(&self) -> bool {
+        matches!(self, MemberStatus::Normal)
+    }
+}
+
+impl Default for MemberStatus {
+    fn default() -> Self {
+        MemberStatus::Normal
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MemberEntity {
     pub id: Uuid,
     pub member_number: i64,
@@ -57,6 +93,7 @@ pub struct MemberEntity {
     pub migrated: bool,
     pub exit_date: Option<time::Date>,
     pub bank_account: Option<Arc<str>>,
+    pub status: MemberStatus,
     pub created: time::PrimitiveDateTime,
     pub deleted: Option<time::PrimitiveDateTime>,
     pub version: Uuid,
@@ -137,6 +174,7 @@ pub trait MemberDao {
         let count = all_entities
             .iter()
             .filter(|e| e.deleted.is_none())
+            .filter(|e| e.status.is_normal())
             .filter(|e| e.exit_date.map_or(true, |d| d > today))
             .count();
         Ok(count as u64)
@@ -187,6 +225,7 @@ mod tests {
             migrated: false,
             exit_date,
             bank_account: None,
+            status: MemberStatus::Normal,
             created: datetime,
             deleted,
             version: Uuid::new_v4(),
@@ -388,5 +427,52 @@ mod tests {
     fn test_salutation_invalid_value() {
         let result = Salutation::from_str("Invalid");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_member_status_roundtrip() {
+        for variant in &[MemberStatus::Normal, MemberStatus::FehlerhaftErfasst] {
+            let s = variant.as_str();
+            let parsed = MemberStatus::from_str(s).unwrap();
+            assert_eq!(&parsed, variant);
+        }
+    }
+
+    #[test]
+    fn test_member_status_as_str() {
+        assert_eq!(MemberStatus::Normal.as_str(), "Normal");
+        assert_eq!(MemberStatus::FehlerhaftErfasst.as_str(), "FehlerhaftErfasst");
+    }
+
+    #[test]
+    fn test_member_status_invalid_value() {
+        let result = MemberStatus::from_str("Invalid");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_member_status_default() {
+        assert_eq!(MemberStatus::default(), MemberStatus::Normal);
+    }
+
+    #[test]
+    fn test_member_status_is_normal() {
+        assert!(MemberStatus::Normal.is_normal());
+        assert!(!MemberStatus::FehlerhaftErfasst.is_normal());
+    }
+
+    #[tokio::test]
+    async fn test_count_active_excludes_fehlerhaft_erfasst() {
+        let mut entity = make_entity(1, None);
+        entity.status = MemberStatus::FehlerhaftErfasst;
+        let dao = TestMemberDao {
+            entities: Arc::from(vec![
+                make_entity(2, None),
+                entity,
+            ]),
+        };
+        let today = time::Date::from_calendar_date(2025, time::Month::June, 1).unwrap();
+        let count = dao.count_active(today, mock_tx()).await.unwrap();
+        assert_eq!(count, 1);
     }
 }

@@ -251,6 +251,7 @@ fn build_member(t: &TestMember) -> genossi_service::member::Member {
         migrated: false,
         exit_date,
         bank_account: t.bank_account.map(Arc::from),
+        status: genossi_dao::member::MemberStatus::Normal,
         created,
         deleted: None,
         version: uuid::Uuid::new_v4(),

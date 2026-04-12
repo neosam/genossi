@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use genossi_dao::member::{MemberEntity, Salutation};
+use genossi_dao::member::{MemberEntity, MemberStatus, Salutation};
 use mockall::automock;
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -31,6 +31,7 @@ pub struct Member {
     pub migrated: bool,
     pub exit_date: Option<time::Date>,
     pub bank_account: Option<Arc<str>>,
+    pub status: MemberStatus,
     pub created: time::PrimitiveDateTime,
     pub deleted: Option<time::PrimitiveDateTime>,
     pub version: Uuid,
@@ -60,6 +61,7 @@ impl From<&MemberEntity> for Member {
             migrated: entity.migrated,
             exit_date: entity.exit_date,
             bank_account: entity.bank_account.clone(),
+            status: entity.status.clone(),
             created: entity.created,
             deleted: entity.deleted,
             version: entity.version,
@@ -91,6 +93,7 @@ impl From<&Member> for MemberEntity {
             migrated: member.migrated,
             exit_date: member.exit_date,
             bank_account: member.bank_account.clone(),
+            status: member.status.clone(),
             created: member.created,
             deleted: member.deleted,
             version: member.version,
@@ -168,6 +171,7 @@ mod tests {
             migrated: false,
             exit_date: None,
             bank_account: None,
+            status: MemberStatus::Normal,
             created: datetime,
             deleted: None,
             version: Uuid::new_v4(),

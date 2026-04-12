@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use rest_types::{ActionTypeTO, CommunicationEntryTO, DocumentTypeTO, MemberActionTO, MemberDocumentTO, MemberTO, MigrationStatusTO, SalutationTO};
+use rest_types::{ActionTypeTO, CommunicationEntryTO, DocumentTypeTO, MemberActionTO, MemberDocumentTO, MemberStatusTO, MemberTO, MigrationStatusTO, SalutationTO};
 use uuid::Uuid;
 
 use crate::api::{self, FileTreeEntry};
@@ -74,6 +74,7 @@ pub fn MemberDetails(id: String) -> Element {
             migrated: false,
             exit_date: None,
             bank_account: None,
+            status: MemberStatusTO::Normal,
             created: None,
             deleted: None,
             version: None,
@@ -443,6 +444,30 @@ pub fn MemberDetails(id: String) -> Element {
                                     let val = e.value();
                                     member.write().title = if val.is_empty() { None } else { Some(val.clone()) };
                                 },
+                            }
+                        }
+                    }
+
+                    // Status
+                    div {
+                        label { class: "block text-sm font-medium text-gray-700 mb-1",
+                            {i18n.t(Key::MemberStatus)}
+                        }
+                        select {
+                            class: "w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500",
+                            value: member.read().status.as_str(),
+                            onchange: move |e| {
+                                let val = e.value();
+                                if let Some(s) = MemberStatusTO::from_str(&val) {
+                                    member.write().status = s;
+                                }
+                            },
+                            for s in MemberStatusTO::all() {
+                                option {
+                                    value: "{s.as_str()}",
+                                    selected: member.read().status == *s,
+                                    {s.display_name()}
+                                }
                             }
                         }
                     }

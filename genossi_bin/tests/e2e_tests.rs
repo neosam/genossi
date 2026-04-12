@@ -52,6 +52,7 @@ fn sample_member() -> MemberTO {
         migrated: false,
         exit_date: None,
         bank_account: Some("DE89370400440532013000".to_string()),
+        status: genossi_rest_types::MemberStatusTO::Normal,
         created: None,
         deleted: None,
         version: None,
@@ -4853,4 +4854,144 @@ async fn test_communication_timeline_invalid_member_id() {
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+// === Member Status Tests ===
+
+#[tokio::test]
+async fn test_create_member_with_fehlerhaft_erfasst_status() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let mut member = sample_member();
+    member.status = genossi_rest_types::MemberStatusTO::FehlerhaftErfasst;
+
+    let response = client
+        .post(server.url("/api/members"))
+        .json(&member)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let created: MemberTO = response.json().await.unwrap();
+    assert_eq!(created.status, genossi_rest_types::MemberStatusTO::FehlerhaftErfasst);
+}
+
+#[tokio::test]
+async fn test_create_member_without_status_defaults_to_normal() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Send JSON without status field to test default
+    let json = serde_json::json!({
+        "member_number": 1,
+        "first_name": "Test",
+        "last_name": "User",
+        "join_date": "2024-01-15",
+        "shares_at_joining": 1,
+        "current_shares": 1,
+        "current_balance": 0
+    });
+
+    let response = client
+        .post(server.url("/api/members"))
+        .json(&json)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let created: MemberTO = response.json().await.unwrap();
+    assert_eq!(created.status, genossi_rest_types::MemberStatusTO::Normal);
+}
+
+#[tokio::test]
+async fn test_update_member_status_to_fehlerhaft_erfasst() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Create a normal member
+    let member = sample_member();
+    let response = client
+        .post(server.url("/api/members"))
+        .json(&member)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let mut created: MemberTO = response.json().await.unwrap();
+    assert_eq!(created.status, genossi_rest_types::MemberStatusTO::Normal);
+
+    // Update status to FehlerhaftErfasst
+    created.status = genossi_rest_types::MemberStatusTO::FehlerhaftErfasst;
+    let id = created.id.unwrap();
+    let response = client
+        .put(server.url(&format!("/api/members/{}", id)))
+        .json(&created)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let updated: MemberTO = response.json().await.unwrap();
+    assert_eq!(updated.status, genossi_rest_types::MemberStatusTO::FehlerhaftErfasst);
+
+    // Verify it persisted
+    let response = client
+        .get(server.url(&format!("/api/members/{}", id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let fetched: MemberTO = response.json().await.unwrap();
+    assert_eq!(fetched.status, genossi_rest_types::MemberStatusTO::FehlerhaftErfasst);
+}
+
+#[tokio::test]
+async fn test_fehlerhaft_erfasst_excluded_from_public_member_count() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Enable public member count
+    let config_req = SetConfigRequest {
+        value: "true".to_string(),
+        value_type: "bool".to_string(),
+    };
+    client
+        .put(server.url("/api/config/public_stats_enabled"))
+        .json(&config_req)
+        .send()
+        .await
+        .unwrap();
+
+    // Create a normal member
+    let mut member1 = sample_member();
+    member1.member_number = 1;
+    client
+        .post(server.url("/api/members"))
+        .json(&member1)
+        .send()
+        .await
+        .unwrap();
+
+    // Create a fehlerhaft erfasst member
+    let mut member2 = sample_member();
+    member2.member_number = 2;
+    member2.status = genossi_rest_types::MemberStatusTO::FehlerhaftErfasst;
+    client
+        .post(server.url("/api/members"))
+        .json(&member2)
+        .send()
+        .await
+        .unwrap();
+
+    // Check public member count - should be 1, not 2
+    let response = client
+        .get(server.url("/api/public/member-count"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["count"], 1, "FehlerhaftErfasst members should not be counted as active");
 }
