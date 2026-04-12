@@ -271,6 +271,7 @@ pub enum ActionTypeTO {
     Verkauf,
     UebertragungEmpfang,
     UebertragungAbgabe,
+    Note,
 }
 
 impl ActionTypeTO {
@@ -283,6 +284,7 @@ impl ActionTypeTO {
             ActionTypeTO::Verkauf,
             ActionTypeTO::UebertragungEmpfang,
             ActionTypeTO::UebertragungAbgabe,
+            ActionTypeTO::Note,
         ]
     }
 
@@ -309,6 +311,7 @@ impl ActionTypeTO {
             ActionTypeTO::Verkauf => "Verkauf",
             ActionTypeTO::UebertragungEmpfang => "UebertragungEmpfang",
             ActionTypeTO::UebertragungAbgabe => "UebertragungAbgabe",
+            ActionTypeTO::Note => "Note",
         }
     }
 
@@ -321,6 +324,7 @@ impl ActionTypeTO {
             "Verkauf" => Some(ActionTypeTO::Verkauf),
             "UebertragungEmpfang" => Some(ActionTypeTO::UebertragungEmpfang),
             "UebertragungAbgabe" => Some(ActionTypeTO::UebertragungAbgabe),
+            "Note" => Some(ActionTypeTO::Note),
             _ => None,
         }
     }

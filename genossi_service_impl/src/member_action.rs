@@ -38,7 +38,10 @@ pub(crate) fn compute_migration_status(
         .filter(|a| {
             !matches!(
                 a.action_type,
-                ActionType::Eintritt | ActionType::Austritt | ActionType::Todesfall
+                ActionType::Eintritt
+                    | ActionType::Austritt
+                    | ActionType::Todesfall
+                    | ActionType::Note
             )
         })
         .count() as i32;
@@ -89,6 +92,26 @@ fn validate_action(item: &MemberAction) -> Vec<ValidationFailureItem> {
                 errors.push(ValidationFailureItem {
                     field: Arc::from("shares_change"),
                     message: Arc::from("shares_change must be negative for this action type"),
+                });
+            }
+        }
+        ActionType::Note => {
+            if item.shares_change != 0 {
+                errors.push(ValidationFailureItem {
+                    field: Arc::from("shares_change"),
+                    message: Arc::from("Note actions must have shares_change = 0"),
+                });
+            }
+            if item.comment.as_ref().map_or(true, |c| c.is_empty()) {
+                errors.push(ValidationFailureItem {
+                    field: Arc::from("comment"),
+                    message: Arc::from("comment is required for Note actions"),
+                });
+            }
+            if item.transfer_member_id.is_some() {
+                errors.push(ValidationFailureItem {
+                    field: Arc::from("transfer_member_id"),
+                    message: Arc::from("transfer_member_id is not allowed for Note actions"),
                 });
             }
         }
@@ -803,5 +826,180 @@ mod tests {
         ];
         let (_, exit_date) = compute_dates(&member, &actions);
         assert_eq!(exit_date, Some(effective));
+    }
+
+    #[test]
+    fn test_validate_valid_note() {
+        let action = MemberAction {
+            id: Uuid::new_v4(),
+            member_id: Uuid::new_v4(),
+            action_type: ActionType::Note,
+            date: time::Date::from_calendar_date(2024, time::Month::April, 12).unwrap(),
+            shares_change: 0,
+            transfer_member_id: None,
+            effective_date: None,
+            comment: Some(Arc::from("E-Mail Adresse korrigiert")),
+            created: time::PrimitiveDateTime::new(
+                time::Date::from_calendar_date(2024, time::Month::April, 12).unwrap(),
+                time::Time::MIDNIGHT,
+            ),
+            deleted: None,
+            version: Uuid::new_v4(),
+        };
+        let errors = validate_action(&action);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_validate_note_missing_comment() {
+        let action = MemberAction {
+            id: Uuid::new_v4(),
+            member_id: Uuid::new_v4(),
+            action_type: ActionType::Note,
+            date: time::Date::from_calendar_date(2024, time::Month::April, 12).unwrap(),
+            shares_change: 0,
+            transfer_member_id: None,
+            effective_date: None,
+            comment: None,
+            created: time::PrimitiveDateTime::new(
+                time::Date::from_calendar_date(2024, time::Month::April, 12).unwrap(),
+                time::Time::MIDNIGHT,
+            ),
+            deleted: None,
+            version: Uuid::new_v4(),
+        };
+        let errors = validate_action(&action);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(&*errors[0].field, "comment");
+    }
+
+    #[test]
+    fn test_validate_note_empty_comment() {
+        let action = MemberAction {
+            id: Uuid::new_v4(),
+            member_id: Uuid::new_v4(),
+            action_type: ActionType::Note,
+            date: time::Date::from_calendar_date(2024, time::Month::April, 12).unwrap(),
+            shares_change: 0,
+            transfer_member_id: None,
+            effective_date: None,
+            comment: Some(Arc::from("")),
+            created: time::PrimitiveDateTime::new(
+                time::Date::from_calendar_date(2024, time::Month::April, 12).unwrap(),
+                time::Time::MIDNIGHT,
+            ),
+            deleted: None,
+            version: Uuid::new_v4(),
+        };
+        let errors = validate_action(&action);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(&*errors[0].field, "comment");
+    }
+
+    #[test]
+    fn test_validate_note_nonzero_shares() {
+        let action = MemberAction {
+            id: Uuid::new_v4(),
+            member_id: Uuid::new_v4(),
+            action_type: ActionType::Note,
+            date: time::Date::from_calendar_date(2024, time::Month::April, 12).unwrap(),
+            shares_change: 5,
+            transfer_member_id: None,
+            effective_date: None,
+            comment: Some(Arc::from("test")),
+            created: time::PrimitiveDateTime::new(
+                time::Date::from_calendar_date(2024, time::Month::April, 12).unwrap(),
+                time::Time::MIDNIGHT,
+            ),
+            deleted: None,
+            version: Uuid::new_v4(),
+        };
+        let errors = validate_action(&action);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(&*errors[0].field, "shares_change");
+    }
+
+    #[test]
+    fn test_validate_note_with_transfer_member_id() {
+        let action = MemberAction {
+            id: Uuid::new_v4(),
+            member_id: Uuid::new_v4(),
+            action_type: ActionType::Note,
+            date: time::Date::from_calendar_date(2024, time::Month::April, 12).unwrap(),
+            shares_change: 0,
+            transfer_member_id: Some(Uuid::new_v4()),
+            effective_date: None,
+            comment: Some(Arc::from("test")),
+            created: time::PrimitiveDateTime::new(
+                time::Date::from_calendar_date(2024, time::Month::April, 12).unwrap(),
+                time::Time::MIDNIGHT,
+            ),
+            deleted: None,
+            version: Uuid::new_v4(),
+        };
+        let errors = validate_action(&action);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(&*errors[0].field, "transfer_member_id");
+    }
+
+    #[test]
+    fn test_validate_note_with_effective_date() {
+        let action = MemberAction {
+            id: Uuid::new_v4(),
+            member_id: Uuid::new_v4(),
+            action_type: ActionType::Note,
+            date: time::Date::from_calendar_date(2024, time::Month::April, 12).unwrap(),
+            shares_change: 0,
+            transfer_member_id: None,
+            effective_date: Some(
+                time::Date::from_calendar_date(2024, time::Month::December, 31).unwrap(),
+            ),
+            comment: Some(Arc::from("test")),
+            created: time::PrimitiveDateTime::new(
+                time::Date::from_calendar_date(2024, time::Month::April, 12).unwrap(),
+                time::Time::MIDNIGHT,
+            ),
+            deleted: None,
+            version: Uuid::new_v4(),
+        };
+        let errors = validate_action(&action);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(&*errors[0].field, "effective_date");
+    }
+
+    #[test]
+    fn test_migration_status_excludes_note_actions() {
+        let join_date = time::Date::from_calendar_date(2024, time::Month::January, 1).unwrap();
+        let member = make_member_entity(join_date);
+        let mut aufstockung = make_action_entity(
+            member.id,
+            ActionType::Aufstockung,
+            join_date,
+            None,
+        );
+        aufstockung.shares_change = 5;
+        let note = make_action_entity(member.id, ActionType::Note, join_date, None);
+        let actions = vec![
+            make_action_entity(member.id, ActionType::Eintritt, join_date, None),
+            aufstockung,
+            note,
+        ];
+        let status = compute_migration_status(&member, &actions);
+        // Note should not be counted — only the Aufstockung counts (1 action)
+        assert_eq!(status.actual_action_count, 1);
+    }
+
+    #[test]
+    fn test_compute_dates_note_does_not_affect_dates() {
+        let join_date = time::Date::from_calendar_date(2024, time::Month::January, 1).unwrap();
+        let note_date = time::Date::from_calendar_date(2024, time::Month::June, 15).unwrap();
+        let member = make_member_entity(join_date);
+        let actions = vec![
+            make_action_entity(member.id, ActionType::Eintritt, join_date, None),
+            make_action_entity(member.id, ActionType::Note, note_date, None),
+        ];
+        let (computed_join, exit_date) = compute_dates(&member, &actions);
+        assert_eq!(computed_join, join_date);
+        assert_eq!(exit_date, None);
     }
 }

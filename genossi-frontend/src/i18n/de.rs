@@ -62,6 +62,7 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::ActionVerkauf => "Verkauf".into(),
         Key::ActionUebertragungEmpfang => "Uebertragung (Empfang)".into(),
         Key::ActionUebertragungAbgabe => "Uebertragung (Abgabe)".into(),
+        Key::ActionNote => "Notiz".into(),
 
         Key::MemberStatus => "Status".into(),
         Key::MemberStatusNormal => "Normal".into(),

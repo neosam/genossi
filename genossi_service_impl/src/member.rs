@@ -203,7 +203,7 @@ impl<Deps: MemberServiceDeps> MemberService for MemberServiceImpl<Deps> {
             city: item.city.clone(),
             join_date: item.join_date,
             shares_at_joining: item.shares_at_joining,
-            current_shares: item.shares_at_joining,
+            current_shares: if item.status.is_normal() { item.shares_at_joining } else { 0 },
             current_balance: 0,
             action_count: 0,
             migrated: false,
@@ -219,41 +219,43 @@ impl<Deps: MemberServiceDeps> MemberService for MemberServiceImpl<Deps> {
             .create(&(&new_member).into(), MEMBER_SERVICE_PROCESS, tx.clone())
             .await?;
 
-        // Create Eintritt action
-        let eintritt = genossi_dao::member_action::MemberActionEntity {
-            id: self.uuid_service.new_v4().await,
-            member_id: new_member.id,
-            action_type: genossi_dao::member_action::ActionType::Eintritt,
-            date: item.join_date,
-            shares_change: 0,
-            transfer_member_id: None,
-            effective_date: None,
-            comment: None,
-            created,
-            deleted: None,
-            version: self.uuid_service.new_v4().await,
-        };
-        self.member_action_dao
-            .create(&eintritt, MEMBER_SERVICE_PROCESS, tx.clone())
-            .await?;
+        if item.status.is_normal() {
+            // Create Eintritt action
+            let eintritt = genossi_dao::member_action::MemberActionEntity {
+                id: self.uuid_service.new_v4().await,
+                member_id: new_member.id,
+                action_type: genossi_dao::member_action::ActionType::Eintritt,
+                date: item.join_date,
+                shares_change: 0,
+                transfer_member_id: None,
+                effective_date: None,
+                comment: None,
+                created,
+                deleted: None,
+                version: self.uuid_service.new_v4().await,
+            };
+            self.member_action_dao
+                .create(&eintritt, MEMBER_SERVICE_PROCESS, tx.clone())
+                .await?;
 
-        // Create Aufstockung action
-        let aufstockung = genossi_dao::member_action::MemberActionEntity {
-            id: self.uuid_service.new_v4().await,
-            member_id: new_member.id,
-            action_type: genossi_dao::member_action::ActionType::Aufstockung,
-            date: item.join_date,
-            shares_change: item.shares_at_joining,
-            transfer_member_id: None,
-            effective_date: None,
-            comment: None,
-            created,
-            deleted: None,
-            version: self.uuid_service.new_v4().await,
-        };
-        self.member_action_dao
-            .create(&aufstockung, MEMBER_SERVICE_PROCESS, tx.clone())
-            .await?;
+            // Create Aufstockung action
+            let aufstockung = genossi_dao::member_action::MemberActionEntity {
+                id: self.uuid_service.new_v4().await,
+                member_id: new_member.id,
+                action_type: genossi_dao::member_action::ActionType::Aufstockung,
+                date: item.join_date,
+                shares_change: item.shares_at_joining,
+                transfer_member_id: None,
+                effective_date: None,
+                comment: None,
+                created,
+                deleted: None,
+                version: self.uuid_service.new_v4().await,
+            };
+            self.member_action_dao
+                .create(&aufstockung, MEMBER_SERVICE_PROCESS, tx.clone())
+                .await?;
+        }
 
         self.recalc_dates(new_member.id, tx.clone()).await?;
         self.recalc_migrated(new_member.id, tx.clone()).await?;

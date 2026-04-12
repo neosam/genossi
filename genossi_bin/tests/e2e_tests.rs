@@ -4995,3 +4995,171 @@ async fn test_fehlerhaft_erfasst_excluded_from_public_member_count() {
     let body: serde_json::Value = response.json().await.unwrap();
     assert_eq!(body["count"], 1, "FehlerhaftErfasst members should not be counted as active");
 }
+
+#[tokio::test]
+async fn test_create_note_action() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let member = create_test_member(&client, &server).await;
+    let member_id = member.id.unwrap();
+
+    let note = MemberActionTO {
+        id: None,
+        member_id,
+        action_type: ActionTypeTO::Note,
+        date: time::Date::from_calendar_date(2024, time::Month::April, 12).unwrap(),
+        shares_change: 0,
+        transfer_member_id: None,
+        effective_date: None,
+        comment: Some("E-Mail Adresse korrigiert".to_string()),
+        created: None,
+        deleted: None,
+        version: None,
+    };
+
+    let response = client
+        .post(server.url(&format!("/api/members/{}/actions", member_id)))
+        .json(&note)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let created: MemberActionTO = response.json().await.unwrap();
+    assert!(created.id.is_some());
+    assert!(matches!(created.action_type, ActionTypeTO::Note));
+    assert_eq!(created.comment.as_deref(), Some("E-Mail Adresse korrigiert"));
+    assert_eq!(created.shares_change, 0);
+
+    // Verify it appears in the actions list
+    let response = client
+        .get(server.url(&format!("/api/members/{}/actions", member_id)))
+        .send()
+        .await
+        .unwrap();
+    let actions: Vec<MemberActionTO> = response.json().await.unwrap();
+    assert!(actions.iter().any(|a| matches!(a.action_type, ActionTypeTO::Note)));
+}
+
+#[tokio::test]
+async fn test_note_action_validation_missing_comment() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let member = create_test_member(&client, &server).await;
+    let member_id = member.id.unwrap();
+
+    let note = MemberActionTO {
+        id: None,
+        member_id,
+        action_type: ActionTypeTO::Note,
+        date: time::Date::from_calendar_date(2024, time::Month::April, 12).unwrap(),
+        shares_change: 0,
+        transfer_member_id: None,
+        effective_date: None,
+        comment: None,
+        created: None,
+        deleted: None,
+        version: None,
+    };
+
+    let response = client
+        .post(server.url(&format!("/api/members/{}/actions", member_id)))
+        .json(&note)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_note_action_validation_nonzero_shares() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let member = create_test_member(&client, &server).await;
+    let member_id = member.id.unwrap();
+
+    let note = MemberActionTO {
+        id: None,
+        member_id,
+        action_type: ActionTypeTO::Note,
+        date: time::Date::from_calendar_date(2024, time::Month::April, 12).unwrap(),
+        shares_change: 5,
+        transfer_member_id: None,
+        effective_date: None,
+        comment: Some("test".to_string()),
+        created: None,
+        deleted: None,
+        version: None,
+    };
+
+    let response = client
+        .post(server.url(&format!("/api/members/{}/actions", member_id)))
+        .json(&note)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_fehlerhaft_erfasst_member_no_auto_actions() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let mut member = sample_member();
+    member.status = genossi_rest_types::MemberStatusTO::FehlerhaftErfasst;
+
+    let response = client
+        .post(server.url("/api/members"))
+        .json(&member)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let created: MemberTO = response.json().await.unwrap();
+    let member_id = created.id.unwrap();
+
+    // current_shares should be 0 regardless of shares_at_joining
+    assert_eq!(created.current_shares, 0);
+
+    // No auto-created actions should exist
+    let response = client
+        .get(server.url(&format!("/api/members/{}/actions", member_id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let actions: Vec<MemberActionTO> = response.json().await.unwrap();
+    assert!(actions.is_empty());
+}
+
+#[tokio::test]
+async fn test_normal_member_still_gets_auto_actions() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let member = sample_member();
+    let response = client
+        .post(server.url("/api/members"))
+        .json(&member)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let created: MemberTO = response.json().await.unwrap();
+    let member_id = created.id.unwrap();
+
+    // Normal member should have Eintritt + Aufstockung auto-created
+    let response = client
+        .get(server.url(&format!("/api/members/{}/actions", member_id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let actions: Vec<MemberActionTO> = response.json().await.unwrap();
+    assert_eq!(actions.len(), 2);
+    assert!(actions.iter().any(|a| matches!(a.action_type, ActionTypeTO::Eintritt)));
+    assert!(actions.iter().any(|a| matches!(a.action_type, ActionTypeTO::Aufstockung)));
+}

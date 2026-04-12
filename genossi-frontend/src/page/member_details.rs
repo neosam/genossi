@@ -19,6 +19,7 @@ fn action_type_label(i18n: &crate::i18n::I18n, at: &ActionTypeTO) -> String {
         ActionTypeTO::Verkauf => i18n.t(Key::ActionVerkauf).to_string(),
         ActionTypeTO::UebertragungEmpfang => i18n.t(Key::ActionUebertragungEmpfang).to_string(),
         ActionTypeTO::UebertragungAbgabe => i18n.t(Key::ActionUebertragungAbgabe).to_string(),
+        ActionTypeTO::Note => i18n.t(Key::ActionNote).to_string(),
     }
 }
 

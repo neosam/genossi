@@ -135,6 +135,7 @@ fn find_shares_mismatches(
     members
         .iter()
         .filter(|m| m.deleted.is_none())
+        .filter(|m| m.status.is_normal())
         .filter_map(|m| {
             let actual: i32 = actions_by_member
                 .get(&m.id)
@@ -170,6 +171,7 @@ fn find_missing_entry_actions(
     members
         .iter()
         .filter(|m| m.deleted.is_none())
+        .filter(|m| m.status.is_normal())
         .filter_map(|m| {
             let count = *eintritt_counts.get(&m.id).unwrap_or(&0);
             if count != 1 {
@@ -198,6 +200,7 @@ fn find_exit_date_mismatches(
     members
         .iter()
         .filter(|m| m.deleted.is_none())
+        .filter(|m| m.status.is_normal())
         .filter_map(|m| {
             let has_exit_date = m.exit_date.is_some();
             let has_austritt_action = has_austritt.contains(&m.id);
@@ -220,7 +223,7 @@ fn find_active_members_no_shares(
 ) -> Arc<[ActiveMemberNoShares]> {
     members
         .iter()
-        .filter(|m| m.deleted.is_none() && m.exit_date.is_none() && m.current_shares <= 0)
+        .filter(|m| m.deleted.is_none() && m.status.is_normal() && m.exit_date.is_none() && m.current_shares <= 0)
         .map(|m| ActiveMemberNoShares {
             member_id: m.id,
             member_number: m.member_number,
@@ -253,7 +256,7 @@ fn find_exited_members_with_shares(
 ) -> Arc<[ExitedMemberWithShares]> {
     members
         .iter()
-        .filter(|m| m.deleted.is_none() && m.exit_date.is_some() && m.current_shares > 0)
+        .filter(|m| m.deleted.is_none() && m.status.is_normal() && m.exit_date.is_some() && m.current_shares > 0)
         .map(|m| ExitedMemberWithShares {
             member_id: m.id,
             member_number: m.member_number,
@@ -275,6 +278,7 @@ fn find_migrated_flag_mismatches(
     members
         .iter()
         .filter(|m| m.deleted.is_none())
+        .filter(|m| m.status.is_normal())
         .filter_map(|m| {
             let member_actions = actions_by_member.get(&m.id);
             let empty = Vec::new();
@@ -864,5 +868,80 @@ mod tests {
         assert_eq!(result.len(), 1);
         assert!(!result[0].flag_value);
         assert_eq!(&*result[0].computed_status, "Migrated");
+    }
+
+    // === FehlerhaftErfasst skip tests ===
+
+    fn make_fehlerhaft_member(member_number: i64, id: Uuid) -> MemberEntity {
+        let mut member = make_member(member_number, id, None);
+        member.status = genossi_dao::member::MemberStatus::FehlerhaftErfasst;
+        member
+    }
+
+    #[test]
+    fn test_shares_mismatch_skips_fehlerhaft_erfasst() {
+        let id = Uuid::new_v4();
+        let mut member = make_fehlerhaft_member(1, id);
+        member.current_shares = 5;
+
+        let actions = vec![make_action(id, ActionType::Aufstockung, 3)];
+
+        let mismatches = find_shares_mismatches(&[member], &actions);
+        assert!(mismatches.is_empty());
+    }
+
+    #[test]
+    fn test_missing_entry_action_skips_fehlerhaft_erfasst() {
+        let id = Uuid::new_v4();
+        let member = make_fehlerhaft_member(1, id);
+
+        let missing = find_missing_entry_actions(&[member], &[]);
+        assert!(missing.is_empty());
+    }
+
+    #[test]
+    fn test_exit_date_mismatch_skips_fehlerhaft_erfasst() {
+        let id = Uuid::new_v4();
+        let mut member = make_fehlerhaft_member(1, id);
+        member.exit_date = Some(Date::from_calendar_date(2025, Month::June, 1).unwrap());
+
+        let mismatches = find_exit_date_mismatches(&[member], &[]);
+        assert!(mismatches.is_empty());
+    }
+
+    #[test]
+    fn test_active_member_no_shares_skips_fehlerhaft_erfasst() {
+        let mut member = make_fehlerhaft_member(1, Uuid::new_v4());
+        member.current_shares = 0;
+
+        let result = find_active_members_no_shares(&[member]);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_exited_with_shares_skips_fehlerhaft_erfasst() {
+        let mut member = make_fehlerhaft_member(1, Uuid::new_v4());
+        member.exit_date = Some(Date::from_calendar_date(2025, Month::June, 1).unwrap());
+        member.current_shares = 3;
+
+        let result = find_exited_members_with_shares(&[member]);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_migrated_flag_mismatch_skips_fehlerhaft_erfasst() {
+        let id = Uuid::new_v4();
+        let mut member = make_fehlerhaft_member(1, id);
+        member.current_shares = 3;
+        member.action_count = 0;
+        member.migrated = false;
+
+        let actions = vec![
+            make_action(id, ActionType::Eintritt, 0),
+            make_action(id, ActionType::Aufstockung, 3),
+        ];
+
+        let result = find_migrated_flag_mismatches(&[member], &actions);
+        assert!(result.is_empty());
     }
 }

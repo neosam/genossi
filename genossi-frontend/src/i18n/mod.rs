@@ -110,6 +110,7 @@ pub enum Key {
     ActionVerkauf,
     ActionUebertragungEmpfang,
     ActionUebertragungAbgabe,
+    ActionNote,
 
     // Member Status
     MemberStatus,

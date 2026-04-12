@@ -14,6 +14,7 @@ pub enum ActionType {
     Verkauf,
     UebertragungEmpfang,
     UebertragungAbgabe,
+    Note,
 }
 
 impl ActionType {
@@ -26,6 +27,7 @@ impl ActionType {
             ActionType::Verkauf => "Verkauf",
             ActionType::UebertragungEmpfang => "UebertragungEmpfang",
             ActionType::UebertragungAbgabe => "UebertragungAbgabe",
+            ActionType::Note => "Note",
         }
     }
 
@@ -38,6 +40,7 @@ impl ActionType {
             "Verkauf" => Ok(ActionType::Verkauf),
             "UebertragungEmpfang" => Ok(ActionType::UebertragungEmpfang),
             "UebertragungAbgabe" => Ok(ActionType::UebertragungAbgabe),
+            "Note" => Ok(ActionType::Note),
             _ => Err(DaoError::ParseError(Arc::from(format!(
                 "Unknown action type: {}",
                 s
