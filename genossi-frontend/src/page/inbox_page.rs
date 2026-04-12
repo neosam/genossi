@@ -191,23 +191,25 @@ fn InboxPageInner(initial_id: Option<String>) -> Element {
 
     rsx! {
         TopBar {}
-        div { class: "p-4 max-w-6xl mx-auto",
-            h1 { class: "text-2xl font-bold mb-4", "Posteingang" }
+        div { class: "p-4 max-w-6xl mx-auto flex flex-col h-[calc(100vh-4rem)]",
+            div { class: "flex-none",
+                h1 { class: "text-2xl font-bold mb-4", "Posteingang" }
 
-            if let Some(e) = error.read().clone() {
-                div { class: "bg-red-100 border border-red-400 text-red-700 px-3 py-2 mb-3 rounded",
-                    "{e}"
+                if let Some(e) = error.read().clone() {
+                    div { class: "bg-red-100 border border-red-400 text-red-700 px-3 py-2 mb-3 rounded",
+                        "{e}"
+                    }
+                }
+                if let Some(m) = info.read().clone() {
+                    div { class: "bg-green-100 border border-green-400 text-green-700 px-3 py-2 mb-3 rounded",
+                        "{m}"
+                    }
                 }
             }
-            if let Some(m) = info.read().clone() {
-                div { class: "bg-green-100 border border-green-400 text-green-700 px-3 py-2 mb-3 rounded",
-                    "{m}"
-                }
-            }
 
-            div { class: "flex gap-4",
+            div { class: "flex gap-4 flex-1 min-h-0",
                 // List column
-                div { class: "w-1/2 border rounded",
+                div { class: if selected_id.read().is_some() { "w-full md:w-1/2 border rounded flex flex-col overflow-hidden hidden md:flex" } else { "w-full md:w-1/2 border rounded flex flex-col overflow-hidden" },
                     div { class: "flex justify-between items-center px-3 py-2 bg-gray-50 border-b",
                         span { class: "font-semibold", "Eingänge" }
                         div { class: "flex gap-2 items-center",
@@ -263,7 +265,7 @@ fn InboxPageInner(initial_id: Option<String>) -> Element {
                                 }
                             } else {
                                 rsx! {
-                                    ul { class: "divide-y",
+                                    ul { class: "divide-y overflow-y-auto flex-1",
                                         for mail in filtered {
                                             {
                                                 let mid = mail.id.clone();
@@ -295,11 +297,24 @@ fn InboxPageInner(initial_id: Option<String>) -> Element {
                 }
 
                 // Detail column
-                div { class: "w-1/2 border rounded p-3",
+                div { class: if selected_id.read().is_none() { "w-full md:w-1/2 border rounded p-3 flex flex-col overflow-hidden hidden md:flex" } else { "w-full md:w-1/2 border rounded p-3 flex flex-col overflow-hidden" },
+                    // Back button (mobile only)
+                    if selected_id.read().is_some() {
+                        button {
+                            class: "md:hidden text-sm text-blue-600 hover:underline mb-2",
+                            onclick: move |_| {
+                                selected_id.set(None);
+                                detail.set(None);
+                            },
+                            "← Zurück zur Liste"
+                        }
+                    }
+
                     if *detail_loading.read() {
                         div { class: "text-gray-500", "Lädt Detail…" }
                     } else if let Some(d) = detail.read().clone() {
-                        div { class: "flex flex-col gap-2",
+                        // Detail header (fixed)
+                        div { class: "flex-none flex flex-col gap-2",
                             div { class: "font-semibold text-lg", "{d.subject}" }
                             div { class: "text-sm text-gray-600",
                                 "Von: {d.from_address}"
@@ -320,7 +335,11 @@ fn InboxPageInner(initial_id: Option<String>) -> Element {
                                     "Nur HTML-Inhalt vorhanden — im MVP nicht gerendert."
                                 }
                             }
-                            pre { class: "bg-gray-50 p-2 border rounded text-sm whitespace-pre-wrap max-h-96 overflow-auto",
+                        }
+
+                        // Scrollable body + actions
+                        div { class: "flex-1 overflow-y-auto flex flex-col gap-2 mt-2",
+                            pre { class: "bg-gray-50 p-2 border rounded text-sm whitespace-pre-wrap",
                                 "{d.body_text}"
                             }
 
@@ -397,7 +416,7 @@ fn InboxPageInner(initial_id: Option<String>) -> Element {
                                         }
                                     }
                                 }
-                                div { class: "flex gap-2 mt-3",
+                                div { class: "flex flex-wrap gap-2 mt-3",
                                     button {
                                         class: "text-sm px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded",
                                         onclick: move |_| {
