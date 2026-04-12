@@ -9,6 +9,7 @@ pub use crate::page::mail_page::MailJobDetail;
 pub use crate::page::MemberDetails;
 pub use crate::page::Members;
 pub use crate::page::Permissions;
+pub use crate::page::BackupPage;
 pub use crate::page::StaticDocumentsPage;
 pub use crate::page::Templates;
 pub use crate::page::Validation;
@@ -39,4 +40,6 @@ pub enum Route {
     InboxDetail { id: String },
     #[route("/documents")]
     StaticDocumentsPage {},
+    #[route("/backup")]
+    BackupPage {},
 }

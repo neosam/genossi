@@ -293,6 +293,17 @@ pub enum Key {
     CommunicationStatusReplied,
     CommunicationStatusArchived,
 
+    // Backup
+    Backup,
+    BackupMemberList,
+    BackupMemberListDescription,
+    BackupActions,
+    BackupActionsDescription,
+    BackupDocuments,
+    BackupDocumentsDescription,
+    BackupDocumentsWarning,
+    BackupCutoffDate,
+
     // Messages
     NoDataFound,
     ErrorLoadingData,

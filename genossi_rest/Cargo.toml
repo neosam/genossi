@@ -26,6 +26,8 @@ http = { workspace = true }
 genossi_service_impl = { path = "../genossi_service_impl" }
 genossi_config = { path = "../genossi_config" }
 genossi_mail = { path = "../genossi_mail" }
+csv = "1.3"
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [features]
 default = ["mock_auth"]

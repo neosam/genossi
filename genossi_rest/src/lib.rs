@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod auth_middleware;
+pub mod backup;
 #[cfg(debug_assertions)]
 pub mod dev;
 pub mod mail_footer;
@@ -173,6 +174,7 @@ pub trait RestStateDef: Clone + Send + Sync + 'static + genossi_config::rest::Co
         + Send
         + Sync
         + 'static;
+    type BackupDao: genossi_dao::backup::BackupDao + Send + Sync + 'static;
 
     fn member_service(&self) -> Arc<Self::MemberService>;
     fn permission_service(&self) -> Arc<Self::PermissionService>;
@@ -186,6 +188,7 @@ pub trait RestStateDef: Clone + Send + Sync + 'static + genossi_config::rest::Co
     fn static_document_service(&self) -> Arc<Self::StaticDocumentService>;
     fn template_storage(&self) -> Arc<genossi_service_impl::template_storage::TemplateStorage>;
     fn pdf_generator(&self) -> Arc<genossi_service_impl::pdf_generation::PdfGenerator>;
+    fn backup_dao(&self) -> Arc<Self::BackupDao>;
 }
 
 #[derive(OpenApi)]
@@ -372,6 +375,10 @@ pub async fn create_app<RestState: RestStateDef + public_stats::PublicStatsState
         .nest(
             "/api/static-documents",
             static_document::generate_route::<RestState>(),
+        )
+        .nest(
+            "/api/backup",
+            backup::generate_route::<RestState>(),
         )
         .with_state(rest_state.clone())
         .layer(middleware::from_fn_with_state(

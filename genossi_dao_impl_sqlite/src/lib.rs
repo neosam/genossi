@@ -1,3 +1,4 @@
+pub mod backup;
 pub mod member;
 pub mod member_action;
 pub mod member_document;

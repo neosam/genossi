@@ -30,6 +30,10 @@ pub fn TopBar() -> Element {
         .as_ref()
         .map(|a| a.has_privilege("admin"))
         .unwrap_or(false);
+    let show_backup = auth_info
+        .as_ref()
+        .map(|a| a.has_privilege("export_backup") || a.has_privilege("admin"))
+        .unwrap_or(false);
 
     rsx! {
         div { class: "flex bg-gray-800 text-white p-4 md:p-0 items-center print:hidden",
@@ -86,6 +90,11 @@ pub fn TopBar() -> Element {
                     if show_admin {
                         li {
                             Link { class: "hover:underline px-3 py-2 md:py-4", to: Route::StaticDocumentsPage {}, "Dokumente" }
+                        }
+                    }
+                    if show_backup {
+                        li {
+                            Link { class: "hover:underline px-3 py-2 md:py-4", to: Route::BackupPage {}, {i18n.t(Key::Backup)} }
                         }
                     }
                     if show_permissions {

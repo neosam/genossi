@@ -140,6 +140,7 @@ type MemberImportService =
 
 type MemberActionDao = genossi_dao_impl_sqlite::member_action::MemberActionDaoImpl;
 type MemberDocumentDao = genossi_dao_impl_sqlite::member_document::MemberDocumentDaoImpl;
+type BackupDao = genossi_dao_impl_sqlite::backup::BackupDaoImpl;
 
 pub struct MemberActionServiceDependencies;
 
@@ -265,6 +266,7 @@ pub struct RestStateImpl {
     mail_service: Arc<MailServiceType>,
     inbox_service: Arc<InboxServiceType>,
     static_document_service: Arc<StaticDocumentServiceType>,
+    backup_dao: Arc<BackupDao>,
     // Inbox worker dependencies
     worker_inbox_config_service: Arc<ConfigService>,
     worker_inbox_dao: Arc<InboundMailDaoType>,
@@ -400,6 +402,8 @@ impl RestStateImpl {
             document_storage.clone(),
         ));
 
+        let backup_dao = Arc::new(BackupDao::new(pool.clone()));
+
         // Inbox service and worker wiring
         let inbox_dao = Arc::new(InboundMailDaoType::new(pool.clone()));
         let inbox_imap_client = Arc::new(InboxImapClientType::new());
@@ -448,6 +452,7 @@ impl RestStateImpl {
             mail_service,
             inbox_service,
             static_document_service,
+            backup_dao,
             worker_inbox_config_service,
             worker_inbox_dao,
             worker_inbox_imap_client,
@@ -698,6 +703,7 @@ impl genossi_rest::RestStateDef for RestStateImpl {
     type ValidationService = ValidationService;
     type UserPreferenceService = UserPreferenceService;
     type StaticDocumentService = StaticDocumentServiceType;
+    type BackupDao = BackupDao;
 
     fn member_service(&self) -> Arc<Self::MemberService> {
         self.member_service.clone()
@@ -745,5 +751,9 @@ impl genossi_rest::RestStateDef for RestStateImpl {
 
     fn pdf_generator(&self) -> Arc<genossi_service_impl::pdf_generation::PdfGenerator> {
         self.pdf_generator.clone()
+    }
+
+    fn backup_dao(&self) -> Arc<Self::BackupDao> {
+        self.backup_dao.clone()
     }
 }

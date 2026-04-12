@@ -232,6 +232,16 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::CommunicationStatusReplied => "Replied".into(),
         Key::CommunicationStatusArchived => "Archived".into(),
 
+        Key::Backup => "Backup".into(),
+        Key::BackupMemberList => "Member List (CSV)".into(),
+        Key::BackupMemberListDescription => "Exports all active members at the given cutoff date with historically accurate share values.".into(),
+        Key::BackupActions => "All Actions (CSV)".into(),
+        Key::BackupActionsDescription => "Exports all member actions including first and last name.".into(),
+        Key::BackupDocuments => "All Documents (ZIP)".into(),
+        Key::BackupDocumentsDescription => "All stored documents as ZIP archive, sorted by member.".into(),
+        Key::BackupDocumentsWarning => "The download may take several minutes and be several hundred MB in size.".into(),
+        Key::BackupCutoffDate => "Cutoff Date".into(),
+
         Key::NoDataFound => "No data found.".into(),
         Key::ErrorLoadingData => "Error loading data.".into(),
         Key::ConfirmDelete => "Are you sure you want to delete this member?".into(),

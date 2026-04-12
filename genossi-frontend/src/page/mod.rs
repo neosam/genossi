@@ -1,4 +1,5 @@
 pub mod access_denied;
+pub mod backup;
 pub mod config_page;
 pub mod home;
 pub mod inbox_page;
@@ -12,6 +13,7 @@ pub mod templates;
 pub mod validation;
 
 pub use access_denied::AccessDeniedPage;
+pub use backup::BackupPage;
 pub use config_page::ConfigPage;
 pub use home::Home;
 pub use inbox_page::InboxPage;

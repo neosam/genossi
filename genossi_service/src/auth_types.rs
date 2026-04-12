@@ -124,6 +124,7 @@ pub mod privileges {
     pub const ADMIN: &str = "admin";
     pub const USER: &str = "user";
     pub const READONLY: &str = "readonly";
+    pub const EXPORT_BACKUP: &str = "export_backup";
 }
 
 /// Standard role names

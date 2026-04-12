@@ -5338,3 +5338,202 @@ async fn test_document_counts_missing_type() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
+
+// ===== Backup Export Tests =====
+
+#[tokio::test]
+async fn test_backup_members_csv_empty() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(server.url("/api/backup/members?date=2026-04-12"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let content_type = response.headers().get("content-type").unwrap().to_str().unwrap();
+    assert!(content_type.contains("text/csv"));
+    let bytes = response.bytes().await.unwrap();
+    // Should start with UTF-8 BOM
+    assert_eq!(&bytes[..3], b"\xEF\xBB\xBF");
+    let body = String::from_utf8_lossy(&bytes);
+    assert!(body.contains("Mitgliedsnummer"));
+    assert!(body.contains("Anteile am Stichtag"));
+}
+
+#[tokio::test]
+async fn test_backup_members_csv_with_data() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Create a member (shares_at_joining=1, auto-creates Eintritt + Aufstockung(1))
+    let member = create_test_member(&client, &server).await;
+    let member_id = member.id.unwrap();
+
+    // Create an additional Aufstockung action on 2025-06-01
+    let action = MemberActionTO {
+        id: None,
+        member_id,
+        action_type: ActionTypeTO::Aufstockung,
+        date: time::Date::from_calendar_date(2025, time::Month::June, 1).unwrap(),
+        shares_change: 2,
+        transfer_member_id: None,
+        effective_date: None,
+        comment: None,
+        created: None,
+        deleted: None,
+        version: None,
+    };
+    let response = client
+        .post(server.url(&format!("/api/members/{}/actions", member_id)))
+        .json(&action)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Export members at a date BEFORE the extra action
+    // SUM(shares_change) = 0 (Eintritt) + 1 (initial Aufstockung) = 1
+    let response = client
+        .get(server.url("/api/backup/members?date=2025-03-01"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response.text().await.unwrap();
+    // Parse CSV to check shares_at_date column (column index 15, 0-based)
+    let mut rdr = csv::Reader::from_reader(body.as_bytes());
+    let record = rdr.records().next().unwrap().unwrap();
+    assert_eq!(record.get(15).unwrap(), "1"); // shares_at_date
+
+    // Export members at a date AFTER the extra action
+    // SUM(shares_change) = 0 (Eintritt) + 1 (initial Aufstockung) + 2 (manual) = 3
+    let response = client
+        .get(server.url("/api/backup/members?date=2025-07-01"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response.text().await.unwrap();
+    let mut rdr = csv::Reader::from_reader(body.as_bytes());
+    let record = rdr.records().next().unwrap().unwrap();
+    assert_eq!(record.get(15).unwrap(), "3"); // shares_at_date
+}
+
+#[tokio::test]
+async fn test_backup_members_csv_excludes_exited() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Create a member, then update to set exit date
+    let created = create_test_member(&client, &server).await;
+    let member_id = created.id.unwrap();
+    let mut updated = created.clone();
+    updated.exit_date = Some(time::Date::from_calendar_date(2025, time::Month::March, 15).unwrap());
+    let response = client
+        .put(server.url(&format!("/api/members/{}", member_id)))
+        .json(&updated)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Export BEFORE exit - should include
+    let response = client
+        .get(server.url("/api/backup/members?date=2025-03-01"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response.text().await.unwrap();
+    let rdr = csv::Reader::from_reader(body.as_bytes());
+    assert_eq!(rdr.into_records().count(), 1); // 1 data row
+
+    // Export AFTER exit - should exclude
+    let response = client
+        .get(server.url("/api/backup/members?date=2025-04-01"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response.text().await.unwrap();
+    let rdr = csv::Reader::from_reader(body.as_bytes());
+    assert_eq!(rdr.into_records().count(), 0); // 0 data rows
+}
+
+#[tokio::test]
+async fn test_backup_members_csv_missing_date() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(server.url("/api/backup/members"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_backup_actions_csv_empty() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(server.url("/api/backup/actions"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let content_type = response.headers().get("content-type").unwrap().to_str().unwrap();
+    assert!(content_type.contains("text/csv"));
+    let bytes = response.bytes().await.unwrap();
+    assert_eq!(&bytes[..3], b"\xEF\xBB\xBF");
+    let body = String::from_utf8_lossy(&bytes);
+    assert!(body.contains("Mitgliedsnummer"));
+    assert!(body.contains("Aktionstyp"));
+}
+
+#[tokio::test]
+async fn test_backup_actions_csv_with_data() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let _member = create_test_member(&client, &server).await;
+
+    let response = client
+        .get(server.url("/api/backup/actions"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response.text().await.unwrap();
+    let rdr = csv::Reader::from_reader(body.as_bytes());
+    let records: Vec<_> = rdr.into_records().collect();
+    // 2 auto-created actions (Eintritt + Aufstockung)
+    assert_eq!(records.len(), 2);
+    // Check member name is included
+    assert!(body.contains("Max"));
+    assert!(body.contains("Mustermann"));
+}
+
+#[tokio::test]
+async fn test_backup_documents_zip_empty() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(server.url("/api/backup/documents"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let content_type = response.headers().get("content-type").unwrap().to_str().unwrap();
+    assert!(content_type.contains("application/zip"));
+}
