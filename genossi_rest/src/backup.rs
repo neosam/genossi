@@ -1,7 +1,10 @@
 use axum::extract::{Extension, Query, State};
 use axum::response::Response;
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{body::Body, Router};
+use genossi_backup::generator;
+use genossi_backup::webdav::WebDavClient;
+use genossi_config::service::ConfigService;
 use genossi_dao::backup::BackupDao;
 use genossi_service::auth_types::privileges;
 use genossi_service::document_storage::DocumentStorage;
@@ -17,6 +20,7 @@ pub fn generate_route<RestState: RestStateDef>() -> Router<RestState> {
         .route("/members", get(export_members::<RestState>))
         .route("/actions", get(export_actions::<RestState>))
         .route("/documents", get(export_documents::<RestState>))
+        .route("/test-webdav", post(test_webdav::<RestState>))
 }
 
 async fn require_export_backup<RestState: RestStateDef>(
@@ -36,8 +40,6 @@ async fn require_export_backup<RestState: RestStateDef>(
 pub struct MembersQuery {
     pub date: String,
 }
-
-const UTF8_BOM: &[u8] = b"\xEF\xBB\xBF";
 
 #[instrument(skip(rest_state))]
 pub async fn export_members<RestState: RestStateDef>(
@@ -60,58 +62,8 @@ pub async fn export_members<RestState: RestStateDef>(
                 .await
                 .map_err(|e| RestError::InternalError(format!("{:?}", e)))?;
 
-            let mut buf = Vec::new();
-            buf.extend_from_slice(UTF8_BOM);
-
-            {
-                let mut wtr = csv::Writer::from_writer(&mut buf);
-                wtr.write_record([
-                    "Mitgliedsnummer",
-                    "Anrede",
-                    "Titel",
-                    "Vorname",
-                    "Nachname",
-                    "Firma",
-                    "Strasse",
-                    "Hausnummer",
-                    "PLZ",
-                    "Ort",
-                    "Email",
-                    "Bankverbindung",
-                    "Beitrittsdatum",
-                    "Austrittsdatum",
-                    "Anteile bei Beitritt",
-                    "Anteile am Stichtag",
-                    "Kommentar",
-                ])
-                .map_err(|e| RestError::InternalError(e.to_string()))?;
-
-                for m in members.iter() {
-                    wtr.write_record([
-                        m.member_number.to_string(),
-                        m.salutation.as_deref().unwrap_or("").to_string(),
-                        m.title.as_deref().unwrap_or("").to_string(),
-                        m.first_name.to_string(),
-                        m.last_name.to_string(),
-                        m.company.as_deref().unwrap_or("").to_string(),
-                        m.street.as_deref().unwrap_or("").to_string(),
-                        m.house_number.as_deref().unwrap_or("").to_string(),
-                        m.postal_code.as_deref().unwrap_or("").to_string(),
-                        m.city.as_deref().unwrap_or("").to_string(),
-                        m.email.as_deref().unwrap_or("").to_string(),
-                        m.bank_account.as_deref().unwrap_or("").to_string(),
-                        m.join_date.to_string(),
-                        m.exit_date.as_deref().unwrap_or("").to_string(),
-                        m.shares_at_joining.to_string(),
-                        m.shares_at_date.to_string(),
-                        m.comment.as_deref().unwrap_or("").to_string(),
-                    ])
-                    .map_err(|e| RestError::InternalError(e.to_string()))?;
-                }
-
-                wtr.flush()
-                    .map_err(|e| RestError::InternalError(e.to_string()))?;
-            }
+            let buf = generator::generate_members_csv(&members)
+                .map_err(RestError::InternalError)?;
 
             let filename = format!("mitgliederliste_{}.csv", query.date);
             Ok(Response::builder()
@@ -143,44 +95,8 @@ pub async fn export_actions<RestState: RestStateDef>(
                 .await
                 .map_err(|e| RestError::InternalError(format!("{:?}", e)))?;
 
-            let mut buf = Vec::new();
-            buf.extend_from_slice(UTF8_BOM);
-
-            {
-                let mut wtr = csv::Writer::from_writer(&mut buf);
-                wtr.write_record([
-                    "Mitgliedsnummer",
-                    "Vorname",
-                    "Nachname",
-                    "Aktionstyp",
-                    "Datum",
-                    "Anteileaenderung",
-                    "Uebertragung-Mitgliedsnummer",
-                    "Wirksamkeitsdatum",
-                    "Kommentar",
-                ])
-                .map_err(|e| RestError::InternalError(e.to_string()))?;
-
-                for a in actions.iter() {
-                    wtr.write_record([
-                        a.member_number.to_string(),
-                        a.first_name.to_string(),
-                        a.last_name.to_string(),
-                        a.action_type.to_string(),
-                        a.date.to_string(),
-                        a.shares_change.to_string(),
-                        a.transfer_member_number
-                            .map(|n| n.to_string())
-                            .unwrap_or_default(),
-                        a.effective_date.as_deref().unwrap_or("").to_string(),
-                        a.comment.as_deref().unwrap_or("").to_string(),
-                    ])
-                    .map_err(|e| RestError::InternalError(e.to_string()))?;
-                }
-
-                wtr.flush()
-                    .map_err(|e| RestError::InternalError(e.to_string()))?;
-            }
+            let buf = generator::generate_actions_csv(&actions)
+                .map_err(RestError::InternalError)?;
 
             Ok(Response::builder()
                 .status(200)
@@ -257,6 +173,55 @@ pub async fn export_documents<RestState: RestStateDef>(
                     "attachment; filename=\"dokumente.zip\"",
                 )
                 .body(Body::from(zip_buf.into_inner()))
+                .unwrap())
+        })
+        .await,
+    )
+}
+
+#[instrument(skip(rest_state))]
+pub async fn test_webdav<RestState: RestStateDef>(
+    rest_state: State<RestState>,
+    Extension(context): Extension<Context>,
+) -> Response {
+    error_handler(
+        (async {
+            require_export_backup(&*rest_state, context).await?;
+
+            let entries = rest_state
+                .config_service()
+                .get_all()
+                .await
+                .map_err(|e| RestError::InternalError(format!("{:?}", e)))?;
+
+            let find = |key: &str| -> Option<String> {
+                entries
+                    .iter()
+                    .find(|e| e.key.as_ref() == key)
+                    .map(|e| e.value.to_string())
+            };
+
+            let url = find("backup_webdav_url")
+                .ok_or_else(|| RestError::BadRequest("backup_webdav_url not configured".into()))?;
+            let username = find("backup_webdav_username")
+                .ok_or_else(|| RestError::BadRequest("backup_webdav_username not configured".into()))?;
+            let password = find("backup_webdav_password")
+                .ok_or_else(|| RestError::BadRequest("backup_webdav_password not configured".into()))?;
+            let directory = find("backup_webdav_directory")
+                .unwrap_or_else(|| "genossi-export".to_string());
+
+            let client = WebDavClient::new(&url, &username, &password);
+            client
+                .test_connection(&directory)
+                .await
+                .map_err(|e| RestError::InternalError(format!("{}", e)))?;
+
+            Ok(Response::builder()
+                .status(200)
+                .header("Content-Type", "application/json")
+                .body(Body::new(
+                    serde_json::json!({"success": true}).to_string(),
+                ))
                 .unwrap())
         })
         .await,

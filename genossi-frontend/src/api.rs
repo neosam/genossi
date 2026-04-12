@@ -685,6 +685,22 @@ pub async fn send_test_mail(config: &Config, to_address: &str) -> Result<(), Str
     Ok(())
 }
 
+pub async fn test_webdav_connection(config: &Config) -> Result<(), String> {
+    info!("Testing WebDAV connection");
+    let url = format!("{}/api/backup/test-webdav", config.backend);
+    let response = reqwest::Client::new()
+        .post(url)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        return Err(format!("{}: {}", status, text));
+    }
+    Ok(())
+}
+
 #[derive(Clone, Debug, serde::Deserialize)]
 pub struct FooterResponse {
     pub footer: String,

@@ -76,6 +76,19 @@ pub fn ConfigPage() -> Element {
     let mut sender_name = use_signal(|| String::new());
     let mut sender_name_saving = use_signal(|| false);
 
+    // WebDAV Backup form state
+    let mut webdav_url = use_signal(|| String::new());
+    let mut webdav_username = use_signal(|| String::new());
+    let mut webdav_pass = use_signal(|| String::new());
+    let mut webdav_pass_set = use_signal(|| false);
+    let mut webdav_directory = use_signal(|| "genossi-export".to_string());
+    let mut webdav_interval = use_signal(|| "24".to_string());
+    let mut webdav_enabled = use_signal(|| false);
+    let mut webdav_saving = use_signal(|| false);
+    let mut webdav_testing = use_signal(|| false);
+    let mut webdav_last_run = use_signal(|| None::<String>);
+    let mut webdav_last_status = use_signal(|| None::<String>);
+
     // Advanced config collapsed state
     let mut show_advanced = use_signal(|| false);
 
@@ -122,6 +135,25 @@ pub fn ConfigPage() -> Element {
 
                     // Populate mail footer from entries
                     mail_footer.set(get_config_value(&data, "mail_footer"));
+
+                    // Populate WebDAV backup settings
+                    webdav_url.set(get_config_value(&data, "backup_webdav_url"));
+                    webdav_username.set(get_config_value(&data, "backup_webdav_username"));
+                    webdav_pass_set.set(has_config_key(&data, "backup_webdav_password"));
+                    webdav_pass.set(String::new());
+                    let dir_val = get_config_value(&data, "backup_webdav_directory");
+                    if !dir_val.is_empty() {
+                        webdav_directory.set(dir_val);
+                    }
+                    let interval_val = get_config_value(&data, "backup_interval_hours");
+                    if !interval_val.is_empty() {
+                        webdav_interval.set(interval_val);
+                    }
+                    webdav_enabled.set(get_config_value(&data, "backup_webdav_enabled") == "true");
+                    let last_run = get_config_value(&data, "backup_last_run");
+                    webdav_last_run.set(if last_run.is_empty() { None } else { Some(last_run) });
+                    let last_status = get_config_value(&data, "backup_last_status");
+                    webdav_last_status.set(if last_status.is_empty() { None } else { Some(last_status) });
 
                     // Load sender_name user preference
                     if let Ok(Some(pref)) = api::get_user_preference(&config, "sender_name").await {
@@ -722,6 +754,220 @@ pub fn ConfigPage() -> Element {
                                             "Speichere…"
                                         } else {
                                             "Speichern"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // WebDAV Backup Settings Section
+                        div { class: "bg-white rounded-lg shadow p-6 mb-6",
+                            h2 { class: "text-xl font-semibold mb-4", {i18n.t(Key::WebDavBackup)} }
+                            div { class: "space-y-4",
+                                // Enabled toggle
+                                div {
+                                    label { class: "inline-flex items-center cursor-pointer",
+                                        input {
+                                            r#type: "checkbox",
+                                            class: "mr-2 w-4 h-4",
+                                            checked: *webdav_enabled.read(),
+                                            onchange: move |e: Event<FormData>| webdav_enabled.set(e.value() == "true"),
+                                        }
+                                        span { class: "text-sm font-medium text-gray-700",
+                                            {i18n.t(Key::WebDavEnabled)}
+                                        }
+                                    }
+                                }
+
+                                // URL
+                                div {
+                                    label { class: "block text-sm font-medium text-gray-700 mb-1",
+                                        {i18n.t(Key::WebDavUrl)}
+                                    }
+                                    input {
+                                        class: "w-full border rounded px-3 py-2",
+                                        r#type: "text",
+                                        placeholder: "{i18n.t(Key::WebDavUrlPlaceholder)}",
+                                        value: "{webdav_url}",
+                                        oninput: move |e| webdav_url.set(e.value()),
+                                    }
+                                }
+
+                                // Username + Password row
+                                div { class: "grid grid-cols-1 md:grid-cols-2 gap-4",
+                                    div {
+                                        label { class: "block text-sm font-medium text-gray-700 mb-1",
+                                            {i18n.t(Key::WebDavUsername)}
+                                        }
+                                        input {
+                                            class: "w-full border rounded px-3 py-2",
+                                            r#type: "text",
+                                            value: "{webdav_username}",
+                                            oninput: move |e| webdav_username.set(e.value()),
+                                        }
+                                    }
+                                    div {
+                                        label { class: "block text-sm font-medium text-gray-700 mb-1",
+                                            {i18n.t(Key::WebDavPassword)}
+                                            if *webdav_pass_set.read() {
+                                                span { class: "ml-2 text-xs text-green-600",
+                                                    "({i18n.t(Key::WebDavPasswordSet)})"
+                                                }
+                                            }
+                                        }
+                                        input {
+                                            class: "w-full border rounded px-3 py-2",
+                                            r#type: "password",
+                                            placeholder: if *webdav_pass_set.read() { "********" } else { "" },
+                                            value: "{webdav_pass}",
+                                            oninput: move |e| webdav_pass.set(e.value()),
+                                        }
+                                    }
+                                }
+
+                                // Directory + Interval row
+                                div { class: "grid grid-cols-1 md:grid-cols-2 gap-4",
+                                    div {
+                                        label { class: "block text-sm font-medium text-gray-700 mb-1",
+                                            {i18n.t(Key::WebDavDirectory)}
+                                        }
+                                        input {
+                                            class: "w-full border rounded px-3 py-2",
+                                            r#type: "text",
+                                            placeholder: "{i18n.t(Key::WebDavDirectoryPlaceholder)}",
+                                            value: "{webdav_directory}",
+                                            oninput: move |e| webdav_directory.set(e.value()),
+                                        }
+                                    }
+                                    div {
+                                        label { class: "block text-sm font-medium text-gray-700 mb-1",
+                                            {i18n.t(Key::WebDavIntervalHours)}
+                                        }
+                                        input {
+                                            class: "w-full border rounded px-3 py-2",
+                                            r#type: "number",
+                                            min: "1",
+                                            value: "{webdav_interval}",
+                                            oninput: move |e| webdav_interval.set(e.value()),
+                                        }
+                                    }
+                                }
+
+                                // Save button
+                                div { class: "flex items-center space-x-4 pt-2",
+                                    button {
+                                        class: "bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded disabled:opacity-50",
+                                        disabled: *webdav_saving.read(),
+                                        onclick: {
+                                            let i18n = i18n.clone();
+                                            move |_| {
+                                            let url = webdav_url.read().clone();
+                                            let username = webdav_username.read().clone();
+                                            let pass = webdav_pass.read().clone();
+                                            let pass_set = *webdav_pass_set.read();
+                                            let directory = webdav_directory.read().clone();
+                                            let interval = webdav_interval.read().clone();
+                                            let enabled = *webdav_enabled.read();
+                                            let i18n = i18n.clone();
+                                            spawn(async move {
+                                                webdav_saving.set(true);
+                                                error.set(None);
+                                                success_msg.set(None);
+                                                let config = CONFIG.read().clone();
+                                                let mut all_ok = true;
+
+                                                let entries_to_save: Vec<(&str, String, &str)> = {
+                                                    let mut v = vec![
+                                                        ("backup_webdav_enabled", if enabled { "true".to_string() } else { "false".to_string() }, "bool"),
+                                                        ("backup_webdav_url", url, "string"),
+                                                        ("backup_webdav_username", username, "string"),
+                                                        ("backup_webdav_directory", directory, "string"),
+                                                        ("backup_interval_hours", interval, "int"),
+                                                    ];
+                                                    if !pass.is_empty() || !pass_set {
+                                                        v.push(("backup_webdav_password", pass, "secret"));
+                                                    }
+                                                    v
+                                                };
+
+                                                for (key, value, vtype) in &entries_to_save {
+                                                    if let Err(e) = api::set_config_entry(&config, key, value, vtype).await {
+                                                        error.set(Some(format!("{}", e)));
+                                                        all_ok = false;
+                                                        break;
+                                                    }
+                                                }
+
+                                                if all_ok {
+                                                    success_msg.set(Some(i18n.t(Key::Save).to_string()));
+                                                    reload();
+                                                }
+                                                webdav_saving.set(false);
+                                            });
+                                        }},
+                                        if *webdav_saving.read() {
+                                            {i18n.t(Key::WebDavSaving)}
+                                        } else {
+                                            {i18n.t(Key::Save)}
+                                        }
+                                    }
+                                }
+
+                                // Test connection button
+                                div { class: "border-t pt-4 mt-4",
+                                    h3 { class: "text-sm font-medium text-gray-700 mb-2",
+                                        {i18n.t(Key::WebDavTestConnection)}
+                                    }
+                                    button {
+                                        class: "bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded text-sm disabled:opacity-50",
+                                        disabled: *webdav_testing.read() || webdav_url.read().is_empty(),
+                                        onclick: {
+                                            let i18n = i18n.clone();
+                                            move |_| {
+                                            let i18n = i18n.clone();
+                                            spawn(async move {
+                                                webdav_testing.set(true);
+                                                error.set(None);
+                                                success_msg.set(None);
+                                                let config = CONFIG.read().clone();
+                                                match api::test_webdav_connection(&config).await {
+                                                    Ok(()) => {
+                                                        success_msg.set(Some(i18n.t(Key::WebDavTestSuccess).to_string()));
+                                                    }
+                                                    Err(e) => {
+                                                        error.set(Some(format!("{}: {}", i18n.t(Key::WebDavTestFailed), e)));
+                                                    }
+                                                }
+                                                webdav_testing.set(false);
+                                            });
+                                        }},
+                                        if *webdav_testing.read() {
+                                            {i18n.t(Key::WebDavSaving)}
+                                        } else {
+                                            {i18n.t(Key::WebDavTestConnection)}
+                                        }
+                                    }
+                                }
+
+                                // Backup status display
+                                div { class: "border-t pt-4 mt-4",
+                                    h3 { class: "text-sm font-medium text-gray-700 mb-2",
+                                        {i18n.t(Key::WebDavLastBackup)}
+                                    }
+                                    if let Some(last_run) = webdav_last_run.read().as_ref() {
+                                        p { class: "text-sm text-gray-600 mb-1",
+                                            "{last_run}"
+                                        }
+                                        if let Some(status) = webdav_last_status.read().as_ref() {
+                                            if status.starts_with("Erfolgreich") || status.starts_with("Success") {
+                                                p { class: "text-sm text-green-600", "{status}" }
+                                            } else {
+                                                p { class: "text-sm text-red-600", "{status}" }
+                                            }
+                                        }
+                                    } else {
+                                        p { class: "text-sm text-gray-400 italic",
+                                            {i18n.t(Key::WebDavNoBackupYet)}
                                         }
                                     }
                                 }

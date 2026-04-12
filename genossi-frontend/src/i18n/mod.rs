@@ -304,6 +304,24 @@ pub enum Key {
     BackupDocumentsWarning,
     BackupCutoffDate,
 
+    // WebDAV Backup Config
+    WebDavBackup,
+    WebDavUrl,
+    WebDavUrlPlaceholder,
+    WebDavUsername,
+    WebDavPassword,
+    WebDavDirectory,
+    WebDavDirectoryPlaceholder,
+    WebDavIntervalHours,
+    WebDavEnabled,
+    WebDavSaving,
+    WebDavLastBackup,
+    WebDavNoBackupYet,
+    WebDavPasswordSet,
+    WebDavTestConnection,
+    WebDavTestSuccess,
+    WebDavTestFailed,
+
     // Messages
     NoDataFound,
     ErrorLoadingData,

@@ -141,6 +141,7 @@ type MemberImportService =
 type MemberActionDao = genossi_dao_impl_sqlite::member_action::MemberActionDaoImpl;
 type MemberDocumentDao = genossi_dao_impl_sqlite::member_document::MemberDocumentDaoImpl;
 type BackupDao = genossi_dao_impl_sqlite::backup::BackupDaoImpl;
+type BackupDocumentSyncDao = genossi_dao_impl_sqlite::backup::BackupDocumentSyncDaoImpl;
 
 pub struct MemberActionServiceDependencies;
 
@@ -277,6 +278,9 @@ pub struct RestStateImpl {
     worker_recipient_dao: Arc<MailRecipientDao>,
     worker_attachment_dao: Arc<MailRecipientAttachmentDao>,
     worker_static_attachment_dao: Arc<MailJobStaticAttachmentDaoType>,
+    // Backup worker dependencies
+    backup_config_service: Arc<ConfigService>,
+    backup_sync_dao: Arc<BackupDocumentSyncDao>,
     // Pool for direct document resolution queries
     pool: Arc<SqlitePool>,
 }
@@ -435,6 +439,11 @@ impl RestStateImpl {
         let worker_config_dao = ConfigDao::new(pool.clone());
         let worker_config_service = Arc::new(ConfigService::new(worker_config_dao));
 
+        // Backup worker dependencies
+        let backup_config_dao = ConfigDao::new(pool.clone());
+        let backup_config_service = Arc::new(ConfigService::new(backup_config_dao));
+        let backup_sync_dao = Arc::new(BackupDocumentSyncDao::new(pool.clone()));
+
         Self {
             public_stats_cache: std::sync::Arc::new(genossi_rest::public_stats::PublicStatsCache::new()),
             member_service,
@@ -461,6 +470,8 @@ impl RestStateImpl {
             worker_recipient_dao,
             worker_attachment_dao,
             worker_static_attachment_dao,
+            backup_config_service,
+            backup_sync_dao,
             pool,
         }
     }
@@ -473,6 +484,22 @@ impl RestStateImpl {
         let imap_client = self.worker_inbox_imap_client.clone();
         tokio::spawn(async move {
             genossi_mail::inbox::start_inbox_worker(config_service, dao, imap_client).await;
+        });
+    }
+
+    pub fn start_backup_worker(&self) {
+        let config_service = self.backup_config_service.clone();
+        let backup_dao = self.backup_dao.clone();
+        let sync_dao = self.backup_sync_dao.clone();
+        let document_storage = self.document_storage.clone();
+        tokio::spawn(async move {
+            genossi_backup::worker::start_backup_worker(
+                config_service,
+                backup_dao,
+                sync_dao,
+                document_storage,
+            )
+            .await;
         });
     }
 

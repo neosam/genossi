@@ -9,6 +9,7 @@ members = [
     "genossi_bin",
     "genossi_config",
     "genossi_mail",
+    "genossi_backup",
 ]
 resolver = "2"
 exclude = ["genossi-frontend", ".claude/worktrees/codemirror-template-editor/genossi-frontend", ".claude/worktrees/smtp-config-ui/genossi-frontend", ".claude/worktrees/typst-syntax-highlighting/genossi-frontend"]

@@ -327,4 +327,22 @@ pub fn add_i18n_cs(i18n: &mut I18n<Key, Locale>) {
     i18n.add_text(Locale::Cs, Key::Uploading, "nahrávání...");
     i18n.add_text(Locale::Cs, Key::UploadFailed, "Chyba");
     i18n.add_text(Locale::Cs, Key::SelectDocumentType, "Vyberte typ dokumentu");
+
+    // WebDAV Backup Config
+    i18n.add_text(Locale::Cs, Key::WebDavBackup, "WebDAV záloha");
+    i18n.add_text(Locale::Cs, Key::WebDavUrl, "WebDAV URL");
+    i18n.add_text(Locale::Cs, Key::WebDavUrlPlaceholder, "https://cloud.example/remote.php/dav/files/user/");
+    i18n.add_text(Locale::Cs, Key::WebDavUsername, "Uživatelské jméno");
+    i18n.add_text(Locale::Cs, Key::WebDavPassword, "Heslo / App token");
+    i18n.add_text(Locale::Cs, Key::WebDavDirectory, "Cílový adresář");
+    i18n.add_text(Locale::Cs, Key::WebDavDirectoryPlaceholder, "genossi-export");
+    i18n.add_text(Locale::Cs, Key::WebDavIntervalHours, "Interval (hodiny)");
+    i18n.add_text(Locale::Cs, Key::WebDavEnabled, "Automatická záloha aktivní");
+    i18n.add_text(Locale::Cs, Key::WebDavSaving, "Ukládání...");
+    i18n.add_text(Locale::Cs, Key::WebDavLastBackup, "Poslední záloha");
+    i18n.add_text(Locale::Cs, Key::WebDavNoBackupYet, "Zatím nebyla provedena žádná záloha");
+    i18n.add_text(Locale::Cs, Key::WebDavPasswordSet, "Heslo nastaveno");
+    i18n.add_text(Locale::Cs, Key::WebDavTestConnection, "Otestovat připojení");
+    i18n.add_text(Locale::Cs, Key::WebDavTestSuccess, "WebDAV připojení úspěšné");
+    i18n.add_text(Locale::Cs, Key::WebDavTestFailed, "Test WebDAV připojení selhal");
 }

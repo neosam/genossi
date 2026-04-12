@@ -5537,3 +5537,94 @@ async fn test_backup_documents_zip_empty() {
     let content_type = response.headers().get("content-type").unwrap().to_str().unwrap();
     assert!(content_type.contains("application/zip"));
 }
+
+#[tokio::test]
+async fn test_backup_webdav_config_persists() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Set all WebDAV backup config entries
+    let entries = vec![
+        ("backup_webdav_enabled", "true", "bool"),
+        ("backup_webdav_url", "https://cloud.example/remote.php/dav/files/user/", "string"),
+        ("backup_webdav_username", "backup-user", "string"),
+        ("backup_webdav_password", "app-token-secret", "secret"),
+        ("backup_webdav_directory", "genossi-export", "string"),
+        ("backup_interval_hours", "12", "int"),
+    ];
+
+    for (key, value, value_type) in &entries {
+        let response = client
+            .put(server.url(&format!("/api/config/{}", key)))
+            .json(&SetConfigRequest {
+                value: value.to_string(),
+                value_type: value_type.to_string(),
+            })
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "Failed to set {}", key);
+    }
+
+    // Verify all entries are stored
+    let response = client
+        .get(server.url("/api/config"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let all_entries: Vec<ConfigEntryTO> = response.json().await.unwrap();
+
+    let find_entry = |key: &str| -> Option<ConfigEntryTO> {
+        all_entries.iter().find(|e| e.key == key).cloned()
+    };
+
+    // Check enabled flag
+    let enabled = find_entry("backup_webdav_enabled").expect("backup_webdav_enabled not found");
+    assert_eq!(enabled.value, "true");
+
+    // Check URL
+    let url = find_entry("backup_webdav_url").expect("backup_webdav_url not found");
+    assert_eq!(url.value, "https://cloud.example/remote.php/dav/files/user/");
+
+    // Check password is masked
+    let password = find_entry("backup_webdav_password").expect("backup_webdav_password not found");
+    assert_eq!(password.value, "***");
+
+    // Check interval
+    let interval = find_entry("backup_interval_hours").expect("backup_interval_hours not found");
+    assert_eq!(interval.value, "12");
+}
+
+#[tokio::test]
+async fn test_backup_webdav_config_interval_validation() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Setting non-integer should fail validation
+    let response = client
+        .put(server.url("/api/config/backup_interval_hours"))
+        .json(&SetConfigRequest {
+            value: "not_a_number".to_string(),
+            value_type: "int".to_string(),
+        })
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_backup_test_webdav_missing_config() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Without any WebDAV config, the test endpoint should return 400
+    let response = client
+        .post(server.url("/api/backup/test-webdav"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}

@@ -52,4 +52,16 @@ pub trait BackupDao: Send + Sync {
     async fn members_at_date(&self, date: time::Date) -> Result<Arc<[MemberBackupRow]>, DaoError>;
     async fn all_actions(&self) -> Result<Arc<[ActionBackupRow]>, DaoError>;
     async fn all_documents(&self) -> Result<Arc<[DocumentBackupRow]>, DaoError>;
+    async fn earliest_join_year(&self) -> Result<Option<i32>, DaoError>;
+}
+
+#[async_trait]
+pub trait BackupDocumentSyncDao: Send + Sync {
+    async fn get_hash(&self, relative_path: &str) -> Result<Option<Arc<str>>, DaoError>;
+    async fn upsert_hash(
+        &self,
+        relative_path: &str,
+        content_hash: &str,
+        last_uploaded: &str,
+    ) -> Result<(), DaoError>;
 }

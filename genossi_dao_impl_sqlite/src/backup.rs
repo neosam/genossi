@@ -1,5 +1,7 @@
 use async_trait::async_trait;
-use genossi_dao::backup::{ActionBackupRow, BackupDao, DocumentBackupRow, MemberBackupRow};
+use genossi_dao::backup::{
+    ActionBackupRow, BackupDao, BackupDocumentSyncDao, DocumentBackupRow, MemberBackupRow,
+};
 use genossi_dao::DaoError;
 use sqlx::SqlitePool;
 use std::sync::Arc;
@@ -176,5 +178,76 @@ impl BackupDao for BackupDaoImpl {
             .collect();
 
         Ok(result.into())
+    }
+
+    async fn earliest_join_year(&self) -> Result<Option<i32>, DaoError> {
+        let row: Option<(String,)> = sqlx::query_as(
+            "SELECT MIN(join_date) FROM member WHERE deleted IS NULL AND (status IS NULL OR status != 'FehlerhaftErfasst')",
+        )
+        .fetch_optional(self.pool.as_ref())
+        .await
+        .map_err(|e| DaoError::DatabaseError(Arc::from(e.to_string())))?;
+
+        match row {
+            Some((date_str,)) => {
+                let year: i32 = date_str
+                    .get(..4)
+                    .and_then(|y| y.parse().ok())
+                    .ok_or_else(|| {
+                        DaoError::ParseError(Arc::from(format!(
+                            "Cannot parse year from: {}",
+                            date_str
+                        )))
+                    })?;
+                Ok(Some(year))
+            }
+            None => Ok(None),
+        }
+    }
+}
+
+pub struct BackupDocumentSyncDaoImpl {
+    pool: Arc<SqlitePool>,
+}
+
+impl BackupDocumentSyncDaoImpl {
+    pub fn new(pool: Arc<SqlitePool>) -> Self {
+        Self { pool }
+    }
+}
+
+#[async_trait]
+impl BackupDocumentSyncDao for BackupDocumentSyncDaoImpl {
+    async fn get_hash(&self, relative_path: &str) -> Result<Option<Arc<str>>, DaoError> {
+        let row: Option<(String,)> = sqlx::query_as(
+            "SELECT content_hash FROM backup_document_sync WHERE relative_path = ?",
+        )
+        .bind(relative_path)
+        .fetch_optional(self.pool.as_ref())
+        .await
+        .map_err(|e| DaoError::DatabaseError(Arc::from(e.to_string())))?;
+
+        Ok(row.map(|(hash,)| Arc::from(hash.as_str())))
+    }
+
+    async fn upsert_hash(
+        &self,
+        relative_path: &str,
+        content_hash: &str,
+        last_uploaded: &str,
+    ) -> Result<(), DaoError> {
+        sqlx::query(
+            "INSERT INTO backup_document_sync (relative_path, content_hash, last_uploaded) \
+             VALUES (?, ?, ?) \
+             ON CONFLICT(relative_path) DO UPDATE SET content_hash = excluded.content_hash, last_uploaded = excluded.last_uploaded",
+        )
+        .bind(relative_path)
+        .bind(content_hash)
+        .bind(last_uploaded)
+        .execute(self.pool.as_ref())
+        .await
+        .map_err(|e| DaoError::DatabaseError(Arc::from(e.to_string())))?;
+
+        Ok(())
     }
 }
