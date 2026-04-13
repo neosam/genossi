@@ -1,3 +1,5 @@
+pub mod application_detail;
+pub mod application_list;
 pub mod base_components;
 pub mod communication_timeline;
 pub mod dropdown_base;
@@ -11,6 +13,8 @@ pub mod overlay;
 pub mod top_bar;
 pub mod wordpress_integration;
 
+pub use application_detail::ApplicationDetail;
+pub use application_list::ApplicationList;
 pub use communication_timeline::CommunicationTimeline;
 pub use footer::Footer;
 pub use member_search::MemberSearch;

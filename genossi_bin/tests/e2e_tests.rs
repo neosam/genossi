@@ -6323,3 +6323,122 @@ async fn test_wordpress_config_entries_save_and_load() {
         assert_eq!(entry["value_type"].as_str(), Some(*expected_type), "Type mismatch for {}", key);
     }
 }
+
+#[tokio::test]
+async fn test_reject_application_changes_status() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let api_key = setup_api_key(&server, &client).await;
+
+    // Submit an application
+    client
+        .post(server.url("/api/public/join"))
+        .header("X-Api-Key", &api_key)
+        .json(&sample_join_request())
+        .send()
+        .await
+        .unwrap();
+
+    // Get the application
+    let response = client
+        .get(server.url("/api/applications"))
+        .send()
+        .await
+        .unwrap();
+    let apps: Vec<ApplicationTO> = response.json().await.unwrap();
+    assert_eq!(apps.len(), 1);
+    assert!(matches!(apps[0].status, ApplicationStatusTO::Offen));
+
+    // Reject it
+    let response = client
+        .post(server.url(&format!("/api/applications/{}/reject", apps[0].id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let rejected: ApplicationTO = response.json().await.unwrap();
+    assert!(matches!(rejected.status, ApplicationStatusTO::Abgelehnt));
+
+    // Verify filtered list
+    let response = client
+        .get(server.url("/api/applications?status=Abgelehnt"))
+        .send()
+        .await
+        .unwrap();
+    let apps: Vec<ApplicationTO> = response.json().await.unwrap();
+    assert_eq!(apps.len(), 1);
+
+    let response = client
+        .get(server.url("/api/applications?status=Offen"))
+        .send()
+        .await
+        .unwrap();
+    let apps: Vec<ApplicationTO> = response.json().await.unwrap();
+    assert_eq!(apps.len(), 0);
+}
+
+#[tokio::test]
+async fn test_application_full_workflow() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let api_key = setup_api_key(&server, &client).await;
+
+    // Submit two applications
+    let mut req1 = sample_join_request();
+    req1.first_name = "Anna".to_string();
+    req1.last_name = "Schmidt".to_string();
+    req1.email = "anna@example.com".to_string();
+
+    let mut req2 = sample_join_request();
+    req2.first_name = "Bob".to_string();
+    req2.last_name = "Mueller".to_string();
+    req2.email = "bob@example.com".to_string();
+
+    for req in [&req1, &req2] {
+        client
+            .post(server.url("/api/public/join"))
+            .header("X-Api-Key", &api_key)
+            .json(req)
+            .send()
+            .await
+            .unwrap();
+    }
+
+    // List all - should have 2
+    let response = client.get(server.url("/api/applications")).send().await.unwrap();
+    let apps: Vec<ApplicationTO> = response.json().await.unwrap();
+    assert_eq!(apps.len(), 2);
+
+    // Confirm first, reject second
+    let anna_id = apps.iter().find(|a| a.first_name == "Anna").unwrap().id;
+    let bob_id = apps.iter().find(|a| a.first_name == "Bob").unwrap().id;
+
+    let response = client
+        .post(server.url(&format!("/api/applications/{}/confirm", anna_id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let response = client
+        .post(server.url(&format!("/api/applications/{}/reject", bob_id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Verify: 0 open, 1 confirmed, 1 rejected
+    let response = client.get(server.url("/api/applications?status=Offen")).send().await.unwrap();
+    let apps: Vec<ApplicationTO> = response.json().await.unwrap();
+    assert_eq!(apps.len(), 0);
+
+    let response = client.get(server.url("/api/applications?status=Bestaetigt")).send().await.unwrap();
+    let apps: Vec<ApplicationTO> = response.json().await.unwrap();
+    assert_eq!(apps.len(), 1);
+    assert_eq!(apps[0].first_name, "Anna");
+
+    let response = client.get(server.url("/api/applications?status=Abgelehnt")).send().await.unwrap();
+    let apps: Vec<ApplicationTO> = response.json().await.unwrap();
+    assert_eq!(apps.len(), 1);
+    assert_eq!(apps[0].first_name, "Bob");
+}

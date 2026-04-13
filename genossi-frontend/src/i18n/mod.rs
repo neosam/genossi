@@ -322,6 +322,24 @@ pub enum Key {
     WebDavTestSuccess,
     WebDavTestFailed,
 
+    // Applications
+    Applications,
+    ApplicationsDesc,
+    StatusOffen,
+    StatusBestaetigt,
+    StatusAbgelehnt,
+    StatusAll,
+    NoApplications,
+    ConfirmApplication,
+    RejectApplication,
+    ConfirmApplicationHint,
+    RejectApplicationHint,
+    ApplicationDetails,
+    Shares,
+    SubmittedAt,
+    ApplicationConfirmed,
+    ApplicationRejected,
+
     // WordPress Integration
     WordPressIntegration,
     WordPressIntegrationDesc,

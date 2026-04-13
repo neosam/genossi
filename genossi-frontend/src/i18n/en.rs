@@ -260,6 +260,24 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::WebDavTestSuccess => "WebDAV connection successful".into(),
         Key::WebDavTestFailed => "WebDAV connection test failed".into(),
 
+        // Applications
+        Key::Applications => "Membership Applications".into(),
+        Key::ApplicationsDesc => "Manage incoming membership applications".into(),
+        Key::StatusOffen => "Open".into(),
+        Key::StatusBestaetigt => "Confirmed".into(),
+        Key::StatusAbgelehnt => "Rejected".into(),
+        Key::StatusAll => "All".into(),
+        Key::NoApplications => "No membership applications found.".into(),
+        Key::ConfirmApplication => "Confirm".into(),
+        Key::RejectApplication => "Reject".into(),
+        Key::ConfirmApplicationHint => "Confirming will create a new member. Continue?".into(),
+        Key::RejectApplicationHint => "Do you want to reject this membership application?".into(),
+        Key::ApplicationDetails => "Application Details".into(),
+        Key::Shares => "Shares".into(),
+        Key::SubmittedAt => "Submitted at".into(),
+        Key::ApplicationConfirmed => "Application confirmed".into(),
+        Key::ApplicationRejected => "Application rejected".into(),
+
         // WordPress Integration
         Key::WordPressIntegration => "WordPress Integration".into(),
         Key::WordPressIntegrationDesc => "Settings for the membership application form via WordPress".into(),

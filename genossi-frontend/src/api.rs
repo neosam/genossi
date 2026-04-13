@@ -500,6 +500,83 @@ pub async fn generate_api_key(config: &Config) -> Result<String, reqwest::Error>
     Ok(resp.key)
 }
 
+// Application API
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum ApplicationStatusTO {
+    Offen,
+    Bestaetigt,
+    Abgelehnt,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ApplicationTO {
+    pub id: Uuid,
+    pub first_name: String,
+    pub last_name: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub salutation: Option<rest_types::SalutationTO>,
+    pub email: String,
+    pub street: String,
+    pub house_number: String,
+    pub postal_code: String,
+    pub city: String,
+    pub shares: i32,
+    pub status: ApplicationStatusTO,
+    #[serde(default)]
+    pub created: Option<String>,
+    #[serde(default)]
+    pub deleted: Option<String>,
+    #[serde(default)]
+    pub version: Option<Uuid>,
+}
+
+pub async fn get_applications(
+    config: &Config,
+    status_filter: Option<&str>,
+) -> Result<Vec<ApplicationTO>, reqwest::Error> {
+    info!("Fetching applications");
+    let url = match status_filter {
+        Some(status) => format!("{}/api/applications?status={}", config.backend, status),
+        None => format!("{}/api/applications", config.backend),
+    };
+    let response = reqwest::get(url).await?;
+    response.error_for_status_ref()?;
+    Ok(response.json().await?)
+}
+
+pub async fn get_application(
+    config: &Config,
+    id: Uuid,
+) -> Result<ApplicationTO, reqwest::Error> {
+    info!("Fetching application {id}");
+    let url = format!("{}/api/applications/{}", config.backend, id);
+    let response = reqwest::get(url).await?;
+    response.error_for_status_ref()?;
+    Ok(response.json().await?)
+}
+
+pub async fn confirm_application(
+    config: &Config,
+    id: Uuid,
+) -> Result<ApplicationTO, reqwest::Error> {
+    info!("Confirming application {id}");
+    let url = format!("{}/api/applications/{}/confirm", config.backend, id);
+    let response = reqwest::Client::new().post(url).send().await?;
+    response.error_for_status_ref()?;
+    Ok(response.json().await?)
+}
+
+pub async fn reject_application(
+    config: &Config,
+    id: Uuid,
+) -> Result<ApplicationTO, reqwest::Error> {
+    info!("Rejecting application {id}");
+    let url = format!("{}/api/applications/{}/reject", config.backend, id);
+    let response = reqwest::Client::new().post(url).send().await?;
+    response.error_for_status_ref()?;
+    Ok(response.json().await?)
+}
+
 // Mail API
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct MailJobTO {

@@ -260,6 +260,24 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::WebDavTestSuccess => "WebDAV-Verbindung erfolgreich".into(),
         Key::WebDavTestFailed => "WebDAV-Verbindungstest fehlgeschlagen".into(),
 
+        // Applications
+        Key::Applications => "Beitrittserklärungen".into(),
+        Key::ApplicationsDesc => "Eingegangene Beitrittserklärungen verwalten".into(),
+        Key::StatusOffen => "Offen".into(),
+        Key::StatusBestaetigt => "Bestätigt".into(),
+        Key::StatusAbgelehnt => "Abgelehnt".into(),
+        Key::StatusAll => "Alle".into(),
+        Key::NoApplications => "Keine Beitrittserklärungen vorhanden.".into(),
+        Key::ConfirmApplication => "Bestätigen".into(),
+        Key::RejectApplication => "Ablehnen".into(),
+        Key::ConfirmApplicationHint => "Durch die Bestätigung wird ein neues Mitglied angelegt. Fortfahren?".into(),
+        Key::RejectApplicationHint => "Soll diese Beitrittserklärung abgelehnt werden?".into(),
+        Key::ApplicationDetails => "Antragsdetails".into(),
+        Key::Shares => "Anteile".into(),
+        Key::SubmittedAt => "Eingegangen am".into(),
+        Key::ApplicationConfirmed => "Beitrittserklärung bestätigt".into(),
+        Key::ApplicationRejected => "Beitrittserklärung abgelehnt".into(),
+
         // WordPress Integration
         Key::WordPressIntegration => "WordPress-Integration".into(),
         Key::WordPressIntegrationDesc => "Einstellungen für die Beitrittserklärungs-Anbindung über WordPress".into(),

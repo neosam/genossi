@@ -74,6 +74,11 @@ pub fn TopBar() -> Element {
                     }
                     if show_admin {
                         li {
+                            Link { class: "hover:underline px-3 py-2 md:py-4", to: Route::ApplicationsPage {}, {i18n.t(Key::Applications)} }
+                        }
+                    }
+                    if show_admin {
+                        li {
                             Link { class: "hover:underline px-3 py-2 md:py-4", to: Route::ConfigPage {}, {i18n.t(Key::Config)} }
                         }
                     }
