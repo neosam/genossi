@@ -6,6 +6,8 @@ The system SHALL store members with the following fields:
 - `member_number` (i64, unique, user-visible identifier)
 - `first_name` (String, required)
 - `last_name` (String, required)
+- `salutation` (Optional Enum: Herr, Frau, Firma)
+- `title` (Optional String)
 - `email` (Optional String)
 - `company` (Optional String)
 - `comment` (Optional String)
@@ -19,29 +21,55 @@ The system SHALL store members with the following fields:
 - `current_balance` (i64 in cents, required)
 - `exit_date` (Optional Date)
 - `bank_account` (Optional String)
+- `action_count` (i32, required, default 0): number of share actions from Excel import (excluding Eintritt)
 - `migrated` (bool, default false)
+- `status` (MemberStatus enum, default Normal)
 - `created` (DateTime, system-generated)
 - `deleted` (Optional DateTime, for soft delete)
 - `version` (UUID, for optimistic locking)
 
 #### Scenario: Member stored with all fields
-- **WHEN** a member is created with all fields provided
-- **THEN** the system stores the member with a generated UUID, created timestamp, version UUID, and `migrated` set to `false`
+- **WHEN** a member is created with all fields provided including salutation and title
+- **THEN** the system stores the member with a generated UUID, created timestamp, version UUID, `migrated` set to `false`, `status` set to the provided value or `Normal` if omitted, and the provided salutation and title values
 
 #### Scenario: Member number uniqueness
 - **WHEN** a member is created with a member_number that already exists
 - **THEN** the system SHALL reject the creation with a validation error
 
-### Requirement: Create member
-The system SHALL allow authenticated users with `manage_members` privilege to create new members via `POST /api/members`.
+#### Scenario: Member created without salutation and title
+- **WHEN** a member is created without salutation and title
+- **THEN** the system stores the member with salutation as NULL and title as NULL
 
-#### Scenario: Successful member creation
-- **WHEN** an authenticated user with `manage_members` privilege sends a POST request with valid member data
-- **THEN** the system creates the member, assigns a UUID and version, sets the created timestamp, and returns the created member with HTTP 200
+#### Scenario: Salutation enum values
+- **WHEN** a member is created or updated with a salutation value
+- **THEN** the system SHALL only accept the values `Herr`, `Frau`, or `Firma`
+
+#### Scenario: Invalid salutation value rejected
+- **WHEN** a member is created or updated with a salutation value not in the allowed enum
+- **THEN** the system SHALL reject the request with a validation error
+
+### Requirement: Create member
+The system SHALL allow authenticated users with `manage_members` privilege to create new members via `POST /api/members`. When `member_number` is 0, the system SHALL auto-assign the next available number. The system SHALL automatically create `Eintritt` and `Aufstockung` actions and set `current_shares` from `shares_at_joining`, `current_balance` to 0, and `action_count` to 0. When the member status is `FehlerhaftErfasst`, the system SHALL NOT create automatic Eintritt and Aufstockung actions, and SHALL set `current_shares` to 0 regardless of `shares_at_joining`.
+
+#### Scenario: Successful member creation with auto member number
+- **WHEN** an authenticated user with `manage_members` privilege sends a POST request with `member_number` set to 0, `join_date`, `shares_at_joining`, and status `Normal`
+- **THEN** the system creates the member with the next available member number, creates Eintritt and Aufstockung actions, sets computed fields, and returns the created member with HTTP 200
+
+#### Scenario: Successful member creation with explicit member number
+- **WHEN** an authenticated user with `manage_members` privilege sends a POST request with a positive `member_number` and status `Normal`
+- **THEN** the system creates the member with the provided member number, creates Eintritt and Aufstockung actions, sets computed fields, and returns the created member with HTTP 200
+
+#### Scenario: Member creation with FehlerhaftErfasst status
+- **WHEN** an authenticated user creates a member with status `FehlerhaftErfasst`
+- **THEN** the system creates the member with `current_shares = 0`, does NOT create Eintritt or Aufstockung actions, and returns the created member with HTTP 200
 
 #### Scenario: Missing required fields
-- **WHEN** a POST request is sent without `first_name`, `last_name`, `join_date`, or `member_number`
+- **WHEN** a POST request is sent without `first_name` or `last_name`
 - **THEN** the system returns HTTP 400 with field-level validation errors
+
+#### Scenario: Duplicate member number
+- **WHEN** a POST request is sent with a `member_number` that already exists
+- **THEN** the system returns HTTP 400 with a validation error for `member_number`
 
 #### Scenario: Insufficient privileges
 - **WHEN** a user without `manage_members` privilege attempts to create a member
@@ -103,11 +131,31 @@ The system SHALL expose all member endpoints in the Swagger UI at `/swagger-ui/`
 - **THEN** the Swagger UI loads and displays all member management endpoints with their schemas
 
 ### Requirement: Member list page
-The frontend SHALL provide a page listing all members with their member number, name, key details, migration status, and active membership status on a user-selected reference date.
+The frontend SHALL provide a page listing all members with their member number, name, key details, migration status, and active membership status on a user-selected reference date. The page SHALL include filter controls for active status and migration status.
 
 #### Scenario: View member list with active status
 - **WHEN** an authenticated user navigates to the members page
-- **THEN** the system displays a table with member_number, last_name, first_name, city, current_shares, join_date, migration status, and an active/inactive badge based on the reference date
+- **THEN** the system displays a table with member_number, last_name, first_name, city, current_shares, join_date, exit_date, migration status, and an active/inactive badge based on the reference date
+
+#### Scenario: Salutation and title columns available
+- **WHEN** a user opens the column selection
+- **THEN** `salutation` and `title` SHALL be available as selectable columns
+
+#### Scenario: Salutation column displays enum value
+- **WHEN** the salutation column is enabled and a member has a salutation set
+- **THEN** the column displays the salutation value (Herr, Frau, or Firma)
+
+#### Scenario: Salutation inline editing
+- **WHEN** the salutation column is enabled and the user edits a member's salutation
+- **THEN** the system SHALL present a dropdown with options: empty, Herr, Frau, Firma
+
+#### Scenario: Title inline editing
+- **WHEN** the title column is enabled and the user edits a member's title
+- **THEN** the system SHALL present a text input field
+
+#### Scenario: Default columns unchanged
+- **WHEN** the members page loads
+- **THEN** salutation and title SHALL NOT be in the default column set
 
 #### Scenario: Default reference date is today
 - **WHEN** the members page loads
@@ -133,16 +181,40 @@ The frontend SHALL provide a page listing all members with their member number, 
 - **WHEN** the "Only active members" toggle is disabled
 - **THEN** all non-deleted members are shown regardless of active status
 
+#### Scenario: Filter by pending migration
+- **WHEN** the user enables the "Only pending migrations" filter checkbox
+- **THEN** the member list SHALL show only members where `migrated` is `false`
+
+#### Scenario: Combine migration filter with active filter
+- **WHEN** the user enables both "Only pending migrations" and "Only active members" filters
+- **THEN** the member list SHALL show only members that are both active and have pending migrations
+
+#### Scenario: Disable migration filter
+- **WHEN** the user disables the "Only pending migrations" filter checkbox
+- **THEN** the member list SHALL show all members regardless of migration status (subject to other active filters)
+
 #### Scenario: Navigate to member detail
 - **WHEN** a user clicks on a member row in the list
 - **THEN** the system navigates to the member detail page
 
 ### Requirement: Member detail page
-The frontend SHALL provide a page to view and edit a single member's data.
+The frontend SHALL provide a page to view and edit a single member's data, including an actions section and migration status display for existing members.
 
-#### Scenario: View existing member
+#### Scenario: View existing member with salutation and title
 - **WHEN** a user navigates to the detail page of an existing member
-- **THEN** all member fields are displayed in a form, with `join_date` and `exit_date` shown as read-only fields
+- **THEN** all member fields including salutation (as dropdown) and title (as text input) are displayed in a form, followed by the migration status badge and the actions section
+
+#### Scenario: Edit salutation on detail page
+- **WHEN** a user changes the salutation dropdown and clicks save
+- **THEN** the system sends a PUT request with the updated salutation and navigates back to the member list on success
+
+#### Scenario: Edit title on detail page
+- **WHEN** a user changes the title text input and clicks save
+- **THEN** the system sends a PUT request with the updated title and navigates back to the member list on success
+
+#### Scenario: Create new member with salutation and title
+- **WHEN** a user creates a new member and provides salutation and title
+- **THEN** the system stores both fields with the new member
 
 #### Scenario: Edit and save member
 - **WHEN** a user modifies fields and clicks save
@@ -150,7 +222,7 @@ The frontend SHALL provide a page to view and edit a single member's data.
 
 #### Scenario: Create new member
 - **WHEN** a user navigates to the member detail page without an ID (new member)
-- **THEN** an empty form is displayed with `join_date` as an editable date field, and saving sends a POST request
+- **THEN** an empty form is displayed without actions section or migration status, with `join_date` as an editable date field, and saving sends a POST request
 
 #### Scenario: join_date editable on new member
 - **WHEN** a user is creating a new member
@@ -210,3 +282,25 @@ The Excel import SHALL convert the "Guthaben aktuell" value from Euro to Cent by
 #### Scenario: Zero or empty balance
 - **WHEN** the Excel contains an empty or zero balance
 - **THEN** the system stores `current_balance` as 0
+
+### Requirement: Excel import reads action_count
+The system SHALL read the "Anzahl Aktionen" column from Excel imports and store it in the `action_count` field. If the column is empty, the value defaults to 0.
+
+#### Scenario: Action count imported
+- **WHEN** an Excel row has "Anzahl Aktionen" value of 3
+- **THEN** the imported member's `action_count` SHALL be 3
+
+#### Scenario: Action count empty
+- **WHEN** an Excel row has an empty "Anzahl Aktionen" column
+- **THEN** the imported member's `action_count` SHALL be 0
+
+### Requirement: Auto-migration on import
+The system SHALL automatically create Eintritt and Aufstockung actions for members that meet auto-migration criteria during Excel import.
+
+#### Scenario: Auto-migratable member
+- **WHEN** an Excel row has `action_count == 0` AND `shares_at_joining == current_shares`
+- **THEN** the system SHALL create an Eintritt action (date = join_date, shares_change = 0) and an Aufstockung action (date = join_date, shares_change = shares_at_joining)
+
+#### Scenario: Non-auto-migratable member
+- **WHEN** an Excel row has `action_count > 0` OR `shares_at_joining != current_shares`
+- **THEN** the system SHALL NOT create any automatic actions
