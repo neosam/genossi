@@ -1687,7 +1687,9 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "calamine",
+ "genossi_config",
  "genossi_dao",
+ "genossi_mail",
  "genossi_service",
  "serde",
  "serde_json",

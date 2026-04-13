@@ -1,3 +1,4 @@
+pub mod application;
 pub mod auth_types;
 pub mod template;
 pub mod claim_context;

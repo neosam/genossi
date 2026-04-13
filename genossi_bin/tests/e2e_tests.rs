@@ -3,8 +3,9 @@
 use genossi_bin::RestStateImpl;
 use genossi_rest::test_server::test_support::start_test_server;
 use genossi_rest_types::{
-    ActionTypeTO, MemberActionTO, MemberDocumentTO, MemberImportResultTO, MemberTO,
-    MigrationStatusTO, SalutationTO, UserPreferenceTO, ValidationResultTO,
+    ActionTypeTO, ApplicationStatusTO, ApplicationTO, MemberActionTO, MemberDocumentTO,
+    MemberImportResultTO, MemberTO, MigrationStatusTO, PublicJoinRequest, PublicJoinResponse,
+    SalutationTO, UserPreferenceTO, ValidationResultTO,
 };
 use std::collections::HashMap;
 use genossi_config::rest::{ConfigEntryTO, SetConfigRequest};
@@ -5753,4 +5754,475 @@ async fn test_backup_documents_zip_excludes_unassigned_mails() {
             "Unassigned mail should not appear in backup"
         );
     }
+}
+
+// --- Application (public join) E2E Tests ---
+
+async fn setup_api_key(server: &genossi_rest::test_server::test_support::TestServer, client: &reqwest::Client) -> String {
+    let api_key = "test-api-key-12345";
+    let response = client
+        .put(server.url("/api/config/public_api_key"))
+        .json(&SetConfigRequest {
+            value: api_key.to_string(),
+            value_type: "secret".to_string(),
+        })
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    api_key.to_string()
+}
+
+fn sample_join_request() -> PublicJoinRequest {
+    PublicJoinRequest {
+        first_name: "Max".to_string(),
+        last_name: "Mustermann".to_string(),
+        salutation: Some(SalutationTO::Herr),
+        email: "max@example.com".to_string(),
+        street: "Musterstraße".to_string(),
+        house_number: "42".to_string(),
+        postal_code: "12345".to_string(),
+        city: "Berlin".to_string(),
+        shares: 2,
+    }
+}
+
+#[tokio::test]
+async fn test_public_join_success() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let api_key = setup_api_key(&server, &client).await;
+
+    let response = client
+        .post(server.url("/api/public/join"))
+        .header("X-Api-Key", &api_key)
+        .json(&sample_join_request())
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let body: PublicJoinResponse = response.json().await.unwrap();
+    assert_eq!(body.message, "Beitrittserklärung eingegangen");
+}
+
+#[tokio::test]
+async fn test_public_join_missing_api_key() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/public/join"))
+        .json(&sample_join_request())
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn test_public_join_invalid_api_key() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    setup_api_key(&server, &client).await;
+
+    let response = client
+        .post(server.url("/api/public/join"))
+        .header("X-Api-Key", "wrong-key")
+        .json(&sample_join_request())
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn test_public_join_missing_fields() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let api_key = setup_api_key(&server, &client).await;
+
+    let mut request = sample_join_request();
+    request.email = "".to_string();
+    request.first_name = "".to_string();
+
+    let response = client
+        .post(server.url("/api/public/join"))
+        .header("X-Api-Key", &api_key)
+        .json(&request)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_public_join_shares_zero() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let api_key = setup_api_key(&server, &client).await;
+
+    let mut request = sample_join_request();
+    request.shares = 0;
+
+    let response = client
+        .post(server.url("/api/public/join"))
+        .header("X-Api-Key", &api_key)
+        .json(&request)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_list_applications() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let api_key = setup_api_key(&server, &client).await;
+
+    // Submit an application
+    client
+        .post(server.url("/api/public/join"))
+        .header("X-Api-Key", &api_key)
+        .json(&sample_join_request())
+        .send()
+        .await
+        .unwrap();
+
+    // List all applications
+    let response = client
+        .get(server.url("/api/applications"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let apps: Vec<ApplicationTO> = response.json().await.unwrap();
+    assert_eq!(apps.len(), 1);
+    assert_eq!(apps[0].first_name, "Max");
+    assert_eq!(apps[0].last_name, "Mustermann");
+    assert_eq!(apps[0].shares, 2);
+    assert!(matches!(apps[0].status, ApplicationStatusTO::Offen));
+}
+
+#[tokio::test]
+async fn test_list_applications_filter_status() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let api_key = setup_api_key(&server, &client).await;
+
+    // Submit an application
+    client
+        .post(server.url("/api/public/join"))
+        .header("X-Api-Key", &api_key)
+        .json(&sample_join_request())
+        .send()
+        .await
+        .unwrap();
+
+    // Filter by Offen
+    let response = client
+        .get(server.url("/api/applications?status=Offen"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let apps: Vec<ApplicationTO> = response.json().await.unwrap();
+    assert_eq!(apps.len(), 1);
+
+    // Filter by Bestaetigt (should be empty)
+    let response = client
+        .get(server.url("/api/applications?status=Bestaetigt"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let apps: Vec<ApplicationTO> = response.json().await.unwrap();
+    assert!(apps.is_empty());
+}
+
+#[tokio::test]
+async fn test_get_application() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let api_key = setup_api_key(&server, &client).await;
+
+    // Submit
+    client
+        .post(server.url("/api/public/join"))
+        .header("X-Api-Key", &api_key)
+        .json(&sample_join_request())
+        .send()
+        .await
+        .unwrap();
+
+    // List to get ID
+    let response = client
+        .get(server.url("/api/applications"))
+        .send()
+        .await
+        .unwrap();
+    let apps: Vec<ApplicationTO> = response.json().await.unwrap();
+    let id = apps[0].id;
+
+    // Get by ID
+    let response = client
+        .get(server.url(&format!("/api/applications/{}", id)))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let app: ApplicationTO = response.json().await.unwrap();
+    assert_eq!(app.first_name, "Max");
+    assert_eq!(app.email, "max@example.com");
+}
+
+#[tokio::test]
+async fn test_confirm_application_creates_member() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let api_key = setup_api_key(&server, &client).await;
+
+    // Submit
+    client
+        .post(server.url("/api/public/join"))
+        .header("X-Api-Key", &api_key)
+        .json(&sample_join_request())
+        .send()
+        .await
+        .unwrap();
+
+    // Get application ID
+    let response = client
+        .get(server.url("/api/applications"))
+        .send()
+        .await
+        .unwrap();
+    let apps: Vec<ApplicationTO> = response.json().await.unwrap();
+    let app_id = apps[0].id;
+
+    // Confirm
+    let response = client
+        .post(server.url(&format!("/api/applications/{}/confirm", app_id)))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let confirmed: ApplicationTO = response.json().await.unwrap();
+    assert!(matches!(confirmed.status, ApplicationStatusTO::Bestaetigt));
+
+    // Verify member was created
+    let response = client
+        .get(server.url("/api/members"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let members: Vec<MemberTO> = response.json().await.unwrap();
+    assert_eq!(members.len(), 1);
+    assert_eq!(members[0].first_name, "Max");
+    assert_eq!(members[0].last_name, "Mustermann");
+    assert_eq!(members[0].shares_at_joining, 2);
+    assert!(members[0].email.as_deref() == Some("max@example.com"));
+}
+
+#[tokio::test]
+async fn test_confirm_already_confirmed() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let api_key = setup_api_key(&server, &client).await;
+
+    // Submit and confirm
+    client
+        .post(server.url("/api/public/join"))
+        .header("X-Api-Key", &api_key)
+        .json(&sample_join_request())
+        .send()
+        .await
+        .unwrap();
+
+    let response = client
+        .get(server.url("/api/applications"))
+        .send()
+        .await
+        .unwrap();
+    let apps: Vec<ApplicationTO> = response.json().await.unwrap();
+    let app_id = apps[0].id;
+
+    // First confirm
+    client
+        .post(server.url(&format!("/api/applications/{}/confirm", app_id)))
+        .send()
+        .await
+        .unwrap();
+
+    // Second confirm → 409
+    let response = client
+        .post(server.url(&format!("/api/applications/{}/confirm", app_id)))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+}
+
+#[tokio::test]
+async fn test_reject_application() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let api_key = setup_api_key(&server, &client).await;
+
+    // Submit
+    client
+        .post(server.url("/api/public/join"))
+        .header("X-Api-Key", &api_key)
+        .json(&sample_join_request())
+        .send()
+        .await
+        .unwrap();
+
+    let response = client
+        .get(server.url("/api/applications"))
+        .send()
+        .await
+        .unwrap();
+    let apps: Vec<ApplicationTO> = response.json().await.unwrap();
+    let app_id = apps[0].id;
+
+    // Reject
+    let response = client
+        .post(server.url(&format!("/api/applications/{}/reject", app_id)))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let rejected: ApplicationTO = response.json().await.unwrap();
+    assert!(matches!(rejected.status, ApplicationStatusTO::Abgelehnt));
+
+    // Verify no member was created
+    let response = client
+        .get(server.url("/api/members"))
+        .send()
+        .await
+        .unwrap();
+    let members: Vec<MemberTO> = response.json().await.unwrap();
+    assert!(members.is_empty());
+}
+
+#[tokio::test]
+async fn test_reject_already_confirmed() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let api_key = setup_api_key(&server, &client).await;
+
+    // Submit and confirm
+    client
+        .post(server.url("/api/public/join"))
+        .header("X-Api-Key", &api_key)
+        .json(&sample_join_request())
+        .send()
+        .await
+        .unwrap();
+
+    let response = client
+        .get(server.url("/api/applications"))
+        .send()
+        .await
+        .unwrap();
+    let apps: Vec<ApplicationTO> = response.json().await.unwrap();
+    let app_id = apps[0].id;
+
+    // Confirm
+    client
+        .post(server.url(&format!("/api/applications/{}/confirm", app_id)))
+        .send()
+        .await
+        .unwrap();
+
+    // Reject confirmed → 409
+    let response = client
+        .post(server.url(&format!("/api/applications/{}/reject", app_id)))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+}
+
+#[tokio::test]
+async fn test_confirm_rejected() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let api_key = setup_api_key(&server, &client).await;
+
+    // Submit and reject
+    client
+        .post(server.url("/api/public/join"))
+        .header("X-Api-Key", &api_key)
+        .json(&sample_join_request())
+        .send()
+        .await
+        .unwrap();
+
+    let response = client
+        .get(server.url("/api/applications"))
+        .send()
+        .await
+        .unwrap();
+    let apps: Vec<ApplicationTO> = response.json().await.unwrap();
+    let app_id = apps[0].id;
+
+    // Reject
+    client
+        .post(server.url(&format!("/api/applications/{}/reject", app_id)))
+        .send()
+        .await
+        .unwrap();
+
+    // Confirm rejected → 409
+    let response = client
+        .post(server.url(&format!("/api/applications/{}/confirm", app_id)))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+}
+
+#[tokio::test]
+async fn test_generate_api_key() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/config/generate-api-key"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: genossi_config::rest::GenerateApiKeyResponse = response.json().await.unwrap();
+    assert!(!body.key.is_empty());
+
+    // Use generated key to submit application
+    let response = client
+        .post(server.url("/api/public/join"))
+        .header("X-Api-Key", &body.key)
+        .json(&sample_join_request())
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::CREATED);
 }

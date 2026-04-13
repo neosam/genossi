@@ -1,3 +1,4 @@
+pub mod application;
 pub mod auth;
 pub mod auth_middleware;
 pub mod backup;
@@ -208,7 +209,8 @@ pub trait RestStateDef: Clone + Send + Sync + 'static + genossi_config::rest::Co
         (path = "/api/members/{member_id}/communications", api = genossi_mail::communication_rest::CommunicationApiDoc),
         (path = "/api/static-documents", api = static_document::ApiDoc),
         (path = "/api/mail/footer", api = mail_footer::ApiDoc),
-        (path = "/api/member-documents", api = member_document::CountsApiDoc)
+        (path = "/api/member-documents", api = member_document::CountsApiDoc),
+        (path = "/api/applications", api = application::ApiDoc)
     )
 )]
 pub struct ApiDoc;
@@ -300,7 +302,7 @@ async fn context_extractor<RestState: RestStateDef>(
     session::context_extractor(rest_state, request, next).await
 }
 
-pub async fn create_app<RestState: RestStateDef + public_stats::PublicStatsState>(rest_state: RestState) -> Router {
+pub async fn create_app<RestState: RestStateDef + public_stats::PublicStatsState + application::ApplicationRestState>(rest_state: RestState) -> Router {
     let mut api_doc = ApiDoc::openapi();
     let base = std::env::var("BASE_PATH").unwrap_or("http://localhost:3000/".into());
     api_doc.servers = Some(vec![utoipa::openapi::ServerBuilder::new()
@@ -316,6 +318,9 @@ pub async fn create_app<RestState: RestStateDef + public_stats::PublicStatsState
 
     let public_stats_doc = public_stats::ApiDoc::openapi();
     api_doc.merge(public_stats_doc);
+
+    let public_join_doc = application::PublicApiDoc::openapi();
+    api_doc.merge(public_join_doc);
 
     let swagger_router = SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", api_doc);
 
@@ -379,6 +384,10 @@ pub async fn create_app<RestState: RestStateDef + public_stats::PublicStatsState
         .nest(
             "/api/backup",
             backup::generate_route::<RestState>(),
+        )
+        .nest(
+            "/api/applications",
+            application::generate_route::<RestState>(),
         )
         .with_state(rest_state.clone())
         .layer(middleware::from_fn_with_state(
@@ -458,6 +467,7 @@ pub async fn create_app<RestState: RestStateDef + public_stats::PublicStatsState
     // Public routes (no auth required)
     let app = app
         .nest("/api/public", public_stats::generate_route::<RestState>())
+        .nest("/api/public", application::generate_public_route::<RestState>())
         .with_state(rest_state.clone());
 
     // Dev-only routes (no auth required, only compiled in debug builds)
@@ -475,7 +485,7 @@ pub async fn serve_app(app: Router, listener: tokio::net::TcpListener) {
         .expect("Could not start server");
 }
 
-pub async fn start_server<RestState: RestStateDef + public_stats::PublicStatsState>(rest_state: RestState) {
+pub async fn start_server<RestState: RestStateDef + public_stats::PublicStatsState + application::ApplicationRestState>(rest_state: RestState) {
     let app = create_app(rest_state).await;
 
     info!("Running server at {}", bind_address());

@@ -1,3 +1,4 @@
+use genossi_dao::application::ApplicationStatus;
 use genossi_dao::member::{MemberStatus, Salutation};
 use genossi_dao::member_action::ActionType;
 use serde::{Deserialize, Serialize};
@@ -730,4 +731,119 @@ impl From<&genossi_service::member_action::MigrationStatus> for MigrationStatusT
             actual_action_count: s.actual_action_count,
         }
     }
+}
+
+// Application (membership declaration) types
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub enum ApplicationStatusTO {
+    Offen,
+    Bestaetigt,
+    Abgelehnt,
+}
+
+impl From<&ApplicationStatus> for ApplicationStatusTO {
+    fn from(s: &ApplicationStatus) -> Self {
+        match s {
+            ApplicationStatus::Offen => ApplicationStatusTO::Offen,
+            ApplicationStatus::Bestaetigt => ApplicationStatusTO::Bestaetigt,
+            ApplicationStatus::Abgelehnt => ApplicationStatusTO::Abgelehnt,
+        }
+    }
+}
+
+impl From<&ApplicationStatusTO> for ApplicationStatus {
+    fn from(s: &ApplicationStatusTO) -> Self {
+        match s {
+            ApplicationStatusTO::Offen => ApplicationStatus::Offen,
+            ApplicationStatusTO::Bestaetigt => ApplicationStatus::Bestaetigt,
+            ApplicationStatusTO::Abgelehnt => ApplicationStatus::Abgelehnt,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct ApplicationTO {
+    #[schema(example = "123e4567-e89b-12d3-a456-426614174000")]
+    pub id: Uuid,
+    #[schema(example = "Max")]
+    pub first_name: String,
+    #[schema(example = "Mustermann")]
+    pub last_name: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub salutation: Option<SalutationTO>,
+    #[schema(example = "max@example.com")]
+    pub email: String,
+    #[schema(example = "Musterstraße")]
+    pub street: String,
+    #[schema(example = "42")]
+    pub house_number: String,
+    #[schema(example = "12345")]
+    pub postal_code: String,
+    #[schema(example = "Berlin")]
+    pub city: String,
+    #[schema(example = 1)]
+    pub shares: i32,
+    pub status: ApplicationStatusTO,
+    #[serde(
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    pub created: Option<time::PrimitiveDateTime>,
+    #[serde(
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    pub deleted: Option<time::PrimitiveDateTime>,
+    pub version: Option<Uuid>,
+}
+
+impl From<&genossi_service::application::Application> for ApplicationTO {
+    fn from(a: &genossi_service::application::Application) -> Self {
+        Self {
+            id: a.id,
+            first_name: a.first_name.to_string(),
+            last_name: a.last_name.to_string(),
+            salutation: a.salutation.as_ref().map(SalutationTO::from),
+            email: a.email.to_string(),
+            street: a.street.to_string(),
+            house_number: a.house_number.to_string(),
+            postal_code: a.postal_code.to_string(),
+            city: a.city.to_string(),
+            shares: a.shares,
+            status: ApplicationStatusTO::from(&a.status),
+            created: Some(a.created),
+            deleted: a.deleted,
+            version: Some(a.version),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct PublicJoinRequest {
+    #[schema(example = "Max")]
+    pub first_name: String,
+    #[schema(example = "Mustermann")]
+    pub last_name: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub salutation: Option<SalutationTO>,
+    #[schema(example = "max@example.com")]
+    pub email: String,
+    #[schema(example = "Musterstraße")]
+    pub street: String,
+    #[schema(example = "42")]
+    pub house_number: String,
+    #[schema(example = "12345")]
+    pub postal_code: String,
+    #[schema(example = "Berlin")]
+    pub city: String,
+    #[schema(example = 1)]
+    pub shares: i32,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct PublicJoinResponse {
+    pub message: String,
 }

@@ -1,3 +1,4 @@
+pub mod application;
 pub mod document_storage;
 pub mod macros;
 pub mod member;

@@ -8,6 +8,7 @@ use genossi_service::permission::MockContext;
 use genossi_service::user_service::MockUserService;
 #[cfg(feature = "oidc")]
 use genossi_service::auth_types::AuthenticatedContext;
+use genossi_service_impl::application::ApplicationServiceDeps;
 use genossi_service_impl::member::MemberServiceDeps;
 use genossi_service_impl::member_action::MemberActionServiceDeps;
 use genossi_service_impl::member_document::MemberDocumentServiceDeps;
@@ -119,6 +120,29 @@ impl MemberServiceDeps for MemberServiceDependencies {
 
 type MemberService =
     genossi_service_impl::member::MemberServiceImpl<MemberServiceDependencies>;
+
+type ApplicationDao = genossi_dao_impl_sqlite::application::ApplicationDaoImpl;
+
+pub struct ApplicationServiceDependencies;
+
+unsafe impl Send for ApplicationServiceDependencies {}
+unsafe impl Sync for ApplicationServiceDependencies {}
+
+impl ApplicationServiceDeps for ApplicationServiceDependencies {
+    type Context = Context;
+    type Transaction = Transaction;
+    type ApplicationDao = ApplicationDao;
+    type MemberDao = MemberDao;
+    type MemberActionDao = MemberActionDao;
+    type PermissionService = PermissionService;
+    type UuidService = UuidService;
+    type TransactionDao = TransactionDao;
+    type ConfigService = ConfigService;
+    type MailService = MailServiceType;
+}
+
+type ApplicationService =
+    genossi_service_impl::application::ApplicationServiceImpl<ApplicationServiceDependencies>;
 
 pub struct MemberImportServiceDependencies;
 
@@ -268,6 +292,7 @@ pub struct RestStateImpl {
     mail_service: Arc<MailServiceType>,
     inbox_service: Arc<InboxServiceType>,
     static_document_service: Arc<StaticDocumentServiceType>,
+    application_service: Arc<ApplicationService>,
     backup_dao: Arc<BackupDao>,
     // Inbox worker dependencies
     worker_inbox_config_service: Arc<ConfigService>,
@@ -359,13 +384,15 @@ impl RestStateImpl {
                 transaction_dao: transaction_dao.clone(),
             });
 
+        let application_dao = Arc::new(ApplicationDao::new(pool.clone()));
+
         let member_import_service =
             Arc::new(genossi_service_impl::member_import::MemberImportServiceImpl {
-                member_dao,
+                member_dao: member_dao.clone(),
                 member_action_dao: member_action_dao.clone(),
                 permission_service: permission_service.clone(),
-                uuid_service,
-                transaction_dao,
+                uuid_service: uuid_service.clone(),
+                transaction_dao: transaction_dao.clone(),
             });
 
         #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
@@ -400,6 +427,21 @@ impl RestStateImpl {
             mail_static_dao,
             mail_job_static_attachment_dao,
         ));
+
+        // Application service for public join
+        let config_dao_for_app = ConfigDao::new(pool.clone());
+        let config_service_for_app = Arc::new(ConfigService::new(config_dao_for_app));
+        let application_service =
+            Arc::new(genossi_service_impl::application::ApplicationServiceImpl {
+                application_dao,
+                member_dao: member_dao.clone(),
+                member_action_dao: member_action_dao.clone(),
+                permission_service: permission_service.clone(),
+                uuid_service: uuid_service.clone(),
+                transaction_dao: transaction_dao.clone(),
+                config_service: config_service_for_app,
+                mail_service: mail_service.clone(),
+            });
 
         let static_document_dao_for_service =
             Arc::new(StaticDocumentDaoType::new(pool.clone()));
@@ -453,6 +495,7 @@ impl RestStateImpl {
             member_import_service,
             member_action_service,
             member_document_service,
+            application_service,
             permission_service,
             session_service,
             document_storage,
@@ -714,6 +757,29 @@ impl genossi_rest::public_stats::PublicStatsState for RestStateImpl {
             let tx = transaction_dao.transaction().await.ok()?;
             let today = time::OffsetDateTime::now_utc().date();
             member_dao.count_active(today, tx).await.ok()
+        })
+    }
+}
+
+impl genossi_rest::application::ApplicationRestState for RestStateImpl {
+    type ApplicationService = ApplicationService;
+
+    fn application_service(&self) -> Arc<Self::ApplicationService> {
+        self.application_service.clone()
+    }
+
+    fn get_config_value(
+        &self,
+        key: &str,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<String>> + Send + '_>> {
+        let config_service = self.config_service.clone();
+        let key = key.to_string();
+        Box::pin(async move {
+            use genossi_config::service::ConfigService;
+            match config_service.get(&key).await {
+                Ok(entry) => Some(entry.value.to_string()),
+                Err(_) => None,
+            }
         })
     }
 }
