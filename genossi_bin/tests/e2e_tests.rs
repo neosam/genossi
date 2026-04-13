@@ -6226,3 +6226,100 @@ async fn test_generate_api_key() {
 
     assert_eq!(response.status(), StatusCode::CREATED);
 }
+
+#[tokio::test]
+async fn test_generate_api_key_regenerates() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Generate first key
+    let response = client
+        .post(server.url("/api/config/generate-api-key"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let first: genossi_config::rest::GenerateApiKeyResponse = response.json().await.unwrap();
+
+    // Generate second key (should overwrite)
+    let response = client
+        .post(server.url("/api/config/generate-api-key"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let second: genossi_config::rest::GenerateApiKeyResponse = response.json().await.unwrap();
+
+    // Keys should be different
+    assert_ne!(first.key, second.key);
+
+    // Old key should no longer work
+    let response = client
+        .post(server.url("/api/public/join"))
+        .header("X-Api-Key", &first.key)
+        .json(&sample_join_request())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+    // New key should work
+    let response = client
+        .post(server.url("/api/public/join"))
+        .header("X-Api-Key", &second.key)
+        .json(&sample_join_request())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+}
+
+#[tokio::test]
+async fn test_wordpress_config_entries_save_and_load() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Save WordPress-relevant config entries
+    let entries = vec![
+        ("share_value_cents", "5000", "int"),
+        ("bank_iban", "DE89 3704 0044 0532 0130 00", "string"),
+        ("bank_name", "GLS Bank", "string"),
+        ("bank_bic", "GENODEM1GLS", "string"),
+        ("genossenschaft_name", "Muster eG", "string"),
+    ];
+
+    for (key, value, vtype) in &entries {
+        let response = client
+            .put(server.url(&format!("/api/config/{}", key)))
+            .json(&SetConfigRequest {
+                value: value.to_string(),
+                value_type: vtype.to_string(),
+            })
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "Failed to set {}", key);
+    }
+
+    // Load all config entries and verify
+    let response = client
+        .get(server.url("/api/config"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let config_entries: Vec<serde_json::Value> = response.json().await.unwrap();
+
+    for (key, expected_value, expected_type) in &entries {
+        let entry = config_entries
+            .iter()
+            .find(|e| e["key"].as_str() == Some(key))
+            .unwrap_or_else(|| panic!("Config entry '{}' not found", key));
+        // Secret values are masked, others should match
+        if *expected_type != "secret" {
+            assert_eq!(entry["value"].as_str(), Some(*expected_value), "Value mismatch for {}", key);
+        }
+        assert_eq!(entry["value_type"].as_str(), Some(*expected_type), "Type mismatch for {}", key);
+    }
+}

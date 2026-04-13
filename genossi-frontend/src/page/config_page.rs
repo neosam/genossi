@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 
 use crate::api::{self, ConfigEntryTO};
 use crate::auth::RequirePrivilege;
-use crate::component::TopBar;
+use crate::component::{TopBar, WordPressIntegrationSection};
 use crate::i18n::{use_i18n, Key};
 use crate::page::AccessDeniedPage;
 use crate::service::config::CONFIG;
@@ -89,6 +89,13 @@ pub fn ConfigPage() -> Element {
     let mut webdav_last_run = use_signal(|| None::<String>);
     let mut webdav_last_status = use_signal(|| None::<String>);
 
+    // WordPress integration form state
+    let mut wp_share_value_cents = use_signal(|| String::new());
+    let mut wp_bank_iban = use_signal(|| String::new());
+    let mut wp_bank_name = use_signal(|| String::new());
+    let mut wp_bank_bic = use_signal(|| String::new());
+    let mut wp_genossenschaft_name = use_signal(|| String::new());
+
     // Advanced config collapsed state
     let mut show_advanced = use_signal(|| false);
 
@@ -154,6 +161,13 @@ pub fn ConfigPage() -> Element {
                     webdav_last_run.set(if last_run.is_empty() { None } else { Some(last_run) });
                     let last_status = get_config_value(&data, "backup_last_status");
                     webdav_last_status.set(if last_status.is_empty() { None } else { Some(last_status) });
+
+                    // Populate WordPress integration fields
+                    wp_share_value_cents.set(get_config_value(&data, "share_value_cents"));
+                    wp_bank_iban.set(get_config_value(&data, "bank_iban"));
+                    wp_bank_name.set(get_config_value(&data, "bank_name"));
+                    wp_bank_bic.set(get_config_value(&data, "bank_bic"));
+                    wp_genossenschaft_name.set(get_config_value(&data, "genossenschaft_name"));
 
                     // Load sender_name user preference
                     if let Ok(Some(pref)) = api::get_user_preference(&config, "sender_name").await {
@@ -972,6 +986,19 @@ pub fn ConfigPage() -> Element {
                                     }
                                 }
                             }
+                        }
+
+                        // WordPress Integration Section
+                        WordPressIntegrationSection {
+                            entries: entries,
+                            share_value_cents: wp_share_value_cents,
+                            bank_iban: wp_bank_iban,
+                            bank_name: wp_bank_name,
+                            bank_bic: wp_bank_bic,
+                            genossenschaft_name: wp_genossenschaft_name,
+                            error: error,
+                            success_msg: success_msg,
+                            on_reload: move |_| reload(),
                         }
 
                         // Advanced Configuration (collapsible)

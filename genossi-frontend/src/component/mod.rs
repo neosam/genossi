@@ -9,9 +9,11 @@ pub mod member_search;
 pub mod modal;
 pub mod overlay;
 pub mod top_bar;
+pub mod wordpress_integration;
 
 pub use communication_timeline::CommunicationTimeline;
 pub use footer::Footer;
 pub use member_search::MemberSearch;
 pub use modal::Modal;
 pub use top_bar::TopBar;
+pub use wordpress_integration::WordPressIntegrationSection;

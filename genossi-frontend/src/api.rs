@@ -486,6 +486,20 @@ pub async fn delete_config_entry(config: &Config, key: &str) -> Result<(), reqwe
     Ok(())
 }
 
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct GenerateApiKeyResponse {
+    pub key: String,
+}
+
+pub async fn generate_api_key(config: &Config) -> Result<String, reqwest::Error> {
+    info!("Generating API key");
+    let url = format!("{}/api/config/generate-api-key", config.backend);
+    let response = reqwest::Client::new().post(url).send().await?;
+    response.error_for_status_ref()?;
+    let resp: GenerateApiKeyResponse = response.json().await?;
+    Ok(resp.key)
+}
+
 // Mail API
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct MailJobTO {
