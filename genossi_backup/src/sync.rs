@@ -120,6 +120,9 @@ pub async fn sync_communications<CS: BackupCommunicationSyncDao>(
         failed: 0,
     };
 
+    let comm_dir = format!("{}/kommunikation", base_dir);
+    webdav.mkcol_recursive(&comm_dir).await?;
+
     // Track filenames for collision detection
     let mut filename_counts: HashMap<String, u32> = HashMap::new();
 
@@ -411,9 +414,31 @@ mod tests {
     #[tokio::test]
     async fn test_sync_new_communication() {
         let server = wiremock::MockServer::start().await;
-        wiremock::Mock::given(wiremock::matchers::method("MKCOL"))
+        // Expect MKCOL for base "backup" dir (from mkcol_recursive)
+        let mkcol_backup = wiremock::Mock::given(wiremock::matchers::method("MKCOL"))
+            .and(wiremock::matchers::path("/backup"))
             .respond_with(wiremock::ResponseTemplate::new(201))
-            .mount(&server)
+            .expect(1)
+            .named("mkcol backup")
+            .mount_as_scoped(&server)
+            .await;
+        // Expect MKCOL for "backup/kommunikation" dir (from mkcol_recursive)
+        let mkcol_komm = wiremock::Mock::given(wiremock::matchers::method("MKCOL"))
+            .and(wiremock::matchers::path("/backup/kommunikation"))
+            .respond_with(wiremock::ResponseTemplate::new(201))
+            .expect(1)
+            .named("mkcol kommunikation")
+            .mount_as_scoped(&server)
+            .await;
+        // Expect MKCOL for member dir
+        let mkcol_member = wiremock::Mock::given(wiremock::matchers::method("MKCOL"))
+            .and(wiremock::matchers::path_regex(
+                r"/backup/kommunikation/001_M.+_Hans",
+            ))
+            .respond_with(wiremock::ResponseTemplate::new(201))
+            .expect(1)
+            .named("mkcol member dir")
+            .mount_as_scoped(&server)
             .await;
         wiremock::Mock::given(wiremock::matchers::method("PUT"))
             .respond_with(wiremock::ResponseTemplate::new(201))
@@ -433,11 +458,20 @@ mod tests {
         assert_eq!(stats.skipped, 0);
         assert_eq!(comm_sync_dao.synced_ids.lock().unwrap().len(), 1);
         assert_eq!(comm_sync_dao.synced_ids.lock().unwrap()[0].1, mail_id);
+
+        // Drop scoped mocks to trigger expectation verification
+        drop(mkcol_backup);
+        drop(mkcol_komm);
+        drop(mkcol_member);
     }
 
     #[tokio::test]
     async fn test_sync_already_synced_communication_skipped() {
         let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("MKCOL"))
+            .respond_with(wiremock::ResponseTemplate::new(201))
+            .mount(&server)
+            .await;
 
         let webdav = WebDavClient::new(&server.uri(), "user", "pass");
         let mail_id = uuid::Uuid::new_v4();
@@ -451,5 +485,58 @@ mod tests {
         assert_eq!(stats.uploaded, 0);
         assert_eq!(stats.skipped, 1);
         assert!(comm_sync_dao.synced_ids.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_sync_communications_creates_kommunikation_dir_before_member_dirs() {
+        let server = wiremock::MockServer::start().await;
+
+        // Only allow MKCOL for the recursive base path creation
+        // If member dir MKCOL happens before kommunikation dir, the order check fails
+        let call_log: Arc<std::sync::Mutex<Vec<String>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+
+        let log_clone = call_log.clone();
+        wiremock::Mock::given(wiremock::matchers::method("MKCOL"))
+            .respond_with(move |req: &wiremock::Request| {
+                log_clone
+                    .lock()
+                    .unwrap()
+                    .push(req.url.path().to_string());
+                wiremock::ResponseTemplate::new(201)
+            })
+            .mount(&server)
+            .await;
+        wiremock::Mock::given(wiremock::matchers::method("PUT"))
+            .respond_with(wiremock::ResponseTemplate::new(201))
+            .mount(&server)
+            .await;
+
+        let webdav = WebDavClient::new(&server.uri(), "user", "pass");
+        let comm_sync_dao = MockCommSyncDao::new();
+        let mail_id = uuid::Uuid::new_v4();
+
+        let comms = vec![sample_communication(mail_id)];
+        sync_communications(&webdav, &comm_sync_dao, &comms, "backup")
+            .await
+            .unwrap();
+
+        let calls = call_log.lock().unwrap();
+        // mkcol_recursive creates "backup" then "backup/kommunikation"
+        // then the loop creates the member dir
+        let komm_idx = calls
+            .iter()
+            .position(|p| p == "/backup/kommunikation")
+            .expect("kommunikation dir must be created");
+        let member_idx = calls
+            .iter()
+            .position(|p| p.starts_with("/backup/kommunikation/001_"))
+            .expect("member dir must be created");
+        assert!(
+            komm_idx < member_idx,
+            "kommunikation dir ({}) must be created before member dir ({})",
+            komm_idx,
+            member_idx
+        );
     }
 }
