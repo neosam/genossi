@@ -1,0 +1,90 @@
+.genossi-beitritt-form-wrap {
+    max-width: 600px;
+}
+
+.genossi-beitritt-form .genossi-beitritt-field {
+    margin-bottom: 1em;
+}
+
+.genossi-beitritt-form label {
+    display: block;
+    margin-bottom: 0.3em;
+    font-weight: 600;
+}
+
+.genossi-beitritt-form input[type="text"],
+.genossi-beitritt-form input[type="email"],
+.genossi-beitritt-form input[type="number"],
+.genossi-beitritt-form select {
+    width: 100%;
+    padding: 0.5em;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    font-size: 1em;
+}
+
+.genossi-beitritt-form .required {
+    color: #c00;
+}
+
+.genossi-beitritt-field-row {
+    display: flex;
+    gap: 1em;
+}
+
+.genossi-beitritt-field-street,
+.genossi-beitritt-field-city {
+    flex: 3;
+}
+
+.genossi-beitritt-field-house,
+.genossi-beitritt-field-plz {
+    flex: 1;
+}
+
+.genossi-beitritt-checkbox label {
+    display: inline;
+    font-weight: normal;
+}
+
+.genossi-beitritt-checkbox input[type="checkbox"] {
+    margin-right: 0.5em;
+}
+
+.genossi-beitritt-submit {
+    margin-top: 1.5em;
+}
+
+.genossi-beitritt-submit button {
+    padding: 0.7em 2em;
+    font-size: 1em;
+    cursor: pointer;
+}
+
+.genossi-beitritt-errors {
+    background: #fef0f0;
+    border: 1px solid #c00;
+    border-radius: 3px;
+    padding: 0.8em 1em;
+    margin-bottom: 1.5em;
+}
+
+.genossi-beitritt-errors ul {
+    margin: 0;
+    padding: 0 0 0 1.2em;
+    color: #c00;
+}
+
+.genossi-beitritt-success {
+    background: #f0fef0;
+    border: 1px solid #090;
+    border-radius: 3px;
+    padding: 1em 1.5em;
+}
+
+.genossi-beitritt-notice {
+    background: #fff3cd;
+    border: 1px solid #ffc107;
+    border-radius: 3px;
+    padding: 0.8em 1em;
+}
