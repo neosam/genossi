@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use genossi_config::dao::ConfigEntry;
 use genossi_config::service::ConfigService;
-use genossi_dao::backup::{BackupDao, BackupDocumentSyncDao};
+use genossi_dao::backup::{BackupCommunicationSyncDao, BackupDao, BackupDocumentSyncDao};
 use genossi_service::document_storage::DocumentStorage;
 
 use crate::generator;
@@ -84,10 +84,11 @@ async fn update_status<C: ConfigService>(config_service: &C, status: &str) {
         .await;
 }
 
-async fn run_backup_cycle<C, B, S, D>(
+async fn run_backup_cycle<C, B, S, CS, D>(
     config: &BackupConfig,
     backup_dao: &B,
     sync_dao: &S,
+    comm_sync_dao: &CS,
     document_storage: &D,
     config_service: &C,
 ) -> Result<String, String>
@@ -95,6 +96,7 @@ where
     C: ConfigService,
     B: BackupDao,
     S: BackupDocumentSyncDao,
+    CS: BackupCommunicationSyncDao,
     D: DocumentStorage,
 {
     let webdav = WebDavClient::new(&config.url, &config.username, &config.password);
@@ -198,23 +200,46 @@ where
         sync_stats.failed
     );
 
+    // 6. Sync communications (append-only)
+    let communications = backup_dao
+        .all_communications()
+        .await
+        .map_err(|e| format!("Failed to fetch communications: {:?}", e))?;
+
+    let comm_sync_stats =
+        sync::sync_communications(&webdav, comm_sync_dao, &communications, base_dir)
+            .await
+            .map_err(|e| format!("Communication sync failed: {}", e))?;
+
+    tracing::info!(
+        "Communication sync complete: {} total, {} uploaded, {} skipped, {} failed",
+        comm_sync_stats.total,
+        comm_sync_stats.uploaded,
+        comm_sync_stats.skipped,
+        comm_sync_stats.failed
+    );
+
     let status = format!(
-        "Erfolgreich: {} CSVs, {} Dokumente synchronisiert ({} übersprungen, {} fehlgeschlagen)",
-        csv_count, sync_stats.uploaded, sync_stats.skipped, sync_stats.failed
+        "Erfolgreich: {} CSVs, {} Dokumente ({} übersprungen, {} fehlgeschlagen), {} Kommunikation ({} übersprungen, {} fehlgeschlagen)",
+        csv_count,
+        sync_stats.uploaded, sync_stats.skipped, sync_stats.failed,
+        comm_sync_stats.uploaded, comm_sync_stats.skipped, comm_sync_stats.failed
     );
 
     Ok(status)
 }
 
-pub async fn start_backup_worker<C, B, S, D>(
+pub async fn start_backup_worker<C, B, S, CS, D>(
     config_service: Arc<C>,
     backup_dao: Arc<B>,
     sync_dao: Arc<S>,
+    comm_sync_dao: Arc<CS>,
     document_storage: Arc<D>,
 ) where
     C: ConfigService,
     B: BackupDao,
     S: BackupDocumentSyncDao,
+    CS: BackupCommunicationSyncDao,
     D: DocumentStorage,
 {
     tracing::info!("Backup worker started");
@@ -240,6 +265,7 @@ pub async fn start_backup_worker<C, B, S, D>(
                     &config,
                     backup_dao.as_ref(),
                     sync_dao.as_ref(),
+                    comm_sync_dao.as_ref(),
                     document_storage.as_ref(),
                     config_service.as_ref(),
                 )

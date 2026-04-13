@@ -142,6 +142,7 @@ type MemberActionDao = genossi_dao_impl_sqlite::member_action::MemberActionDaoIm
 type MemberDocumentDao = genossi_dao_impl_sqlite::member_document::MemberDocumentDaoImpl;
 type BackupDao = genossi_dao_impl_sqlite::backup::BackupDaoImpl;
 type BackupDocumentSyncDao = genossi_dao_impl_sqlite::backup::BackupDocumentSyncDaoImpl;
+type BackupCommunicationSyncDao = genossi_dao_impl_sqlite::backup::BackupCommunicationSyncDaoImpl;
 
 pub struct MemberActionServiceDependencies;
 
@@ -281,6 +282,7 @@ pub struct RestStateImpl {
     // Backup worker dependencies
     backup_config_service: Arc<ConfigService>,
     backup_sync_dao: Arc<BackupDocumentSyncDao>,
+    backup_comm_sync_dao: Arc<BackupCommunicationSyncDao>,
     // Pool for direct document resolution queries
     pool: Arc<SqlitePool>,
 }
@@ -443,6 +445,7 @@ impl RestStateImpl {
         let backup_config_dao = ConfigDao::new(pool.clone());
         let backup_config_service = Arc::new(ConfigService::new(backup_config_dao));
         let backup_sync_dao = Arc::new(BackupDocumentSyncDao::new(pool.clone()));
+        let backup_comm_sync_dao = Arc::new(BackupCommunicationSyncDao::new(pool.clone()));
 
         Self {
             public_stats_cache: std::sync::Arc::new(genossi_rest::public_stats::PublicStatsCache::new()),
@@ -472,6 +475,7 @@ impl RestStateImpl {
             worker_static_attachment_dao,
             backup_config_service,
             backup_sync_dao,
+            backup_comm_sync_dao,
             pool,
         }
     }
@@ -491,12 +495,14 @@ impl RestStateImpl {
         let config_service = self.backup_config_service.clone();
         let backup_dao = self.backup_dao.clone();
         let sync_dao = self.backup_sync_dao.clone();
+        let comm_sync_dao = self.backup_comm_sync_dao.clone();
         let document_storage = self.document_storage.clone();
         tokio::spawn(async move {
             genossi_backup::worker::start_backup_worker(
                 config_service,
                 backup_dao,
                 sync_dao,
+                comm_sync_dao,
                 document_storage,
             )
             .await;

@@ -5628,3 +5628,129 @@ async fn test_backup_test_webdav_missing_config() {
 
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
+
+// ===== Backup Communication Tests =====
+
+#[tokio::test]
+async fn test_backup_documents_zip_contains_communications() {
+    let (server, pool) = setup_with_pool().await;
+    let client = reqwest::Client::new();
+
+    // Create a member via API
+    let response = client
+        .post(server.url("/api/members"))
+        .json(&sample_member())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let member: MemberTO = response.json().await.unwrap();
+    let member_id = member.id.unwrap();
+
+    // Insert a sent outbound mail directly into DB
+    let job_id = uuid::Uuid::new_v4();
+    let recipient_id = uuid::Uuid::new_v4();
+    let version_id = uuid::Uuid::new_v4();
+
+    sqlx::query(
+        "INSERT INTO mail_jobs (id, created, version, subject, body, status, total_count, sent_count, failed_count) \
+         VALUES (?, '2026-03-15 14:30:00', ?, 'Willkommen', 'Hallo Max, willkommen!', 'completed', 1, 1, 0)",
+    )
+    .bind(job_id.as_bytes().as_slice())
+    .bind(version_id.as_bytes().as_slice())
+    .execute(&*pool)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        "INSERT INTO mail_recipients (id, created, version, mail_job_id, to_address, member_id, status, sent_at) \
+         VALUES (?, '2026-03-15 14:30:00', ?, ?, 'max@example.com', ?, 'sent', '2026-03-15 14:30:05')",
+    )
+    .bind(recipient_id.as_bytes().as_slice())
+    .bind(version_id.as_bytes().as_slice())
+    .bind(job_id.as_bytes().as_slice())
+    .bind(member_id.as_bytes().as_slice())
+    .execute(&*pool)
+    .await
+    .unwrap();
+
+    // Download the backup ZIP
+    let response = client
+        .get(server.url("/api/backup/documents"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let zip_bytes = response.bytes().await.unwrap();
+    let reader = std::io::Cursor::new(zip_bytes.as_ref());
+    let mut archive = zip::ZipArchive::new(reader).unwrap();
+
+    // Find a communication file in the ZIP
+    let mut found_communication = false;
+    for i in 0..archive.len() {
+        let file = archive.by_index(i).unwrap();
+        let name = file.name().to_string();
+        if name.contains("kommunikation/") && name.ends_with(".txt") {
+            found_communication = true;
+            assert!(name.contains("001_Mustermann_Max"));
+            assert!(name.contains("ausgehend"));
+            assert!(name.contains("Willkommen"));
+            break;
+        }
+    }
+    assert!(found_communication, "Expected communication .txt file in ZIP");
+}
+
+#[tokio::test]
+async fn test_backup_documents_zip_excludes_unassigned_mails() {
+    let (server, pool) = setup_with_pool().await;
+    let client = reqwest::Client::new();
+
+    // Insert a sent outbound mail WITHOUT member_id
+    let job_id = uuid::Uuid::new_v4();
+    let recipient_id = uuid::Uuid::new_v4();
+    let version_id = uuid::Uuid::new_v4();
+
+    sqlx::query(
+        "INSERT INTO mail_jobs (id, created, version, subject, body, status, total_count, sent_count, failed_count) \
+         VALUES (?, '2026-03-15 14:30:00', ?, 'Orphan Mail', 'No member assigned', 'completed', 1, 1, 0)",
+    )
+    .bind(job_id.as_bytes().as_slice())
+    .bind(version_id.as_bytes().as_slice())
+    .execute(&*pool)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        "INSERT INTO mail_recipients (id, created, version, mail_job_id, to_address, member_id, status, sent_at) \
+         VALUES (?, '2026-03-15 14:30:00', ?, ?, 'nobody@example.com', NULL, 'sent', '2026-03-15 14:30:05')",
+    )
+    .bind(recipient_id.as_bytes().as_slice())
+    .bind(version_id.as_bytes().as_slice())
+    .bind(job_id.as_bytes().as_slice())
+    .execute(&*pool)
+    .await
+    .unwrap();
+
+    // Download the backup ZIP
+    let response = client
+        .get(server.url("/api/backup/documents"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let zip_bytes = response.bytes().await.unwrap();
+    let reader = std::io::Cursor::new(zip_bytes.as_ref());
+    let mut archive = zip::ZipArchive::new(reader).unwrap();
+
+    // Ensure no communication files are in the ZIP
+    for i in 0..archive.len() {
+        let file = archive.by_index(i).unwrap();
+        assert!(
+            !file.name().contains("kommunikation/"),
+            "Unassigned mail should not appear in backup"
+        );
+    }
+}

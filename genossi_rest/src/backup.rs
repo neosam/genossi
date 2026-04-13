@@ -10,6 +10,7 @@ use genossi_service::auth_types::privileges;
 use genossi_service::document_storage::DocumentStorage;
 use genossi_service::permission::{Authentication, PermissionService};
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::io::{Cursor, Write};
 use tracing::instrument;
 
@@ -127,6 +128,12 @@ pub async fn export_documents<RestState: RestStateDef>(
                 .await
                 .map_err(|e| RestError::InternalError(format!("{:?}", e)))?;
 
+            let communications = rest_state
+                .backup_dao()
+                .all_communications()
+                .await
+                .map_err(|e| RestError::InternalError(format!("{:?}", e)))?;
+
             let document_storage = rest_state.document_storage();
 
             let mut zip_buf = Cursor::new(Vec::new());
@@ -158,6 +165,46 @@ pub async fn export_documents<RestState: RestStateDef>(
                     zip.start_file(&file_path, options)
                         .map_err(|e| RestError::InternalError(e.to_string()))?;
                     zip.write_all(&data)
+                        .map_err(|e| RestError::InternalError(e.to_string()))?;
+                }
+
+                // Add communication files grouped by member
+                let mut filename_counts: HashMap<String, u32> = HashMap::new();
+                for comm in communications.iter() {
+                    let dir_name = format!(
+                        "{:03}_{}_{}",
+                        comm.member_number, comm.last_name, comm.first_name
+                    );
+                    let base_filename = generator::generate_communication_filename(
+                        &comm.date,
+                        &comm.direction,
+                        &comm.subject,
+                        None,
+                    );
+
+                    let full_base = format!("{}/kommunikation/{}", dir_name, base_filename);
+                    let count = filename_counts.entry(full_base.clone()).or_insert(0);
+                    *count += 1;
+
+                    let file_path = if *count > 1 {
+                        let suffix = &comm.mail_id.to_string()[..8];
+                        let filename_with_suffix =
+                            generator::generate_communication_filename(
+                                &comm.date,
+                                &comm.direction,
+                                &comm.subject,
+                                Some(suffix),
+                            );
+                        format!("{}/kommunikation/{}.txt", dir_name, filename_with_suffix)
+                    } else {
+                        format!("{}.txt", full_base)
+                    };
+
+                    let txt_content = generator::generate_communication_txt(comm);
+
+                    zip.start_file(&file_path, options)
+                        .map_err(|e| RestError::InternalError(e.to_string()))?;
+                    zip.write_all(txt_content.as_bytes())
                         .map_err(|e| RestError::InternalError(e.to_string()))?;
                 }
 

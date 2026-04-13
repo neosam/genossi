@@ -1,8 +1,13 @@
-use genossi_dao::backup::{BackupDocumentSyncDao, DocumentBackupRow};
+use genossi_dao::backup::{
+    BackupCommunicationSyncDao, BackupDocumentSyncDao, CommunicationBackupRow,
+    DocumentBackupRow,
+};
 use genossi_service::document_storage::DocumentStorage;
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::generator;
 use crate::webdav::{WebDavClient, WebDavError};
 
 #[derive(Debug)]
@@ -100,6 +105,87 @@ async fn sync_single_document<S: BackupDocumentSyncDao, D: DocumentStorage>(
         .map_err(|e| format!("Failed to update hash: {:?}", e))?;
 
     Ok(true)
+}
+
+pub async fn sync_communications<CS: BackupCommunicationSyncDao>(
+    webdav: &WebDavClient,
+    comm_sync_dao: &CS,
+    communications: &[CommunicationBackupRow],
+    base_dir: &str,
+) -> Result<SyncStats, WebDavError> {
+    let mut stats = SyncStats {
+        total: communications.len(),
+        uploaded: 0,
+        skipped: 0,
+        failed: 0,
+    };
+
+    // Track filenames for collision detection
+    let mut filename_counts: HashMap<String, u32> = HashMap::new();
+
+    for comm in communications {
+        // Check if already synced
+        let is_synced = comm_sync_dao
+            .is_synced(&comm.mail_type, comm.mail_id)
+            .await
+            .map_err(|e| WebDavError::RequestFailed(Arc::from(format!("DB error: {:?}", e))))?;
+
+        if is_synced {
+            stats.skipped += 1;
+            continue;
+        }
+
+        let member_dir = format!(
+            "{}/kommunikation/{:03}_{}_{}",
+            base_dir, comm.member_number, comm.last_name, comm.first_name
+        );
+
+        let base_filename =
+            generator::generate_communication_filename(&comm.date, &comm.direction, &comm.subject, None);
+
+        let count = filename_counts
+            .entry(format!("{}/{}", member_dir, base_filename))
+            .or_insert(0);
+        *count += 1;
+
+        let filename = if *count > 1 {
+            let suffix = &comm.mail_id.to_string()[..8];
+            generator::generate_communication_filename(&comm.date, &comm.direction, &comm.subject, Some(suffix))
+        } else {
+            base_filename
+        };
+
+        let txt_content = generator::generate_communication_txt(comm);
+
+        // Create member kommunikation directory
+        match webdav.mkcol(&member_dir).await {
+            Ok(_) => {}
+            Err(e) => {
+                tracing::warn!("Failed to create dir {}: {}", member_dir, e);
+                stats.failed += 1;
+                continue;
+            }
+        }
+
+        let file_path = format!("{}/{}.txt", member_dir, filename);
+        match webdav.put(&file_path, txt_content.into_bytes()).await {
+            Ok(_) => {
+                if let Err(e) = comm_sync_dao
+                    .mark_synced(&comm.mail_type, comm.mail_id)
+                    .await
+                {
+                    tracing::warn!("Failed to mark synced {}: {:?}", comm.mail_id, e);
+                }
+                stats.uploaded += 1;
+            }
+            Err(e) => {
+                tracing::warn!("Failed to upload {}: {}", file_path, e);
+                stats.failed += 1;
+            }
+        }
+    }
+
+    Ok(stats)
 }
 
 fn compute_sha256(data: &[u8]) -> String {
@@ -267,5 +353,103 @@ mod tests {
             sync_single_document(&webdav, &sync_dao, &storage, &doc, "backup/dokumente").await;
         assert!(result.unwrap()); // uploaded
         assert_eq!(sync_dao.upserted.lock().unwrap().len(), 1);
+    }
+
+    // ─── Communication sync mocks ──────────────────────────────────────
+
+    struct MockCommSyncDao {
+        synced_ids: std::sync::Mutex<Vec<(String, uuid::Uuid)>>,
+        pre_synced: std::sync::Mutex<Vec<uuid::Uuid>>,
+    }
+
+    impl MockCommSyncDao {
+        fn new() -> Self {
+            Self {
+                synced_ids: std::sync::Mutex::new(Vec::new()),
+                pre_synced: std::sync::Mutex::new(Vec::new()),
+            }
+        }
+
+        fn with_pre_synced(ids: Vec<uuid::Uuid>) -> Self {
+            Self {
+                synced_ids: std::sync::Mutex::new(Vec::new()),
+                pre_synced: std::sync::Mutex::new(ids),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl BackupCommunicationSyncDao for MockCommSyncDao {
+        async fn is_synced(&self, _mail_type: &str, mail_id: uuid::Uuid) -> Result<bool, DaoError> {
+            Ok(self.pre_synced.lock().unwrap().contains(&mail_id))
+        }
+        async fn mark_synced(&self, mail_type: &str, mail_id: uuid::Uuid) -> Result<(), DaoError> {
+            self.synced_ids
+                .lock()
+                .unwrap()
+                .push((mail_type.to_string(), mail_id));
+            Ok(())
+        }
+    }
+
+    fn sample_communication(mail_id: uuid::Uuid) -> CommunicationBackupRow {
+        CommunicationBackupRow {
+            member_number: 1,
+            first_name: Arc::from("Hans"),
+            last_name: Arc::from("Müller"),
+            direction: Arc::from("ausgehend"),
+            date: Arc::from("2026-03-15 14:30:00"),
+            subject: Arc::from("Willkommen"),
+            body: Arc::from("Hallo Hans!"),
+            from_address: None,
+            to_address: Some(Arc::from("hans@example.com")),
+            mail_id,
+            mail_type: Arc::from("outbound"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_sync_new_communication() {
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("MKCOL"))
+            .respond_with(wiremock::ResponseTemplate::new(201))
+            .mount(&server)
+            .await;
+        wiremock::Mock::given(wiremock::matchers::method("PUT"))
+            .respond_with(wiremock::ResponseTemplate::new(201))
+            .mount(&server)
+            .await;
+
+        let webdav = WebDavClient::new(&server.uri(), "user", "pass");
+        let comm_sync_dao = MockCommSyncDao::new();
+        let mail_id = uuid::Uuid::new_v4();
+
+        let comms = vec![sample_communication(mail_id)];
+        let stats = sync_communications(&webdav, &comm_sync_dao, &comms, "backup")
+            .await
+            .unwrap();
+
+        assert_eq!(stats.uploaded, 1);
+        assert_eq!(stats.skipped, 0);
+        assert_eq!(comm_sync_dao.synced_ids.lock().unwrap().len(), 1);
+        assert_eq!(comm_sync_dao.synced_ids.lock().unwrap()[0].1, mail_id);
+    }
+
+    #[tokio::test]
+    async fn test_sync_already_synced_communication_skipped() {
+        let server = wiremock::MockServer::start().await;
+
+        let webdav = WebDavClient::new(&server.uri(), "user", "pass");
+        let mail_id = uuid::Uuid::new_v4();
+        let comm_sync_dao = MockCommSyncDao::with_pre_synced(vec![mail_id]);
+
+        let comms = vec![sample_communication(mail_id)];
+        let stats = sync_communications(&webdav, &comm_sync_dao, &comms, "backup")
+            .await
+            .unwrap();
+
+        assert_eq!(stats.uploaded, 0);
+        assert_eq!(stats.skipped, 1);
+        assert!(comm_sync_dao.synced_ids.lock().unwrap().is_empty());
     }
 }

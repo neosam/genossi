@@ -1,10 +1,12 @@
 use async_trait::async_trait;
 use genossi_dao::backup::{
-    ActionBackupRow, BackupDao, BackupDocumentSyncDao, DocumentBackupRow, MemberBackupRow,
+    ActionBackupRow, BackupCommunicationSyncDao, BackupDao, BackupDocumentSyncDao,
+    CommunicationBackupRow, DocumentBackupRow, MemberBackupRow,
 };
 use genossi_dao::DaoError;
 use sqlx::SqlitePool;
 use std::sync::Arc;
+use uuid::Uuid;
 
 pub struct BackupDaoImpl {
     pool: Arc<SqlitePool>,
@@ -48,6 +50,21 @@ struct ActionBackupDb {
     transfer_member_number: Option<i64>,
     effective_date: Option<String>,
     comment: Option<String>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct CommunicationBackupDb {
+    member_number: i64,
+    first_name: String,
+    last_name: String,
+    direction: String,
+    date: String,
+    subject: String,
+    body: String,
+    from_address: Option<String>,
+    to_address: Option<String>,
+    mail_id: Vec<u8>,
+    mail_type: String,
 }
 
 #[derive(Debug, sqlx::FromRow)]
@@ -203,6 +220,106 @@ impl BackupDao for BackupDaoImpl {
             }
             None => Ok(None),
         }
+    }
+
+    async fn all_communications(&self) -> Result<Arc<[CommunicationBackupRow]>, DaoError> {
+        let rows = sqlx::query_as::<_, CommunicationBackupDb>(
+            "SELECT m.member_number, m.first_name, m.last_name, \
+                    'ausgehend' as direction, \
+                    r.sent_at as date, \
+                    j.subject, j.body, \
+                    NULL as from_address, \
+                    r.to_address, \
+                    r.id as mail_id, \
+                    'outbound' as mail_type \
+             FROM mail_recipients r \
+             INNER JOIN mail_jobs j ON r.mail_job_id = j.id \
+             INNER JOIN member m ON r.member_id = m.id \
+             WHERE r.member_id IS NOT NULL AND r.status = 'sent' AND r.sent_at IS NOT NULL \
+             UNION ALL \
+             SELECT m.member_number, m.first_name, m.last_name, \
+                    'eingehend' as direction, \
+                    i.received_at as date, \
+                    i.subject, i.body_text as body, \
+                    i.from_address, \
+                    NULL as to_address, \
+                    i.id as mail_id, \
+                    'inbound' as mail_type \
+             FROM inbound_mails i \
+             INNER JOIN member m ON i.assigned_member_id = m.id \
+             WHERE i.assigned_member_id IS NOT NULL \
+             ORDER BY member_number, date",
+        )
+        .fetch_all(self.pool.as_ref())
+        .await
+        .map_err(|e| DaoError::DatabaseError(Arc::from(e.to_string())))?;
+
+        let result: Vec<CommunicationBackupRow> = rows
+            .into_iter()
+            .filter_map(|r| {
+                let mail_id = Uuid::from_slice(&r.mail_id).ok()?;
+                Some(CommunicationBackupRow {
+                    member_number: r.member_number,
+                    first_name: Arc::from(r.first_name.as_str()),
+                    last_name: Arc::from(r.last_name.as_str()),
+                    direction: Arc::from(r.direction.as_str()),
+                    date: Arc::from(r.date.as_str()),
+                    subject: Arc::from(r.subject.as_str()),
+                    body: Arc::from(r.body.as_str()),
+                    from_address: r.from_address.map(|s| Arc::from(s.as_str())),
+                    to_address: r.to_address.map(|s| Arc::from(s.as_str())),
+                    mail_id,
+                    mail_type: Arc::from(r.mail_type.as_str()),
+                })
+            })
+            .collect();
+
+        Ok(result.into())
+    }
+}
+
+pub struct BackupCommunicationSyncDaoImpl {
+    pool: Arc<SqlitePool>,
+}
+
+impl BackupCommunicationSyncDaoImpl {
+    pub fn new(pool: Arc<SqlitePool>) -> Self {
+        Self { pool }
+    }
+}
+
+#[async_trait]
+impl BackupCommunicationSyncDao for BackupCommunicationSyncDaoImpl {
+    async fn is_synced(&self, mail_type: &str, mail_id: Uuid) -> Result<bool, DaoError> {
+        let row: Option<(i64,)> = sqlx::query_as(
+            "SELECT 1 FROM backup_communication_sync WHERE mail_type = ? AND mail_id = ?",
+        )
+        .bind(mail_type)
+        .bind(mail_id.as_bytes().as_slice())
+        .fetch_optional(self.pool.as_ref())
+        .await
+        .map_err(|e| DaoError::DatabaseError(Arc::from(e.to_string())))?;
+
+        Ok(row.is_some())
+    }
+
+    async fn mark_synced(&self, mail_type: &str, mail_id: Uuid) -> Result<(), DaoError> {
+        let now = time::OffsetDateTime::now_utc();
+        let format = time::format_description::well_known::Iso8601::DEFAULT;
+        let timestamp = now.format(&format).unwrap_or_default();
+
+        sqlx::query(
+            "INSERT OR IGNORE INTO backup_communication_sync (mail_type, mail_id, synced_at) \
+             VALUES (?, ?, ?)",
+        )
+        .bind(mail_type)
+        .bind(mail_id.as_bytes().as_slice())
+        .bind(&timestamp)
+        .execute(self.pool.as_ref())
+        .await
+        .map_err(|e| DaoError::DatabaseError(Arc::from(e.to_string())))?;
+
+        Ok(())
     }
 }
 
