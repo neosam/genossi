@@ -9,6 +9,7 @@ pub mod inbox;
 pub mod mail_compose;
 pub mod member_search;
 pub mod modal;
+pub mod nav_group;
 pub mod overlay;
 pub mod top_bar;
 pub mod wordpress_integration;

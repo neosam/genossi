@@ -68,6 +68,7 @@ pub enum Key {
     Home,
     Members,
     Permissions,
+    NavAdministration,
 
     // Member fields
     MemberNumber,

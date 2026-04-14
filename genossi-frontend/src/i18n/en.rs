@@ -23,6 +23,7 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::Home => "Home".into(),
         Key::Members => "Members".into(),
         Key::Permissions => "Permissions".into(),
+        Key::NavAdministration => "Administration".into(),
 
         Key::MemberNumber => "Member No.".into(),
         Key::FirstName => "First Name".into(),
