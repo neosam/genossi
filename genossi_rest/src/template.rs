@@ -5,9 +5,11 @@ use axum::routing::{delete, get, put};
 use axum::{Extension, Router};
 use genossi_service::template::TemplateError;
 
+use genossi_service::application::ApplicationService;
 use genossi_service::member::MemberService;
 use genossi_service::permission::PermissionService;
 
+use crate::application::ApplicationRestState;
 use crate::{error_handler, Context, RestError, RestStateDef};
 
 fn template_error_to_rest(e: TemplateError) -> RestError {
@@ -32,6 +34,10 @@ pub fn generate_route<RestState: RestStateDef>() -> Router<RestState> {
 
 pub fn generate_render_route<RestState: RestStateDef>() -> Router<RestState> {
     Router::new().route("/{*path}", axum::routing::post(render_template::<RestState>))
+}
+
+pub fn generate_render_application_route<RestState: RestStateDef + ApplicationRestState>() -> Router<RestState> {
+    Router::new().route("/{*path}", axum::routing::post(render_application_template::<RestState>))
 }
 
 #[utoipa::path(
@@ -99,17 +105,38 @@ async fn read_template<RestState: RestStateDef>(
                 .await
                 .map_err(|_| RestError::Unauthorized)?;
 
-            let content = rest_state
-                .template_storage()
-                .read_file(&path)
-                .await
-                .map_err(template_error_to_rest)?;
+            let full_path = std::path::Path::new(&path);
+            let is_text = full_path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .map(|ext| matches!(ext, "typ" | "txt" | "md" | "toml" | "yaml" | "yml" | "json" | "csv" | "xml" | "html" | "css" | "js"))
+                .unwrap_or(true);
 
-            Ok(Response::builder()
-                .status(200)
-                .header("Content-Type", "text/plain; charset=utf-8")
-                .body(Body::new(content))
-                .unwrap())
+            if is_text {
+                let content = rest_state
+                    .template_storage()
+                    .read_file(&path)
+                    .await
+                    .map_err(template_error_to_rest)?;
+
+                Ok(Response::builder()
+                    .status(200)
+                    .header("Content-Type", "text/plain; charset=utf-8")
+                    .body(Body::new(content))
+                    .unwrap())
+            } else {
+                let content = rest_state
+                    .template_storage()
+                    .read_file_bytes(&path)
+                    .await
+                    .map_err(template_error_to_rest)?;
+
+                Ok(Response::builder()
+                    .status(200)
+                    .header("Content-Type", "application/octet-stream")
+                    .body(Body::from(content))
+                    .unwrap())
+            }
         })
         .await,
     )
@@ -121,6 +148,7 @@ async fn read_template<RestState: RestStateDef>(
     params(
         ("path" = String, Path, description = "Template file path"),
     ),
+    request_body(content = String, content_type = "application/octet-stream", description = "File content (text or binary)"),
     responses(
         (status = 200, description = "Template created or updated"),
         (status = 400, description = "Invalid path"),
@@ -131,7 +159,7 @@ async fn write_template<RestState: RestStateDef>(
     rest_state: State<RestState>,
     Extension(context): Extension<Context>,
     Path(path): Path<String>,
-    body: String,
+    body: axum::body::Bytes,
 ) -> Response {
     error_handler(
         (async {
@@ -152,7 +180,7 @@ async fn write_template<RestState: RestStateDef>(
             } else {
                 rest_state
                     .template_storage()
-                    .write_file(&path, &body)
+                    .write_file_bytes(&path, &body)
                     .await
                     .map_err(template_error_to_rest)?;
             }
@@ -281,6 +309,74 @@ async fn render_template<RestState: RestStateDef>(
     )
 }
 
+#[utoipa::path(
+    post,
+    path = "/{path}",
+    params(
+        ("path" = String, Path, description = "Template file path followed by application ID"),
+    ),
+    responses(
+        (status = 200, description = "Rendered PDF"),
+        (status = 400, description = "Render error"),
+        (status = 404, description = "Template or application not found"),
+    ),
+    tag = "Templates"
+)]
+async fn render_application_template<RestState: RestStateDef + ApplicationRestState>(
+    rest_state: State<RestState>,
+    Extension(context): Extension<Context>,
+    Path(path): Path<String>,
+) -> Response {
+    error_handler(
+        (async {
+            let auth = crate::extract_auth_context(Some(context))?;
+            rest_state
+                .permission_service()
+                .check_permission("manage_members", auth.clone())
+                .await
+                .map_err(|_| RestError::Unauthorized)?;
+
+            let (template_path, application_id_str) = parse_render_path(&path)?;
+
+            let application_id: uuid::Uuid = application_id_str
+                .parse()
+                .map_err(|_| RestError::BadRequest("Invalid application ID".to_string()))?;
+
+            let application = rest_state
+                .application_service()
+                .get(application_id, auth)
+                .await
+                .map_err(RestError::from)?;
+
+            let pdf_bytes = rest_state
+                .pdf_generator()
+                .render_application(
+                    &template_path,
+                    rest_state.template_storage().base_path(),
+                    &application,
+                )
+                .map_err(template_error_to_rest)?;
+
+            let filename = template_path
+                .rsplit('/')
+                .next()
+                .unwrap_or(&template_path)
+                .replace(".typ", ".pdf");
+
+            Ok(Response::builder()
+                .status(200)
+                .header("Content-Type", "application/pdf")
+                .header(
+                    "Content-Disposition",
+                    format!("attachment; filename=\"{}\"", filename),
+                )
+                .body(Body::from(pdf_bytes))
+                .unwrap())
+        })
+        .await,
+    )
+}
+
 /// Parse render path: "template/path.typ/{member_id}" -> ("template/path.typ", "{member_id}")
 /// The path comes from /api/templates/render/*path where path is "template.typ/{member_id}"
 fn parse_render_path(path: &str) -> Result<(String, String), RestError> {
@@ -309,6 +405,7 @@ fn parse_render_path(path: &str) -> Result<(String, String), RestError> {
         write_template,
         delete_template,
         render_template,
+        render_application_template,
     ),
     tags(
         (name = "Templates", description = "Template management and PDF generation")

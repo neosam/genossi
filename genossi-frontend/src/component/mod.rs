@@ -1,6 +1,7 @@
 pub mod application_create_form;
 pub mod application_detail;
 pub mod application_list;
+pub mod application_search;
 pub mod base_components;
 pub mod communication_timeline;
 pub mod dropdown_base;
@@ -18,6 +19,7 @@ pub mod wordpress_integration;
 pub use application_create_form::ApplicationCreateForm;
 pub use application_detail::ApplicationDetail;
 pub use application_list::ApplicationList;
+pub use application_search::ApplicationSearch;
 pub use communication_timeline::CommunicationTimeline;
 pub use footer::Footer;
 pub use member_search::MemberSearch;

@@ -367,6 +367,24 @@ pub async fn save_template(config: &Config, path: &str, content: &str) -> Result
     Ok(())
 }
 
+pub async fn upload_template_file(config: &Config, path: &str, bytes: Vec<u8>) -> Result<(), String> {
+    info!("Uploading template file: {path}");
+    let url = format!("{}/api/templates/{}", config.backend, path);
+    let response = reqwest::Client::new()
+        .put(url)
+        .header("Content-Type", "application/octet-stream")
+        .body(bytes)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        return Err(format!("{}: {}", status, text));
+    }
+    Ok(())
+}
+
 pub async fn delete_template(config: &Config, path: &str) -> Result<(), String> {
     info!("Deleting template: {path}");
     let url = format!("{}/api/templates/{}", config.backend, path);
@@ -396,6 +414,59 @@ pub async fn render_template_pdf(config: &Config, path: &str, member_id: Uuid) -
 
     let url = template_render_url(config, path, member_id);
     info!("Rendering template PDF: {url}");
+
+    let mut opts = web_sys::RequestInit::new();
+    opts.set_method("POST");
+
+    let request = web_sys::Request::new_with_str_and_init(&url, &opts)
+        .map_err(|e| format!("Failed to create request: {:?}", e))?;
+
+    let window = web_sys::window().ok_or("No window")?;
+    let resp_value = JsFuture::from(window.fetch_with_request(&request))
+        .await
+        .map_err(|e| format!("Fetch failed: {:?}", e))?;
+
+    let resp: web_sys::Response = resp_value
+        .dyn_into()
+        .map_err(|_| "Response is not a Response object".to_string())?;
+
+    if !resp.ok() {
+        let status = resp.status();
+        let text = JsFuture::from(resp.text().unwrap())
+            .await
+            .map_err(|e| format!("Failed to read error body: {:?}", e))?
+            .as_string()
+            .unwrap_or_default();
+        return Err(format!("{}: {}", status, text));
+    }
+
+    let blob = JsFuture::from(resp.blob().unwrap())
+        .await
+        .map_err(|e| format!("Failed to read blob: {:?}", e))?;
+
+    let blob: web_sys::Blob = blob
+        .dyn_into()
+        .map_err(|_| "Not a Blob".to_string())?;
+
+    let blob_url = web_sys::Url::create_object_url_with_blob(&blob)
+        .map_err(|e| format!("Failed to create blob URL: {:?}", e))?;
+
+    Ok(blob_url)
+}
+
+pub fn template_render_application_url(config: &Config, path: &str, application_id: Uuid) -> String {
+    format!(
+        "{}/api/templates/render-application/{}/{}",
+        config.backend, path, application_id
+    )
+}
+
+pub async fn render_template_pdf_application(config: &Config, path: &str, application_id: Uuid) -> Result<String, String> {
+    use wasm_bindgen::JsCast;
+    use wasm_bindgen_futures::JsFuture;
+
+    let url = template_render_application_url(config, path, application_id);
+    info!("Rendering application template PDF: {url}");
 
     let mut opts = web_sys::RequestInit::new();
     opts.set_method("POST");

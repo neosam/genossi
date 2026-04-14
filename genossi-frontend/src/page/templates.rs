@@ -4,11 +4,17 @@ use uuid::Uuid;
 use wasm_bindgen::prelude::*;
 
 use crate::api::{self, FileTreeEntry};
-use crate::component::{MemberSearch, Modal, TopBar};
+use crate::component::{ApplicationSearch, MemberSearch, Modal, TopBar};
 use crate::i18n::{use_i18n, Key};
 use crate::js;
 use crate::service::config::CONFIG;
 use crate::service::member::refresh_members;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PreviewMode {
+    Member,
+    Application,
+}
 
 #[component]
 fn FileTreeNode(
@@ -115,7 +121,9 @@ pub fn Templates() -> Element {
     let mut pending_select_path = use_signal(|| String::new());
 
     // Preview state
+    let mut preview_mode = use_signal(|| PreviewMode::Member);
     let mut preview_member_id = use_signal(|| None::<Uuid>);
+    let mut preview_application_id = use_signal(|| None::<Uuid>);
     let preview_error = use_signal(|| None::<String>);
 
     let has_unsaved_changes = {
@@ -229,6 +237,14 @@ pub fn Templates() -> Element {
     };
 
     let mut on_file_select = move |path: String| {
+        // Don't open binary files in the code editor
+        let is_text = path.ends_with(".typ") || path.ends_with(".txt") || path.ends_with(".md")
+            || path.ends_with(".toml") || path.ends_with(".yaml") || path.ends_with(".yml")
+            || path.ends_with(".json") || path.ends_with(".csv") || path.ends_with(".xml")
+            || path.ends_with(".html") || path.ends_with(".css") || path.ends_with(".js");
+        if !is_text {
+            return;
+        }
         if has_unsaved_changes {
             pending_select_path.set(path);
             show_unsaved_warning.set(true);
@@ -367,6 +383,53 @@ pub fn Templates() -> Element {
                     },
                     {i18n.t(Key::NewFolder)}
                 }
+                // Hidden file input for uploads
+                input {
+                    r#type: "file",
+                    id: "template-file-upload",
+                    style: "display: none;",
+                    onchange: move |evt: Event<FormData>| {
+                        if let Some(file_engine) = evt.files() {
+                            let files = file_engine.files();
+                            if let Some(file_name) = files.first() {
+                                let file_name = file_name.clone();
+                                let file_engine_clone = file_engine.clone();
+                                spawn(async move {
+                                    if let Some(bytes) = file_engine_clone.read_file(&file_name).await {
+                                        let config = CONFIG.read().clone();
+                                        match api::upload_template_file(&config, &file_name, bytes).await {
+                                            Ok(()) => {
+                                                success_msg.set(Some(format!("Uploaded: {}", file_name)));
+                                                spawn(async move {
+                                                    gloo_timers::future::TimeoutFuture::new(2000).await;
+                                                    success_msg.set(None);
+                                                });
+                                                reload_tree();
+                                            }
+                                            Err(e) => error.set(Some(e)),
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                    },
+                }
+                button {
+                    class: "px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm",
+                    onclick: move |_| {
+                        // Trigger the hidden file input
+                        if let Some(window) = web_sys::window() {
+                            if let Some(document) = window.document() {
+                                if let Some(input) = document.get_element_by_id("template-file-upload") {
+                                    let input: web_sys::HtmlInputElement = input.unchecked_into();
+                                    input.set_value(""); // Reset so same file can be re-uploaded
+                                    input.click();
+                                }
+                            }
+                        }
+                    },
+                    {i18n.t(Key::UploadFile)}
+                }
             }
 
             // Main layout: tree + editor
@@ -422,38 +485,97 @@ pub fn Templates() -> Element {
                         }
 
                         // Preview section
-                        div { class: "mt-4 flex flex-wrap items-center gap-2 bg-gray-50 p-3 rounded border",
-                            span { class: "text-sm font-medium", {i18n.t(Key::Preview)} ":" }
-                            div { class: "w-64",
-                                MemberSearch {
-                                    on_select: move |id: Option<Uuid>| preview_member_id.set(id),
-                                    selected_id: *preview_member_id.read(),
+                        div { class: "mt-4 bg-gray-50 p-3 rounded border space-y-2",
+                            div { class: "flex flex-wrap items-center gap-2",
+                                span { class: "text-sm font-medium", {i18n.t(Key::Preview)} ":" }
+                                // Toggle tabs
+                                div { class: "flex rounded-md overflow-hidden border border-gray-300",
+                                    button {
+                                        class: if *preview_mode.read() == PreviewMode::Member { "px-3 py-1 text-sm bg-blue-600 text-white" } else { "px-3 py-1 text-sm bg-white text-gray-700 hover:bg-gray-100" },
+                                        r#type: "button",
+                                        onclick: move |_| {
+                                            preview_mode.set(PreviewMode::Member);
+                                            preview_application_id.set(None);
+                                        },
+                                        {i18n.t(Key::PreviewMember)}
+                                    }
+                                    button {
+                                        class: if *preview_mode.read() == PreviewMode::Application { "px-3 py-1 text-sm bg-blue-600 text-white" } else { "px-3 py-1 text-sm bg-white text-gray-700 hover:bg-gray-100" },
+                                        r#type: "button",
+                                        onclick: move |_| {
+                                            preview_mode.set(PreviewMode::Application);
+                                            preview_member_id.set(None);
+                                        },
+                                        {i18n.t(Key::PreviewApplication)}
+                                    }
                                 }
                             }
-                            button {
-                                class: if preview_member_id.read().is_some() { "px-3 py-1 bg-purple-600 text-white rounded hover:bg-purple-700 text-sm" } else { "px-3 py-1 bg-gray-300 text-gray-500 rounded text-sm cursor-not-allowed" },
-                                disabled: preview_member_id.read().is_none(),
-                                onclick: move |_| {
-                                    let path = selected_path.read().clone();
-                                    let member_id = *preview_member_id.read();
-                                    if let (Some(path), Some(member_id)) = (path, member_id) {
-                                        spawn(async move {
-                                            let config = CONFIG.read().clone();
-                                            let url = api::template_render_url(&config, &path, member_id);
-                                            match api::render_template_pdf(&config, &path, member_id).await {
-                                                Ok(blob_url) => {
-                                                    let window = web_sys::window().unwrap();
-                                                    let _ = window.open_with_url_and_target(&blob_url, "_blank");
-                                                }
-                                                Err(e) => error.set(Some(e)),
-                                            }
-                                        });
+                            div { class: "flex flex-wrap items-center gap-2",
+                                div { class: "w-64",
+                                    if *preview_mode.read() == PreviewMode::Member {
+                                        MemberSearch {
+                                            on_select: move |id: Option<Uuid>| preview_member_id.set(id),
+                                            selected_id: *preview_member_id.read(),
+                                        }
+                                    } else {
+                                        ApplicationSearch {
+                                            on_select: move |id: Option<Uuid>| preview_application_id.set(id),
+                                            selected_id: *preview_application_id.read(),
+                                        }
                                     }
-                                },
-                                {i18n.t(Key::RenderPdf)}
-                            }
-                            if let Some(err) = preview_error.read().as_ref() {
-                                span { class: "text-red-600 text-sm", "{err}" }
+                                }
+                                {
+                                    let has_selection = match *preview_mode.read() {
+                                        PreviewMode::Member => preview_member_id.read().is_some(),
+                                        PreviewMode::Application => preview_application_id.read().is_some(),
+                                    };
+                                    rsx! {
+                                        button {
+                                            class: if has_selection { "px-3 py-1 bg-purple-600 text-white rounded hover:bg-purple-700 text-sm" } else { "px-3 py-1 bg-gray-300 text-gray-500 rounded text-sm cursor-not-allowed" },
+                                            disabled: !has_selection,
+                                            onclick: move |_| {
+                                                let path = selected_path.read().clone();
+                                                let mode = *preview_mode.read();
+                                                if let Some(path) = path {
+                                                    match mode {
+                                                        PreviewMode::Member => {
+                                                            if let Some(member_id) = *preview_member_id.read() {
+                                                                spawn(async move {
+                                                                    let config = CONFIG.read().clone();
+                                                                    match api::render_template_pdf(&config, &path, member_id).await {
+                                                                        Ok(blob_url) => {
+                                                                            let window = web_sys::window().unwrap();
+                                                                            let _ = window.open_with_url_and_target(&blob_url, "_blank");
+                                                                        }
+                                                                        Err(e) => error.set(Some(e)),
+                                                                    }
+                                                                });
+                                                            }
+                                                        }
+                                                        PreviewMode::Application => {
+                                                            if let Some(app_id) = *preview_application_id.read() {
+                                                                spawn(async move {
+                                                                    let config = CONFIG.read().clone();
+                                                                    match api::render_template_pdf_application(&config, &path, app_id).await {
+                                                                        Ok(blob_url) => {
+                                                                            let window = web_sys::window().unwrap();
+                                                                            let _ = window.open_with_url_and_target(&blob_url, "_blank");
+                                                                        }
+                                                                        Err(e) => error.set(Some(e)),
+                                                                    }
+                                                                });
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                            {i18n.t(Key::RenderPdf)}
+                                        }
+                                    }
+                                }
+                                if let Some(err) = preview_error.read().as_ref() {
+                                    span { class: "text-red-600 text-sm", "{err}" }
+                                }
                             }
                         }
                     } else {

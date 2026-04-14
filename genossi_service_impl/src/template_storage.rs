@@ -204,6 +204,34 @@ impl TemplateStorage {
             .map_err(|e| TemplateError::IoError(Arc::from(e.to_string())))
     }
 
+    /// Read a template file's raw bytes.
+    pub async fn read_file_bytes(&self, relative_path: &str) -> Result<Vec<u8>, TemplateError> {
+        let full_path = self.validate_path(relative_path)?;
+        if !full_path.exists() || !full_path.is_file() {
+            return Err(TemplateError::NotFound);
+        }
+        tokio::fs::read(&full_path)
+            .await
+            .map_err(|e| TemplateError::IoError(Arc::from(e.to_string())))
+    }
+
+    /// Create or update a template file with binary content. Creates parent directories as needed.
+    pub async fn write_file_bytes(
+        &self,
+        relative_path: &str,
+        content: &[u8],
+    ) -> Result<(), TemplateError> {
+        let full_path = self.validate_path(relative_path)?;
+        if let Some(parent) = full_path.parent() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|e| TemplateError::IoError(Arc::from(e.to_string())))?;
+        }
+        tokio::fs::write(&full_path, content)
+            .await
+            .map_err(|e| TemplateError::IoError(Arc::from(e.to_string())))
+    }
+
     /// Create an empty directory.
     pub async fn create_directory(&self, relative_path: &str) -> Result<(), TemplateError> {
         let full_path = self.validate_path(relative_path)?;
@@ -421,5 +449,41 @@ mod tests {
         storage.create_directory("existing").await.unwrap();
         storage.create_directory("existing").await.unwrap();
         assert!(storage.base_path.join("existing").is_dir());
+    }
+
+    #[tokio::test]
+    async fn test_write_and_read_file_bytes() {
+        let (_dir, storage) = test_storage();
+        tokio::fs::create_dir_all(&storage.base_path).await.unwrap();
+
+        // PNG header bytes (not valid text)
+        let png_header: &[u8] = &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+        storage
+            .write_file_bytes("logo.png", png_header)
+            .await
+            .unwrap();
+
+        // Verify bytes were written correctly
+        let written = tokio::fs::read(storage.base_path.join("logo.png"))
+            .await
+            .unwrap();
+        assert_eq!(written, png_header);
+    }
+
+    #[tokio::test]
+    async fn test_write_file_bytes_creates_parent_dirs() {
+        let (_dir, storage) = test_storage();
+        tokio::fs::create_dir_all(&storage.base_path).await.unwrap();
+
+        let data = &[0xFF, 0xD8, 0xFF, 0xE0]; // JPEG header
+        storage
+            .write_file_bytes("images/photo.jpg", data)
+            .await
+            .unwrap();
+
+        let written = tokio::fs::read(storage.base_path.join("images/photo.jpg"))
+            .await
+            .unwrap();
+        assert_eq!(written, data);
     }
 }

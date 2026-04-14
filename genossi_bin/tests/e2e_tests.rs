@@ -6629,3 +6629,147 @@ async fn test_admin_create_application_shares_zero() {
 
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
+
+// --- Application Template Render Tests ---
+
+#[tokio::test]
+async fn test_render_application_template_pdf() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Create an application
+    let request = AdminCreateApplicationRequest {
+        first_name: "Erika".to_string(),
+        last_name: "Musterfrau".to_string(),
+        salutation: Some(SalutationTO::Frau),
+        email: Some("erika@example.com".to_string()),
+        street: Some("Testweg".to_string()),
+        house_number: Some("7".to_string()),
+        postal_code: Some("54321".to_string()),
+        city: Some("Teststadt".to_string()),
+        shares: 3,
+        send_mail: None,
+    };
+
+    let response = client
+        .post(server.url("/api/applications"))
+        .json(&request)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let app: ApplicationTO = response.json().await.unwrap();
+    let app_id = app.id;
+
+    // Create a template that uses application data
+    let template = r#"
+#set page(paper: "a4")
+#set text(size: 12pt)
+#let app = json.decode(sys.inputs.at("application"))
+#let today = sys.inputs.at("today")
+Zahlungsaufforderung an #app.first_name #app.last_name
+Anteile: #app.shares
+Status: #app.status
+"#;
+
+    let response = client
+        .put(server.url("/api/templates/zahlungsaufforderung.typ"))
+        .header("Content-Type", "text/plain")
+        .body(template)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Render the template for the application
+    let response = client
+        .post(server.url(&format!(
+            "/api/templates/render-application/zahlungsaufforderung.typ/{}",
+            app_id
+        )))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers().get("content-type").unwrap(),
+        "application/pdf"
+    );
+    let bytes = response.bytes().await.unwrap();
+    assert!(bytes.starts_with(b"%PDF"));
+}
+
+#[tokio::test]
+async fn test_render_application_template_not_found() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Create an application
+    let request = AdminCreateApplicationRequest {
+        first_name: "Max".to_string(),
+        last_name: "Test".to_string(),
+        salutation: None,
+        email: None,
+        street: None,
+        house_number: None,
+        postal_code: None,
+        city: None,
+        shares: 1,
+        send_mail: None,
+    };
+
+    let response = client
+        .post(server.url("/api/applications"))
+        .json(&request)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let app: ApplicationTO = response.json().await.unwrap();
+
+    // Try to render a non-existent template
+    let response = client
+        .post(server.url(&format!(
+            "/api/templates/render-application/nonexistent.typ/{}",
+            app.id
+        )))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_render_application_template_application_not_found() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Create a template
+    let template = r#"
+#set page(paper: "a4")
+#let app = json.decode(sys.inputs.at("application"))
+Test
+"#;
+    client
+        .put(server.url("/api/templates/test.typ"))
+        .header("Content-Type", "text/plain")
+        .body(template)
+        .send()
+        .await
+        .unwrap();
+
+    // Try to render with a non-existent application ID
+    let fake_id = uuid::Uuid::new_v4();
+    let response = client
+        .post(server.url(&format!(
+            "/api/templates/render-application/test.typ/{}",
+            fake_id
+        )))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}

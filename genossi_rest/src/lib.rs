@@ -364,6 +364,7 @@ pub async fn create_app<RestState: RestStateDef + public_stats::PublicStatsState
         .nest("/api/validation", validation::generate_route())
         .nest("/api/templates", template::generate_route())
         .nest("/api/templates/render", template::generate_render_route())
+        .nest("/api/templates/render-application", template::generate_render_application_route())
         .nest("/api/user-preferences", user_preference::generate_route())
         .nest("/api/config", genossi_config::rest::generate_route())
         .nest("/api/mail", genossi_mail::rest::generate_route())
