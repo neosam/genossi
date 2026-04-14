@@ -994,6 +994,7 @@ Member number: #member.member_number
     }
 
     #[test]
+    #[ignore] // Requires network access; fails in sandboxed builds (e.g. nix)
     fn test_render_with_package_import() {
         // Integration test: downloads a real (small) package from the registry
         let dir = TempDir::new().unwrap();
