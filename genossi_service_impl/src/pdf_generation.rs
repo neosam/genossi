@@ -273,6 +273,14 @@ impl PdfGenerator {
                 .unwrap_or(serde_json::Value::Null),
         );
         app_map.insert(
+            "title".to_string(),
+            application
+                .title
+                .as_ref()
+                .map(|v| serde_json::Value::String(v.to_string()))
+                .unwrap_or(serde_json::Value::Null),
+        );
+        app_map.insert(
             "email".to_string(),
             application
                 .email
@@ -671,6 +679,7 @@ mod tests {
             first_name: Arc::from("Erika"),
             last_name: Arc::from("Musterfrau"),
             salutation: Some(genossi_dao::member::Salutation::Frau),
+            title: Some(Arc::from("Dr.")),
             email: Some(Arc::from("erika@example.com")),
             street: Some(Arc::from("Testweg")),
             house_number: Some(Arc::from("7")),
@@ -702,6 +711,7 @@ mod tests {
         assert_eq!(parsed["first_name"], "Erika");
         assert_eq!(parsed["last_name"], "Musterfrau");
         assert_eq!(parsed["salutation"], "Frau");
+        assert_eq!(parsed["title"], "Dr.");
         assert_eq!(parsed["email"], "erika@example.com");
         assert_eq!(parsed["street"], "Testweg");
         assert_eq!(parsed["house_number"], "7");
@@ -723,6 +733,7 @@ mod tests {
             first_name: Arc::from("Max"),
             last_name: Arc::from("Test"),
             salutation: None,
+            title: None,
             email: None,
             street: None,
             house_number: None,
@@ -746,6 +757,7 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_str(&app_str).unwrap();
 
         assert!(parsed["salutation"].is_null());
+        assert!(parsed["title"].is_null());
         assert!(parsed["email"].is_null());
         assert!(parsed["street"].is_null());
         assert!(parsed["house_number"].is_null());

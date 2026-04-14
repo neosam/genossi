@@ -587,6 +587,8 @@ pub struct ApplicationTO {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub salutation: Option<rest_types::SalutationTO>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub email: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub street: Option<String>,
@@ -612,6 +614,8 @@ pub struct AdminCreateApplicationRequest {
     pub last_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub salutation: Option<rest_types::SalutationTO>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub email: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

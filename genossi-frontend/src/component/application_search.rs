@@ -141,6 +141,7 @@ mod tests {
             first_name: first.to_string(),
             last_name: last.to_string(),
             salutation: None,
+            title: None,
             email: None,
             street: None,
             house_number: None,

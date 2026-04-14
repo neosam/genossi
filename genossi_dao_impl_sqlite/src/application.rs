@@ -33,6 +33,7 @@ struct ApplicationDb {
     first_name: String,
     last_name: String,
     salutation: Option<String>,
+    title: Option<String>,
     email: Option<String>,
     street: Option<String>,
     house_number: Option<String>,
@@ -58,6 +59,7 @@ impl TryFrom<&ApplicationDb> for ApplicationEntity {
                 .as_deref()
                 .map(Salutation::from_str)
                 .transpose()?,
+            title: db.title.as_deref().map(Arc::from),
             email: db.email.as_deref().map(Arc::from),
             street: db.street.as_deref().map(Arc::from),
             house_number: db.house_number.as_deref().map(Arc::from),
@@ -95,7 +97,7 @@ impl ApplicationDao for ApplicationDaoImpl {
         tx: Self::Transaction,
     ) -> Result<Arc<[ApplicationEntity]>, DaoError> {
         let rows = sqlx::query_as::<_, ApplicationDb>(
-            "SELECT id, first_name, last_name, salutation, email, street, house_number, \
+            "SELECT id, first_name, last_name, salutation, title, email, street, house_number, \
              postal_code, city, shares, status, created, deleted, version \
              FROM application ORDER BY created DESC",
         )
@@ -126,6 +128,7 @@ impl ApplicationDao for ApplicationDaoImpl {
         let first_name = entity.first_name.to_string();
         let last_name = entity.last_name.to_string();
         let salutation = entity.salutation.as_ref().map(|s| s.as_str().to_string());
+        let title = entity.title.as_deref().map(|s| s.to_string());
         let email = entity.email.as_deref().map(|s| s.to_string());
         let street = entity.street.as_deref().map(|s| s.to_string());
         let house_number = entity.house_number.as_deref().map(|s| s.to_string());
@@ -134,14 +137,15 @@ impl ApplicationDao for ApplicationDaoImpl {
         let status = entity.status.as_str().to_string();
 
         sqlx::query(
-            "INSERT INTO application (id, first_name, last_name, salutation, email, street, \
+            "INSERT INTO application (id, first_name, last_name, salutation, title, email, street, \
              house_number, postal_code, city, shares, status, created, version) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(id)
         .bind(first_name)
         .bind(last_name)
         .bind(salutation)
+        .bind(title)
         .bind(email)
         .bind(street)
         .bind(house_number)
@@ -170,6 +174,7 @@ impl ApplicationDao for ApplicationDaoImpl {
         let first_name = entity.first_name.to_string();
         let last_name = entity.last_name.to_string();
         let salutation = entity.salutation.as_ref().map(|s| s.as_str().to_string());
+        let title = entity.title.as_deref().map(|s| s.to_string());
         let email = entity.email.as_deref().map(|s| s.to_string());
         let street = entity.street.as_deref().map(|s| s.to_string());
         let house_number = entity.house_number.as_deref().map(|s| s.to_string());
@@ -202,7 +207,7 @@ impl ApplicationDao for ApplicationDaoImpl {
         }
 
         let rows_affected = sqlx::query(
-            "UPDATE application SET first_name = ?, last_name = ?, salutation = ?, email = ?, \
+            "UPDATE application SET first_name = ?, last_name = ?, salutation = ?, title = ?, email = ?, \
              street = ?, house_number = ?, postal_code = ?, city = ?, shares = ?, \
              status = ?, deleted = ?, version = ? \
              WHERE id = ? AND version = ? AND deleted IS NULL",
@@ -210,6 +215,7 @@ impl ApplicationDao for ApplicationDaoImpl {
         .bind(first_name)
         .bind(last_name)
         .bind(salutation)
+        .bind(title)
         .bind(email)
         .bind(street)
         .bind(house_number)

@@ -5778,6 +5778,7 @@ fn sample_join_request() -> PublicJoinRequest {
         first_name: "Max".to_string(),
         last_name: "Mustermann".to_string(),
         salutation: Some(SalutationTO::Herr),
+        title: None,
         email: "max@example.com".to_string(),
         street: "Musterstraße".to_string(),
         house_number: "42".to_string(),
@@ -6454,6 +6455,7 @@ async fn test_admin_create_application_minimal_fields() {
         first_name: "Hans".to_string(),
         last_name: "Meier".to_string(),
         salutation: None,
+        title: None,
         email: None,
         street: None,
         house_number: None,
@@ -6489,6 +6491,7 @@ async fn test_admin_create_application_all_fields() {
         first_name: "Anna".to_string(),
         last_name: "Schmidt".to_string(),
         salutation: Some(SalutationTO::Frau),
+        title: None,
         email: Some("anna@example.com".to_string()),
         street: Some("Hauptstraße".to_string()),
         house_number: Some("1".to_string()),
@@ -6523,6 +6526,7 @@ async fn test_admin_create_application_send_mail_without_email() {
         first_name: "Test".to_string(),
         last_name: "User".to_string(),
         salutation: None,
+        title: None,
         email: None,
         street: None,
         house_number: None,
@@ -6551,6 +6555,7 @@ async fn test_admin_create_application_send_mail_with_email() {
         first_name: "Eva".to_string(),
         last_name: "Müller".to_string(),
         salutation: None,
+        title: None,
         email: Some("eva@example.com".to_string()),
         street: None,
         house_number: None,
@@ -6583,6 +6588,7 @@ async fn test_admin_create_application_missing_first_name() {
         first_name: "".to_string(),
         last_name: "Meier".to_string(),
         salutation: None,
+        title: None,
         email: None,
         street: None,
         house_number: None,
@@ -6611,6 +6617,7 @@ async fn test_admin_create_application_shares_zero() {
         first_name: "Test".to_string(),
         last_name: "User".to_string(),
         salutation: None,
+        title: None,
         email: None,
         street: None,
         house_number: None,
@@ -6642,6 +6649,7 @@ async fn test_render_application_template_pdf() {
         first_name: "Erika".to_string(),
         last_name: "Musterfrau".to_string(),
         salutation: Some(SalutationTO::Frau),
+        title: None,
         email: Some("erika@example.com".to_string()),
         street: Some("Testweg".to_string()),
         house_number: Some("7".to_string()),
@@ -6710,6 +6718,7 @@ async fn test_render_application_template_not_found() {
         first_name: "Max".to_string(),
         last_name: "Test".to_string(),
         salutation: None,
+        title: None,
         email: None,
         street: None,
         house_number: None,
@@ -6772,4 +6781,90 @@ Test
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+// --- Application Title Tests ---
+
+#[tokio::test]
+async fn test_application_with_title_confirm_transfers_to_member() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Create application with title
+    let request = AdminCreateApplicationRequest {
+        first_name: "Erika".to_string(),
+        last_name: "Musterfrau".to_string(),
+        salutation: Some(SalutationTO::Frau),
+        title: Some("Dr.".to_string()),
+        email: Some("erika@example.com".to_string()),
+        street: Some("Testweg".to_string()),
+        house_number: Some("7".to_string()),
+        postal_code: Some("54321".to_string()),
+        city: Some("Teststadt".to_string()),
+        shares: 2,
+        send_mail: None,
+    };
+
+    let response = client
+        .post(server.url("/api/applications"))
+        .json(&request)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let app: ApplicationTO = response.json().await.unwrap();
+    assert_eq!(app.title.as_deref(), Some("Dr."));
+    assert_eq!(app.salutation, Some(SalutationTO::Frau));
+
+    // Confirm the application
+    let response = client
+        .post(server.url(&format!("/api/applications/{}/confirm", app.id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Get all members and find the one created from this application
+    let response = client
+        .get(server.url("/api/members"))
+        .send()
+        .await
+        .unwrap();
+    let members: Vec<MemberTO> = response.json().await.unwrap();
+    let member = members.iter().find(|m| m.first_name == "Erika").unwrap();
+
+    assert_eq!(member.title.as_deref(), Some("Dr."));
+    assert_eq!(member.salutation, Some(SalutationTO::Frau));
+    assert_eq!(member.last_name, "Musterfrau");
+}
+
+#[tokio::test]
+async fn test_application_without_title_has_null_fields() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let request = AdminCreateApplicationRequest {
+        first_name: "Max".to_string(),
+        last_name: "Test".to_string(),
+        salutation: None,
+        title: None,
+        email: None,
+        street: None,
+        house_number: None,
+        postal_code: None,
+        city: None,
+        shares: 1,
+        send_mail: None,
+    };
+
+    let response = client
+        .post(server.url("/api/applications"))
+        .json(&request)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let app: ApplicationTO = response.json().await.unwrap();
+    assert!(app.title.is_none());
+    assert!(app.salutation.is_none());
 }

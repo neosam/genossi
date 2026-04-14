@@ -69,6 +69,12 @@ pub fn ApplicationDetail(
                         span { class: "col-span-2", {salutation_label(sal)} }
                     }
                 }
+                if let Some(title) = &application.title {
+                    div { class: "grid grid-cols-3 gap-2",
+                        span { class: "text-sm text-gray-500", {i18n.t(Key::Title)} }
+                        span { class: "col-span-2", "{title}" }
+                    }
+                }
                 div { class: "grid grid-cols-3 gap-2",
                     span { class: "text-sm text-gray-500", {i18n.t(Key::FirstName)} }
                     span { class: "col-span-2 font-medium", "{application.first_name}" }

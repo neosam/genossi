@@ -1,4 +1,5 @@
 use dioxus::prelude::*;
+use rest_types;
 
 use crate::api::{self, AdminCreateApplicationRequest};
 use crate::component::Modal;
@@ -11,6 +12,8 @@ pub fn ApplicationCreateForm(
     on_created: EventHandler<()>,
 ) -> Element {
     let i18n = use_i18n();
+    let mut salutation = use_signal(|| String::new());
+    let mut title = use_signal(String::new);
     let mut first_name = use_signal(String::new);
     let mut last_name = use_signal(String::new);
     let mut email = use_signal(String::new);
@@ -52,6 +55,19 @@ pub fn ApplicationCreateForm(
                         error.set(None);
 
                         let shares_val = shares.read().parse::<i32>().unwrap_or(1);
+                        let salutation_val = {
+                            let s = salutation.read().clone();
+                            match s.as_str() {
+                                "Herr" => Some(rest_types::SalutationTO::Herr),
+                                "Frau" => Some(rest_types::SalutationTO::Frau),
+                                "Firma" => Some(rest_types::SalutationTO::Firma),
+                                _ => None,
+                            }
+                        };
+                        let title_val = {
+                            let t = title.read().clone();
+                            if t.trim().is_empty() { None } else { Some(t) }
+                        };
                         let email_val = {
                             let e = email.read().clone();
                             if e.trim().is_empty() { None } else { Some(e) }
@@ -77,7 +93,8 @@ pub fn ApplicationCreateForm(
                         let request = AdminCreateApplicationRequest {
                             first_name: first_name.read().clone(),
                             last_name: last_name.read().clone(),
-                            salutation: None,
+                            salutation: salutation_val,
+                            title: title_val,
                             email: email_val,
                             street: street_val,
                             house_number: hn_val,
@@ -95,6 +112,32 @@ pub fn ApplicationCreateForm(
                         submitting.set(false);
                     });
                 },
+
+                // Salutation + Title row
+                div { class: "grid grid-cols-3 gap-4",
+                    div {
+                        label { class: "{label_class}", {i18n.t(Key::Salutation)} }
+                        select {
+                            class: "{input_class}",
+                            value: "{salutation}",
+                            onchange: move |evt| salutation.set(evt.value()),
+                            option { value: "", "" }
+                            option { value: "Herr", "Herr" }
+                            option { value: "Frau", "Frau" }
+                            option { value: "Firma", "Firma" }
+                        }
+                    }
+                    div { class: "col-span-2",
+                        label { class: "{label_class}", {i18n.t(Key::Title)} }
+                        input {
+                            class: "{input_class}",
+                            r#type: "text",
+                            placeholder: "Dr., Prof., ...",
+                            value: "{title}",
+                            oninput: move |evt| title.set(evt.value()),
+                        }
+                    }
+                }
 
                 // Name row
                 div { class: "grid grid-cols-2 gap-4",

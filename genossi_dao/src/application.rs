@@ -47,6 +47,7 @@ pub struct ApplicationEntity {
     pub first_name: Arc<str>,
     pub last_name: Arc<str>,
     pub salutation: Option<Salutation>,
+    pub title: Option<Arc<str>>,
     pub email: Option<Arc<str>>,
     pub street: Option<Arc<str>>,
     pub house_number: Option<Arc<str>>,

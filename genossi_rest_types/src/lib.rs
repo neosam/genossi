@@ -773,6 +773,9 @@ pub struct ApplicationTO {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub salutation: Option<SalutationTO>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[schema(example = "Dr.")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     #[schema(example = "max@example.com")]
     pub email: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -812,6 +815,7 @@ impl From<&genossi_service::application::Application> for ApplicationTO {
             first_name: a.first_name.to_string(),
             last_name: a.last_name.to_string(),
             salutation: a.salutation.as_ref().map(SalutationTO::from),
+            title: a.title.as_deref().map(|s| s.to_string()),
             email: a.email.as_deref().map(|s| s.to_string()),
             street: a.street.as_deref().map(|s| s.to_string()),
             house_number: a.house_number.as_deref().map(|s| s.to_string()),
@@ -834,6 +838,9 @@ pub struct PublicJoinRequest {
     pub last_name: String,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub salutation: Option<SalutationTO>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[schema(example = "Dr.")]
+    pub title: Option<String>,
     #[schema(example = "max@example.com")]
     pub email: String,
     #[schema(example = "Musterstraße")]
@@ -861,6 +868,9 @@ pub struct AdminCreateApplicationRequest {
     pub last_name: String,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub salutation: Option<SalutationTO>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[schema(example = "Dr.")]
+    pub title: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     #[schema(example = "max@example.com")]
     pub email: Option<String>,
