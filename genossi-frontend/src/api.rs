@@ -678,6 +678,40 @@ pub async fn create_application(
     Ok(response.json().await?)
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct UpdateApplicationRequest {
+    pub first_name: String,
+    pub last_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub salutation: Option<rest_types::SalutationTO>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub street: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub house_number: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub postal_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub city: Option<String>,
+    pub shares: i32,
+    pub version: Uuid,
+}
+
+pub async fn update_application(
+    config: &Config,
+    id: Uuid,
+    request: &UpdateApplicationRequest,
+) -> Result<ApplicationTO, reqwest::Error> {
+    info!("Updating application {id}");
+    let url = format!("{}/api/applications/{}", config.backend, id);
+    let response = reqwest::Client::new().put(url).json(request).send().await?;
+    response.error_for_status_ref()?;
+    Ok(response.json().await?)
+}
+
 pub async fn reject_application(
     config: &Config,
     id: Uuid,

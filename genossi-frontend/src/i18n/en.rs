@@ -284,6 +284,7 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::ApplicationRejected => "Application rejected".into(),
         Key::CreateApplication => "Create application".into(),
         Key::CreateApplicationDesc => "Manually create a membership application".into(),
+        Key::EditApplication => "Edit application".into(),
         Key::SendConfirmationMail => "Send confirmation mail".into(),
 
         // WordPress Integration

@@ -31,6 +31,7 @@ pub fn ApplicationDetail(
     application: ApplicationTO,
     on_close: EventHandler<()>,
     on_changed: EventHandler<()>,
+    on_edit: EventHandler<ApplicationTO>,
 ) -> Element {
     let i18n = use_i18n();
     let mut confirming = use_signal(|| false);
@@ -120,8 +121,16 @@ pub fn ApplicationDetail(
             }
 
             // Action buttons
-            if is_open {
-                div { class: "flex space-x-3 mt-6 pt-4 border-t",
+            div { class: "flex space-x-3 mt-6 pt-4 border-t",
+                button {
+                    class: "bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded",
+                    onclick: {
+                        let app = application.clone();
+                        move |_| on_edit.call(app.clone())
+                    },
+                    {i18n.t(Key::EditApplication)}
+                }
+                if is_open {
                     button {
                         class: "bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded disabled:opacity-50",
                         disabled: *confirming.read() || *rejecting.read(),

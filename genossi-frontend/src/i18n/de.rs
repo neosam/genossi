@@ -284,6 +284,7 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::ApplicationRejected => "Beitrittserklärung abgelehnt".into(),
         Key::CreateApplication => "Antrag anlegen".into(),
         Key::CreateApplicationDesc => "Beitrittserklärung manuell erfassen".into(),
+        Key::EditApplication => "Antrag bearbeiten".into(),
         Key::SendConfirmationMail => "Bestätigungs-Mail senden".into(),
 
         // WordPress Integration

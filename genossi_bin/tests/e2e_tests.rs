@@ -5,7 +5,8 @@ use genossi_rest::test_server::test_support::start_test_server;
 use genossi_rest_types::{
     ActionTypeTO, AdminCreateApplicationRequest, ApplicationStatusTO, ApplicationTO,
     MemberActionTO, MemberDocumentTO, MemberImportResultTO, MemberTO, MigrationStatusTO,
-    PublicJoinRequest, PublicJoinResponse, SalutationTO, UserPreferenceTO, ValidationResultTO,
+    PublicJoinRequest, PublicJoinResponse, SalutationTO, UpdateApplicationRequest,
+    UserPreferenceTO, ValidationResultTO,
 };
 use std::collections::HashMap;
 use genossi_config::rest::{ConfigEntryTO, SetConfigRequest};
@@ -6867,4 +6868,217 @@ async fn test_application_without_title_has_null_fields() {
     let app: ApplicationTO = response.json().await.unwrap();
     assert!(app.title.is_none());
     assert!(app.salutation.is_none());
+}
+
+#[tokio::test]
+async fn test_update_application_success() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Create an application
+    let create_request = AdminCreateApplicationRequest {
+        first_name: "Hans".to_string(),
+        last_name: "Meier".to_string(),
+        salutation: None,
+        title: None,
+        email: None,
+        street: None,
+        house_number: None,
+        postal_code: None,
+        city: None,
+        shares: 1,
+        send_mail: None,
+    };
+
+    let response = client
+        .post(server.url("/api/applications"))
+        .json(&create_request)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let app: ApplicationTO = response.json().await.unwrap();
+
+    // Update the application
+    let update_request = UpdateApplicationRequest {
+        first_name: "Johannes".to_string(),
+        last_name: "Meier".to_string(),
+        salutation: Some(SalutationTO::Herr),
+        title: Some("Dr.".to_string()),
+        email: Some("johannes@example.com".to_string()),
+        street: Some("Hauptstraße".to_string()),
+        house_number: Some("5".to_string()),
+        postal_code: Some("10115".to_string()),
+        city: Some("Berlin".to_string()),
+        shares: 3,
+        version: app.version.unwrap(),
+    };
+
+    let response = client
+        .put(server.url(&format!("/api/applications/{}", app.id)))
+        .json(&update_request)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let updated: ApplicationTO = response.json().await.unwrap();
+    assert_eq!(updated.first_name, "Johannes");
+    assert_eq!(updated.last_name, "Meier");
+    assert_eq!(updated.salutation, Some(SalutationTO::Herr));
+    assert_eq!(updated.title, Some("Dr.".to_string()));
+    assert_eq!(updated.email, Some("johannes@example.com".to_string()));
+    assert_eq!(updated.street, Some("Hauptstraße".to_string()));
+    assert_eq!(updated.shares, 3);
+
+    // Verify changes persisted by re-fetching
+    let response = client
+        .get(server.url(&format!("/api/applications/{}", app.id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let fetched: ApplicationTO = response.json().await.unwrap();
+    assert_eq!(fetched.first_name, "Johannes");
+    assert_eq!(fetched.shares, 3);
+}
+
+#[tokio::test]
+async fn test_update_application_version_conflict() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Create an application
+    let create_request = AdminCreateApplicationRequest {
+        first_name: "Hans".to_string(),
+        last_name: "Meier".to_string(),
+        salutation: None,
+        title: None,
+        email: None,
+        street: None,
+        house_number: None,
+        postal_code: None,
+        city: None,
+        shares: 1,
+        send_mail: None,
+    };
+
+    let response = client
+        .post(server.url("/api/applications"))
+        .json(&create_request)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let app: ApplicationTO = response.json().await.unwrap();
+
+    // Update with wrong version
+    let update_request = UpdateApplicationRequest {
+        first_name: "Johannes".to_string(),
+        last_name: "Meier".to_string(),
+        salutation: None,
+        title: None,
+        email: None,
+        street: None,
+        house_number: None,
+        postal_code: None,
+        city: None,
+        shares: 1,
+        version: uuid::Uuid::new_v4(), // wrong version
+    };
+
+    let response = client
+        .put(server.url(&format!("/api/applications/{}", app.id)))
+        .json(&update_request)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+}
+
+#[tokio::test]
+async fn test_update_application_not_found() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let update_request = UpdateApplicationRequest {
+        first_name: "Hans".to_string(),
+        last_name: "Meier".to_string(),
+        salutation: None,
+        title: None,
+        email: None,
+        street: None,
+        house_number: None,
+        postal_code: None,
+        city: None,
+        shares: 1,
+        version: uuid::Uuid::new_v4(),
+    };
+
+    let response = client
+        .put(server.url(&format!(
+            "/api/applications/{}",
+            uuid::Uuid::new_v4()
+        )))
+        .json(&update_request)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_update_application_validation_error() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Create an application
+    let create_request = AdminCreateApplicationRequest {
+        first_name: "Hans".to_string(),
+        last_name: "Meier".to_string(),
+        salutation: None,
+        title: None,
+        email: None,
+        street: None,
+        house_number: None,
+        postal_code: None,
+        city: None,
+        shares: 1,
+        send_mail: None,
+    };
+
+    let response = client
+        .post(server.url("/api/applications"))
+        .json(&create_request)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let app: ApplicationTO = response.json().await.unwrap();
+
+    // Update with empty first_name and shares < 1
+    let update_request = UpdateApplicationRequest {
+        first_name: "".to_string(),
+        last_name: "Meier".to_string(),
+        salutation: None,
+        title: None,
+        email: None,
+        street: None,
+        house_number: None,
+        postal_code: None,
+        city: None,
+        shares: 0,
+        version: app.version.unwrap(),
+    };
+
+    let response = client
+        .put(server.url(&format!("/api/applications/{}", app.id)))
+        .json(&update_request)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }

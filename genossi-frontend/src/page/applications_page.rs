@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 
 use crate::api::{self, ApplicationTO};
 use crate::auth::RequirePrivilege;
-use crate::component::{ApplicationCreateForm, ApplicationDetail, ApplicationList, TopBar};
+use crate::component::{ApplicationCreateForm, ApplicationDetail, ApplicationForm, ApplicationFormMode, ApplicationList, TopBar};
 use crate::i18n::{use_i18n, Key};
 use crate::page::AccessDeniedPage;
 use crate::service::config::CONFIG;
@@ -17,6 +17,7 @@ pub fn ApplicationsPage() -> Element {
     let mut active_tab = use_signal(|| "Offen".to_string());
     let mut selected_app = use_signal(|| None::<ApplicationTO>);
     let mut show_create_form = use_signal(|| false);
+    let mut edit_app = use_signal(|| None::<ApplicationTO>);
 
     let load = move || {
         let tab = active_tab.read().clone();
@@ -135,6 +136,22 @@ pub fn ApplicationsPage() -> Element {
                         on_close: move |_| selected_app.set(None),
                         on_changed: move |_| {
                             selected_app.set(None);
+                            load();
+                        },
+                        on_edit: move |app: ApplicationTO| {
+                            selected_app.set(None);
+                            edit_app.set(Some(app));
+                        },
+                    }
+                }
+
+                // Edit form modal
+                if let Some(app) = edit_app.read().clone() {
+                    ApplicationForm {
+                        mode: ApplicationFormMode::Edit { application: app },
+                        on_close: move |_| edit_app.set(None),
+                        on_saved: move |_| {
+                            edit_app.set(None);
                             load();
                         },
                     }

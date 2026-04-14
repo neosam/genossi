@@ -891,3 +891,34 @@ pub struct AdminCreateApplicationRequest {
     #[serde(default)]
     pub send_mail: Option<bool>,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct UpdateApplicationRequest {
+    #[schema(example = "Max")]
+    pub first_name: String,
+    #[schema(example = "Mustermann")]
+    pub last_name: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub salutation: Option<SalutationTO>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[schema(example = "Dr.")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[schema(example = "max@example.com")]
+    pub email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[schema(example = "Musterstraße")]
+    pub street: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[schema(example = "42")]
+    pub house_number: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[schema(example = "12345")]
+    pub postal_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[schema(example = "Berlin")]
+    pub city: Option<String>,
+    #[schema(example = 1)]
+    pub shares: i32,
+    pub version: Uuid,
+}

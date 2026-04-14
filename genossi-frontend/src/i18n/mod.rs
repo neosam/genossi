@@ -346,6 +346,7 @@ pub enum Key {
     ApplicationRejected,
     CreateApplication,
     CreateApplicationDesc,
+    EditApplication,
     SendConfirmationMail,
 
     // WordPress Integration

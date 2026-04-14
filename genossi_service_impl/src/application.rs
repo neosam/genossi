@@ -5,7 +5,9 @@ use genossi_dao::member::MemberDao;
 use genossi_dao::member_action::MemberActionDao;
 use genossi_dao::TransactionDao;
 use genossi_mail::service::MailService as MailServiceTrait;
-use genossi_service::application::{Application, ApplicationService, ApplicationSubmission};
+use genossi_service::application::{
+    Application, ApplicationService, ApplicationSubmission, ApplicationUpdate,
+};
 use genossi_service::permission::{Authentication, PermissionService};
 use genossi_service::uuid_service::UuidService;
 use genossi_service::{ServiceError, ValidationFailureItem};
@@ -394,6 +396,74 @@ impl<Deps: ApplicationServiceDeps> ApplicationService for ApplicationServiceImpl
         }
 
         entity.status = ApplicationStatus::Abgelehnt;
+        self.application_dao
+            .update(&entity, APPLICATION_SERVICE_PROCESS, tx.clone())
+            .await?;
+
+        self.transaction_dao.commit(tx).await?;
+        Ok(Application::from(&entity))
+    }
+
+    async fn update_application(
+        &self,
+        id: Uuid,
+        update: &ApplicationUpdate,
+        context: Authentication<Self::Context>,
+    ) -> Result<Application, ServiceError> {
+        let mut validation_errors = Vec::new();
+
+        if update.first_name.is_empty() {
+            validation_errors.push(ValidationFailureItem {
+                field: Arc::from("first_name"),
+                message: Arc::from("First name cannot be empty"),
+            });
+        }
+        if update.last_name.is_empty() {
+            validation_errors.push(ValidationFailureItem {
+                field: Arc::from("last_name"),
+                message: Arc::from("Last name cannot be empty"),
+            });
+        }
+        if update.shares < 1 {
+            validation_errors.push(ValidationFailureItem {
+                field: Arc::from("shares"),
+                message: Arc::from("Shares must be at least 1"),
+            });
+        }
+
+        if !validation_errors.is_empty() {
+            return Err(ServiceError::ValidationError(validation_errors));
+        }
+
+        let tx = self.transaction_dao.use_transaction(None).await?;
+
+        self.permission_service
+            .check_permission(MANAGE_MEMBERS_PRIVILEGE, context)
+            .await?;
+
+        let mut entity = self
+            .application_dao
+            .find_by_id(id, tx.clone())
+            .await?
+            .ok_or(ServiceError::EntityNotFound(id))?;
+
+        if entity.version != update.version {
+            return Err(ServiceError::Conflict(Arc::from(
+                "Version mismatch: the application has been modified by another user",
+            )));
+        }
+
+        entity.first_name = update.first_name.clone();
+        entity.last_name = update.last_name.clone();
+        entity.salutation = update.salutation.clone();
+        entity.title = update.title.clone();
+        entity.email = update.email.clone();
+        entity.street = update.street.clone();
+        entity.house_number = update.house_number.clone();
+        entity.postal_code = update.postal_code.clone();
+        entity.city = update.city.clone();
+        entity.shares = update.shares;
+
         self.application_dao
             .update(&entity, APPLICATION_SERVICE_PROCESS, tx.clone())
             .await?;

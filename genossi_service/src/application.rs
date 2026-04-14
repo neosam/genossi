@@ -86,6 +86,22 @@ pub struct ApplicationSubmission {
     pub shares: i32,
 }
 
+/// Input for updating an existing application.
+#[derive(Clone, Debug)]
+pub struct ApplicationUpdate {
+    pub first_name: Arc<str>,
+    pub last_name: Arc<str>,
+    pub salutation: Option<Salutation>,
+    pub title: Option<Arc<str>>,
+    pub email: Option<Arc<str>>,
+    pub street: Option<Arc<str>>,
+    pub house_number: Option<Arc<str>>,
+    pub postal_code: Option<Arc<str>>,
+    pub city: Option<Arc<str>>,
+    pub shares: i32,
+    pub version: Uuid,
+}
+
 #[automock(type Context=(); type Transaction = genossi_dao::MockTransaction;)]
 #[async_trait]
 pub trait ApplicationService {
@@ -125,6 +141,14 @@ pub trait ApplicationService {
     async fn reject(
         &self,
         id: Uuid,
+        context: crate::permission::Authentication<Self::Context>,
+    ) -> Result<Application, ServiceError>;
+
+    /// Update an existing application's fields (requires manage_members).
+    async fn update_application(
+        &self,
+        id: Uuid,
+        update: &ApplicationUpdate,
         context: crate::permission::Authentication<Self::Context>,
     ) -> Result<Application, ServiceError>;
 }
