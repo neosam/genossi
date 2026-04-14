@@ -7,7 +7,7 @@ use axum::{
     Extension, Json, Router,
 };
 use genossi_dao::application::ApplicationStatus;
-use genossi_rest_types::{ApplicationStatusTO, ApplicationTO, PublicJoinRequest, PublicJoinResponse, SalutationTO};
+use genossi_rest_types::{AdminCreateApplicationRequest, ApplicationStatusTO, ApplicationTO, PublicJoinRequest, PublicJoinResponse};
 use genossi_service::application::{ApplicationService, ApplicationSubmission};
 use std::sync::Arc;
 use tracing::instrument;
@@ -67,21 +67,45 @@ pub async fn public_join<S: ApplicationRestState>(
                 return Err(RestError::Unauthorized);
             }
 
+            // Public endpoint requires all fields
+            let mut errors = Vec::new();
+            if body.email.is_empty() {
+                errors.push("email");
+            }
+            if body.street.is_empty() {
+                errors.push("street");
+            }
+            if body.house_number.is_empty() {
+                errors.push("house_number");
+            }
+            if body.postal_code.is_empty() {
+                errors.push("postal_code");
+            }
+            if body.city.is_empty() {
+                errors.push("city");
+            }
+            if !errors.is_empty() {
+                return Err(RestError::BadRequest(format!(
+                    "Missing required fields: {}",
+                    errors.join(", ")
+                )));
+            }
+
             let salutation = body.salutation.as_ref().map(genossi_dao::member::Salutation::from);
 
             let submission = ApplicationSubmission {
                 first_name: Arc::from(body.first_name.as_str()),
                 last_name: Arc::from(body.last_name.as_str()),
                 salutation,
-                email: Arc::from(body.email.as_str()),
-                street: Arc::from(body.street.as_str()),
-                house_number: Arc::from(body.house_number.as_str()),
-                postal_code: Arc::from(body.postal_code.as_str()),
-                city: Arc::from(body.city.as_str()),
+                email: Some(Arc::from(body.email.as_str())),
+                street: Some(Arc::from(body.street.as_str())),
+                house_number: Some(Arc::from(body.house_number.as_str())),
+                postal_code: Some(Arc::from(body.postal_code.as_str())),
+                city: Some(Arc::from(body.city.as_str())),
                 shares: body.shares,
             };
 
-            state.application_service().submit(&submission).await?;
+            state.application_service().submit(&submission, true).await?;
 
             Ok(Response::builder()
                 .status(201)
@@ -143,6 +167,59 @@ pub async fn list_applications<RestState: RestStateDef + ApplicationRestState>(
                 .status(200)
                 .header("Content-Type", "application/json")
                 .body(Body::new(serde_json::to_string(&apps).unwrap()))
+                .unwrap())
+        })
+        .await,
+    )
+}
+
+#[instrument(skip(rest_state))]
+#[utoipa::path(
+    post,
+    tag = "Applications",
+    path = "",
+    request_body = AdminCreateApplicationRequest,
+    responses(
+        (status = 201, description = "Application created", body = ApplicationTO),
+        (status = 401, description = "Unauthorized"),
+        (status = 422, description = "Validation error"),
+    ),
+)]
+pub async fn create_application<RestState: RestStateDef + ApplicationRestState>(
+    rest_state: State<RestState>,
+    Extension(context): Extension<Context>,
+    Json(body): Json<AdminCreateApplicationRequest>,
+) -> Response {
+    error_handler(
+        (async {
+            crate::extract_auth_context(Some(context))?;
+
+            let salutation = body.salutation.as_ref().map(genossi_dao::member::Salutation::from);
+            let send_mail = body.send_mail.unwrap_or(false);
+
+            let submission = ApplicationSubmission {
+                first_name: Arc::from(body.first_name.as_str()),
+                last_name: Arc::from(body.last_name.as_str()),
+                salutation,
+                email: body.email.as_deref().map(Arc::from),
+                street: body.street.as_deref().map(Arc::from),
+                house_number: body.house_number.as_deref().map(Arc::from),
+                postal_code: body.postal_code.as_deref().map(Arc::from),
+                city: body.city.as_deref().map(Arc::from),
+                shares: body.shares,
+            };
+
+            let app = rest_state
+                .application_service()
+                .submit(&submission, send_mail)
+                .await?;
+
+            Ok(Response::builder()
+                .status(201)
+                .header("Content-Type", "application/json")
+                .body(Body::new(
+                    serde_json::to_string(&ApplicationTO::from(&app)).unwrap(),
+                ))
                 .unwrap())
         })
         .await,
@@ -252,7 +329,7 @@ pub async fn reject_application<RestState: RestStateDef + ApplicationRestState>(
 
 pub fn generate_route<RestState: RestStateDef + ApplicationRestState>() -> Router<RestState> {
     Router::new()
-        .route("/", get(list_applications::<RestState>))
+        .route("/", get(list_applications::<RestState>).post(create_application::<RestState>))
         .route("/{id}", get(get_application::<RestState>))
         .route("/{id}/confirm", post(confirm_application::<RestState>))
         .route("/{id}/reject", post(reject_application::<RestState>))
@@ -260,8 +337,8 @@ pub fn generate_route<RestState: RestStateDef + ApplicationRestState>() -> Route
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(list_applications, get_application, confirm_application, reject_application),
-    components(schemas(ApplicationTO, ApplicationStatusTO, PublicJoinResponse))
+    paths(list_applications, create_application, get_application, confirm_application, reject_application),
+    components(schemas(ApplicationTO, ApplicationStatusTO, AdminCreateApplicationRequest, PublicJoinResponse))
 )]
 pub struct ApiDoc;
 

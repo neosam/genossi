@@ -340,6 +340,9 @@ pub enum Key {
     SubmittedAt,
     ApplicationConfirmed,
     ApplicationRejected,
+    CreateApplication,
+    CreateApplicationDesc,
+    SendConfirmationMail,
 
     // WordPress Integration
     WordPressIntegration,

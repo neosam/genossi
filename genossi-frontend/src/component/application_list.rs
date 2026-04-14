@@ -73,7 +73,7 @@ pub fn ApplicationList(
                                     onclick: move |_| on_select.call(id),
                                     td { class: "py-3 px-4", "{app.first_name}" }
                                     td { class: "py-3 px-4", "{app.last_name}" }
-                                    td { class: "py-3 px-4 text-sm", "{app.email}" }
+                                    td { class: "py-3 px-4 text-sm", {app.email.as_deref().unwrap_or("-")} }
                                     td { class: "py-3 px-4", "{app.shares}" }
                                     td { class: "py-3 px-4",
                                         span { class: "{badge_class}", "{status_text}" }

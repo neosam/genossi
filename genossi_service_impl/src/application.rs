@@ -32,6 +32,13 @@ gen_service_impl! {
 
 impl<Deps: ApplicationServiceDeps> ApplicationServiceImpl<Deps> {
     async fn send_confirmation_mail(&self, app: &Application) {
+        let email = match &app.email {
+            Some(email) => email.to_string(),
+            None => {
+                tracing::error!("Cannot send confirmation mail: no email address");
+                return;
+            }
+        };
         let config = self.config_service.clone();
         let mail = self.mail_service.clone();
 
@@ -113,7 +120,7 @@ impl<Deps: ApplicationServiceDeps> ApplicationServiceImpl<Deps> {
         let subject = format!("Beitrittserklärung zur {}", geno_name);
 
         let recipient = genossi_mail::service::RecipientInput {
-            address: app.email.to_string(),
+            address: email,
             member_id: None,
         };
 
@@ -134,6 +141,7 @@ impl<Deps: ApplicationServiceDeps> ApplicationService for ApplicationServiceImpl
     async fn submit(
         &self,
         submission: &ApplicationSubmission,
+        send_mail: bool,
     ) -> Result<Application, ServiceError> {
         let mut validation_errors = Vec::new();
 
@@ -149,40 +157,16 @@ impl<Deps: ApplicationServiceDeps> ApplicationService for ApplicationServiceImpl
                 message: Arc::from("Last name cannot be empty"),
             });
         }
-        if submission.email.is_empty() {
-            validation_errors.push(ValidationFailureItem {
-                field: Arc::from("email"),
-                message: Arc::from("Email cannot be empty"),
-            });
-        }
-        if submission.street.is_empty() {
-            validation_errors.push(ValidationFailureItem {
-                field: Arc::from("street"),
-                message: Arc::from("Street cannot be empty"),
-            });
-        }
-        if submission.house_number.is_empty() {
-            validation_errors.push(ValidationFailureItem {
-                field: Arc::from("house_number"),
-                message: Arc::from("House number cannot be empty"),
-            });
-        }
-        if submission.postal_code.is_empty() {
-            validation_errors.push(ValidationFailureItem {
-                field: Arc::from("postal_code"),
-                message: Arc::from("Postal code cannot be empty"),
-            });
-        }
-        if submission.city.is_empty() {
-            validation_errors.push(ValidationFailureItem {
-                field: Arc::from("city"),
-                message: Arc::from("City cannot be empty"),
-            });
-        }
         if submission.shares < 1 {
             validation_errors.push(ValidationFailureItem {
                 field: Arc::from("shares"),
                 message: Arc::from("Shares must be at least 1"),
+            });
+        }
+        if send_mail && submission.email.is_none() {
+            validation_errors.push(ValidationFailureItem {
+                field: Arc::from("email"),
+                message: Arc::from("Email is required when send_mail is true"),
             });
         }
 
@@ -220,8 +204,9 @@ impl<Deps: ApplicationServiceDeps> ApplicationService for ApplicationServiceImpl
 
         let app = Application::from(&entity);
 
-        // Send confirmation mail asynchronously (don't fail if mail fails)
-        self.send_confirmation_mail(&app).await;
+        if send_mail {
+            self.send_confirmation_mail(&app).await;
+        }
 
         Ok(app)
     }
@@ -312,13 +297,13 @@ impl<Deps: ApplicationServiceDeps> ApplicationService for ApplicationServiceImpl
             last_name: entity.last_name.clone(),
             salutation: entity.salutation.clone(),
             title: None,
-            email: Some(entity.email.clone()),
+            email: entity.email.clone(),
             company: None,
             comment: None,
-            street: Some(entity.street.clone()),
-            house_number: Some(entity.house_number.clone()),
-            postal_code: Some(entity.postal_code.clone()),
-            city: Some(entity.city.clone()),
+            street: entity.street.clone(),
+            house_number: entity.house_number.clone(),
+            postal_code: entity.postal_code.clone(),
+            city: entity.city.clone(),
             join_date,
             shares_at_joining: entity.shares,
             current_shares: entity.shares,

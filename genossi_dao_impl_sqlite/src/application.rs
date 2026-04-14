@@ -33,11 +33,11 @@ struct ApplicationDb {
     first_name: String,
     last_name: String,
     salutation: Option<String>,
-    email: String,
-    street: String,
-    house_number: String,
-    postal_code: String,
-    city: String,
+    email: Option<String>,
+    street: Option<String>,
+    house_number: Option<String>,
+    postal_code: Option<String>,
+    city: Option<String>,
     shares: i32,
     status: String,
     created: String,
@@ -58,11 +58,11 @@ impl TryFrom<&ApplicationDb> for ApplicationEntity {
                 .as_deref()
                 .map(Salutation::from_str)
                 .transpose()?,
-            email: Arc::from(db.email.as_str()),
-            street: Arc::from(db.street.as_str()),
-            house_number: Arc::from(db.house_number.as_str()),
-            postal_code: Arc::from(db.postal_code.as_str()),
-            city: Arc::from(db.city.as_str()),
+            email: db.email.as_deref().map(Arc::from),
+            street: db.street.as_deref().map(Arc::from),
+            house_number: db.house_number.as_deref().map(Arc::from),
+            postal_code: db.postal_code.as_deref().map(Arc::from),
+            city: db.city.as_deref().map(Arc::from),
             shares: db.shares,
             status: ApplicationStatus::from_str(&db.status)?,
             created: parse_datetime(&db.created)?,
@@ -126,11 +126,11 @@ impl ApplicationDao for ApplicationDaoImpl {
         let first_name = entity.first_name.to_string();
         let last_name = entity.last_name.to_string();
         let salutation = entity.salutation.as_ref().map(|s| s.as_str().to_string());
-        let email = entity.email.to_string();
-        let street = entity.street.to_string();
-        let house_number = entity.house_number.to_string();
-        let postal_code = entity.postal_code.to_string();
-        let city = entity.city.to_string();
+        let email = entity.email.as_deref().map(|s| s.to_string());
+        let street = entity.street.as_deref().map(|s| s.to_string());
+        let house_number = entity.house_number.as_deref().map(|s| s.to_string());
+        let postal_code = entity.postal_code.as_deref().map(|s| s.to_string());
+        let city = entity.city.as_deref().map(|s| s.to_string());
         let status = entity.status.as_str().to_string();
 
         sqlx::query(
@@ -170,11 +170,11 @@ impl ApplicationDao for ApplicationDaoImpl {
         let first_name = entity.first_name.to_string();
         let last_name = entity.last_name.to_string();
         let salutation = entity.salutation.as_ref().map(|s| s.as_str().to_string());
-        let email = entity.email.to_string();
-        let street = entity.street.to_string();
-        let house_number = entity.house_number.to_string();
-        let postal_code = entity.postal_code.to_string();
-        let city = entity.city.to_string();
+        let email = entity.email.as_deref().map(|s| s.to_string());
+        let street = entity.street.as_deref().map(|s| s.to_string());
+        let house_number = entity.house_number.as_deref().map(|s| s.to_string());
+        let postal_code = entity.postal_code.as_deref().map(|s| s.to_string());
+        let city = entity.city.as_deref().map(|s| s.to_string());
         let status = entity.status.as_str().to_string();
 
         let deleted = match entity.deleted {

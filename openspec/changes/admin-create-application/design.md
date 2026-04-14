@@ -35,13 +35,13 @@ Relevante Dateien:
 
 ### 2. Neuer Admin-Endpunkt `POST /api/applications`
 
-**Entscheidung:** Der Endpunkt nutzt die bestehende Auth-Middleware und erfordert `manage_members`. Der Request-Body ist ein neuer Type `AdminCreateApplicationRequest` mit denselben Feldern wie `PublicJoinRequest` plus `send_mail: Option<bool>` (default `false` bei `None`).
+**Entscheidung:** Der Endpunkt nutzt die bestehende Auth-Middleware und erfordert `manage_members`. Der Request-Body ist ein neuer Type `AdminCreateApplicationRequest` mit reduzierten Pflichtfeldern: nur `first_name`, `last_name`, `shares` sind Pflicht (wie bei Mitgliedern). Alle anderen Felder (email, street, house_number, postal_code, city, salutation) sind optional. Dazu `send_mail: Option<bool>` (default `false` bei `None`). Wenn `send_mail: true` aber keine E-Mail angegeben → 422.
 
 **Alternativen:**
-- *`PublicJoinRequest` wiederverwenden + Query-Param für send_mail*: Unüblich, Body ist besser
-- *Gleicher Request-Type mit optionalem Feld*: Möglich, aber eigener Type ist expliziter
+- *`PublicJoinRequest` wiederverwenden*: Hat zu viele Pflichtfelder für den Admin-Use-Case (Papieranträge haben oft keine E-Mail/Adresse)
+- *Gleicher Request-Type mit optionalem Feld*: Würde den Public-Endpunkt aufweichen
 
-**Begründung:** Ein eigener Request-Type dokumentiert klar, dass dies ein Admin-Endpunkt ist, und erlaubt künftige Admin-spezifische Felder ohne den Public-Type zu verändern.
+**Begründung:** Der Admin-Endpunkt spiegelt die Realität wider: bei Papieranträgen hat man oft nur Name und Anteile. Die Application-Entity muss dafür ebenfalls optionale Felder unterstützen (email, Adressfelder werden `Option`).
 
 ### 3. Service-Methode weiterhin ohne Auth-Context
 
@@ -55,7 +55,18 @@ Relevante Dateien:
 
 **Begründung:** Konsistent mit dem bestehenden UI-Pattern (Bestätigen/Ablehnen nutzen bereits Modals). Kein Seitenwechsel nötig.
 
+### 5. Application-Entity: Felder werden optional
+
+**Entscheidung:** In `ApplicationEntity` und `ApplicationSubmission` werden `email`, `street`, `house_number`, `postal_code`, `city` von `Arc<str>` zu `Option<Arc<str>>` geändert. Die Datenbank-Migration ändert die Spalten-Constraints (NOT NULL → nullable). Der öffentliche Endpunkt validiert diese Felder weiterhin als Pflicht im REST-Handler.
+
+**Alternativen:**
+- *Zwei verschiedene Entity-Typen*: Zu viel Duplizierung
+- *Nur im Request optional, in der DB Pflicht mit Leerstring*: Semantisch falsch, "kein Wert" ≠ ""
+
+**Begründung:** Die Quelle der Wahrheit (Application-Entity) soll abbilden, dass diese Felder tatsächlich fehlen können. Die Pflichtfeld-Validierung bleibt endpunkt-spezifisch (Public = strenger, Admin = lockerer).
+
 ## Risks / Trade-offs
 
 - **[Signaturänderung]** → `submit()` bekommt einen neuen Parameter. Bestehende Tests und der öffentliche Endpunkt müssen angepasst werden. Überschaubar, da es nur eine Aufrufstelle gibt + Tests.
+- **[Entity-Änderung]** → Felder in `ApplicationEntity` werden optional. Bestehende Daten (alle über WordPress angelegt) haben alle Felder befüllt, daher ist die Migration unkritisch. Code, der auf diese Felder zugreift (z.B. `confirm` bei Member-Erstellung), muss mit `Option` umgehen.
 - **[Kein Auth-Check im Service]** → Der Admin-Endpunkt prüft Berechtigungen im REST-Handler. Wenn jemand `submit()` von einem anderen Ort aufruft, gibt es keinen Permission-Check. Akzeptabel, da `submit()` auch für den öffentlichen Endpunkt gedacht ist.

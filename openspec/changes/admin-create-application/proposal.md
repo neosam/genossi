@@ -4,7 +4,7 @@ Beitrittserklärungen können aktuell nur über den öffentlichen Endpunkt (`POS
 
 ## What Changes
 
-- **Neuer Admin-Endpunkt** `POST /api/applications`: Erstellt eine Application mit den gleichen Feldern wie der öffentliche Endpunkt. Erfordert `manage_members`-Berechtigung. Optionaler Parameter `send_mail` (default: `false`) steuert, ob die Bestätigungs-Mail verschickt wird.
+- **Neuer Admin-Endpunkt** `POST /api/applications`: Erstellt eine Application. Pflichtfelder nur `first_name`, `last_name`, `shares` (analog zur Mitgliederliste). Alle anderen Felder (email, Adresse, salutation) sind optional. Erfordert `manage_members`-Berechtigung. Optionaler Parameter `send_mail` (default: `false`) steuert, ob die Bestätigungs-Mail verschickt wird (erfordert E-Mail).
 - **Service-Erweiterung**: `submit()` erhält einen `send_mail: bool`-Parameter. Der öffentliche Endpunkt ruft `submit(data, true)` auf, der Admin-Endpunkt `submit(data, false)`.
 - **Frontend-Formular**: Button "Antrag manuell anlegen" auf der Applications-Seite. Modal mit Eingabefeldern (Name, Adresse, E-Mail, Anteile) und einem Toggle "Bestätigungs-Mail senden" (standardmäßig aus).
 

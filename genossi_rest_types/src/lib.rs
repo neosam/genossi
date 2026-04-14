@@ -772,16 +772,21 @@ pub struct ApplicationTO {
     pub last_name: String,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub salutation: Option<SalutationTO>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     #[schema(example = "max@example.com")]
-    pub email: String,
+    pub email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     #[schema(example = "Musterstraße")]
-    pub street: String,
+    pub street: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     #[schema(example = "42")]
-    pub house_number: String,
+    pub house_number: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     #[schema(example = "12345")]
-    pub postal_code: String,
+    pub postal_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     #[schema(example = "Berlin")]
-    pub city: String,
+    pub city: Option<String>,
     #[schema(example = 1)]
     pub shares: i32,
     pub status: ApplicationStatusTO,
@@ -807,11 +812,11 @@ impl From<&genossi_service::application::Application> for ApplicationTO {
             first_name: a.first_name.to_string(),
             last_name: a.last_name.to_string(),
             salutation: a.salutation.as_ref().map(SalutationTO::from),
-            email: a.email.to_string(),
-            street: a.street.to_string(),
-            house_number: a.house_number.to_string(),
-            postal_code: a.postal_code.to_string(),
-            city: a.city.to_string(),
+            email: a.email.as_deref().map(|s| s.to_string()),
+            street: a.street.as_deref().map(|s| s.to_string()),
+            house_number: a.house_number.as_deref().map(|s| s.to_string()),
+            postal_code: a.postal_code.as_deref().map(|s| s.to_string()),
+            city: a.city.as_deref().map(|s| s.to_string()),
             shares: a.shares,
             status: ApplicationStatusTO::from(&a.status),
             created: Some(a.created),
@@ -846,4 +851,33 @@ pub struct PublicJoinRequest {
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct PublicJoinResponse {
     pub message: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct AdminCreateApplicationRequest {
+    #[schema(example = "Max")]
+    pub first_name: String,
+    #[schema(example = "Mustermann")]
+    pub last_name: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub salutation: Option<SalutationTO>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[schema(example = "max@example.com")]
+    pub email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[schema(example = "Musterstraße")]
+    pub street: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[schema(example = "42")]
+    pub house_number: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[schema(example = "12345")]
+    pub postal_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[schema(example = "Berlin")]
+    pub city: Option<String>,
+    #[schema(example = 1)]
+    pub shares: i32,
+    #[serde(default)]
+    pub send_mail: Option<bool>,
 }

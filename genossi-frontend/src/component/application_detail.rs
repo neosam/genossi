@@ -77,17 +77,31 @@ pub fn ApplicationDetail(
                     span { class: "text-sm text-gray-500", {i18n.t(Key::LastName)} }
                     span { class: "col-span-2 font-medium", "{application.last_name}" }
                 }
-                div { class: "grid grid-cols-3 gap-2",
-                    span { class: "text-sm text-gray-500", {i18n.t(Key::Email)} }
-                    span { class: "col-span-2", "{application.email}" }
+                if let Some(email) = &application.email {
+                    div { class: "grid grid-cols-3 gap-2",
+                        span { class: "text-sm text-gray-500", {i18n.t(Key::Email)} }
+                        span { class: "col-span-2", "{email}" }
+                    }
                 }
-                div { class: "grid grid-cols-3 gap-2",
-                    span { class: "text-sm text-gray-500", {i18n.t(Key::Street)} }
-                    span { class: "col-span-2", "{application.street} {application.house_number}" }
+                if application.street.is_some() || application.house_number.is_some() {
+                    div { class: "grid grid-cols-3 gap-2",
+                        span { class: "text-sm text-gray-500", {i18n.t(Key::Street)} }
+                        span { class: "col-span-2",
+                            {application.street.as_deref().unwrap_or("")}
+                            " "
+                            {application.house_number.as_deref().unwrap_or("")}
+                        }
+                    }
                 }
-                div { class: "grid grid-cols-3 gap-2",
-                    span { class: "text-sm text-gray-500", {i18n.t(Key::City)} }
-                    span { class: "col-span-2", "{application.postal_code} {application.city}" }
+                if application.postal_code.is_some() || application.city.is_some() {
+                    div { class: "grid grid-cols-3 gap-2",
+                        span { class: "text-sm text-gray-500", {i18n.t(Key::City)} }
+                        span { class: "col-span-2",
+                            {application.postal_code.as_deref().unwrap_or("")}
+                            " "
+                            {application.city.as_deref().unwrap_or("")}
+                        }
+                    }
                 }
                 div { class: "grid grid-cols-3 gap-2",
                     span { class: "text-sm text-gray-500", {i18n.t(Key::Shares)} }

@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 
 use crate::api::{self, ApplicationTO};
 use crate::auth::RequirePrivilege;
-use crate::component::{ApplicationDetail, ApplicationList, TopBar};
+use crate::component::{ApplicationCreateForm, ApplicationDetail, ApplicationList, TopBar};
 use crate::i18n::{use_i18n, Key};
 use crate::page::AccessDeniedPage;
 use crate::service::config::CONFIG;
@@ -16,6 +16,7 @@ pub fn ApplicationsPage() -> Element {
     let mut error = use_signal(|| None::<String>);
     let mut active_tab = use_signal(|| "Offen".to_string());
     let mut selected_app = use_signal(|| None::<ApplicationTO>);
+    let mut show_create_form = use_signal(|| false);
 
     let load = move || {
         let tab = active_tab.read().clone();
@@ -53,8 +54,17 @@ pub fn ApplicationsPage() -> Element {
             fallback: rsx! { AccessDeniedPage { required_privilege: "admin".to_string() } },
             TopBar {}
             div { class: "container mx-auto px-4 py-6",
-                h1 { class: "text-2xl font-bold mb-1", {i18n.t(Key::Applications)} }
-                p { class: "text-sm text-gray-500 mb-4", {i18n.t(Key::ApplicationsDesc)} }
+                div { class: "flex justify-between items-start mb-4",
+                    div {
+                        h1 { class: "text-2xl font-bold mb-1", {i18n.t(Key::Applications)} }
+                        p { class: "text-sm text-gray-500", {i18n.t(Key::ApplicationsDesc)} }
+                    }
+                    button {
+                        class: "bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded text-sm",
+                        onclick: move |_| show_create_form.set(true),
+                        {i18n.t(Key::CreateApplication)}
+                    }
+                }
 
                 // Status tabs
                 div { class: "flex space-x-1 mb-6 border-b",
@@ -104,6 +114,17 @@ pub fn ApplicationsPage() -> Element {
                                 }
                             },
                         }
+                    }
+                }
+
+                // Create form modal
+                if *show_create_form.read() {
+                    ApplicationCreateForm {
+                        on_close: move |_| show_create_form.set(false),
+                        on_created: move |_| {
+                            show_create_form.set(false);
+                            load();
+                        },
                     }
                 }
 

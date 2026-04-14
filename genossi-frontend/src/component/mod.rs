@@ -1,3 +1,4 @@
+pub mod application_create_form;
 pub mod application_detail;
 pub mod application_list;
 pub mod base_components;
@@ -14,6 +15,7 @@ pub mod overlay;
 pub mod top_bar;
 pub mod wordpress_integration;
 
+pub use application_create_form::ApplicationCreateForm;
 pub use application_detail::ApplicationDetail;
 pub use application_list::ApplicationList;
 pub use communication_timeline::CommunicationTimeline;

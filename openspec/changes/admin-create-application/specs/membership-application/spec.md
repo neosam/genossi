@@ -1,19 +1,31 @@
 ## ADDED Requirements
 
 ### Requirement: Admin create application endpoint
-The system SHALL provide an authenticated endpoint `POST /api/applications` that creates a new membership application. The endpoint SHALL require the `manage_members` privilege. The request body SHALL contain the same fields as the public join endpoint (first_name, last_name, salutation, email, street, house_number, postal_code, city, shares) plus an optional `send_mail` boolean field (default: `false`).
+The system SHALL provide an authenticated endpoint `POST /api/applications` that creates a new membership application. The endpoint SHALL require the `manage_members` privilege. Required fields: `first_name` (String), `last_name` (String), `shares` (i32, minimum 1). Optional fields: `salutation` (Enum), `email` (String), `street` (String), `house_number` (String), `postal_code` (String), `city` (String), `send_mail` (bool, default: `false`). Only fields that are required in the member entity (first_name, last_name, shares) SHALL be required here.
 
-#### Scenario: Successful admin creation without mail
-- **WHEN** an authenticated admin sends POST to `/api/applications` with all required fields and `send_mail` is omitted or `false`
+#### Scenario: Successful admin creation with minimal fields
+- **WHEN** an authenticated admin sends POST to `/api/applications` with first_name "Max", last_name "Mustermann", shares 1, and no other fields
+- **THEN** the system creates an application with status "Offen" and returns HTTP 201, and no confirmation mail is sent
+
+#### Scenario: Successful admin creation with all fields
+- **WHEN** an authenticated admin sends POST to `/api/applications` with all fields including email, street, house_number, postal_code, city, and `send_mail` set to `false`
 - **THEN** the system creates an application with status "Offen" and returns HTTP 201, and no confirmation mail is sent
 
 #### Scenario: Successful admin creation with mail
-- **WHEN** an authenticated admin sends POST to `/api/applications` with all required fields and `send_mail` set to `true`
+- **WHEN** an authenticated admin sends POST to `/api/applications` with all required fields, email "max@example.com", and `send_mail` set to `true`
 - **THEN** the system creates an application with status "Offen", returns HTTP 201, and sends a confirmation mail to the applicant
 
+#### Scenario: send_mail true without email
+- **WHEN** an authenticated admin sends POST to `/api/applications` with `send_mail` set to `true` but no `email` field
+- **THEN** the system returns HTTP 422 with an error indicating that email is required when send_mail is true
+
 #### Scenario: Missing required field
-- **WHEN** an authenticated admin sends POST to `/api/applications` without the `email` field
+- **WHEN** an authenticated admin sends POST to `/api/applications` without the `first_name` field
 - **THEN** the system returns HTTP 422 with an error indicating the missing field
+
+#### Scenario: Shares below minimum
+- **WHEN** an authenticated admin sends POST to `/api/applications` with shares set to 0
+- **THEN** the system returns HTTP 422 with an error indicating shares must be at least 1
 
 #### Scenario: Unauthorized access
 - **WHEN** an unauthenticated user sends POST to `/api/applications`

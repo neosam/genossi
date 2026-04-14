@@ -14,11 +14,11 @@ pub struct Application {
     pub first_name: Arc<str>,
     pub last_name: Arc<str>,
     pub salutation: Option<Salutation>,
-    pub email: Arc<str>,
-    pub street: Arc<str>,
-    pub house_number: Arc<str>,
-    pub postal_code: Arc<str>,
-    pub city: Arc<str>,
+    pub email: Option<Arc<str>>,
+    pub street: Option<Arc<str>>,
+    pub house_number: Option<Arc<str>>,
+    pub postal_code: Option<Arc<str>>,
+    pub city: Option<Arc<str>>,
     pub shares: i32,
     pub status: ApplicationStatus,
     pub created: time::PrimitiveDateTime,
@@ -68,17 +68,17 @@ impl From<&Application> for ApplicationEntity {
     }
 }
 
-/// Input for submitting a new application (public endpoint).
+/// Input for submitting a new application.
 #[derive(Clone, Debug)]
 pub struct ApplicationSubmission {
     pub first_name: Arc<str>,
     pub last_name: Arc<str>,
     pub salutation: Option<Salutation>,
-    pub email: Arc<str>,
-    pub street: Arc<str>,
-    pub house_number: Arc<str>,
-    pub postal_code: Arc<str>,
-    pub city: Arc<str>,
+    pub email: Option<Arc<str>>,
+    pub street: Option<Arc<str>>,
+    pub house_number: Option<Arc<str>>,
+    pub postal_code: Option<Arc<str>>,
+    pub city: Option<Arc<str>>,
     pub shares: i32,
 }
 
@@ -88,11 +88,12 @@ pub trait ApplicationService {
     type Context: Clone + Debug + PartialEq + Eq + Send + Sync + 'static;
     type Transaction: genossi_dao::Transaction;
 
-    /// Submit a new application (public, no auth context needed).
-    /// Creates the application and triggers the confirmation mail.
+    /// Submit a new application (public or admin, no auth context needed).
+    /// Creates the application and optionally triggers the confirmation mail.
     async fn submit(
         &self,
         submission: &ApplicationSubmission,
+        send_mail: bool,
     ) -> Result<Application, ServiceError>;
 
     /// List applications with optional status filter (requires manage_members).

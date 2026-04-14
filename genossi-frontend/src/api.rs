@@ -515,11 +515,16 @@ pub struct ApplicationTO {
     pub last_name: String,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub salutation: Option<rest_types::SalutationTO>,
-    pub email: String,
-    pub street: String,
-    pub house_number: String,
-    pub postal_code: String,
-    pub city: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub street: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub house_number: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub postal_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub city: Option<String>,
     pub shares: i32,
     pub status: ApplicationStatusTO,
     #[serde(default)]
@@ -528,6 +533,27 @@ pub struct ApplicationTO {
     pub deleted: Option<String>,
     #[serde(default)]
     pub version: Option<Uuid>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AdminCreateApplicationRequest {
+    pub first_name: String,
+    pub last_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub salutation: Option<rest_types::SalutationTO>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub street: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub house_number: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub postal_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub city: Option<String>,
+    pub shares: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub send_mail: Option<bool>,
 }
 
 pub async fn get_applications(
@@ -562,6 +588,17 @@ pub async fn confirm_application(
     info!("Confirming application {id}");
     let url = format!("{}/api/applications/{}/confirm", config.backend, id);
     let response = reqwest::Client::new().post(url).send().await?;
+    response.error_for_status_ref()?;
+    Ok(response.json().await?)
+}
+
+pub async fn create_application(
+    config: &Config,
+    request: &AdminCreateApplicationRequest,
+) -> Result<ApplicationTO, reqwest::Error> {
+    info!("Creating application");
+    let url = format!("{}/api/applications", config.backend);
+    let response = reqwest::Client::new().post(url).json(request).send().await?;
     response.error_for_status_ref()?;
     Ok(response.json().await?)
 }

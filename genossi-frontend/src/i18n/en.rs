@@ -278,6 +278,9 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::SubmittedAt => "Submitted at".into(),
         Key::ApplicationConfirmed => "Application confirmed".into(),
         Key::ApplicationRejected => "Application rejected".into(),
+        Key::CreateApplication => "Create application".into(),
+        Key::CreateApplicationDesc => "Manually create a membership application".into(),
+        Key::SendConfirmationMail => "Send confirmation mail".into(),
 
         // WordPress Integration
         Key::WordPressIntegration => "WordPress Integration".into(),

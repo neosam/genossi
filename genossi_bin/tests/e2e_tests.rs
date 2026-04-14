@@ -3,9 +3,9 @@
 use genossi_bin::RestStateImpl;
 use genossi_rest::test_server::test_support::start_test_server;
 use genossi_rest_types::{
-    ActionTypeTO, ApplicationStatusTO, ApplicationTO, MemberActionTO, MemberDocumentTO,
-    MemberImportResultTO, MemberTO, MigrationStatusTO, PublicJoinRequest, PublicJoinResponse,
-    SalutationTO, UserPreferenceTO, ValidationResultTO,
+    ActionTypeTO, AdminCreateApplicationRequest, ApplicationStatusTO, ApplicationTO,
+    MemberActionTO, MemberDocumentTO, MemberImportResultTO, MemberTO, MigrationStatusTO,
+    PublicJoinRequest, PublicJoinResponse, SalutationTO, UserPreferenceTO, ValidationResultTO,
 };
 use std::collections::HashMap;
 use genossi_config::rest::{ConfigEntryTO, SetConfigRequest};
@@ -5982,7 +5982,7 @@ async fn test_get_application() {
     assert_eq!(response.status(), StatusCode::OK);
     let app: ApplicationTO = response.json().await.unwrap();
     assert_eq!(app.first_name, "Max");
-    assert_eq!(app.email, "max@example.com");
+    assert_eq!(app.email, Some("max@example.com".to_string()));
 }
 
 #[tokio::test]
@@ -6441,4 +6441,191 @@ async fn test_application_full_workflow() {
     let apps: Vec<ApplicationTO> = response.json().await.unwrap();
     assert_eq!(apps.len(), 1);
     assert_eq!(apps[0].first_name, "Bob");
+}
+
+// --- Admin create application tests ---
+
+#[tokio::test]
+async fn test_admin_create_application_minimal_fields() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let request = AdminCreateApplicationRequest {
+        first_name: "Hans".to_string(),
+        last_name: "Meier".to_string(),
+        salutation: None,
+        email: None,
+        street: None,
+        house_number: None,
+        postal_code: None,
+        city: None,
+        shares: 1,
+        send_mail: None,
+    };
+
+    let response = client
+        .post(server.url("/api/applications"))
+        .json(&request)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let app: ApplicationTO = response.json().await.unwrap();
+    assert_eq!(app.first_name, "Hans");
+    assert_eq!(app.last_name, "Meier");
+    assert_eq!(app.shares, 1);
+    assert_eq!(app.status, ApplicationStatusTO::Offen);
+    assert!(app.email.is_none());
+    assert!(app.street.is_none());
+}
+
+#[tokio::test]
+async fn test_admin_create_application_all_fields() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let request = AdminCreateApplicationRequest {
+        first_name: "Anna".to_string(),
+        last_name: "Schmidt".to_string(),
+        salutation: Some(SalutationTO::Frau),
+        email: Some("anna@example.com".to_string()),
+        street: Some("Hauptstraße".to_string()),
+        house_number: Some("1".to_string()),
+        postal_code: Some("10115".to_string()),
+        city: Some("Berlin".to_string()),
+        shares: 3,
+        send_mail: Some(false),
+    };
+
+    let response = client
+        .post(server.url("/api/applications"))
+        .json(&request)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let app: ApplicationTO = response.json().await.unwrap();
+    assert_eq!(app.first_name, "Anna");
+    assert_eq!(app.email, Some("anna@example.com".to_string()));
+    assert_eq!(app.street, Some("Hauptstraße".to_string()));
+    assert_eq!(app.shares, 3);
+    assert_eq!(app.status, ApplicationStatusTO::Offen);
+}
+
+#[tokio::test]
+async fn test_admin_create_application_send_mail_without_email() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let request = AdminCreateApplicationRequest {
+        first_name: "Test".to_string(),
+        last_name: "User".to_string(),
+        salutation: None,
+        email: None,
+        street: None,
+        house_number: None,
+        postal_code: None,
+        city: None,
+        shares: 1,
+        send_mail: Some(true),
+    };
+
+    let response = client
+        .post(server.url("/api/applications"))
+        .json(&request)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_admin_create_application_send_mail_with_email() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let request = AdminCreateApplicationRequest {
+        first_name: "Eva".to_string(),
+        last_name: "Müller".to_string(),
+        salutation: None,
+        email: Some("eva@example.com".to_string()),
+        street: None,
+        house_number: None,
+        postal_code: None,
+        city: None,
+        shares: 1,
+        send_mail: Some(true),
+    };
+
+    let response = client
+        .post(server.url("/api/applications"))
+        .json(&request)
+        .send()
+        .await
+        .unwrap();
+
+    // Should succeed (mail will fail silently since no SMTP configured in tests)
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let app: ApplicationTO = response.json().await.unwrap();
+    assert_eq!(app.first_name, "Eva");
+    assert_eq!(app.email, Some("eva@example.com".to_string()));
+}
+
+#[tokio::test]
+async fn test_admin_create_application_missing_first_name() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let request = AdminCreateApplicationRequest {
+        first_name: "".to_string(),
+        last_name: "Meier".to_string(),
+        salutation: None,
+        email: None,
+        street: None,
+        house_number: None,
+        postal_code: None,
+        city: None,
+        shares: 1,
+        send_mail: None,
+    };
+
+    let response = client
+        .post(server.url("/api/applications"))
+        .json(&request)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_admin_create_application_shares_zero() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let request = AdminCreateApplicationRequest {
+        first_name: "Test".to_string(),
+        last_name: "User".to_string(),
+        salutation: None,
+        email: None,
+        street: None,
+        house_number: None,
+        postal_code: None,
+        city: None,
+        shares: 0,
+        send_mail: None,
+    };
+
+    let response = client
+        .post(server.url("/api/applications"))
+        .json(&request)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
