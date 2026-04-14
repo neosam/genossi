@@ -7,27 +7,24 @@ set -x
 
 BRANCH="${1:-main}"
 
-# Extract current version from default.nix
-CURRENT_VERSION=$(grep -oP 'version = "\K[^"]+' default.nix | head -1)
+# Calculate date-based version components
+YEAR=$(date +%Y)
+DOY=$(date +%j)
 
-# Verify it ends with -dev
-if [[ ! "$CURRENT_VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)-dev$ ]]; then
-    echo "Error: Current version '$CURRENT_VERSION' does not match expected pattern X.Y.Z-dev"
-    exit 1
+# Determine increment number N from existing git tags
+EXISTING_TAGS=$(git tag -l "v${YEAR}.${DOY}.*")
+if [[ -z "$EXISTING_TAGS" ]]; then
+    N=0
+else
+    LAST_N=$(echo "$EXISTING_TAGS" | sed "s/v${YEAR}\.${DOY}\.//" | sort -n | tail -1)
+    N=$((LAST_N + 1))
 fi
 
-MAJOR="${BASH_REMATCH[1]}"
-MINOR="${BASH_REMATCH[2]}"
-PATCH="${BASH_REMATCH[3]}"
+# Construct version strings
+NEW_VERSION="${YEAR}.${DOY}.${N}"
+NEXT_N=$((N + 1))
+FOLLOWING_VERSION="${YEAR}.${DOY}.${NEXT_N}-dev"
 
-# Release version: strip -dev
-NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
-
-# Next dev version: increment minor, reset patch to 0
-NEXT_MINOR=$((MINOR + 1))
-FOLLOWING_VERSION="${MAJOR}.${NEXT_MINOR}.0-dev"
-
-echo "Current version: $CURRENT_VERSION"
 echo "Release version: $NEW_VERSION"
 echo "Next dev version: $FOLLOWING_VERSION"
 
