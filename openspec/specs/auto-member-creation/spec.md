@@ -1,58 +1,34 @@
-## Purpose
+## ADDED Requirements
 
-Automatic member creation behaviors: auto-assigning member numbers, creating entry actions, and setting computed fields when a new member is created.
+### Requirement: Application data model includes title
+The system SHALL store applications with an optional `title` field (String). The field SHALL accept free-text values such as "Dr.", "Prof.", "Prof. Dr.".
 
-## Requirements
+#### Scenario: Application created with title
+- **WHEN** an application is created with `title` set to "Dr."
+- **THEN** the system SHALL store the application with `title` = "Dr."
 
-### Requirement: Auto-assign member number
-The system SHALL automatically assign the next available member number when a member is created with `member_number` set to 0. The next member number SHALL be `MAX(member_number) + 1` across all members (including soft-deleted ones).
+#### Scenario: Application created without title
+- **WHEN** an application is created without a `title` field
+- **THEN** the system SHALL store the application with `title` = NULL
 
-#### Scenario: Auto-assign when member_number is 0
-- **WHEN** a member is created with `member_number` set to 0
-- **THEN** the system assigns `MAX(existing member_numbers) + 1` as the member number
+### Requirement: Title transferred on application confirmation
+The system SHALL copy the `title` field from the application to the newly created member when an application is confirmed.
 
-#### Scenario: First member gets number 1
-- **WHEN** no members exist and a member is created with `member_number` set to 0
-- **THEN** the system assigns member number 1
+#### Scenario: Confirmed application with title
+- **WHEN** an application with `title` = "Dr." is confirmed
+- **THEN** the created member SHALL have `title` = "Dr."
 
-#### Scenario: Explicit member number still works
-- **WHEN** a member is created with `member_number` set to a positive value (e.g. 42)
-- **THEN** the system uses the provided member number (existing uniqueness validation applies)
+#### Scenario: Confirmed application without title
+- **WHEN** an application with `title` = NULL is confirmed
+- **THEN** the created member SHALL have `title` = NULL
 
-#### Scenario: Soft-deleted members included in MAX
-- **WHEN** a soft-deleted member has the highest member number (e.g. 100)
-- **THEN** the next auto-assigned number SHALL be 101
+### Requirement: Application template rendering includes title
+The `build_inputs_application()` function SHALL include the `title` field in the JSON data passed to Typst templates.
 
-### Requirement: Automatic entry actions on member creation
-The system SHALL automatically create an `Eintritt` action and an `Aufstockung` action when a new member is created.
+#### Scenario: Template accesses title
+- **WHEN** a Typst template accesses `app.title` from an application with `title` = "Dr."
+- **THEN** the value SHALL be "Dr."
 
-#### Scenario: Eintritt action created
-- **WHEN** a member is created with `join_date` of 2025-03-15
-- **THEN** the system creates a `MemberAction` with `action_type=Eintritt`, `date=2025-03-15`, `shares_change=0`
-
-#### Scenario: Aufstockung action created
-- **WHEN** a member is created with `join_date` of 2025-03-15 and `shares_at_joining` of 3
-- **THEN** the system creates a `MemberAction` with `action_type=Aufstockung`, `date=2025-03-15`, `shares_change=3`
-
-#### Scenario: Actions and member in same transaction
-- **WHEN** a member creation fails (e.g. duplicate member number)
-- **THEN** no actions SHALL be persisted (all-or-nothing)
-
-### Requirement: Computed fields on member creation
-The system SHALL set computed fields automatically during member creation, ignoring client-provided values for these fields.
-
-#### Scenario: current_shares set from shares_at_joining
-- **WHEN** a member is created with `shares_at_joining` of 5
-- **THEN** `current_shares` SHALL be set to 5
-
-#### Scenario: current_balance set to 0
-- **WHEN** a member is created
-- **THEN** `current_balance` SHALL be set to 0
-
-#### Scenario: action_count set to 0
-- **WHEN** a member is created
-- **THEN** `action_count` SHALL be set to 0
-
-#### Scenario: migrated flag calculated
-- **WHEN** a member is created with the automatic entry actions
-- **THEN** the `migrated` flag SHALL be recalculated based on the created actions
+#### Scenario: Template accesses null title
+- **WHEN** a Typst template accesses `app.title` from an application without a title
+- **THEN** the value SHALL be `null`

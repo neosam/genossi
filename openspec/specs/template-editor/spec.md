@@ -1,119 +1,27 @@
-# Template Editor
-
-## Purpose
-
-Frontend template management interface providing a file tree browser, code editor with Typst support, and PDF preview capabilities for board members.
-
-## Requirements
-
-### Requirement: Template management page
-The frontend SHALL provide a template management page accessible from the main navigation. The page SHALL display a file tree on the left and a code editor on the right.
-
-#### Scenario: Navigate to template management
-- **WHEN** a board member clicks "Templates" in the navigation
-- **THEN** the system SHALL display the template management page with the file tree loaded
-
-#### Scenario: Non-board member navigation
-- **WHEN** a non-board member accesses the application
-- **THEN** the "Templates" navigation item SHALL NOT be visible
-
-### Requirement: File tree display
-The template management page SHALL display a tree view of all template files and directories in the left panel. Files and directories SHALL be visually distinguishable.
-
-#### Scenario: Display file tree with nested directories
-- **WHEN** the template directory contains `_layout.typ`, `join_confirmation.typ`, and `vorstand/einladung.typ`
-- **THEN** the file tree SHALL show files and the `vorstand/` directory with its contents as a collapsible node
-
-#### Scenario: Select file in tree
-- **WHEN** a board member clicks on a file in the tree
-- **THEN** the file content SHALL be loaded into the code editor
-
-### Requirement: Code editor with Typst support
-The template management page SHALL include a CodeMirror 6 editor for editing template files. The editor SHALL provide Typst-specific syntax highlighting, line numbers, bracket matching, and search/replace functionality. The editor SHALL replace the previous textarea-based editing. The highlighting SHALL be powered by the `codemirror-lang-typst` WASM-based parser bundled into the CodeMirror JS bundle. The CodeMirror bundle (`codemirror-bundle.js`) SHALL be built and included in all deployment outputs, including the Nix build.
-
-#### Scenario: Edit and save template
-- **WHEN** a board member modifies content in the CodeMirror editor and clicks "Speichern" (Save)
-- **THEN** the system SHALL read the current content from CodeMirror via `getEditorContent()`
-- **AND** send a `PUT` request with the content and display a success confirmation
-
-#### Scenario: Unsaved changes warning
-- **WHEN** a board member has unsaved changes in the editor and clicks on a different file
-- **THEN** the system SHALL compare the CodeMirror content with the last saved content
-- **AND** warn about unsaved changes before switching
-
-#### Scenario: Code editor available in Nix-deployed version
-- **WHEN** the frontend is built via Nix (`nix build .#frontend`)
-- **THEN** the build output SHALL contain `codemirror-bundle.js`
-- **AND** the generated `index.html` SHALL load the bundle before the WASM application
-- **AND** `window.createTypstEditor` SHALL be available when the WASM app initializes
-
-#### Scenario: Load file into editor
-- **WHEN** a board member selects a file in the file tree
-- **THEN** the system SHALL load the file content and call `setEditorContent()` to update the editor
-- **AND** the editor SHALL display the content with Typst syntax highlighting
-
-#### Scenario: Editor lifecycle
-- **WHEN** the templates page is mounted
-- **THEN** the system SHALL create a CodeMirror instance via `createTypstEditor()` in an empty container div
-- **WHEN** the templates page is unmounted
-- **THEN** the system SHALL destroy the CodeMirror instance via `destroyEditor()`
-
-#### Scenario: Typst syntax highlighting
-- **WHEN** a template contains Typst syntax like `#let`, `#import`, `#show`, `#set`, or markup like `*bold*`
-- **THEN** the editor SHALL display these tokens with appropriate syntax highlighting colors
-
-#### Scenario: Incremental re-highlighting on edit
-- **WHEN** a board member types new content into the editor
-- **THEN** the syntax highlighting SHALL update incrementally without full-document re-parse
-
-### Requirement: Create new file
-The template management page SHALL provide a button to create a new file. The user SHALL be prompted for the file path (including optional subdirectory).
-
-#### Scenario: Create new file in root
-- **WHEN** a board member clicks "Neue Datei" (New File) and enters `custom_letter.typ`
-- **THEN** the system SHALL create the file via `PUT /api/templates/custom_letter.typ` with empty content
-- **AND** the file tree SHALL refresh and show the new file
-
-#### Scenario: Create new file in subdirectory
-- **WHEN** a board member clicks "Neue Datei" and enters `vorstand/protokoll.typ`
-- **THEN** the system SHALL create the file (and directory if needed) via `PUT`
-
-### Requirement: Create new directory
-The template management page SHALL provide a button to create a new directory. The user SHALL be prompted for the directory path.
-
-#### Scenario: Create new directory
-- **WHEN** a board member clicks "Neuer Ordner" (New Folder) and enters `vorstand`
-- **THEN** the system SHALL create the directory via `PUT /api/templates/vorstand/`
-- **AND** the file tree SHALL refresh and show the new directory
-
-### Requirement: Delete file or directory
-The template management page SHALL allow deleting files and empty directories via a delete action in the file tree.
-
-#### Scenario: Delete file
-- **WHEN** a board member clicks the delete action on a file
-- **THEN** the system SHALL confirm the deletion and send a `DELETE` request
-- **AND** the file tree SHALL refresh
-
-#### Scenario: Attempt to delete non-empty directory
-- **WHEN** a board member attempts to delete a directory that contains files
-- **THEN** the system SHALL display an error message that the directory is not empty
+## MODIFIED Requirements
 
 ### Requirement: PDF preview
-The template management page SHALL provide a preview button that renders the current template with a selected member's data and displays the resulting PDF.
+The template management page SHALL provide a preview section that allows selecting either a member or an application for rendering. A toggle with options "Mitglied" and "Antrag" SHALL switch between member selection and application selection. The system SHALL render the current template with the selected entity's data and display the resulting PDF.
 
-#### Scenario: Preview template
-- **WHEN** a board member selects a member from a dropdown and clicks "Vorschau" (Preview)
-- **THEN** the system SHALL call `POST /api/templates/{path}/render/{member_id}`
-- **AND** the resulting PDF SHALL be displayed inline or in a new tab
+#### Scenario: Preview template with member
+- **WHEN** a board member selects "Mitglied" in the toggle, selects a member, and clicks "PDF rendern"
+- **THEN** the system SHALL call `POST /api/templates/render/{path}/{member_id}`
+- **AND** the resulting PDF SHALL be opened in a new tab
 
-#### Scenario: Preview with compilation error
-- **WHEN** a board member previews a template that contains Typst errors
-- **THEN** the system SHALL display the error messages from the Typst compiler
+#### Scenario: Preview template with application
+- **WHEN** a board member selects "Antrag" in the toggle, selects an open application, and clicks "PDF rendern"
+- **THEN** the system SHALL call `POST /api/templates/render-application/{path}/{application_id}`
+- **AND** the resulting PDF SHALL be opened in a new tab
 
-### Requirement: Generate document from member details
-The member details page SHALL provide a button or section to generate documents from available templates.
+#### Scenario: Toggle resets selection
+- **WHEN** a board member switches from "Mitglied" to "Antrag" or vice versa
+- **THEN** the previously selected entity SHALL be cleared
 
-#### Scenario: Generate document from member page
-- **WHEN** a board member clicks "Dokument erstellen" (Generate Document) on a member's detail page
-- **THEN** the system SHALL show a list of available templates
-- **AND** when a template is selected, the system SHALL render the PDF and offer it for download
+#### Scenario: Application search shows only open applications
+- **WHEN** a board member selects "Antrag" in the toggle and searches for an application
+- **THEN** only applications with status "Offen" SHALL be shown in the search results
+
+#### Scenario: Application search by name
+- **WHEN** a board member types a name in the application search field
+- **THEN** applications matching by first_name or last_name SHALL be shown
+- **AND** results SHALL display as "Vorname Nachname (N Anteile)"

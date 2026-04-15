@@ -1,212 +1,26 @@
-# Member Actions
-
-## Purpose
-
-Manage member actions (Eintritt, Austritt, Todesfall, share changes, transfers) including automatic derivation of member dates from actions.
-
-## Requirements
-
-### Requirement: Automatic date derivation from actions
-The system SHALL automatically derive `join_date` and `exit_date` on the Member entity from MemberActions after every action create, update, or delete operation, and after member creation (which auto-creates an Eintritt action).
-
-#### Scenario: join_date derived from Eintritt action
-- **WHEN** a member has an Eintritt action with a given date
-- **THEN** the member's `join_date` SHALL be set to that Eintritt action's date
-
-#### Scenario: exit_date derived from Austritt action
-- **WHEN** a member has an Austritt action with an effective_date
-- **THEN** the member's `exit_date` SHALL be set to the Austritt action's effective_date
-
-#### Scenario: exit_date derived from Todesfall action
-- **WHEN** a member has a Todesfall action with a given date
-- **THEN** the member's `exit_date` SHALL be set to the Todesfall action's date (immediately effective)
-
-#### Scenario: exit_date cleared when no exit action
-- **WHEN** a member has no Austritt or Todesfall action (e.g. after deleting an exit action)
-- **THEN** the member's `exit_date` SHALL be set to None
-
-#### Scenario: Austritt takes precedence over Todesfall
-- **WHEN** a member has both an Austritt and a Todesfall action
-- **THEN** the member's `exit_date` SHALL be derived from the Austritt action's effective_date
-
-#### Scenario: No Eintritt action preserves existing join_date
-- **WHEN** recalc_dates runs for a member that has no Eintritt action (e.g. imported member not yet migrated)
-- **THEN** the member's `join_date` SHALL remain unchanged
-
-#### Scenario: Dates recalculated on action create
-- **WHEN** a new MemberAction is created
-- **THEN** the system SHALL recalculate join_date and exit_date for the affected member
-
-#### Scenario: Dates recalculated on action update
-- **WHEN** a MemberAction is updated
-- **THEN** the system SHALL recalculate join_date and exit_date for the affected member
-
-#### Scenario: Dates recalculated on action delete
-- **WHEN** a MemberAction is soft-deleted
-- **THEN** the system SHALL recalculate join_date and exit_date for the affected member
-
-### Requirement: Action type constraints
-The system SHALL enforce the following constraints on action types:
-
-#### Scenario: Status actions have zero shares_change
-- **WHEN** an action of type `Eintritt`, `Austritt`, or `Todesfall` is created
-- **THEN** `shares_change` SHALL be 0
-
-#### Scenario: Aufstockung has positive shares_change
-- **WHEN** an action of type `Aufstockung` is created
-- **THEN** `shares_change` SHALL be greater than 0
-
-#### Scenario: Verkauf has negative shares_change
-- **WHEN** an action of type `Verkauf` is created
-- **THEN** `shares_change` SHALL be less than 0
-
-#### Scenario: UebertragungEmpfang has positive shares_change
-- **WHEN** an action of type `UebertragungEmpfang` is created
-- **THEN** `shares_change` SHALL be greater than 0 and `transfer_member_id` SHALL be set
-
-#### Scenario: UebertragungAbgabe has negative shares_change
-- **WHEN** an action of type `UebertragungAbgabe` is created
-- **THEN** `shares_change` SHALL be less than 0 and `transfer_member_id` SHALL be set
-
-#### Scenario: Transfer requires transfer_member_id
-- **WHEN** an action of type `UebertragungEmpfang` or `UebertragungAbgabe` is created without `transfer_member_id`
-- **THEN** the system SHALL reject the creation with a validation error
-
-#### Scenario: Effective date required for Austritt
-- **WHEN** an action of type `Austritt` is created or updated without `effective_date`
-- **THEN** the system SHALL reject the operation with a validation error indicating that effective_date is required for Austritt actions
-
-#### Scenario: Effective date only for Austritt
-- **WHEN** an action of type other than `Austritt` is created with an `effective_date`
-- **THEN** the system SHALL reject the creation with a validation error
-
-#### Scenario: Note has zero shares_change
-- **WHEN** an action of type `Note` is created
-- **THEN** `shares_change` SHALL be 0
-
-#### Scenario: Note requires comment
-- **WHEN** an action of type `Note` is created without a `comment` or with an empty `comment`
-- **THEN** the system SHALL reject the creation with a validation error
-
-#### Scenario: Note rejects transfer_member_id
-- **WHEN** an action of type `Note` is created with a `transfer_member_id`
-- **THEN** the system SHALL reject the creation with a validation error
-
-#### Scenario: Note rejects effective_date
-- **WHEN** an action of type `Note` is created with an `effective_date`
-- **THEN** the system SHALL reject the creation with a validation error
-
-### Requirement: Note action type
-The system SHALL support a `Note` action type that allows recording free-text notes in a member's action history.
-
-#### Scenario: Note action has zero shares_change
-- **WHEN** an action of type `Note` is created
-- **THEN** `shares_change` SHALL be 0
-
-#### Scenario: Note action requires comment
-- **WHEN** an action of type `Note` is created without a `comment` or with an empty `comment`
-- **THEN** the system SHALL reject the creation with a validation error
-
-#### Scenario: Note action rejects transfer_member_id
-- **WHEN** an action of type `Note` is created with a `transfer_member_id`
-- **THEN** the system SHALL reject the creation with a validation error
-
-#### Scenario: Note action rejects effective_date
-- **WHEN** an action of type `Note` is created with an `effective_date`
-- **THEN** the system SHALL reject the creation with a validation error
-
-#### Scenario: Note action does not affect member dates
-- **WHEN** a `Note` action is created, updated, or deleted
-- **THEN** the member's `join_date` and `exit_date` SHALL remain unchanged (note actions are ignored during date derivation)
-
-#### Scenario: Note action excluded from migration action count
-- **WHEN** migration status is calculated for a member with `Note` actions
-- **THEN** `Note` actions SHALL NOT be counted in `actual_action_count`
-
-### Requirement: MemberAction data model
-The system SHALL store member actions with the following fields:
-- `id` (UUID, system-generated, primary key)
-- `member_id` (UUID, foreign key to member, required)
-- `action_type` (Enum, required): one of `Eintritt`, `Austritt`, `Todesfall`, `Aufstockung`, `Verkauf`, `UebertragungEmpfang`, `UebertragungAbgabe`
-- `date` (Date, required): date the action occurred
-- `shares_change` (i32, required): change in shares (0 for status actions, positive/negative for share actions)
-- `transfer_member_id` (Optional UUID): reference to the other member in a transfer
-- `effective_date` (Optional Date): only for Austritt, the date the exit becomes effective per Satzung
-- `comment` (Optional String)
-- `created` (DateTime, system-generated)
-- `deleted` (Optional DateTime, for soft delete)
-- `version` (UUID, for optimistic locking)
-
-#### Scenario: Action stored with all fields
-- **WHEN** a member action is created with all fields provided
-- **THEN** the system stores the action with a generated UUID, created timestamp, and version UUID
+## MODIFIED Requirements
 
 ### Requirement: Create member action
-The system SHALL allow authenticated users with `manage_members` privilege to create member actions via `POST /api/members/{member_id}/actions`.
+The system SHALL allow authenticated users to create member actions. The create operation SHALL be performed via `audited_create!` macro, logging all non-None action fields to the audit log. This includes actions created automatically during member creation (Eintritt, Aufstockung) and manually created actions.
 
-#### Scenario: Successful action creation
-- **WHEN** an authenticated user sends a POST request with valid action data for an existing member
-- **THEN** the system creates the action, assigns a UUID and version, sets the created timestamp, and returns the created action with HTTP 200
+#### Scenario: Manual action creation audit
+- **WHEN** an authenticated user creates a new member action (e.g., Aufstockung)
+- **THEN** the system creates the action and creates audit log entries for all non-None action fields with action "create"
 
-#### Scenario: Member not found
-- **WHEN** an action is created for a member_id that does not exist
-- **THEN** the system returns HTTP 404
-
-#### Scenario: Insufficient privileges
-- **WHEN** a user without `manage_members` privilege attempts to create an action
-- **THEN** the system returns HTTP 401 Unauthorized
-
-### Requirement: List member actions
-The system SHALL allow authenticated users with `view_members` privilege to list all actions for a member via `GET /api/members/{member_id}/actions`.
-
-#### Scenario: List actions for member
-- **WHEN** an authenticated user sends a GET request for a valid member_id
-- **THEN** the system returns all non-deleted actions for that member, ordered by date
-
-#### Scenario: Member not found
-- **WHEN** actions are requested for a member_id that does not exist
-- **THEN** the system returns HTTP 404
+#### Scenario: Automatic action creation audit
+- **WHEN** the system automatically creates Eintritt and Aufstockung actions during member creation
+- **THEN** audit log entries are created for each action's fields, with the user_id of the user who created the member
 
 ### Requirement: Update member action
-The system SHALL allow authenticated users with `manage_members` privilege to update a member action via `PUT /api/members/{member_id}/actions/{action_id}`.
+The system SHALL perform member action updates via `audited_update!` macro, which loads the old action, performs the update, and logs only changed fields.
 
-#### Scenario: Successful update
-- **WHEN** a PUT request is sent with valid updated data and matching version
-- **THEN** the system updates the action, generates a new version UUID, and returns the updated action with HTTP 200
+#### Scenario: Action update audit
+- **WHEN** an authenticated user updates a member action changing shares_change and comment
+- **THEN** the system updates the action and creates exactly 2 audit log entries for shares_change and comment
 
-#### Scenario: Version conflict
-- **WHEN** a PUT request is sent with a version UUID that does not match the stored version
-- **THEN** the system returns an error indicating a version conflict
+### Requirement: Delete member action
+The system SHALL perform member action soft-deletes via `audited_delete!` macro, logging all audited field values.
 
-### Requirement: Delete member action (soft delete)
-The system SHALL allow authenticated users with `manage_members` privilege to soft-delete a member action via `DELETE /api/members/{member_id}/actions/{action_id}`.
-
-#### Scenario: Successful soft delete
-- **WHEN** a DELETE request is sent for an existing action
-- **THEN** the system sets the `deleted` timestamp on the action and returns HTTP 204
-
-### Requirement: Migration validation
-The system SHALL provide a validation endpoint `GET /api/members/{member_id}/actions/migration-status` that compares actions against imported Excel values.
-
-#### Scenario: Member fully migrated (auto)
-- **WHEN** a member has `action_count == 0` AND `shares_at_joining == current_shares` AND has an Eintritt action and an Aufstockung action whose shares_change equals shares_at_joining
-- **THEN** the migration status SHALL be `migrated`
-
-#### Scenario: Member fully migrated (manual)
-- **WHEN** the sum of all shares_change values equals `current_shares` AND the count of non-Eintritt share actions equals `action_count + 1` (since Excel's action_count excludes the initial Aufstockung)
-- **THEN** the migration status SHALL be `migrated`
-
-#### Scenario: Member partially migrated
-- **WHEN** the sum of shares_change values does not equal `current_shares` OR the action count does not match
-- **THEN** the migration status SHALL be `pending` with details showing expected vs. actual values
-
-#### Scenario: Member has no actions
-- **WHEN** a member has no actions at all
-- **THEN** the migration status SHALL be `pending`
-
-### Requirement: OpenAPI documentation for actions
-The system SHALL expose all member action endpoints in the Swagger UI at `/swagger-ui/` with complete OpenAPI annotations.
-
-#### Scenario: Swagger UI shows action endpoints
-- **WHEN** a user navigates to `/swagger-ui/`
-- **THEN** the Swagger UI displays all member action endpoints with their schemas
+#### Scenario: Action deletion audit
+- **WHEN** an authenticated user deletes a member action
+- **THEN** the system soft-deletes the action and creates audit log entries with action "delete" for all audited fields
