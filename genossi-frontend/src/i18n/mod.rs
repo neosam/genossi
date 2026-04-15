@@ -282,6 +282,16 @@ pub enum Key {
     MailTemplateFormal,
     MailTemplateInformal,
     MailTemplateSelect,
+    MailTemplates,
+    MailTemplateCreate,
+    MailTemplateSave,
+    MailTemplateDelete,
+    MailTemplateManage,
+    MailTemplateName,
+    MailTemplateSubject,
+    MailTemplateBody,
+    MailTemplateEmpty,
+    MailTemplateDeleteConfirm,
 
     // Member filter
     NotReachedByMailJob,

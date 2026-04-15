@@ -1,22 +1,24 @@
 use dioxus::prelude::*;
 
+use crate::api::{self, MailTemplateTO};
 use crate::i18n::{use_i18n, Key};
-
-const TEMPLATE_FORMAL: &str = r#"Sehr geehrte{% if salutation == "Herr" %}r Herr{% elif salutation == "Frau" %} Frau{% else %}s Mitglied{% endif %}{% if title %} {{ title }}{% endif %} {{ last_name }},
-
-
-
-Mit freundlichen Grüßen,"#;
-
-const TEMPLATE_INFORMAL: &str = r#"{% if salutation == "Herr" %}Lieber{% elif salutation == "Frau" %}Liebe{% else %}Hallo{% endif %}{% if title %} {{ title }}{% endif %} {{ first_name }},
-
-
-
-Viele Grüße,"#;
+use crate::router::Route;
+use crate::service::config::CONFIG;
 
 #[component]
 pub fn TemplateSelector(on_select: EventHandler<String>) -> Element {
     let i18n = use_i18n();
+    let mut templates = use_signal(Vec::<MailTemplateTO>::new);
+
+    use_effect(move || {
+        spawn(async move {
+            let config = CONFIG.read().clone();
+            if let Ok(data) = api::list_mail_templates(&config).await {
+                templates.set(data);
+            }
+        });
+    });
+
     rsx! {
         div {
             label { class: "block text-sm font-medium text-gray-700 mb-1", "Vorlage" }
@@ -24,15 +26,26 @@ pub fn TemplateSelector(on_select: EventHandler<String>) -> Element {
                 class: "w-full border rounded px-3 py-2 text-sm",
                 onchange: move |e| {
                     let val = e.value();
-                    match val.as_str() {
-                        "formal" => on_select.call(TEMPLATE_FORMAL.to_string()),
-                        "informal" => on_select.call(TEMPLATE_INFORMAL.to_string()),
-                        _ => {}
+                    if !val.is_empty() {
+                        if let Some(tpl) = templates.read().iter().find(|t| t.id == val) {
+                            on_select.call(tpl.body.clone());
+                        }
                     }
                 },
                 option { value: "", {i18n.t(Key::MailTemplateSelect)} }
-                option { value: "formal", {i18n.t(Key::MailTemplateFormal)} }
-                option { value: "informal", {i18n.t(Key::MailTemplateInformal)} }
+                for tpl in templates.read().iter() {
+                    option {
+                        value: "{tpl.id}",
+                        "{tpl.name}"
+                    }
+                }
+            }
+            div { class: "mt-1",
+                Link {
+                    to: Route::MailTemplatesPage {},
+                    class: "text-sm text-blue-600 hover:underline",
+                    {i18n.t(Key::MailTemplateManage)}
+                }
             }
         }
     }

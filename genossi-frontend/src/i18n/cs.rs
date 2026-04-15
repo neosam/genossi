@@ -345,4 +345,16 @@ pub fn add_i18n_cs(i18n: &mut I18n<Key, Locale>) {
     i18n.add_text(Locale::Cs, Key::WebDavTestConnection, "Otestovat připojení");
     i18n.add_text(Locale::Cs, Key::WebDavTestSuccess, "WebDAV připojení úspěšné");
     i18n.add_text(Locale::Cs, Key::WebDavTestFailed, "Test WebDAV připojení selhal");
+
+    // Mail templates
+    i18n.add_text(Locale::Cs, Key::MailTemplates, "Šablony e-mailů");
+    i18n.add_text(Locale::Cs, Key::MailTemplateCreate, "Vytvořit novou");
+    i18n.add_text(Locale::Cs, Key::MailTemplateSave, "Uložit");
+    i18n.add_text(Locale::Cs, Key::MailTemplateDelete, "Smazat");
+    i18n.add_text(Locale::Cs, Key::MailTemplateManage, "Spravovat šablony");
+    i18n.add_text(Locale::Cs, Key::MailTemplateName, "Název");
+    i18n.add_text(Locale::Cs, Key::MailTemplateSubject, "Předmět");
+    i18n.add_text(Locale::Cs, Key::MailTemplateBody, "Obsah");
+    i18n.add_text(Locale::Cs, Key::MailTemplateEmpty, "Žádné šablony k dispozici");
+    i18n.add_text(Locale::Cs, Key::MailTemplateDeleteConfirm, "Opravdu smazat šablonu?");
 }

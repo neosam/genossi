@@ -69,6 +69,10 @@ pub fn TopBar() -> Element {
             route: Route::MailPage {},
         });
         kommunikation_items.push(NavItem {
+            label: i18n.t(Key::MailTemplates).to_string(),
+            route: Route::MailTemplatesPage {},
+        });
+        kommunikation_items.push(NavItem {
             label: "Posteingang".to_string(),
             route: Route::InboxPage {},
         });

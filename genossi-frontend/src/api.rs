@@ -1175,6 +1175,102 @@ pub fn static_document_download_url(config: &Config, id: &str) -> String {
     format!("{}/api/static-documents/{id}", config.backend)
 }
 
+// ── Mail Templates API ──────────────────────────────────────────────
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct MailTemplateTO {
+    pub id: String,
+    pub name: String,
+    pub subject: String,
+    pub body: String,
+    pub version: String,
+}
+
+pub async fn list_mail_templates(config: &Config) -> Result<Vec<MailTemplateTO>, String> {
+    info!("Fetching mail templates");
+    let url = format!("{}/api/mail/templates", config.backend);
+    let response = reqwest::get(url).await.map_err(|e| e.to_string())?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        return Err(format!("{}: {}", status, text));
+    }
+    response.json().await.map_err(|e| e.to_string())
+}
+
+pub async fn create_mail_template(
+    config: &Config,
+    name: &str,
+    subject: &str,
+    body: &str,
+) -> Result<MailTemplateTO, String> {
+    info!("Creating mail template: {name}");
+    let url = format!("{}/api/mail/templates", config.backend);
+    let req = serde_json::json!({
+        "name": name,
+        "subject": subject,
+        "body": body,
+    });
+    let response = reqwest::Client::new()
+        .post(url)
+        .json(&req)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        return Err(format!("{}: {}", status, text));
+    }
+    response.json().await.map_err(|e| e.to_string())
+}
+
+pub async fn update_mail_template(
+    config: &Config,
+    id: &str,
+    name: &str,
+    subject: &str,
+    body: &str,
+    version: &str,
+) -> Result<MailTemplateTO, String> {
+    info!("Updating mail template: {id}");
+    let url = format!("{}/api/mail/templates/{id}", config.backend);
+    let req = serde_json::json!({
+        "name": name,
+        "subject": subject,
+        "body": body,
+        "version": version,
+    });
+    let response = reqwest::Client::new()
+        .put(url)
+        .json(&req)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        return Err(format!("{}: {}", status, text));
+    }
+    response.json().await.map_err(|e| e.to_string())
+}
+
+pub async fn delete_mail_template(config: &Config, id: &str) -> Result<(), String> {
+    info!("Deleting mail template: {id}");
+    let url = format!("{}/api/mail/templates/{id}", config.backend);
+    let response = reqwest::Client::new()
+        .delete(url)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        return Err(format!("{}: {}", status, text));
+    }
+    Ok(())
+}
+
 // ── Inbox API ────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

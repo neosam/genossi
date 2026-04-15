@@ -7,6 +7,7 @@ pub use crate::page::Home;
 pub use crate::page::InboxPage;
 pub use crate::page::inbox_page::InboxDetail;
 pub use crate::page::MailPage;
+pub use crate::page::MailTemplatesPage;
 pub use crate::page::mail_page::MailJobDetail;
 pub use crate::page::MemberDetails;
 pub use crate::page::Members;
@@ -36,6 +37,8 @@ pub enum Route {
     ConfigPage {},
     #[route("/mail")]
     MailPage {},
+    #[route("/mail/templates")]
+    MailTemplatesPage {},
     #[route("/mail/jobs/:id")]
     MailJobDetail { id: String },
     #[route("/inbox")]
