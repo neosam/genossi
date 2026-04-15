@@ -227,10 +227,11 @@ pub fn MemberDetails(id: String) -> Element {
             let config = CONFIG.read().clone();
 
             let at = action_type.read().clone();
-            let shares = if at.is_status_action() {
-                0
+            let shares = if at.needs_shares_input() {
+                let val = *action_shares_change.read();
+                if at.negates_shares() { -val.abs() } else { val.abs() }
             } else {
-                *action_shares_change.read()
+                0
             };
             let transfer_id = if at.is_transfer() {
                 action_transfer_member_id.read().parse::<Uuid>().ok()
@@ -292,9 +293,16 @@ pub fn MemberDetails(id: String) -> Element {
     };
 
     let current_action_type = action_type.read().clone();
-    let is_status = current_action_type.is_status_action();
+    let needs_shares = current_action_type.needs_shares_input();
     let is_transfer = current_action_type.is_transfer();
     let is_austritt = current_action_type == ActionTypeTO::Austritt;
+    let shares_label_key = match &current_action_type {
+        ActionTypeTO::Aufstockung => Key::SharesAdd,
+        ActionTypeTO::Verkauf => Key::SharesRemove,
+        ActionTypeTO::UebertragungEmpfang => Key::SharesReceive,
+        ActionTypeTO::UebertragungAbgabe => Key::SharesTransfer,
+        _ => Key::SharesChange,
+    };
 
     rsx! {
         TopBar {}
@@ -801,18 +809,19 @@ pub fn MemberDetails(id: String) -> Element {
                                     }
                                 }
 
-                                // Shares Change (hidden for status actions)
-                                if !is_status {
+                                // Shares Change (hidden for status actions and Note)
+                                if needs_shares {
                                     div {
                                         label { class: "block text-sm font-medium text-gray-700 mb-1",
-                                            {i18n.t(Key::SharesChange)}
+                                            {i18n.t(shares_label_key.clone())}
                                         }
                                         input {
                                             class: "w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500",
                                             r#type: "number",
+                                            min: "1",
                                             value: "{action_shares_change}",
                                             oninput: move |e| {
-                                                action_shares_change.set(e.value().parse().unwrap_or(0));
+                                                action_shares_change.set(e.value().parse::<i32>().unwrap_or(1).max(1));
                                             },
                                         }
                                     }
@@ -918,7 +927,7 @@ pub fn MemberDetails(id: String) -> Element {
                                                             let a = action_for_edit.clone();
                                                             action_type.set(a.action_type.clone());
                                                             action_date.set(a.date);
-                                                            action_shares_change.set(a.shares_change);
+                                                            action_shares_change.set(a.shares_change.abs().max(1));
                                                             action_transfer_member_id.set(
                                                                 a.transfer_member_id.map(|u| u.to_string()).unwrap_or_default()
                                                             );

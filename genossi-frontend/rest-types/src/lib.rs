@@ -302,6 +302,23 @@ impl ActionTypeTO {
         )
     }
 
+    pub fn needs_shares_input(&self) -> bool {
+        matches!(
+            self,
+            ActionTypeTO::Aufstockung
+                | ActionTypeTO::Verkauf
+                | ActionTypeTO::UebertragungEmpfang
+                | ActionTypeTO::UebertragungAbgabe
+        )
+    }
+
+    pub fn negates_shares(&self) -> bool {
+        matches!(
+            self,
+            ActionTypeTO::Verkauf | ActionTypeTO::UebertragungAbgabe
+        )
+    }
+
     pub fn as_str(&self) -> &'static str {
         match self {
             ActionTypeTO::Eintritt => "Eintritt",
@@ -707,4 +724,37 @@ pub struct CommunicationEntryTO {
     pub to_address: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub outbound_status: Option<String>,
+}
+
+// Audit Log types
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AuditLogEntryTO {
+    pub id: Uuid,
+    pub timestamp: String,
+    pub user_id: String,
+    pub process: String,
+    pub transaction_id: Uuid,
+    pub entity_type: String,
+    pub entity_id: Uuid,
+    pub action: String,
+    pub field_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub old_value: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub new_value: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct VerifyResponseTO {
+    pub valid: bool,
+    pub total_entries: usize,
+    pub broken_links: Vec<BrokenLinkTO>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BrokenLinkTO {
+    pub entry_id: Uuid,
+    pub expected_hash: String,
+    pub actual_hash: String,
 }

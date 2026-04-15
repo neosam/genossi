@@ -1,5 +1,6 @@
 pub mod access_denied;
 pub mod applications_page;
+pub mod audit_log;
 pub mod backup;
 pub mod config_page;
 pub mod home;
@@ -15,6 +16,7 @@ pub mod validation;
 
 pub use access_denied::AccessDeniedPage;
 pub use applications_page::ApplicationsPage;
+pub use audit_log::AuditLogPage;
 pub use backup::BackupPage;
 pub use config_page::ConfigPage;
 pub use home::Home;

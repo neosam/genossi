@@ -35,6 +35,11 @@ async fn main() {
     // Create RestStateImpl with all services
     let rest_state = RestStateImpl::new(pool);
 
+    // Initialize audit log snapshot for existing data (runs only if audit_log is empty)
+    if let Err(e) = rest_state.initialize_audit_snapshot().await {
+        tracing::error!("Failed to initialize audit snapshot: {}", e);
+    }
+
     // Provision default templates
     rest_state
         .template_storage()

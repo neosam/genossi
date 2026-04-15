@@ -7082,3 +7082,166 @@ async fn test_update_application_validation_error() {
 
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
+
+// Audit Log E2E Tests
+
+#[tokio::test]
+async fn test_audit_log_empty() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(server.url("/api/audit"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let entries: Vec<genossi_rest_types::AuditLogEntryTO> = response.json().await.unwrap();
+    assert!(entries.is_empty());
+}
+
+#[tokio::test]
+async fn test_audit_log_after_member_create() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/members"))
+        .json(&sample_member())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let member: MemberTO = response.json().await.unwrap();
+
+    let response = client
+        .get(server.url(&format!(
+            "/api/audit/member/{}",
+            member.id.unwrap()
+        )))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let entries: Vec<genossi_rest_types::AuditLogEntryTO> = response.json().await.unwrap();
+    assert!(!entries.is_empty());
+    assert!(entries.iter().all(|e| e.action == "create"));
+    assert!(entries.iter().all(|e| e.entity_type == "member"));
+}
+
+#[tokio::test]
+async fn test_audit_log_after_member_update() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/members"))
+        .json(&sample_member())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let mut member: MemberTO = response.json().await.unwrap();
+
+    member.first_name = "Updated".to_string();
+    let response = client
+        .put(server.url(&format!("/api/members/{}", member.id.unwrap())))
+        .json(&member)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let response = client
+        .get(server.url(&format!(
+            "/api/audit/member/{}",
+            member.id.unwrap()
+        )))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let entries: Vec<genossi_rest_types::AuditLogEntryTO> = response.json().await.unwrap();
+    let create_entries: Vec<_> = entries.iter().filter(|e| e.action == "create").collect();
+    let update_entries: Vec<_> = entries.iter().filter(|e| e.action == "update").collect();
+    assert!(!create_entries.is_empty());
+    assert!(!update_entries.is_empty());
+    assert!(update_entries.iter().any(|e| e.field_name == "first_name"));
+}
+
+#[tokio::test]
+async fn test_audit_verify_empty_chain() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(server.url("/api/audit/verify"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let result: genossi_rest_types::VerifyResponseTO = response.json().await.unwrap();
+    assert!(result.valid);
+    assert_eq!(result.total_entries, 0);
+    assert!(result.broken_links.is_empty());
+}
+
+#[tokio::test]
+async fn test_audit_verify_after_operations() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/members"))
+        .json(&sample_member())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let response = client
+        .get(server.url("/api/audit/verify"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let result: genossi_rest_types::VerifyResponseTO = response.json().await.unwrap();
+    assert!(result.valid);
+    assert!(result.total_entries > 0);
+    assert!(result.broken_links.is_empty());
+}
+
+#[tokio::test]
+async fn test_audit_log_filter_by_action() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/members"))
+        .json(&sample_member())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let response = client
+        .get(server.url("/api/audit?action=create"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let entries: Vec<genossi_rest_types::AuditLogEntryTO> = response.json().await.unwrap();
+    assert!(entries.iter().all(|e| e.action == "create"));
+
+    let response = client
+        .get(server.url("/api/audit?action=delete"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let entries: Vec<genossi_rest_types::AuditLogEntryTO> = response.json().await.unwrap();
+    assert!(entries.is_empty());
+}

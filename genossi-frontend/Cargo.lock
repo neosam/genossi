@@ -911,7 +911,7 @@ dependencies = [
 
 [[package]]
 name = "genossi-frontend"
-version = "0.17.0-dev"
+version = "2026.104.1-dev"
 dependencies = [
  "async-recursion",
  "dioxus",

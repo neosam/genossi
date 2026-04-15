@@ -125,6 +125,16 @@ Genossi is a REST API server built with a clean, layered architecture using Rust
 - **Soft Deletes**: Entities use `deleted` timestamp instead of hard deletion
 - **Version Control**: Each entity has a `version` field for optimistic locking
 - **Component-First Frontend**: UI must be built from reusable components (`genossi-frontend/src/component/`), not inline HTML/RSX. When identical UI appears on multiple pages, extract it into a shared component. See `genossi-frontend/CLAUDE.md` for details.
+- **Audit Logging**: All write operations on Member, MemberAction, MemberDocument, and Application are logged via `audited_create!`, `audited_update!`, `audited_delete!` macros. New entities that require audit logging must implement the `Auditable` trait (`genossi_dao/src/auditable.rs`) and use the audit macros instead of direct DAO calls.
+
+### Audit Log System
+
+- **Auditable Trait**: Entities implement `Auditable` in `genossi_dao` to define `entity_type()`, `entity_id()`, and `audit_fields()` (data fields only, excluding id/version/created/deleted)
+- **Audit Macros**: `audited_create!`, `audited_update!`, `audited_delete!` in `genossi_service_impl/src/audit_macros.rs` atomically perform DAO operations and log changes
+- **Hash Chain**: Each audit entry contains SHA256 hash linking to the previous entry (`genossi_service_impl/src/audit_log.rs`)
+- **One Row Per Field**: Each changed field gets its own audit_log row, grouped by `transaction_id`
+- **REST Endpoints**: `GET /api/audit`, `GET /api/audit/{entity_type}/{entity_id}`, `GET /api/audit/verify`
+- **Adding Audit to New Entities**: 1) Implement `Auditable` trait on the DAO entity, 2) Add `AuditLogDao` dependency via `gen_service_impl!`, 3) Replace direct DAO calls with audit macros, 4) Wire `audit_log_dao` in `genossi_bin/src/lib.rs`
 
 ### Entity Structure
 

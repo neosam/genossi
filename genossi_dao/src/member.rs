@@ -191,6 +191,46 @@ pub trait MemberDao {
     }
 }
 
+impl crate::auditable::Auditable for MemberEntity {
+    fn entity_type() -> &'static str {
+        "member"
+    }
+
+    fn entity_id(&self) -> Uuid {
+        self.id
+    }
+
+    fn audit_fields(&self) -> Vec<(&'static str, Option<String>)> {
+        let format_date = |d: &time::Date| {
+            let fmt = time::format_description::parse("[year]-[month]-[day]").unwrap();
+            d.format(&fmt).unwrap()
+        };
+        vec![
+            ("member_number", Some(self.member_number.to_string())),
+            ("first_name", Some(self.first_name.to_string())),
+            ("last_name", Some(self.last_name.to_string())),
+            ("salutation", self.salutation.as_ref().map(|s| s.as_str().to_string())),
+            ("title", self.title.as_ref().map(|s| s.to_string())),
+            ("email", self.email.as_ref().map(|s| s.to_string())),
+            ("company", self.company.as_ref().map(|s| s.to_string())),
+            ("comment", self.comment.as_ref().map(|s| s.to_string())),
+            ("street", self.street.as_ref().map(|s| s.to_string())),
+            ("house_number", self.house_number.as_ref().map(|s| s.to_string())),
+            ("postal_code", self.postal_code.as_ref().map(|s| s.to_string())),
+            ("city", self.city.as_ref().map(|s| s.to_string())),
+            ("join_date", Some(format_date(&self.join_date))),
+            ("shares_at_joining", Some(self.shares_at_joining.to_string())),
+            ("current_shares", Some(self.current_shares.to_string())),
+            ("current_balance", Some(self.current_balance.to_string())),
+            ("action_count", Some(self.action_count.to_string())),
+            ("migrated", Some(self.migrated.to_string())),
+            ("exit_date", self.exit_date.as_ref().map(format_date)),
+            ("bank_account", self.bank_account.as_ref().map(|s| s.to_string())),
+            ("status", Some(self.status.as_str().to_string())),
+        ]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -474,5 +514,50 @@ mod tests {
         let today = time::Date::from_calendar_date(2025, time::Month::June, 1).unwrap();
         let count = dao.count_active(today, mock_tx()).await.unwrap();
         assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn test_auditable_entity_type() {
+        use crate::auditable::Auditable;
+        assert_eq!(MemberEntity::entity_type(), "member");
+    }
+
+    #[test]
+    fn test_auditable_fields_count() {
+        use crate::auditable::Auditable;
+        let entity = make_entity(1, None);
+        let fields = entity.audit_fields();
+        assert_eq!(fields.len(), 21);
+        // Verify excluded fields are not present
+        let field_names: Vec<&str> = fields.iter().map(|(name, _)| *name).collect();
+        assert!(!field_names.contains(&"id"));
+        assert!(!field_names.contains(&"version"));
+        assert!(!field_names.contains(&"created"));
+        assert!(!field_names.contains(&"deleted"));
+    }
+
+    #[test]
+    fn test_auditable_diff_detects_changes() {
+        use crate::auditable::Auditable;
+        let mut old = make_entity(1, None);
+        old.first_name = Arc::from("Alice");
+        old.email = Some(Arc::from("alice@example.com"));
+        let mut new = old.clone();
+        new.first_name = Arc::from("Bob");
+        new.email = Some(Arc::from("bob@example.com"));
+
+        let changes = old.diff(&new);
+        assert_eq!(changes.len(), 2);
+        let names: Vec<&str> = changes.iter().map(|c| c.field_name).collect();
+        assert!(names.contains(&"first_name"));
+        assert!(names.contains(&"email"));
+    }
+
+    #[test]
+    fn test_auditable_diff_no_changes() {
+        use crate::auditable::Auditable;
+        let entity = make_entity(1, None);
+        let changes = entity.diff(&entity);
+        assert!(changes.is_empty());
     }
 }

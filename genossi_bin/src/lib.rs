@@ -113,6 +113,7 @@ impl MemberServiceDeps for MemberServiceDependencies {
     type Transaction = Transaction;
     type MemberDao = MemberDao;
     type MemberActionDao = MemberActionDao;
+    type AuditLogDao = AuditLogDao;
     type PermissionService = PermissionService;
     type UuidService = UuidService;
     type TransactionDao = TransactionDao;
@@ -132,6 +133,7 @@ impl ApplicationServiceDeps for ApplicationServiceDependencies {
     type Context = Context;
     type Transaction = Transaction;
     type ApplicationDao = ApplicationDao;
+    type AuditLogDao = AuditLogDao;
     type MemberDao = MemberDao;
     type MemberActionDao = MemberActionDao;
     type PermissionService = PermissionService;
@@ -162,6 +164,7 @@ impl MemberImportServiceDeps for MemberImportServiceDependencies {
 type MemberImportService =
     genossi_service_impl::member_import::MemberImportServiceImpl<MemberImportServiceDependencies>;
 
+type AuditLogDao = genossi_dao_impl_sqlite::audit_log::AuditLogDaoImpl;
 type MemberActionDao = genossi_dao_impl_sqlite::member_action::MemberActionDaoImpl;
 type MemberDocumentDao = genossi_dao_impl_sqlite::member_document::MemberDocumentDaoImpl;
 type BackupDao = genossi_dao_impl_sqlite::backup::BackupDaoImpl;
@@ -178,6 +181,7 @@ impl MemberActionServiceDeps for MemberActionServiceDependencies {
     type Transaction = Transaction;
     type MemberActionDao = MemberActionDao;
     type MemberDao = MemberDao;
+    type AuditLogDao = AuditLogDao;
     type PermissionService = PermissionService;
     type UuidService = UuidService;
     type TransactionDao = TransactionDao;
@@ -196,6 +200,7 @@ impl MemberDocumentServiceDeps for MemberDocumentServiceDependencies {
     type Transaction = Transaction;
     type MemberDocumentDao = MemberDocumentDao;
     type MemberDao = MemberDao;
+    type AuditLogDao = AuditLogDao;
     type PermissionService = PermissionService;
     type UuidService = UuidService;
     type TransactionDao = TransactionDao;
@@ -293,6 +298,7 @@ pub struct RestStateImpl {
     inbox_service: Arc<InboxServiceType>,
     static_document_service: Arc<StaticDocumentServiceType>,
     application_service: Arc<ApplicationService>,
+    audit_log_dao: Arc<AuditLogDao>,
     backup_dao: Arc<BackupDao>,
     // Inbox worker dependencies
     worker_inbox_config_service: Arc<ConfigService>,
@@ -334,11 +340,13 @@ impl RestStateImpl {
             });
 
         let member_action_dao = Arc::new(MemberActionDao::new(pool.clone()));
+        let audit_log_dao = Arc::new(AuditLogDao::new(pool.clone()));
 
         let member_service =
             Arc::new(genossi_service_impl::member::MemberServiceImpl {
                 member_dao: member_dao.clone(),
                 member_action_dao: member_action_dao.clone(),
+                audit_log_dao: audit_log_dao.clone(),
                 permission_service: permission_service.clone(),
                 uuid_service: uuid_service.clone(),
                 transaction_dao: transaction_dao.clone(),
@@ -348,6 +356,7 @@ impl RestStateImpl {
             Arc::new(genossi_service_impl::member_action::MemberActionServiceImpl {
                 member_action_dao: member_action_dao.clone(),
                 member_dao: member_dao.clone(),
+                audit_log_dao: audit_log_dao.clone(),
                 permission_service: permission_service.clone(),
                 uuid_service: uuid_service.clone(),
                 transaction_dao: transaction_dao.clone(),
@@ -359,6 +368,7 @@ impl RestStateImpl {
             Arc::new(genossi_service_impl::member_document::MemberDocumentServiceImpl {
                 member_document_dao,
                 member_dao: member_dao.clone(),
+                audit_log_dao: audit_log_dao.clone(),
                 permission_service: permission_service.clone(),
                 uuid_service: uuid_service.clone(),
                 transaction_dao: transaction_dao.clone(),
@@ -434,6 +444,7 @@ impl RestStateImpl {
         let application_service =
             Arc::new(genossi_service_impl::application::ApplicationServiceImpl {
                 application_dao,
+                audit_log_dao: audit_log_dao.clone(),
                 member_dao: member_dao.clone(),
                 member_action_dao: member_action_dao.clone(),
                 permission_service: permission_service.clone(),
@@ -496,6 +507,7 @@ impl RestStateImpl {
             member_action_service,
             member_document_service,
             application_service,
+            audit_log_dao,
             permission_service,
             session_service,
             document_storage,
@@ -525,6 +537,124 @@ impl RestStateImpl {
 }
 
 impl RestStateImpl {
+    pub async fn initialize_audit_snapshot(&self) -> Result<(), Box<dyn std::error::Error>> {
+        use genossi_dao::audit_log::AuditLogDao;
+        use genossi_dao::auditable::Auditable;
+        use genossi_dao::member::MemberDao;
+        use genossi_dao::member_action::MemberActionDao;
+        use genossi_dao::member_document::MemberDocumentDao;
+        use genossi_dao::application::ApplicationDao;
+        use genossi_dao::{Transaction, TransactionDao};
+
+        let transaction_dao = TransactionDaoImpl::new(self.pool.clone());
+        let tx = transaction_dao.transaction().await
+            .map_err(|e| format!("Failed to start transaction: {:?}", e))?;
+
+        // Check if audit_log is empty
+        let latest = self.audit_log_dao.get_latest_hash(tx.clone()).await
+            .map_err(|e| format!("Failed to check audit_log: {:?}", e))?;
+        if latest.is_some() {
+            tracing::info!("Audit log already has entries, skipping initial snapshot");
+            return Ok(());
+        }
+
+        tracing::info!("Audit log is empty, creating initial snapshot of all entities...");
+
+        let member_dao = genossi_dao_impl_sqlite::member::MemberDaoImpl::new(self.pool.clone());
+        let member_action_dao = genossi_dao_impl_sqlite::member_action::MemberActionDaoImpl::new(self.pool.clone());
+        let member_document_dao = genossi_dao_impl_sqlite::member_document::MemberDocumentDaoImpl::new(self.pool.clone());
+        let application_dao = genossi_dao_impl_sqlite::application::ApplicationDaoImpl::new(self.pool.clone());
+
+        let mut prev_hash = String::new();
+        let mut total_entries = 0usize;
+
+        // Snapshot all members
+        let members = member_dao.dump_all(tx.clone()).await
+            .map_err(|e| format!("Failed to load members: {:?}", e))?;
+        let active_members: Vec<_> = members.iter().filter(|m| m.deleted.is_none()).collect();
+        for member in &active_members {
+            let entries = genossi_service_impl::audit_log::build_snapshot_entries(
+                *member, "SYSTEM", "audit-snapshot", &prev_hash,
+                &mut || uuid::Uuid::new_v4(),
+            );
+            if let Some(last) = entries.last() {
+                prev_hash = last.entry_hash.to_string();
+            }
+            total_entries += entries.len();
+            self.audit_log_dao.create_entries(&entries, tx.clone()).await
+                .map_err(|e| format!("Failed to write member snapshot: {:?}", e))?;
+        }
+        tracing::info!("Snapshotted {} members", active_members.len());
+
+        // Snapshot all member actions
+        let actions = member_action_dao.dump_all(tx.clone()).await
+            .map_err(|e| format!("Failed to load actions: {:?}", e))?;
+        let active_actions: Vec<_> = actions.iter().filter(|a| a.deleted.is_none()).collect();
+        for action in &active_actions {
+            let entries = genossi_service_impl::audit_log::build_snapshot_entries(
+                *action, "SYSTEM", "audit-snapshot", &prev_hash,
+                &mut || uuid::Uuid::new_v4(),
+            );
+            if let Some(last) = entries.last() {
+                prev_hash = last.entry_hash.to_string();
+            }
+            total_entries += entries.len();
+            self.audit_log_dao.create_entries(&entries, tx.clone()).await
+                .map_err(|e| format!("Failed to write action snapshot: {:?}", e))?;
+        }
+        tracing::info!("Snapshotted {} member actions", active_actions.len());
+
+        // Snapshot all member documents
+        let documents = member_document_dao.dump_all(tx.clone()).await
+            .map_err(|e| format!("Failed to load documents: {:?}", e))?;
+        let active_documents: Vec<_> = documents.iter().filter(|d| d.deleted.is_none()).collect();
+        for document in &active_documents {
+            let entries = genossi_service_impl::audit_log::build_snapshot_entries(
+                *document, "SYSTEM", "audit-snapshot", &prev_hash,
+                &mut || uuid::Uuid::new_v4(),
+            );
+            if let Some(last) = entries.last() {
+                prev_hash = last.entry_hash.to_string();
+            }
+            total_entries += entries.len();
+            self.audit_log_dao.create_entries(&entries, tx.clone()).await
+                .map_err(|e| format!("Failed to write document snapshot: {:?}", e))?;
+        }
+        tracing::info!("Snapshotted {} member documents", active_documents.len());
+
+        // Snapshot all applications
+        let applications = application_dao.dump_all(tx.clone()).await
+            .map_err(|e| format!("Failed to load applications: {:?}", e))?;
+        let active_applications: Vec<_> = applications.iter().filter(|a| a.deleted.is_none()).collect();
+        for application in &active_applications {
+            let entries = genossi_service_impl::audit_log::build_snapshot_entries(
+                *application, "SYSTEM", "audit-snapshot", &prev_hash,
+                &mut || uuid::Uuid::new_v4(),
+            );
+            if let Some(last) = entries.last() {
+                prev_hash = last.entry_hash.to_string();
+            }
+            total_entries += entries.len();
+            self.audit_log_dao.create_entries(&entries, tx.clone()).await
+                .map_err(|e| format!("Failed to write application snapshot: {:?}", e))?;
+        }
+        tracing::info!("Snapshotted {} applications", active_applications.len());
+
+        tx.commit().await
+            .map_err(|e| format!("Failed to commit snapshot transaction: {:?}", e))?;
+
+        tracing::info!(
+            "Initial audit snapshot complete: {} entries for {} members, {} actions, {} documents, {} applications",
+            total_entries,
+            active_members.len(),
+            active_actions.len(),
+            active_documents.len(),
+            active_applications.len(),
+        );
+
+        Ok(())
+    }
+
     pub fn start_inbox_worker(&self) {
         let config_service = self.worker_inbox_config_service.clone();
         let dao = self.worker_inbox_dao.clone();
@@ -788,6 +918,30 @@ impl genossi_config::rest::ConfigRestState for RestStateImpl {
     type ConfigService = ConfigService;
     fn config_service(&self) -> Arc<Self::ConfigService> {
         self.config_service.clone()
+    }
+}
+
+impl genossi_rest::audit_log::AuditRestState for RestStateImpl {
+    type AuditLogDao = AuditLogDao;
+
+    fn audit_log_dao(&self) -> Arc<Self::AuditLogDao> {
+        self.audit_log_dao.clone()
+    }
+
+    fn audit_transaction(
+        &self,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = Result<Transaction, genossi_dao::DaoError>,
+                > + Send
+                + '_,
+        >,
+    > {
+        let pool = self.pool.clone();
+        Box::pin(async move {
+            genossi_dao_impl_sqlite::TransactionImpl::new(&pool).await
+        })
     }
 }
 

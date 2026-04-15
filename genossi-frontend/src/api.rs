@@ -1329,3 +1329,45 @@ pub async fn get_member_communications(
     response.error_for_status_ref()?;
     Ok(response.json().await?)
 }
+
+pub async fn get_audit_log(
+    config: &Config,
+    params: &std::collections::HashMap<String, String>,
+) -> Result<Vec<rest_types::AuditLogEntryTO>, reqwest::Error> {
+    let query_string: String = params
+        .iter()
+        .map(|(k, v)| format!("{}={}", k, v))
+        .collect::<Vec<_>>()
+        .join("&");
+    let url = if query_string.is_empty() {
+        format!("{}/api/audit", config.backend)
+    } else {
+        format!("{}/api/audit?{}", config.backend, query_string)
+    };
+    let response = reqwest::get(url).await?;
+    response.error_for_status_ref()?;
+    Ok(response.json().await?)
+}
+
+pub async fn get_audit_by_entity(
+    config: &Config,
+    entity_type: &str,
+    entity_id: Uuid,
+) -> Result<Vec<rest_types::AuditLogEntryTO>, reqwest::Error> {
+    let url = format!(
+        "{}/api/audit/{}/{}",
+        config.backend, entity_type, entity_id
+    );
+    let response = reqwest::get(url).await?;
+    response.error_for_status_ref()?;
+    Ok(response.json().await?)
+}
+
+pub async fn verify_audit_chain(
+    config: &Config,
+) -> Result<rest_types::VerifyResponseTO, reqwest::Error> {
+    let url = format!("{}/api/audit/verify", config.backend);
+    let response = reqwest::get(url).await?;
+    response.error_for_status_ref()?;
+    Ok(response.json().await?)
+}

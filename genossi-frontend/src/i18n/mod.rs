@@ -103,6 +103,11 @@ pub enum Key {
     EditAction,
     NoActions,
 
+    SharesAdd,
+    SharesRemove,
+    SharesReceive,
+    SharesTransfer,
+
     // Action Types
     ActionEintritt,
     ActionAustritt,
@@ -376,6 +381,34 @@ pub enum Key {
     Generating,
     BankDetails,
     CooperativeSettings,
+
+    // Audit Log
+    AuditLog,
+    AuditTimestamp,
+    AuditUser,
+    AuditAction,
+    AuditEntityType,
+    AuditEntityId,
+    AuditFieldName,
+    AuditOldValue,
+    AuditNewValue,
+    AuditVerifyChain,
+    AuditVerifySuccess,
+    AuditVerifyFailure,
+    AuditChainValid,
+    AuditChainInvalid,
+    AuditBrokenLinks,
+    AuditTotalEntries,
+    AuditNoEntries,
+    AuditFilterEntityType,
+    AuditFilterUser,
+    AuditFilterAction,
+    AuditFilterFrom,
+    AuditFilterTo,
+    AuditActionCreate,
+    AuditActionUpdate,
+    AuditActionDelete,
+    AuditActionSnapshot,
 
     // Messages
     NoDataFound,

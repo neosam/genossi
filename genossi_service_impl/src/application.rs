@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use genossi_config::service::ConfigService as ConfigServiceTrait;
 use genossi_dao::application::{ApplicationDao, ApplicationStatus};
+use genossi_dao::audit_log::AuditLogDao;
 use genossi_dao::member::MemberDao;
 use genossi_dao::member_action::MemberActionDao;
 use genossi_dao::TransactionDao;
@@ -22,6 +23,7 @@ const MANAGE_MEMBERS_PRIVILEGE: &str = "manage_members";
 gen_service_impl! {
     struct ApplicationServiceImpl: ApplicationService = ApplicationServiceDeps {
         ApplicationDao: ApplicationDao<Transaction = Self::Transaction> = application_dao,
+        AuditLogDao: AuditLogDao<Transaction = Self::Transaction> = audit_log_dao,
         MemberDao: MemberDao<Transaction = Self::Transaction> = member_dao,
         MemberActionDao: MemberActionDao<Transaction = Self::Transaction> = member_action_dao,
         PermissionService: PermissionService<Context = Self::Context> = permission_service,
@@ -199,9 +201,7 @@ impl<Deps: ApplicationServiceDeps> ApplicationService for ApplicationServiceImpl
             version: self.uuid_service.new_v4().await,
         };
 
-        self.application_dao
-            .create(&entity, APPLICATION_SERVICE_PROCESS, tx.clone())
-            .await?;
+        crate::audited_create!(self, self.application_dao, &entity, APPLICATION_SERVICE_PROCESS, "PUBLIC", tx);
 
         self.transaction_dao.commit(tx).await?;
 
@@ -269,6 +269,12 @@ impl<Deps: ApplicationServiceDeps> ApplicationService for ApplicationServiceImpl
     ) -> Result<Application, ServiceError> {
         let tx = self.transaction_dao.use_transaction(None).await?;
 
+        let user_id = self
+            .permission_service
+            .current_user_id(context.clone())
+            .await?
+            .unwrap_or_else(|| "SYSTEM".to_string());
+
         self.permission_service
             .check_permission(MANAGE_MEMBERS_PRIVILEGE, context)
             .await?;
@@ -321,9 +327,7 @@ impl<Deps: ApplicationServiceDeps> ApplicationService for ApplicationServiceImpl
             version: self.uuid_service.new_v4().await,
         };
 
-        self.member_dao
-            .create(&member_entity, APPLICATION_SERVICE_PROCESS, tx.clone())
-            .await?;
+        crate::audited_create!(self, self.member_dao, &member_entity, APPLICATION_SERVICE_PROCESS, &user_id, tx);
 
         // Create Eintritt action
         let eintritt = genossi_dao::member_action::MemberActionEntity {
@@ -339,9 +343,7 @@ impl<Deps: ApplicationServiceDeps> ApplicationService for ApplicationServiceImpl
             deleted: None,
             version: self.uuid_service.new_v4().await,
         };
-        self.member_action_dao
-            .create(&eintritt, APPLICATION_SERVICE_PROCESS, tx.clone())
-            .await?;
+        crate::audited_create!(self, self.member_action_dao, &eintritt, APPLICATION_SERVICE_PROCESS, &user_id, tx);
 
         // Create Aufstockung action
         let aufstockung = genossi_dao::member_action::MemberActionEntity {
@@ -357,15 +359,11 @@ impl<Deps: ApplicationServiceDeps> ApplicationService for ApplicationServiceImpl
             deleted: None,
             version: self.uuid_service.new_v4().await,
         };
-        self.member_action_dao
-            .create(&aufstockung, APPLICATION_SERVICE_PROCESS, tx.clone())
-            .await?;
+        crate::audited_create!(self, self.member_action_dao, &aufstockung, APPLICATION_SERVICE_PROCESS, &user_id, tx);
 
         // Update application status
         entity.status = ApplicationStatus::Bestaetigt;
-        self.application_dao
-            .update(&entity, APPLICATION_SERVICE_PROCESS, tx.clone())
-            .await?;
+        crate::audited_update!(self, self.application_dao, id, &entity, APPLICATION_SERVICE_PROCESS, &user_id, tx);
 
         self.transaction_dao.commit(tx).await?;
         Ok(Application::from(&entity))
@@ -377,6 +375,12 @@ impl<Deps: ApplicationServiceDeps> ApplicationService for ApplicationServiceImpl
         context: Authentication<Self::Context>,
     ) -> Result<Application, ServiceError> {
         let tx = self.transaction_dao.use_transaction(None).await?;
+
+        let user_id = self
+            .permission_service
+            .current_user_id(context.clone())
+            .await?
+            .unwrap_or_else(|| "SYSTEM".to_string());
 
         self.permission_service
             .check_permission(MANAGE_MEMBERS_PRIVILEGE, context)
@@ -396,9 +400,7 @@ impl<Deps: ApplicationServiceDeps> ApplicationService for ApplicationServiceImpl
         }
 
         entity.status = ApplicationStatus::Abgelehnt;
-        self.application_dao
-            .update(&entity, APPLICATION_SERVICE_PROCESS, tx.clone())
-            .await?;
+        crate::audited_update!(self, self.application_dao, id, &entity, APPLICATION_SERVICE_PROCESS, &user_id, tx);
 
         self.transaction_dao.commit(tx).await?;
         Ok(Application::from(&entity))
@@ -437,6 +439,12 @@ impl<Deps: ApplicationServiceDeps> ApplicationService for ApplicationServiceImpl
 
         let tx = self.transaction_dao.use_transaction(None).await?;
 
+        let user_id = self
+            .permission_service
+            .current_user_id(context.clone())
+            .await?
+            .unwrap_or_else(|| "SYSTEM".to_string());
+
         self.permission_service
             .check_permission(MANAGE_MEMBERS_PRIVILEGE, context)
             .await?;
@@ -464,9 +472,7 @@ impl<Deps: ApplicationServiceDeps> ApplicationService for ApplicationServiceImpl
         entity.city = update.city.clone();
         entity.shares = update.shares;
 
-        self.application_dao
-            .update(&entity, APPLICATION_SERVICE_PROCESS, tx.clone())
-            .await?;
+        crate::audited_update!(self, self.application_dao, id, &entity, APPLICATION_SERVICE_PROCESS, &user_id, tx);
 
         self.transaction_dao.commit(tx).await?;
         Ok(Application::from(&entity))

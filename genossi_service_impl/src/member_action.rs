@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use genossi_dao::audit_log::AuditLogDao;
 use genossi_dao::member::MemberDao;
 use genossi_dao::member_action::{ActionType, MemberActionDao};
 use genossi_dao::TransactionDao;
@@ -21,6 +22,7 @@ gen_service_impl! {
     struct MemberActionServiceImpl: MemberActionService = MemberActionServiceDeps {
         MemberActionDao: MemberActionDao<Transaction = Self::Transaction> = member_action_dao,
         MemberDao: MemberDao<Transaction = Self::Transaction> = member_dao,
+        AuditLogDao: AuditLogDao<Transaction = Self::Transaction> = audit_log_dao,
         PermissionService: PermissionService<Context = Self::Context> = permission_service,
         UuidService: UuidService = uuid_service,
         TransactionDao: TransactionDao<Transaction = Self::Transaction> = transaction_dao,
@@ -288,6 +290,12 @@ impl<Deps: MemberActionServiceDeps> MemberActionService for MemberActionServiceI
     ) -> Result<MemberAction, ServiceError> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
 
+        let user_id = self
+            .permission_service
+            .current_user_id(context.clone())
+            .await?
+            .unwrap_or_else(|| "SYSTEM".to_string());
+
         self.permission_service
             .check_permission(MANAGE_MEMBERS_PRIVILEGE, context)
             .await?;
@@ -326,13 +334,8 @@ impl<Deps: MemberActionServiceDeps> MemberActionService for MemberActionServiceI
             version: self.uuid_service.new_v4().await,
         };
 
-        self.member_action_dao
-            .create(
-                &(&new_action).into(),
-                MEMBER_ACTION_SERVICE_PROCESS,
-                tx.clone(),
-            )
-            .await?;
+        let action_entity: genossi_dao::member_action::MemberActionEntity = (&new_action).into();
+        crate::audited_create!(self, self.member_action_dao, &action_entity, MEMBER_ACTION_SERVICE_PROCESS, &user_id, tx);
 
         self.recalc_dates(new_action.member_id, tx.clone())
             .await?;
@@ -351,6 +354,12 @@ impl<Deps: MemberActionServiceDeps> MemberActionService for MemberActionServiceI
     ) -> Result<MemberAction, ServiceError> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
 
+        let user_id = self
+            .permission_service
+            .current_user_id(context.clone())
+            .await?
+            .unwrap_or_else(|| "SYSTEM".to_string());
+
         self.permission_service
             .check_permission(MANAGE_MEMBERS_PRIVILEGE, context)
             .await?;
@@ -360,9 +369,8 @@ impl<Deps: MemberActionServiceDeps> MemberActionService for MemberActionServiceI
             return Err(ServiceError::ValidationError(validation_errors));
         }
 
-        self.member_action_dao
-            .update(&item.into(), MEMBER_ACTION_SERVICE_PROCESS, tx.clone())
-            .await?;
+        let action_entity: genossi_dao::member_action::MemberActionEntity = item.into();
+        crate::audited_update!(self, self.member_action_dao, item.id, &action_entity, MEMBER_ACTION_SERVICE_PROCESS, &user_id, tx);
 
         self.recalc_dates(item.member_id, tx.clone()).await?;
         self.recalc_migrated(item.member_id, tx.clone()).await?;
@@ -379,27 +387,30 @@ impl<Deps: MemberActionServiceDeps> MemberActionService for MemberActionServiceI
     ) -> Result<(), ServiceError> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
 
+        let user_id = self
+            .permission_service
+            .current_user_id(context.clone())
+            .await?
+            .unwrap_or_else(|| "SYSTEM".to_string());
+
         self.permission_service
             .check_permission(MANAGE_MEMBERS_PRIVILEGE, context)
             .await?;
 
-        let existing = self.member_action_dao.find_by_id(id, tx.clone()).await?;
+        // Get member_id before delete for recalc
+        let existing = self
+            .member_action_dao
+            .find_by_id(id, tx.clone())
+            .await?
+            .ok_or(ServiceError::EntityNotFound(id))?;
+        let member_id = existing.member_id;
 
-        match existing {
-            Some(mut entity) => {
-                let member_id = entity.member_id;
-                let now = time::OffsetDateTime::now_utc();
-                entity.deleted = Some(time::PrimitiveDateTime::new(now.date(), now.time()));
-                self.member_action_dao
-                    .update(&entity, MEMBER_ACTION_SERVICE_PROCESS, tx.clone())
-                    .await?;
-                self.recalc_dates(member_id, tx.clone()).await?;
-                self.recalc_migrated(member_id, tx.clone()).await?;
-                self.transaction_dao.commit(tx).await?;
-                Ok(())
-            }
-            None => Err(ServiceError::EntityNotFound(id)),
-        }
+        crate::audited_delete!(self, self.member_action_dao, id, MEMBER_ACTION_SERVICE_PROCESS, &user_id, tx);
+
+        self.recalc_dates(member_id, tx.clone()).await?;
+        self.recalc_migrated(member_id, tx.clone()).await?;
+        self.transaction_dao.commit(tx).await?;
+        Ok(())
     }
 
     async fn migration_status(

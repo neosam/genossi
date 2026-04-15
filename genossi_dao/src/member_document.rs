@@ -20,6 +20,27 @@ pub struct MemberDocumentEntity {
     pub version: Uuid,
 }
 
+impl crate::auditable::Auditable for MemberDocumentEntity {
+    fn entity_type() -> &'static str {
+        "member_document"
+    }
+
+    fn entity_id(&self) -> Uuid {
+        self.id
+    }
+
+    fn audit_fields(&self) -> Vec<(&'static str, Option<String>)> {
+        vec![
+            ("member_id", Some(self.member_id.to_string())),
+            ("document_type", Some(self.document_type.to_string())),
+            ("description", self.description.as_ref().map(|s| s.to_string())),
+            ("file_name", Some(self.file_name.to_string())),
+            ("mime_type", Some(self.mime_type.to_string())),
+            ("relative_path", Some(self.relative_path.to_string())),
+        ]
+    }
+}
+
 #[automock(type Transaction = crate::MockTransaction;)]
 #[async_trait]
 pub trait MemberDocumentDao {
@@ -91,5 +112,63 @@ pub trait MemberDocumentDao {
             }
         }
         Ok(counts)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::auditable::Auditable;
+
+    fn make_document() -> MemberDocumentEntity {
+        let date = time::Date::from_calendar_date(2026, time::Month::April, 15).unwrap();
+        let datetime = time::PrimitiveDateTime::new(date, time::Time::MIDNIGHT);
+        MemberDocumentEntity {
+            id: Uuid::new_v4(),
+            member_id: Uuid::new_v4(),
+            document_type: Arc::from("Beitrittserklärung"),
+            description: Some(Arc::from("test doc")),
+            file_name: Arc::from("beitritt.pdf"),
+            mime_type: Arc::from("application/pdf"),
+            relative_path: Arc::from("docs/beitritt.pdf"),
+            created: datetime,
+            deleted: None,
+            version: Uuid::new_v4(),
+        }
+    }
+
+    #[test]
+    fn test_auditable_entity_type() {
+        assert_eq!(MemberDocumentEntity::entity_type(), "member_document");
+    }
+
+    #[test]
+    fn test_auditable_fields_count() {
+        let entity = make_document();
+        let fields = entity.audit_fields();
+        assert_eq!(fields.len(), 6);
+        let field_names: Vec<&str> = fields.iter().map(|(name, _)| *name).collect();
+        assert!(!field_names.contains(&"id"));
+        assert!(!field_names.contains(&"version"));
+        assert!(!field_names.contains(&"created"));
+        assert!(!field_names.contains(&"deleted"));
+    }
+
+    #[test]
+    fn test_auditable_diff_detects_changes() {
+        let old = make_document();
+        let mut new = old.clone();
+        new.description = Some(Arc::from("updated description"));
+
+        let changes = old.diff(&new);
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].field_name, "description");
+    }
+
+    #[test]
+    fn test_auditable_diff_no_changes() {
+        let entity = make_document();
+        let changes = entity.diff(&entity);
+        assert!(changes.is_empty());
     }
 }

@@ -1,6 +1,7 @@
 use dioxus::prelude::*;
 
 pub use crate::page::ApplicationsPage;
+pub use crate::page::AuditLogPage;
 pub use crate::page::ConfigPage;
 pub use crate::page::Home;
 pub use crate::page::InboxPage;
@@ -45,4 +46,6 @@ pub enum Route {
     StaticDocumentsPage {},
     #[route("/backup")]
     BackupPage {},
+    #[route("/audit")]
+    AuditLogPage {},
 }

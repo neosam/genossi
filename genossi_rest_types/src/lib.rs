@@ -922,3 +922,59 @@ pub struct UpdateApplicationRequest {
     pub shares: i32,
     pub version: Uuid,
 }
+
+// Audit Log types
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct AuditLogEntryTO {
+    pub id: Uuid,
+    pub timestamp: String,
+    pub user_id: String,
+    pub process: String,
+    pub transaction_id: Uuid,
+    pub entity_type: String,
+    pub entity_id: Uuid,
+    pub action: String,
+    pub field_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub old_value: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub new_value: Option<String>,
+}
+
+impl From<&genossi_dao::audit_log::AuditLogEntry> for AuditLogEntryTO {
+    fn from(e: &genossi_dao::audit_log::AuditLogEntry) -> Self {
+        let format = &time::format_description::well_known::Iso8601::DEFAULT;
+        Self {
+            id: e.id,
+            timestamp: e
+                .timestamp
+                .assume_utc()
+                .format(format)
+                .unwrap_or_default(),
+            user_id: e.user_id.to_string(),
+            process: e.process.to_string(),
+            transaction_id: e.transaction_id,
+            entity_type: e.entity_type.to_string(),
+            entity_id: e.entity_id,
+            action: e.action.to_string(),
+            field_name: e.field_name.to_string(),
+            old_value: e.old_value.as_ref().map(|s| s.to_string()),
+            new_value: e.new_value.as_ref().map(|s| s.to_string()),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct VerifyResponseTO {
+    pub valid: bool,
+    pub total_entries: usize,
+    pub broken_links: Vec<BrokenLinkTO>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct BrokenLinkTO {
+    pub entry_id: Uuid,
+    pub expected_hash: String,
+    pub actual_hash: String,
+}

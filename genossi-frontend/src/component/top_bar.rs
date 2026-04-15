@@ -91,6 +91,12 @@ pub fn TopBar() -> Element {
             route: Route::BackupPage {},
         });
     }
+    if show_admin {
+        verwaltung_items.push(NavItem {
+            label: i18n.t(Key::AuditLog).to_string(),
+            route: Route::AuditLogPage {},
+        });
+    }
     if show_permissions {
         verwaltung_items.push(NavItem {
             label: i18n.t(Key::Permissions).to_string(),

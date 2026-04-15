@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use genossi_dao::audit_log::AuditLogDao;
 use genossi_dao::member::MemberDao;
 use genossi_dao::member_document::MemberDocumentDao;
 use genossi_dao::TransactionDao;
@@ -22,6 +23,7 @@ gen_service_impl! {
     struct MemberDocumentServiceImpl: MemberDocumentService = MemberDocumentServiceDeps {
         MemberDocumentDao: MemberDocumentDao<Transaction = Self::Transaction> = member_document_dao,
         MemberDao: MemberDao<Transaction = Self::Transaction> = member_dao,
+        AuditLogDao: AuditLogDao<Transaction = Self::Transaction> = audit_log_dao,
         PermissionService: PermissionService<Context = Self::Context> = permission_service,
         UuidService: UuidService = uuid_service,
         TransactionDao: TransactionDao<Transaction = Self::Transaction> = transaction_dao,
@@ -52,6 +54,12 @@ impl<Deps: MemberDocumentServiceDeps> MemberDocumentService
         tx: Option<Self::Transaction>,
     ) -> Result<MemberDocument, ServiceError> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
+
+        let user_id = self
+            .permission_service
+            .current_user_id(context.clone())
+            .await?
+            .unwrap_or_else(|| "SYSTEM".to_string());
 
         self.permission_service
             .check_permission(MANAGE_MEMBERS_PRIVILEGE, context)
@@ -114,9 +122,8 @@ impl<Deps: MemberDocumentServiceDeps> MemberDocumentService
             version: self.uuid_service.new_v4().await,
         };
 
-        self.member_document_dao
-            .create(&(&new_doc).into(), PROCESS, tx.clone())
-            .await?;
+        let doc_entity: genossi_dao::member_document::MemberDocumentEntity = (&new_doc).into();
+        crate::audited_create!(self, self.member_document_dao, &doc_entity, PROCESS, &user_id, tx);
 
         self.transaction_dao.commit(tx).await?;
         Ok(new_doc)
@@ -183,6 +190,12 @@ impl<Deps: MemberDocumentServiceDeps> MemberDocumentService
     ) -> Result<(), ServiceError> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
 
+        let user_id = self
+            .permission_service
+            .current_user_id(context.clone())
+            .await?
+            .unwrap_or_else(|| "SYSTEM".to_string());
+
         self.permission_service
             .check_permission(MANAGE_MEMBERS_PRIVILEGE, context)
             .await?;
@@ -197,13 +210,7 @@ impl<Deps: MemberDocumentServiceDeps> MemberDocumentService
             return Err(ServiceError::EntityNotFound(document_id));
         }
 
-        let mut to_delete = doc.clone();
-        let now = time::OffsetDateTime::now_utc();
-        to_delete.deleted = Some(time::PrimitiveDateTime::new(now.date(), now.time()));
-
-        self.member_document_dao
-            .update(&to_delete, PROCESS, tx.clone())
-            .await?;
+        crate::audited_delete!(self, self.member_document_dao, document_id, PROCESS, &user_id, tx);
 
         self.transaction_dao.commit(tx).await?;
         Ok(())
