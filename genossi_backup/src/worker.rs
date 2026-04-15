@@ -2,7 +2,10 @@ use std::sync::Arc;
 
 use genossi_config::dao::ConfigEntry;
 use genossi_config::service::ConfigService;
+use genossi_dao::audit_log::AuditLogDao;
+use genossi_dao::audit_timestamp::AuditTimestampDao;
 use genossi_dao::backup::{BackupCommunicationSyncDao, BackupDao, BackupDocumentSyncDao};
+use genossi_dao::TransactionDao;
 use genossi_service::document_storage::DocumentStorage;
 
 use crate::generator;
@@ -84,13 +87,16 @@ async fn update_status<C: ConfigService>(config_service: &C, status: &str) {
         .await;
 }
 
-async fn run_backup_cycle<C, B, S, CS, D>(
+async fn run_backup_cycle<C, B, S, CS, D, AL, AT, TD>(
     config: &BackupConfig,
     backup_dao: &B,
     sync_dao: &S,
     comm_sync_dao: &CS,
     document_storage: &D,
     config_service: &C,
+    audit_log_dao: &AL,
+    audit_timestamp_dao: &AT,
+    transaction_dao: &TD,
 ) -> Result<String, String>
 where
     C: ConfigService,
@@ -98,6 +104,9 @@ where
     S: BackupDocumentSyncDao,
     CS: BackupCommunicationSyncDao,
     D: DocumentStorage,
+    AL: AuditLogDao<Transaction = TD::Transaction>,
+    AT: AuditTimestampDao<Transaction = TD::Transaction>,
+    TD: TransactionDao,
 {
     let webdav = WebDavClient::new(&config.url, &config.username, &config.password);
     let base_dir = &config.directory;
@@ -219,28 +228,110 @@ where
         comm_sync_stats.failed
     );
 
+    // 7. Export audit log as CSV
+    let mut audit_log_exported = false;
+    let tx = transaction_dao
+        .transaction()
+        .await
+        .map_err(|e| format!("Failed to create transaction: {:?}", e))?;
+
+    let audit_entries = audit_log_dao
+        .get_all_ordered(tx.clone())
+        .await
+        .map_err(|e| format!("Failed to fetch audit log: {:?}", e))?;
+
+    let audit_csv = generator::generate_audit_log_csv(&audit_entries)?;
+    let audit_path = format!("{}/audit-log.csv", base_dir);
+    webdav
+        .put(&audit_path, audit_csv)
+        .await
+        .map_err(|e| format!("Failed to upload audit-log.csv: {}", e))?;
+    audit_log_exported = true;
+    tracing::info!("Uploaded audit-log.csv ({} entries)", audit_entries.len());
+
+    // 8. Upload pending .tsr timestamp tokens
+    let pending = audit_timestamp_dao
+        .get_pending_upload(tx.clone())
+        .await
+        .map_err(|e| format!("Failed to fetch pending timestamps: {:?}", e))?;
+
+    let mut tsr_uploaded = 0;
+    let mut tsr_failed = 0;
+
+    if !pending.is_empty() {
+        let timestamps_dir = format!("{}/audit-timestamps", base_dir);
+        webdav
+            .mkcol_recursive(&timestamps_dir)
+            .await
+            .map_err(|e| format!("Failed to create audit-timestamps directory: {}", e))?;
+
+        let iso_format = time::format_description::well_known::Iso8601::DEFAULT;
+
+        for entry in pending.iter() {
+            if let Some(ref token) = entry.tsr_token {
+                let ts_str = entry
+                    .timestamp
+                    .assume_utc()
+                    .format(&iso_format)
+                    .unwrap_or_else(|_| "unknown".to_string());
+                let filename = format!("audit-checkpoint-{}.tsr", ts_str);
+                let path = format!("{}/{}", timestamps_dir, filename);
+
+                match webdav.put(&path, token.to_vec()).await {
+                    Ok(()) => {
+                        if let Err(e) = audit_timestamp_dao
+                            .update_webdav_path(entry.id, &path, tx.clone())
+                            .await
+                        {
+                            tracing::warn!("Failed to update webdav_path for {}: {:?}", entry.id, e);
+                        }
+                        tsr_uploaded += 1;
+                        tracing::info!("Uploaded {}", filename);
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to upload {}: {}", filename, e);
+                        tsr_failed += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    transaction_dao
+        .commit(tx)
+        .await
+        .map_err(|e| format!("Failed to commit transaction: {:?}", e))?;
+
     let status = format!(
-        "Erfolgreich: {} CSVs, {} Dokumente ({} übersprungen, {} fehlgeschlagen), {} Kommunikation ({} übersprungen, {} fehlgeschlagen)",
+        "Erfolgreich: {} CSVs, {} Dokumente ({} übersprungen, {} fehlgeschlagen), {} Kommunikation ({} übersprungen, {} fehlgeschlagen), Audit-Log: {}, TSR: {} hochgeladen ({} fehlgeschlagen)",
         csv_count,
         sync_stats.uploaded, sync_stats.skipped, sync_stats.failed,
-        comm_sync_stats.uploaded, comm_sync_stats.skipped, comm_sync_stats.failed
+        comm_sync_stats.uploaded, comm_sync_stats.skipped, comm_sync_stats.failed,
+        if audit_log_exported { "exportiert" } else { "übersprungen" },
+        tsr_uploaded, tsr_failed
     );
 
     Ok(status)
 }
 
-pub async fn start_backup_worker<C, B, S, CS, D>(
+pub async fn start_backup_worker<C, B, S, CS, D, AL, AT, TD>(
     config_service: Arc<C>,
     backup_dao: Arc<B>,
     sync_dao: Arc<S>,
     comm_sync_dao: Arc<CS>,
     document_storage: Arc<D>,
+    audit_log_dao: Arc<AL>,
+    audit_timestamp_dao: Arc<AT>,
+    transaction_dao: Arc<TD>,
 ) where
     C: ConfigService,
     B: BackupDao,
     S: BackupDocumentSyncDao,
     CS: BackupCommunicationSyncDao,
     D: DocumentStorage,
+    AL: AuditLogDao<Transaction = TD::Transaction>,
+    AT: AuditTimestampDao<Transaction = TD::Transaction>,
+    TD: TransactionDao,
 {
     tracing::info!("Backup worker started");
 
@@ -268,6 +359,9 @@ pub async fn start_backup_worker<C, B, S, CS, D>(
                     comm_sync_dao.as_ref(),
                     document_storage.as_ref(),
                     config_service.as_ref(),
+                    audit_log_dao.as_ref(),
+                    audit_timestamp_dao.as_ref(),
+                    transaction_dao.as_ref(),
                 )
                 .await
                 {

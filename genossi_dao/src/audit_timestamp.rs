@@ -42,4 +42,16 @@ pub trait AuditTimestampDao {
         id: Uuid,
         tx: Self::Transaction,
     ) -> Result<Option<AuditTimestampEntry>, DaoError>;
+
+    async fn get_pending_upload(
+        &self,
+        tx: Self::Transaction,
+    ) -> Result<Arc<[AuditTimestampEntry]>, DaoError>;
+
+    async fn update_webdav_path(
+        &self,
+        id: Uuid,
+        path: &str,
+        tx: Self::Transaction,
+    ) -> Result<(), DaoError>;
 }

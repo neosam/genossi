@@ -159,6 +159,40 @@ impl AuditTimestampDao for AuditTimestampDaoImpl {
             None => Ok(None),
         }
     }
+
+    async fn get_pending_upload(
+        &self,
+        tx: Self::Transaction,
+    ) -> Result<Arc<[AuditTimestampEntry]>, DaoError> {
+        let rows = sqlx::query_as::<_, AuditTimestampDb>(
+            "SELECT id, timestamp, audit_hash, audit_entry_count, tsr_token, webdav_path, status \
+             FROM audit_timestamp WHERE webdav_path IS NULL AND status = 'success' ORDER BY rowid ASC",
+        )
+        .fetch_all(tx.tx.lock().await.as_mut())
+        .await
+        .map_err(|e| DaoError::DatabaseError(Arc::from(e.to_string())))?;
+
+        rows.iter()
+            .map(AuditTimestampEntry::try_from)
+            .collect::<Result<Vec<_>, _>>()
+            .map(|v| v.into())
+    }
+
+    async fn update_webdav_path(
+        &self,
+        id: Uuid,
+        path: &str,
+        tx: Self::Transaction,
+    ) -> Result<(), DaoError> {
+        let id_bytes = id.as_bytes().to_vec();
+        sqlx::query("UPDATE audit_timestamp SET webdav_path = ? WHERE id = ?")
+            .bind(path)
+            .bind(id_bytes)
+            .execute(tx.tx.lock().await.as_mut())
+            .await
+            .map_err(|e| DaoError::DatabaseError(Arc::from(e.to_string())))?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -303,6 +337,68 @@ mod tests {
         let tx = tx_dao.transaction().await.unwrap();
         let result = dao.get_by_id(Uuid::new_v4(), tx.clone()).await.unwrap();
         assert!(result.is_none());
+
+        tx.commit().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_get_pending_upload() {
+        let pool = setup_db().await;
+        let dao = AuditTimestampDaoImpl::new(pool.clone());
+        let tx_dao = TransactionDaoImpl::new(pool);
+
+        let tx = tx_dao.transaction().await.unwrap();
+
+        // Entry with webdav_path set (already uploaded)
+        let entry1 = make_entry("hash1", "success");
+        dao.create(&entry1, tx.clone()).await.unwrap();
+
+        // Entry without webdav_path (pending)
+        let mut entry2 = make_entry("hash2", "success");
+        entry2.webdav_path = None;
+        dao.create(&entry2, tx.clone()).await.unwrap();
+
+        // Failed entry without webdav_path (should NOT be included)
+        let mut entry3 = make_entry("hash3", "tsa_failed");
+        entry3.tsr_token = None;
+        entry3.webdav_path = None;
+        dao.create(&entry3, tx.clone()).await.unwrap();
+
+        let pending = dao.get_pending_upload(tx.clone()).await.unwrap();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].audit_hash.as_ref(), "hash2");
+
+        tx.commit().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_update_webdav_path() {
+        let pool = setup_db().await;
+        let dao = AuditTimestampDaoImpl::new(pool.clone());
+        let tx_dao = TransactionDaoImpl::new(pool);
+
+        let mut entry = make_entry("hash1", "success");
+        entry.webdav_path = None;
+
+        let tx = tx_dao.transaction().await.unwrap();
+        dao.create(&entry, tx.clone()).await.unwrap();
+
+        // Verify initially no webdav_path
+        let result = dao.get_by_id(entry.id, tx.clone()).await.unwrap().unwrap();
+        assert!(result.webdav_path.is_none());
+
+        // Update
+        dao.update_webdav_path(entry.id, "audit-timestamps/test.tsr", tx.clone())
+            .await
+            .unwrap();
+
+        // Verify updated
+        let result = dao.get_by_id(entry.id, tx.clone()).await.unwrap().unwrap();
+        assert_eq!(result.webdav_path.as_deref(), Some("audit-timestamps/test.tsr"));
+
+        // Should no longer be pending
+        let pending = dao.get_pending_upload(tx.clone()).await.unwrap();
+        assert!(pending.is_empty());
 
         tx.commit().await.unwrap();
     }

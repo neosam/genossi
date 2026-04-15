@@ -13,7 +13,6 @@ genossi_dao = { path = "../genossi_dao" }
 genossi_service = { path = "../genossi_service" }
 genossi_config = { path = "../genossi_config" }
 genossi_mail = { path = "../genossi_mail" }
-genossi_backup = { path = "../genossi_backup" }
 async-trait = { workspace = true }
 time = { workspace = true }
 uuid = { workspace = true }

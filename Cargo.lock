@@ -1764,7 +1764,6 @@ dependencies = [
  "const-oid",
  "der",
  "flate2",
- "genossi_backup",
  "genossi_config",
  "genossi_dao",
  "genossi_mail",

@@ -685,6 +685,9 @@ impl RestStateImpl {
         let sync_dao = self.backup_sync_dao.clone();
         let comm_sync_dao = self.backup_comm_sync_dao.clone();
         let document_storage = self.document_storage.clone();
+        let audit_log_dao = Arc::new(AuditLogDao::new(self.pool.clone()));
+        let audit_timestamp_dao = Arc::new(AuditTimestampDao::new(self.pool.clone()));
+        let transaction_dao = Arc::new(TransactionDao::new(self.pool.clone()));
         tokio::spawn(async move {
             genossi_backup::worker::start_backup_worker(
                 config_service,
@@ -692,6 +695,9 @@ impl RestStateImpl {
                 sync_dao,
                 comm_sync_dao,
                 document_storage,
+                audit_log_dao,
+                audit_timestamp_dao,
+                transaction_dao,
             )
             .await;
         });

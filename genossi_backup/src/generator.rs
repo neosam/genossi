@@ -1,3 +1,4 @@
+use genossi_dao::audit_log::AuditLogEntry;
 use genossi_dao::backup::{ActionBackupRow, CommunicationBackupRow, MemberBackupRow};
 
 const UTF8_BOM: &[u8] = b"\xEF\xBB\xBF";
@@ -214,6 +215,59 @@ fn format_date_for_display(date: &str) -> String {
     }
 }
 
+pub fn generate_audit_log_csv(entries: &[AuditLogEntry]) -> Result<Vec<u8>, String> {
+    let mut buf = Vec::new();
+    buf.extend_from_slice(UTF8_BOM);
+
+    let mut wtr = csv::Writer::from_writer(&mut buf);
+    wtr.write_record([
+        "id",
+        "timestamp",
+        "user_id",
+        "process",
+        "transaction_id",
+        "entity_type",
+        "entity_id",
+        "action",
+        "field_name",
+        "old_value",
+        "new_value",
+        "prev_hash",
+        "entry_hash",
+    ])
+    .map_err(|e| e.to_string())?;
+
+    let format = &time::format_description::well_known::Iso8601::DEFAULT;
+
+    for e in entries.iter() {
+        let timestamp = e
+            .timestamp
+            .assume_utc()
+            .format(format)
+            .unwrap_or_default();
+        wtr.write_record([
+            e.id.to_string(),
+            timestamp,
+            e.user_id.to_string(),
+            e.process.to_string(),
+            e.transaction_id.to_string(),
+            e.entity_type.to_string(),
+            e.entity_id.to_string(),
+            e.action.to_string(),
+            e.field_name.to_string(),
+            e.old_value.as_deref().unwrap_or("").to_string(),
+            e.new_value.as_deref().unwrap_or("").to_string(),
+            e.prev_hash.to_string(),
+            e.entry_hash.to_string(),
+        ])
+        .map_err(|e| e.to_string())?;
+    }
+
+    wtr.flush().map_err(|e| e.to_string())?;
+    drop(wtr);
+    Ok(buf)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -397,5 +451,69 @@ mod tests {
         assert!(txt.contains("Betreff: Frage zu Anteilen"));
         assert!(txt.contains("ich hätte eine Frage..."));
         assert!(!txt.contains("An:"));
+    }
+
+    #[test]
+    fn test_generate_audit_log_csv_empty() {
+        let csv = generate_audit_log_csv(&[]).unwrap();
+        let text = String::from_utf8(csv).unwrap();
+        assert!(text.contains("id,timestamp,user_id,process,transaction_id"));
+        // Only header, no data rows
+        assert_eq!(text.lines().count(), 1);
+    }
+
+    #[test]
+    fn test_generate_audit_log_csv_with_entries() {
+        let date = time::Date::from_calendar_date(2026, time::Month::April, 15).unwrap();
+        let datetime = time::PrimitiveDateTime::new(date, time::Time::MIDNIGHT);
+        let entry = AuditLogEntry {
+            id: uuid::Uuid::nil(),
+            timestamp: datetime,
+            user_id: Arc::from("admin"),
+            process: Arc::from("member-service"),
+            transaction_id: uuid::Uuid::nil(),
+            entity_type: Arc::from("member"),
+            entity_id: uuid::Uuid::nil(),
+            action: Arc::from("create"),
+            field_name: Arc::from("first_name"),
+            old_value: None,
+            new_value: Some(Arc::from("Max")),
+            prev_hash: Arc::from(""),
+            entry_hash: Arc::from("abc123"),
+        };
+        let csv = generate_audit_log_csv(&[entry]).unwrap();
+        let text = String::from_utf8(csv).unwrap();
+        assert_eq!(text.lines().count(), 2); // header + 1 row
+        assert!(text.contains("admin"));
+        assert!(text.contains("member-service"));
+        assert!(text.contains("first_name"));
+        assert!(text.contains("Max"));
+        assert!(text.contains("abc123"));
+    }
+
+    #[test]
+    fn test_generate_audit_log_csv_special_characters() {
+        let date = time::Date::from_calendar_date(2026, time::Month::April, 15).unwrap();
+        let datetime = time::PrimitiveDateTime::new(date, time::Time::MIDNIGHT);
+        let entry = AuditLogEntry {
+            id: uuid::Uuid::nil(),
+            timestamp: datetime,
+            user_id: Arc::from("user"),
+            process: Arc::from("test"),
+            transaction_id: uuid::Uuid::nil(),
+            entity_type: Arc::from("member"),
+            entity_id: uuid::Uuid::nil(),
+            action: Arc::from("update"),
+            field_name: Arc::from("comment"),
+            old_value: Some(Arc::from("value with, comma")),
+            new_value: Some(Arc::from("value with \"quotes\"")),
+            prev_hash: Arc::from("prev"),
+            entry_hash: Arc::from("hash"),
+        };
+        let csv = generate_audit_log_csv(&[entry]).unwrap();
+        let text = String::from_utf8(csv).unwrap();
+        // CSV library should properly escape commas and quotes
+        assert!(text.contains("\"value with, comma\""));
+        assert!(text.contains("\"value with \"\"quotes\"\"\""));
     }
 }
