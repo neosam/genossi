@@ -758,3 +758,31 @@ pub struct BrokenLinkTO {
     pub expected_hash: String,
     pub actual_hash: String,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TimestampResponseTO {
+    pub id: Uuid,
+    pub timestamp: String,
+    pub audit_hash: String,
+    pub audit_entry_count: i64,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub webdav_path: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TimestampVerifyResponseTO {
+    pub token_valid: bool,
+    pub hash_matches: bool,
+    pub audit_log_consistent: bool,
+    pub timestamp: String,
+    pub audit_hash: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TimestampCreateResponseTO {
+    pub created: bool,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<TimestampResponseTO>,
+}

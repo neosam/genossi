@@ -978,3 +978,66 @@ pub struct BrokenLinkTO {
     pub expected_hash: String,
     pub actual_hash: String,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct TimestampResponseTO {
+    pub id: Uuid,
+    pub timestamp: String,
+    pub audit_hash: String,
+    pub audit_entry_count: i64,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub webdav_path: Option<String>,
+}
+
+impl From<&genossi_dao::audit_timestamp::AuditTimestampEntry> for TimestampResponseTO {
+    fn from(e: &genossi_dao::audit_timestamp::AuditTimestampEntry) -> Self {
+        let format = &time::format_description::well_known::Iso8601::DEFAULT;
+        Self {
+            id: e.id,
+            timestamp: e
+                .timestamp
+                .assume_utc()
+                .format(format)
+                .unwrap_or_default(),
+            audit_hash: e.audit_hash.to_string(),
+            audit_entry_count: e.audit_entry_count,
+            status: e.status.to_string(),
+            webdav_path: e.webdav_path.as_ref().map(|s| s.to_string()),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct TimestampVerifyResponseTO {
+    pub token_valid: bool,
+    pub hash_matches: bool,
+    pub audit_log_consistent: bool,
+    pub timestamp: String,
+    pub audit_hash: String,
+}
+
+impl From<&genossi_service::timestamp::TimestampVerification> for TimestampVerifyResponseTO {
+    fn from(v: &genossi_service::timestamp::TimestampVerification) -> Self {
+        let format = &time::format_description::well_known::Iso8601::DEFAULT;
+        Self {
+            token_valid: v.token_valid,
+            hash_matches: v.hash_matches,
+            audit_log_consistent: v.audit_log_consistent,
+            timestamp: v
+                .timestamp
+                .assume_utc()
+                .format(format)
+                .unwrap_or_default(),
+            audit_hash: v.audit_hash.to_string(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct TimestampCreateResponseTO {
+    pub created: bool,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<TimestampResponseTO>,
+}

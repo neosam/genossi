@@ -5,7 +5,7 @@ use rest_types::{AuditLogEntryTO, VerifyResponseTO};
 
 use crate::api;
 use crate::auth::RequirePrivilege;
-use crate::component::TopBar;
+use crate::component::{TimestampSection, TopBar};
 use crate::i18n::{use_i18n, Key};
 use crate::page::AccessDeniedPage;
 use crate::service::config::CONFIG;
@@ -152,6 +152,9 @@ pub fn AuditLogPage() -> Element {
                             }
                         }
                     }
+
+                    // Qualified Timestamps
+                    TimestampSection {}
 
                     // Filters
                     div { class: "bg-white rounded-lg shadow p-4 mb-6",

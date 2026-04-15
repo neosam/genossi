@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 
 use crate::api::{self, ConfigEntryTO};
 use crate::auth::RequirePrivilege;
-use crate::component::{TopBar, WordPressIntegrationSection};
+use crate::component::{TopBar, TsaConfigSection, WordPressIntegrationSection};
 use crate::i18n::{use_i18n, Key};
 use crate::page::AccessDeniedPage;
 use crate::service::config::CONFIG;
@@ -986,6 +986,14 @@ pub fn ConfigPage() -> Element {
                                     }
                                 }
                             }
+                        }
+
+                        // TSA Configuration Section
+                        TsaConfigSection {
+                            entries: entries,
+                            error: error,
+                            success_msg: success_msg,
+                            on_reload: move |_| reload(),
                         }
 
                         // WordPress Integration Section

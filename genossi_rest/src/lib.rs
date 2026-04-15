@@ -1,5 +1,6 @@
 pub mod application;
 pub mod audit_log;
+pub mod audit_timestamp;
 pub mod auth;
 pub mod auth_middleware;
 pub mod backup;
@@ -212,7 +213,8 @@ pub trait RestStateDef: Clone + Send + Sync + 'static + genossi_config::rest::Co
         (path = "/api/mail/footer", api = mail_footer::ApiDoc),
         (path = "/api/member-documents", api = member_document::CountsApiDoc),
         (path = "/api/applications", api = application::ApiDoc),
-        (path = "/api/audit", api = audit_log::ApiDoc)
+        (path = "/api/audit", api = audit_log::ApiDoc),
+        (path = "/api/audit/timestamps", api = audit_timestamp::ApiDoc)
     )
 )]
 pub struct ApiDoc;
@@ -304,7 +306,7 @@ async fn context_extractor<RestState: RestStateDef>(
     session::context_extractor(rest_state, request, next).await
 }
 
-pub async fn create_app<RestState: RestStateDef + public_stats::PublicStatsState + application::ApplicationRestState + audit_log::AuditRestState>(rest_state: RestState) -> Router {
+pub async fn create_app<RestState: RestStateDef + public_stats::PublicStatsState + application::ApplicationRestState + audit_log::AuditRestState + audit_timestamp::TimestampRestState>(rest_state: RestState) -> Router {
     let mut api_doc = ApiDoc::openapi();
     let base = std::env::var("BASE_PATH").unwrap_or("http://localhost:3000/".into());
     api_doc.servers = Some(vec![utoipa::openapi::ServerBuilder::new()
@@ -395,6 +397,10 @@ pub async fn create_app<RestState: RestStateDef + public_stats::PublicStatsState
         .nest(
             "/api/audit",
             audit_log::generate_route::<RestState>(),
+        )
+        .nest(
+            "/api/audit/timestamps",
+            audit_timestamp::generate_route::<RestState>(),
         )
         .with_state(rest_state.clone())
         .layer(middleware::from_fn_with_state(
@@ -492,7 +498,7 @@ pub async fn serve_app(app: Router, listener: tokio::net::TcpListener) {
         .expect("Could not start server");
 }
 
-pub async fn start_server<RestState: RestStateDef + public_stats::PublicStatsState + application::ApplicationRestState + audit_log::AuditRestState>(rest_state: RestState) {
+pub async fn start_server<RestState: RestStateDef + public_stats::PublicStatsState + application::ApplicationRestState + audit_log::AuditRestState + audit_timestamp::TimestampRestState>(rest_state: RestState) {
     let app = create_app(rest_state).await;
 
     info!("Running server at {}", bind_address());

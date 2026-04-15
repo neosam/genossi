@@ -14,7 +14,9 @@ pub mod member_search;
 pub mod modal;
 pub mod nav_group;
 pub mod overlay;
+pub mod timestamp_section;
 pub mod top_bar;
+pub mod tsa_config;
 pub mod wordpress_integration;
 
 pub use application_create_form::ApplicationCreateForm;
@@ -27,4 +29,6 @@ pub use footer::Footer;
 pub use member_search::MemberSearch;
 pub use modal::Modal;
 pub use top_bar::TopBar;
+pub use timestamp_section::TimestampSection;
+pub use tsa_config::TsaConfigSection;
 pub use wordpress_integration::WordPressIntegrationSection;

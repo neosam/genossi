@@ -4,11 +4,12 @@ Das Audit-Log-System (Change `audit-log`) bietet eine Hash-Chain zur Manipulatio
 
 ## What Changes
 
-- Periodische Verankerung des aktuellen Audit-Log-Hash bei einem qualifizierten Zeitstempeldienst (RFC 3161) wie DGN (~0,06 EUR/Stempel, ~22 EUR/Jahr bei täglichem Stempel)
-- Speicherung der signierten Zeitstempel-Tokens (.tsr-Dateien) auf WebDAV/Nextcloud
-- Konfiguration des TSA-Endpoints und der Credentials über den bestehenden Config-Store
+- Periodische Verankerung des aktuellen Audit-Log-Hash bei einem qualifizierten Zeitstempeldienst (RFC 3161) wie DGN (5 Gratis/Monat, danach ~0,09 EUR/Stempel)
+- Eigenständiger Timestamp-Worker mit konfigurierbarem Intervall (Default: wöchentlich)
+- Manueller Timestamp-Trigger über REST-API und Frontend-Button
+- Speicherung der signierten Zeitstempel-Tokens (.tsr-Dateien) lokal in SQLite und optional auf WebDAV/Nextcloud
+- Konfiguration des TSA-Endpoints und der Credentials über Config-Store mit Frontend-UI
 - Verifizierungs-Endpoint und UI zum Prüfen der externen Zeitstempel
-- Integration in den bestehenden Backup-Worker (periodischer Ablauf)
 
 ## Capabilities
 
@@ -17,16 +18,16 @@ Das Audit-Log-System (Change `audit-log`) bietet eine Hash-Chain zur Manipulatio
 - `timestamp-verification`: REST-API und Frontend-UI zum Anzeigen und Verifizieren der externen Zeitstempel-Tokens
 
 ### Modified Capabilities
-- `webdav-backup`: Backup-Worker erhält zusätzlichen Schritt zum Hochladen der .tsr-Dateien auf WebDAV
+- (keine — der Timestamp-Worker ist eigenständig und modifiziert den Backup-Worker nicht)
 
 ## Impact
 
 - **Service-Layer**: Neuer `TimestampService` für RFC 3161 Kommunikation und Token-Verwaltung
-- **Backup-Worker**: Zusätzlicher Schritt im Backup-Zyklus
-- **Config-Store**: Neue Konfigurationsschlüssel für TSA-URL und Credentials
-- **REST-Layer**: Neue Endpoints für Timestamp-Status und -Verifikation
-- **Frontend**: UI zur Anzeige der Timestamp-Historie und Verifikation
-- **WebDAV**: Neues Verzeichnis `audit-timestamps/` für .tsr-Dateien
+- **Timestamp-Worker**: Eigenständiger periodischer Worker (Default: wöchentlich)
+- **Config-Store**: Neue Konfigurationsschlüssel für TSA-URL, Credentials und Intervall
+- **REST-Layer**: Neue Endpoints für Timestamp-Listing, -Verifikation und manuellen Trigger (POST)
+- **Frontend**: UI zur TSA-Konfiguration, Timestamp-Historie, Verifikation und manuellem Trigger
+- **WebDAV**: Neues Verzeichnis `audit-timestamps/` für .tsr-Dateien (optional)
 - **Dependencies**: RFC 3161 / ASN.1 Crate für Token-Parsing (z.B. `cms`, `der`, `x509-cert` oder ein dediziertes TSA-Crate)
 - **Externe Abhängigkeit**: Account bei einem qualifizierten Zeitstempeldienst (z.B. DGN)
 - **Voraussetzung**: Change `audit-log` muss zuerst implementiert sein

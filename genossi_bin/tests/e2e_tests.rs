@@ -7245,3 +7245,86 @@ async fn test_audit_log_filter_by_action() {
     let entries: Vec<genossi_rest_types::AuditLogEntryTO> = response.json().await.unwrap();
     assert!(entries.is_empty());
 }
+
+// Audit Timestamp E2E Tests
+
+#[tokio::test]
+async fn test_timestamp_list_empty() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(server.url("/api/audit/timestamps"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let timestamps: Vec<genossi_rest_types::TimestampResponseTO> =
+        response.json().await.unwrap();
+    assert!(timestamps.is_empty());
+}
+
+#[tokio::test]
+async fn test_timestamp_manual_trigger_no_audit_entries() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Configure TSA (even though there's nothing to timestamp)
+    client
+        .put(server.url("/api/config/tsa_enabled"))
+        .json(&SetConfigRequest {
+            value: "true".to_string(),
+            value_type: "bool".to_string(),
+        })
+        .send()
+        .await
+        .unwrap();
+
+    client
+        .put(server.url("/api/config/tsa_url"))
+        .json(&SetConfigRequest {
+            value: "https://freetsa.org/tsr".to_string(),
+            value_type: "string".to_string(),
+        })
+        .send()
+        .await
+        .unwrap();
+
+    // Try to create timestamp - should return 200 with "no audit entries"
+    let response = client
+        .post(server.url("/api/audit/timestamps"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let result: genossi_rest_types::TimestampCreateResponseTO =
+        response.json().await.unwrap();
+    assert!(!result.created);
+    assert!(result.timestamp.is_none());
+}
+
+#[tokio::test]
+async fn test_timestamp_manual_trigger_not_configured() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Create a member so there's audit data
+    client
+        .post(server.url("/api/members"))
+        .json(&sample_member())
+        .send()
+        .await
+        .unwrap();
+
+    // Try to create timestamp without TSA config - should fail
+    let response = client
+        .post(server.url("/api/audit/timestamps"))
+        .send()
+        .await
+        .unwrap();
+
+    // Should be 400 (BadRequest) because TSA is not configured
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}

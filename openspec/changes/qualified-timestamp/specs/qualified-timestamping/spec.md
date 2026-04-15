@@ -39,14 +39,14 @@ The system SHALL create an RFC 3161 TimeStampReq containing the SHA256 hash of t
 
 #### Scenario: TSA server unreachable
 - **WHEN** the HTTP POST to the TSA server fails due to network error
-- **THEN** the system logs an ERROR, stores a record with status "tsa_failed", and continues the backup cycle
+- **THEN** the system logs an ERROR, stores a record with status "tsa_failed", and continues
 
 #### Scenario: TSA returns error response
 - **WHEN** the TSA server returns a TimeStampResp with a non-success status
 - **THEN** the system logs an ERROR with the TSA status, stores a record with status "tsa_failed", and continues
 
 ### Requirement: Timestamp token WebDAV upload
-The system SHALL upload the .tsr token file to the configured WebDAV server in an `audit-timestamps/` subdirectory. The file SHALL be named `audit-checkpoint-{ISO8601-timestamp}.tsr`.
+The system SHALL upload the .tsr token file to the configured WebDAV server in an `audit-timestamps/` subdirectory. The file SHALL be named `audit-checkpoint-{ISO8601-timestamp}.tsr`. WebDAV upload is optional — if WebDAV is not configured, the token is stored locally only.
 
 #### Scenario: Successful upload
 - **WHEN** a TSR token is obtained and WebDAV is configured
@@ -66,14 +66,30 @@ The system SHALL use the following config store keys:
 - `tsa_user` (string, optional): HTTP Basic Auth username
 - `tsa_pass` (secret, optional): HTTP Basic Auth password
 - `tsa_enabled` (bool, default false): Whether qualified timestamping is enabled
+- `tsa_interval_hours` (integer, default 168): Interval in hours between automatic timestamps
 
 #### Scenario: Timestamping enabled
 - **WHEN** `tsa_enabled` is set to `true` and `tsa_url` is configured
-- **THEN** the backup worker performs the timestamp step
+- **THEN** the timestamp worker performs the timestamp step at the configured interval
 
 #### Scenario: Timestamping disabled
 - **WHEN** `tsa_enabled` is set to `false` or not set
-- **THEN** the backup worker skips the timestamp step entirely
+- **THEN** the timestamp worker does not run
+
+### Requirement: Eigenständiger Timestamp-Worker
+The system SHALL run an independent background worker that periodically creates qualified timestamps. The worker SHALL be completely independent from the backup worker. Its interval SHALL be configured via `tsa_interval_hours` (default: 168 hours = 7 days).
+
+#### Scenario: Worker runs at configured interval
+- **WHEN** `tsa_enabled` is `true` and `tsa_url` is configured
+- **THEN** the timestamp worker runs independently, creating a timestamp every `tsa_interval_hours` hours
+
+#### Scenario: Worker skips when disabled
+- **WHEN** `tsa_enabled` is `false` or not set
+- **THEN** the timestamp worker does not run
+
+#### Scenario: Worker handles TSA failure
+- **WHEN** the TSA request fails during a worker cycle
+- **THEN** the worker logs the error, stores a "tsa_failed" record, and continues sleeping until the next cycle
 
 ### Requirement: No timestamp when audit log is empty
 The system SHALL skip the timestamp step when the audit_log table contains no entries.
@@ -92,3 +108,37 @@ The system SHALL skip the timestamp step when the current latest audit_log hash 
 #### Scenario: Changes since last timestamp
 - **WHEN** the latest audit_log entry_hash differs from the most recent audit_timestamp's audit_hash
 - **THEN** the system proceeds with the TSA request
+
+### Requirement: Manual timestamp trigger
+The system SHALL provide a REST endpoint `POST /api/audit/timestamps` that allows admins to manually trigger a qualified timestamp. The endpoint SHALL use the same create_timestamp logic as the worker, including duplicate detection (skip when hash unchanged). The endpoint SHALL require `admin` privilege.
+
+#### Scenario: Manual trigger with changes
+- **WHEN** an admin sends POST /api/audit/timestamps and the audit log has changed since the last timestamp
+- **THEN** the system creates a new timestamp and returns HTTP 201 with the timestamp record
+
+#### Scenario: Manual trigger without changes
+- **WHEN** an admin sends POST /api/audit/timestamps but the audit log hash is unchanged since the last timestamp
+- **THEN** the system returns HTTP 200 with a message indicating no changes to timestamp
+
+#### Scenario: Manual trigger with empty audit log
+- **WHEN** an admin sends POST /api/audit/timestamps but the audit log is empty
+- **THEN** the system returns HTTP 200 with a message indicating no audit entries exist
+
+#### Scenario: Manual trigger with TSA failure
+- **WHEN** an admin sends POST /api/audit/timestamps but the TSA request fails
+- **THEN** the system returns HTTP 502 with an error message indicating the TSA is unreachable
+
+### Requirement: TSA configuration UI
+The frontend SHALL provide a configuration page for admins to manage the TSA settings (tsa_enabled, tsa_url, tsa_user, tsa_pass, tsa_interval_hours). The page SHALL use the existing config store API.
+
+#### Scenario: Configure TSA settings
+- **WHEN** an admin navigates to the TSA configuration page
+- **THEN** the page displays the current TSA settings and allows editing
+
+#### Scenario: Save TSA configuration
+- **WHEN** an admin saves the TSA configuration
+- **THEN** the config store is updated and the timestamp worker picks up the new settings on its next cycle
+
+#### Scenario: Password field masked
+- **WHEN** the TSA configuration page is displayed
+- **THEN** the `tsa_pass` field is masked (password input type)

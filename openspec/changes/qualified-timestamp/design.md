@@ -11,11 +11,12 @@ Das System hat bereits einen Backup-Worker, der periodisch Daten auf WebDAV/Next
 ## Goals / Non-Goals
 
 **Goals:**
-- Tägliche (konfigurierbar) Verankerung des aktuellen Audit-Log-Hash bei einem qualifizierten RFC 3161 Zeitstempeldienst
-- Speicherung der signierten .tsr-Token-Dateien auf WebDAV/Nextcloud
-- Konfiguration über den bestehenden Config-Store (TSA-URL, Credentials)
+- Wöchentliche (konfigurierbar) Verankerung des aktuellen Audit-Log-Hash bei einem qualifizierten RFC 3161 Zeitstempeldienst
+- Eigenständiger Timestamp-Worker, unabhängig vom Backup-Worker
+- Manueller Timestamp-Trigger für Admins über REST-API und Frontend
+- Speicherung der signierten .tsr-Token-Dateien lokal in SQLite und optional auf WebDAV/Nextcloud
+- Konfiguration über Config-Store mit Frontend-UI (TSA-URL, Credentials, Aktivierung)
 - Verifizierung der Zeitstempel über REST-API und Frontend-UI
-- Integration in den bestehenden Backup-Worker
 
 **Non-Goals:**
 - Eigener Zeitstempeldienst betreiben
@@ -40,13 +41,13 @@ Das System hat bereits einen Backup-Worker, der periodisch Daten auf WebDAV/Next
 
 **Rationale**: DGN ist günstig, qualifiziert, und unkompliziert. Durch Konfigurierbarkeit bleibt das System aber anbieterunabhängig.
 
-### 3. Integration in den Backup-Worker
+### 3. Eigenständiger Timestamp-Worker
 
-**Entscheidung**: Der Zeitstempel wird als zusätzlicher Schritt im bestehenden Backup-Worker erstellt — nach dem regulären Backup, vor dem Status-Update.
+**Entscheidung**: Der Zeitstempel wird durch einen eigenständigen periodischen Worker erstellt, unabhängig vom Backup-Worker. Das Intervall wird über den Config-Key `tsa_interval_hours` gesteuert (Default: 168 = 7 Tage). Bei 5 kostenlosen Stempeln/Monat bei DGN reicht ein wöchentlicher Stempel für den kostenlosen Betrieb. (Revidiert 2026-04-15)
 
-**Rationale**: Der Backup-Worker läuft bereits periodisch (konfigurierbar, default 24h), hat WebDAV-Zugang, und die Infrastruktur für Fehlerbehandlung und Status-Tracking ist vorhanden. Ein separater Worker wäre unnötige Komplexität.
+**Rationale**: Entkopplung von Backup und Timestamping ermöglicht unabhängige Konfiguration der Frequenzen. Ein wöchentlicher Stempel ist für eine Genossenschaftsverwaltung ausreichend — das maximale Manipulationsfenster von 7 Tagen ist akzeptabel. Der Timestamp-Worker benötigt keinen WebDAV-Zugang als Voraussetzung; wenn WebDAV konfiguriert ist, wird die .tsr-Datei hochgeladen, sonst nur lokal gespeichert.
 
-**Alternative**: Eigener Timestamp-Worker — mehr Flexibilität bei der Frequenz, aber mehr Infrastruktur zu warten.
+**Verworfene Alternative**: Integration in den Backup-Worker — einfacher, aber koppelt zwei unabhängige Anliegen und erzwingt gleiches Intervall.
 
 ### 4. .tsr-Token auf WebDAV speichern
 
@@ -80,7 +81,13 @@ CREATE TABLE audit_timestamp (
 
 **Für Stufe 1** wird das öffentliche Zertifikat des TSA-Anbieters benötigt. Dies kann im Config-Store als Pfad hinterlegt oder fest eingebaut werden.
 
-### 7. ASN.1/RFC 3161 Bibliothek
+### 7. Manueller Timestamp-Trigger
+
+**Entscheidung**: Admins können über einen REST-Endpoint `POST /api/audit/timestamps` jederzeit manuell einen Zeitstempel auslösen. Das Frontend zeigt dafür einen Button im Audit-/Timestamp-Bereich. Die Duplikat-Erkennung (Hash unverändert seit letztem Stempel → überspringen) greift auch bei manuellen Triggern. (Entschieden 2026-04-15)
+
+**Rationale**: Ermöglicht gezielte Verankerung bei wichtigen Anlässen (z.B. vor Mitgliederversammlungen, nach großen Imports). Kostenrisiko ist vernachlässigbar — bei DGN kosten zusätzliche Stempel über die 5 Gratis/Monat hinaus 0,09 EUR/Stück.
+
+### 8. ASN.1/RFC 3161 Bibliothek
 
 **Entscheidung**: Verwendung der RustCrypto-Crates (`der`, `cms`, `x509-cert`, `sha2`) für ASN.1-Encoding des TimeStampReq und Parsing der TimeStampResp. Der HTTP-Transport erfolgt über das bereits vorhandene `reqwest`.
 
@@ -88,7 +95,7 @@ CREATE TABLE audit_timestamp (
 
 ## Risks / Trade-offs
 
-**[TSA-Anbieter nicht erreichbar]** → Backup-Worker loggt den Fehler, setzt Status auf "failed", versucht beim nächsten Zyklus erneut. Der reguläre Backup läuft weiter. Lücke im Timestamp-Nachweis, aber kein Datenverlust.
+**[TSA-Anbieter nicht erreichbar]** → Timestamp-Worker loggt den Fehler, setzt Status auf "tsa_failed", versucht beim nächsten Zyklus erneut. Der reguläre Backup-Worker ist davon nicht betroffen. Lücke im Timestamp-Nachweis, aber kein Datenverlust.
 
 **[ASN.1-Komplexität]** → RFC 3161 Request/Response ist ein komplexes ASN.1-Format. Mitigation: Minimale Implementierung — nur TimeStampReq erstellen und TimeStampResp parsen, keine vollständige RFC-3161-Bibliothek.
 
@@ -98,7 +105,7 @@ CREATE TABLE audit_timestamp (
 
 **[Admin löscht lokale .tsr-Dateien]** → Kein Problem: Kopie liegt auf WebDAV. Wenn Admin auch WebDAV kontrolliert: Nextcloud-Versionshistorie. Im schlimmsten Fall: Token kann beim TSA-Anbieter nicht erneut angefragt werden, aber der Hash-Chain-Zustand zum Stempelzeitpunkt ist durch das Token belegt, falls irgendeine Kopie existiert.
 
-## Open Questions
+## Resolved Questions
 
-- Soll das System bei fehlendem TSA-Config den Backup-Worker trotzdem normal laufen lassen (Timestamp-Schritt überspringen), oder eine Warnung anzeigen?
-- Soll es eine UI geben, um den TSA-Anbieter zu konfigurieren, oder reicht die Config-Store-API?
+- **Fehlendes TSA-Config**: Der Backup-Worker läuft normal weiter und überspringt den Timestamp-Schritt ohne Warnung. (Entschieden 2026-04-15)
+- **UI für TSA-Konfiguration**: Es wird eine Frontend-UI geben, um den TSA-Anbieter zu konfigurieren (URL, Credentials, Aktivierung). Die Config-Store-API allein reicht nicht. (Entschieden 2026-04-15)

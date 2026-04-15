@@ -170,6 +170,8 @@ type MemberDocumentDao = genossi_dao_impl_sqlite::member_document::MemberDocumen
 type BackupDao = genossi_dao_impl_sqlite::backup::BackupDaoImpl;
 type BackupDocumentSyncDao = genossi_dao_impl_sqlite::backup::BackupDocumentSyncDaoImpl;
 type BackupCommunicationSyncDao = genossi_dao_impl_sqlite::backup::BackupCommunicationSyncDaoImpl;
+type AuditTimestampDao = genossi_dao_impl_sqlite::audit_timestamp::AuditTimestampDaoImpl;
+type TimestampServiceType = genossi_service_impl::timestamp::TimestampServiceImpl<TransactionDao, AuditTimestampDao, AuditLogDao, ConfigService>;
 
 pub struct MemberActionServiceDependencies;
 
@@ -299,6 +301,7 @@ pub struct RestStateImpl {
     static_document_service: Arc<StaticDocumentServiceType>,
     application_service: Arc<ApplicationService>,
     audit_log_dao: Arc<AuditLogDao>,
+    timestamp_service: Arc<TimestampServiceType>,
     backup_dao: Arc<BackupDao>,
     // Inbox worker dependencies
     worker_inbox_config_service: Arc<ConfigService>,
@@ -494,6 +497,17 @@ impl RestStateImpl {
         let worker_config_dao = ConfigDao::new(pool.clone());
         let worker_config_service = Arc::new(ConfigService::new(worker_config_dao));
 
+        // Timestamp service
+        let audit_timestamp_dao = AuditTimestampDao::new(pool.clone());
+        let timestamp_config_dao = ConfigDao::new(pool.clone());
+        let timestamp_config_service = Arc::new(ConfigService::new(timestamp_config_dao));
+        let timestamp_service = Arc::new(genossi_service_impl::timestamp::TimestampServiceImpl::new(
+            TransactionDao::new(pool.clone()),
+            audit_timestamp_dao,
+            AuditLogDao::new(pool.clone()),
+            timestamp_config_service,
+        ));
+
         // Backup worker dependencies
         let backup_config_dao = ConfigDao::new(pool.clone());
         let backup_config_service = Arc::new(ConfigService::new(backup_config_dao));
@@ -508,6 +522,7 @@ impl RestStateImpl {
             member_document_service,
             application_service,
             audit_log_dao,
+            timestamp_service,
             permission_service,
             session_service,
             document_storage,
@@ -677,6 +692,19 @@ impl RestStateImpl {
                 sync_dao,
                 comm_sync_dao,
                 document_storage,
+            )
+            .await;
+        });
+    }
+
+    pub fn start_timestamp_worker(&self) {
+        let timestamp_service = self.timestamp_service.clone();
+        let config_dao = ConfigDao::new(self.pool.clone());
+        let config_service = Arc::new(ConfigService::new(config_dao));
+        tokio::spawn(async move {
+            genossi_service_impl::timestamp_worker::start_timestamp_worker(
+                timestamp_service,
+                config_service,
             )
             .await;
         });
@@ -918,6 +946,14 @@ impl genossi_config::rest::ConfigRestState for RestStateImpl {
     type ConfigService = ConfigService;
     fn config_service(&self) -> Arc<Self::ConfigService> {
         self.config_service.clone()
+    }
+}
+
+impl genossi_rest::audit_timestamp::TimestampRestState for RestStateImpl {
+    type TimestampService = TimestampServiceType;
+
+    fn timestamp_service(&self) -> Arc<Self::TimestampService> {
+        self.timestamp_service.clone()
     }
 }
 

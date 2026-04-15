@@ -1371,3 +1371,31 @@ pub async fn verify_audit_chain(
     response.error_for_status_ref()?;
     Ok(response.json().await?)
 }
+
+pub async fn get_timestamps(
+    config: &Config,
+) -> Result<Vec<rest_types::TimestampResponseTO>, reqwest::Error> {
+    let url = format!("{}/api/audit/timestamps", config.backend);
+    let response = reqwest::get(url).await?;
+    response.error_for_status_ref()?;
+    Ok(response.json().await?)
+}
+
+pub async fn create_timestamp(
+    config: &Config,
+) -> Result<rest_types::TimestampCreateResponseTO, reqwest::Error> {
+    let url = format!("{}/api/audit/timestamps", config.backend);
+    let response = reqwest::Client::new().post(url).send().await?;
+    response.error_for_status_ref()?;
+    Ok(response.json().await?)
+}
+
+pub async fn verify_timestamp(
+    config: &Config,
+    id: uuid::Uuid,
+) -> Result<rest_types::TimestampVerifyResponseTO, reqwest::Error> {
+    let url = format!("{}/api/audit/timestamps/{}/verify", config.backend, id);
+    let response = reqwest::get(url).await?;
+    response.error_for_status_ref()?;
+    Ok(response.json().await?)
+}

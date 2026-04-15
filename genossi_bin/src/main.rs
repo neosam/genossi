@@ -57,6 +57,9 @@ async fn main() {
     rest_state.start_backup_worker();
     tracing::info!("Backup worker started");
 
+    rest_state.start_timestamp_worker();
+    tracing::info!("Timestamp worker started");
+
     // Start server using the rest crate's start_server function
     genossi_rest::start_server(rest_state).await;
 }

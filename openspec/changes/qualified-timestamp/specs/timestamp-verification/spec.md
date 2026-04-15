@@ -26,7 +26,7 @@ The system SHALL verify that the audit_log hash chain, when replayed up to the e
 - **WHEN** audit_log entries have been modified and the replayed hash does not match the timestamp's audit_hash
 - **THEN** the verification reports that the audit log has been tampered with since the timestamp was created
 
-### Requirement: Timestamp verification REST endpoint
+### Requirement: Timestamp list REST endpoint
 The system SHALL provide a REST endpoint `GET /api/audit/timestamps` that returns a list of all audit timestamp records (id, timestamp, audit_hash, audit_entry_count, status, webdav_path). The endpoint SHALL require `admin` privilege.
 
 #### Scenario: List timestamps
@@ -56,7 +56,7 @@ The response SHALL contain:
 - **THEN** the system returns token_valid=true, hash_matches=true, audit_log_consistent=false
 
 ### Requirement: Timestamp status in frontend
-The audit log frontend page SHALL display a section showing the latest timestamp status: when it was created, the hash, and the verification result. An admin SHALL be able to trigger verification from the UI.
+The audit log frontend page SHALL display a section showing the latest timestamp status: when it was created, the hash, and the verification result. An admin SHALL be able to trigger verification and manual timestamp creation from the UI.
 
 #### Scenario: Latest timestamp displayed
 - **WHEN** an admin views the audit log page and timestamps exist
@@ -69,3 +69,7 @@ The audit log frontend page SHALL display a section showing the latest timestamp
 #### Scenario: Trigger verification from UI
 - **WHEN** an admin clicks "Verify" on a timestamp entry
 - **THEN** the UI calls the verification endpoint and displays the result (token valid, hash matches, audit log consistent)
+
+#### Scenario: Manual timestamp from UI
+- **WHEN** an admin clicks "Zeitstempel jetzt erstellen" button
+- **THEN** the UI calls POST /api/audit/timestamps and displays the result (success, no changes, or error)
