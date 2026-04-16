@@ -277,6 +277,10 @@ pub enum Key {
     SelectedCount,
     SendMailToSelected,
 
+    // Mail from member detail
+    MailSendButton,
+    NoEmailAddressHint,
+
     // Mail templates
     MailTemplateFormal,
     MailTemplateInformal,

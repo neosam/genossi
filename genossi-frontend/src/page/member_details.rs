@@ -12,6 +12,7 @@ use crate::i18n::Key;
 use crate::router::Route;
 use crate::service::auth::AUTH;
 use crate::service::config::CONFIG;
+use crate::service::member::SELECTED_MEMBER_IDS;
 
 fn action_type_label(i18n: &crate::i18n::I18n, at: &ActionTypeTO) -> String {
     match at {
@@ -28,6 +29,35 @@ fn action_type_label(i18n: &crate::i18n::I18n, at: &ActionTypeTO) -> String {
 
 fn format_date_input(d: &time::Date) -> String {
     format!("{:04}-{:02}-{:02}", d.year(), d.month() as u8, d.day())
+}
+
+/// Returns true when the given email value is missing or only whitespace.
+/// Used to decide whether the "Mail senden" button is disabled on the
+/// member detail page.
+fn is_email_empty(email: Option<&str>) -> bool {
+    email.map(|s| s.trim().is_empty()).unwrap_or(true)
+}
+
+/// Returns true when the given list of member documents already contains a
+/// `JoinConfirmation`. Used to hide the "Eintrittsbestätigung generieren"
+/// button once such a document has been created.
+///
+/// The comparison uses `DocumentTypeTO::JoinConfirmation.as_str()` rather
+/// than a hardcoded string so that the enum remains the single source of
+/// truth for the document type identifier shared between frontend and
+/// backend.
+fn has_join_confirmation_document(documents: &[MemberDocumentTO]) -> bool {
+    documents
+        .iter()
+        .any(|d| d.document_type == DocumentTypeTO::JoinConfirmation.as_str())
+}
+
+/// Returns true when the migration status block should be hidden. Migrated
+/// is the default state for 99%+ of members and adds no information to the
+/// detail page, so we suppress the badge. Only non-migrated states (e.g.
+/// `pending`) carry actionable information and remain visible.
+fn migration_status_is_noise(status: &str) -> bool {
+    status == "migrated"
 }
 
 fn parse_date_input(s: &str) -> Option<time::Date> {
@@ -329,22 +359,54 @@ pub fn MemberDetails(id: String) -> Element {
                     h1 { class: "text-3xl font-bold",
                         if is_new { {i18n.t(Key::CreateMember)} } else { {i18n.t(Key::EditMember)} }
                     }
-                    button {
-                        class: "px-4 py-2 text-gray-600 hover:text-gray-800",
-                        onclick: move |_| { nav.push(Route::Members {}); },
-                        {i18n.t(Key::Back)}
+                    div { class: "flex items-center gap-2",
+                        if !is_new {
+                            {
+                                let member_id_for_mail = member.read().id;
+                                let email_empty = is_email_empty(member.read().email.as_deref());
+                                let disabled = email_empty || member_id_for_mail.is_none();
+                                let title = if email_empty {
+                                    i18n.t(Key::NoEmailAddressHint).to_string()
+                                } else {
+                                    String::new()
+                                };
+                                rsx! {
+                                    button {
+                                        class: "px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed",
+                                        disabled,
+                                        title,
+                                        onclick: move |_| {
+                                            if let Some(id) = member_id_for_mail {
+                                                let mut sel = SELECTED_MEMBER_IDS.write();
+                                                sel.clear();
+                                                sel.toggle(id);
+                                                drop(sel);
+                                                nav.push(Route::MailPage {});
+                                            }
+                                        },
+                                        "✉ {i18n.t(Key::MailSendButton)}"
+                                    }
+                                    if email_empty {
+                                        span { class: "text-sm text-gray-500 italic",
+                                            {i18n.t(Key::NoEmailAddressHint)}
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        button {
+                            class: "px-4 py-2 text-gray-600 hover:text-gray-800",
+                            onclick: move |_| { nav.push(Route::Members {}); },
+                            {i18n.t(Key::Back)}
+                        }
                     }
                 }
 
-                // Migration Status Badge
+                // Migration Status Badge — nur anzeigen, wenn nicht migriert
                 if !is_new {
                     if let Some(status) = migration_status.read().as_ref() {
-                        div { class: "mb-4",
-                            if status.status == "migrated" {
-                                span { class: "inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800",
-                                    {i18n.t(Key::Migrated)}
-                                }
-                            } else {
+                        if !migration_status_is_noise(&status.status) {
+                            div { class: "mb-4",
                                 div { class: "inline-flex flex-col gap-1 px-3 py-2 rounded-lg bg-orange-100 text-orange-800 text-sm",
                                     span { class: "font-medium", {i18n.t(Key::Pending)} }
                                     span {
@@ -1019,7 +1081,7 @@ pub fn MemberDetails(id: String) -> Element {
                                 div { class: "flex gap-2",
                                     // Generate buttons for types that have template mappings and no existing document
                                     {
-                                        let has_join_confirmation = documents.read().iter().any(|d| d.document_type == "join_confirmation");
+                                        let has_join_confirmation = has_join_confirmation_document(&documents.read());
                                         let gen_label = format!("{}: {}", i18n.t(Key::DocJoinConfirmation), i18n.t(Key::GenerateAndStore));
                                         let error_label = i18n.t(Key::DocJoinConfirmation).to_string();
                                         rsx! {
@@ -1387,4 +1449,110 @@ fn collect_template_paths(entries: &[FileTreeEntry]) -> Vec<String> {
         }
     }
     paths
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_email_empty_none_is_empty() {
+        assert!(is_email_empty(None));
+    }
+
+    #[test]
+    fn is_email_empty_empty_string_is_empty() {
+        assert!(is_email_empty(Some("")));
+    }
+
+    #[test]
+    fn is_email_empty_whitespace_only_is_empty() {
+        assert!(is_email_empty(Some("   ")));
+        assert!(is_email_empty(Some("\t\n ")));
+    }
+
+    #[test]
+    fn is_email_empty_real_address_is_not_empty() {
+        assert!(!is_email_empty(Some("member@example.org")));
+    }
+
+    #[test]
+    fn is_email_empty_address_with_surrounding_whitespace_is_not_empty() {
+        assert!(!is_email_empty(Some("  member@example.org  ")));
+    }
+
+    fn make_document(document_type: &str) -> MemberDocumentTO {
+        MemberDocumentTO {
+            id: None,
+            member_id: Uuid::nil(),
+            document_type: document_type.to_string(),
+            description: None,
+            file_name: "dummy.pdf".to_string(),
+            mime_type: "application/pdf".to_string(),
+            created: None,
+            deleted: None,
+            version: None,
+        }
+    }
+
+    #[test]
+    fn has_join_confirmation_empty_list_returns_false() {
+        assert!(!has_join_confirmation_document(&[]));
+    }
+
+    #[test]
+    fn has_join_confirmation_with_other_types_returns_false() {
+        let docs = vec![
+            make_document("join_declaration"),
+            make_document("share_increase"),
+            make_document("other"),
+        ];
+        assert!(!has_join_confirmation_document(&docs));
+    }
+
+    #[test]
+    fn has_join_confirmation_with_matching_type_returns_true() {
+        let docs = vec![make_document("join_confirmation")];
+        assert!(has_join_confirmation_document(&docs));
+    }
+
+    #[test]
+    fn has_join_confirmation_among_other_docs_returns_true() {
+        let docs = vec![
+            make_document("join_declaration"),
+            make_document("join_confirmation"),
+            make_document("other"),
+        ];
+        assert!(has_join_confirmation_document(&docs));
+    }
+
+    #[test]
+    fn has_join_confirmation_matches_enum_serialization() {
+        // Guard against accidental drift between the enum's string form and
+        // the literal expected by the backend. If this test fails, either
+        // the enum or the backend serialization has changed.
+        assert_eq!(
+            DocumentTypeTO::JoinConfirmation.as_str(),
+            "join_confirmation"
+        );
+    }
+
+    #[test]
+    fn migration_status_migrated_is_noise() {
+        assert!(migration_status_is_noise("migrated"));
+    }
+
+    #[test]
+    fn migration_status_pending_is_not_noise() {
+        assert!(!migration_status_is_noise("pending"));
+    }
+
+    #[test]
+    fn migration_status_unknown_is_not_noise() {
+        // Any state other than "migrated" is treated as actionable and must
+        // remain visible on the detail page.
+        assert!(!migration_status_is_noise(""));
+        assert!(!migration_status_is_noise("in_progress"));
+        assert!(!migration_status_is_noise("Migrated")); // case-sensitive on purpose
+    }
 }

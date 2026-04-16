@@ -235,6 +235,9 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::SelectedCount => "ausgewählt".into(),
         Key::SendMailToSelected => "Mail senden".into(),
 
+        Key::MailSendButton => "Mail senden".into(),
+        Key::NoEmailAddressHint => "Keine E-Mail-Adresse hinterlegt".into(),
+
         Key::NotReachedByMailJob => "Nicht erreicht durch Mail-Job".into(),
         Key::AllMembers => "Alle Mitglieder".into(),
 
