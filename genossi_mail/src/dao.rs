@@ -140,6 +140,32 @@ pub trait MailJobStaticAttachmentDao: Send + Sync + 'static {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// Mail templates
+// ────────────────────────────────────────────────────────────────────────────
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MailTemplate {
+    pub id: Uuid,
+    pub created: time::PrimitiveDateTime,
+    pub deleted: Option<time::PrimitiveDateTime>,
+    pub version: Uuid,
+    pub name: Arc<str>,
+    pub subject: Arc<str>,
+    pub body: Arc<str>,
+}
+
+#[automock]
+#[async_trait]
+pub trait MailTemplateDao: Send + Sync + 'static {
+    async fn create(&self, template: &MailTemplate) -> Result<(), MailDaoError>;
+    async fn update(&self, template: &MailTemplate) -> Result<(), MailDaoError>;
+    async fn dump_all(&self) -> Result<Arc<[MailTemplate]>, MailDaoError>;
+    async fn find_by_id(&self, id: Uuid) -> Result<Option<MailTemplate>, MailDaoError>;
+    async fn all(&self) -> Result<Arc<[MailTemplate]>, MailDaoError>;
+    async fn find_by_name(&self, name: &str) -> Result<Option<MailTemplate>, MailDaoError>;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // Communication timeline (unified view per member)
 // ────────────────────────────────────────────────────────────────────────────
 

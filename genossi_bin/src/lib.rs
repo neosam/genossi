@@ -254,6 +254,9 @@ type ConfigService = genossi_config::service::ConfigServiceImpl<ConfigDao>;
 type MailJobDao = genossi_mail::dao_sqlite::MailJobDaoSqlite;
 type MailRecipientDao = genossi_mail::dao_sqlite::MailRecipientDaoSqlite;
 type MailRecipientAttachmentDao = genossi_mail::dao_sqlite::MailRecipientAttachmentDaoSqlite;
+type MailTemplateDaoType = genossi_mail::dao_sqlite::MailTemplateDaoSqlite;
+type MailTemplateServiceType =
+    genossi_mail::mail_template_service::MailTemplateServiceImpl<MailTemplateDaoType>;
 type StaticDocumentDaoType = genossi_mail::dao_sqlite::StaticDocumentDaoSqlite;
 type MailJobStaticAttachmentDaoType =
     genossi_mail::dao_sqlite::MailJobStaticAttachmentDaoSqlite;
@@ -297,6 +300,7 @@ pub struct RestStateImpl {
     pdf_generator: Arc<genossi_service_impl::pdf_generation::PdfGenerator>,
     config_service: Arc<ConfigService>,
     mail_service: Arc<MailServiceType>,
+    mail_template_service: Arc<MailTemplateServiceType>,
     inbox_service: Arc<InboxServiceType>,
     static_document_service: Arc<StaticDocumentServiceType>,
     application_service: Arc<ApplicationService>,
@@ -457,6 +461,9 @@ impl RestStateImpl {
                 mail_service: mail_service.clone(),
             });
 
+        let mail_template_dao = Arc::new(MailTemplateDaoType::new(pool.clone()));
+        let mail_template_service = Arc::new(MailTemplateServiceType::new(mail_template_dao));
+
         let static_document_dao_for_service =
             Arc::new(StaticDocumentDaoType::new(pool.clone()));
         let static_document_service = Arc::new(StaticDocumentServiceType::new(
@@ -532,6 +539,7 @@ impl RestStateImpl {
             pdf_generator,
             config_service,
             mail_service,
+            mail_template_service,
             inbox_service,
             static_document_service,
             backup_dao,
@@ -760,6 +768,13 @@ impl genossi_mail::inbox_rest::InboxRestState for RestStateImpl {
             let m = member_dao.find_by_id(member_id, tx).await.ok()??;
             Some(format!("{} {}", m.first_name, m.last_name))
         })
+    }
+}
+
+impl genossi_mail::rest_templates::MailTemplateRestState for RestStateImpl {
+    type MailTemplateService = MailTemplateServiceType;
+    fn mail_template_service(&self) -> Arc<Self::MailTemplateService> {
+        self.mail_template_service.clone()
     }
 }
 

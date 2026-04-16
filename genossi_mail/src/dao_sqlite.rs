@@ -8,7 +8,7 @@ use crate::dao::{
     CommunicationDao, CommunicationDirection, CommunicationEntry, InboundMail, InboundMailDao,
     MailDaoError, MailJob, MailJobDao, MailJobStaticAttachment, MailJobStaticAttachmentDao,
     MailRecipient, MailRecipientAttachment, MailRecipientAttachmentDao, MailRecipientDao,
-    StaticDocument, StaticDocumentDao,
+    MailTemplate, MailTemplateDao, StaticDocument, StaticDocumentDao,
 };
 
 fn parse_datetime(s: &str) -> Result<PrimitiveDateTime, time::error::Parse> {
@@ -932,6 +932,154 @@ impl CommunicationDao for CommunicationDaoSqlite {
         rows.iter()
             .map(CommunicationEntry::try_from)
             .collect::<Result<Arc<[_]>, _>>()
+    }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// MailTemplate SQLite
+// ────────────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, sqlx::FromRow)]
+struct MailTemplateDb {
+    id: Vec<u8>,
+    created: String,
+    deleted: Option<String>,
+    version: Vec<u8>,
+    name: String,
+    subject: String,
+    body: String,
+}
+
+impl TryFrom<&MailTemplateDb> for MailTemplate {
+    type Error = MailDaoError;
+
+    fn try_from(db: &MailTemplateDb) -> Result<Self, Self::Error> {
+        Ok(MailTemplate {
+            id: parse_uuid(&db.id)?,
+            created: parse_datetime(&db.created)
+                .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?,
+            deleted: parse_optional_datetime(&db.deleted)?,
+            version: parse_uuid(&db.version)?,
+            name: Arc::from(db.name.as_str()),
+            subject: Arc::from(db.subject.as_str()),
+            body: Arc::from(db.body.as_str()),
+        })
+    }
+}
+
+pub struct MailTemplateDaoSqlite {
+    pool: Arc<SqlitePool>,
+}
+
+impl MailTemplateDaoSqlite {
+    pub fn new(pool: Arc<SqlitePool>) -> Self {
+        Self { pool }
+    }
+}
+
+#[async_trait]
+impl MailTemplateDao for MailTemplateDaoSqlite {
+    async fn create(&self, template: &MailTemplate) -> Result<(), MailDaoError> {
+        let id = template.id.as_bytes().to_vec();
+        let version = template.version.as_bytes().to_vec();
+        let created = format_datetime(&template.created)?;
+
+        sqlx::query(
+            "INSERT INTO mail_templates (id, created, deleted, version, name, subject, body) \
+             VALUES (?, ?, NULL, ?, ?, ?, ?)",
+        )
+        .bind(id)
+        .bind(created)
+        .bind(version)
+        .bind(template.name.as_ref())
+        .bind(template.subject.as_ref())
+        .bind(template.body.as_ref())
+        .execute(self.pool.as_ref())
+        .await
+        .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
+
+        Ok(())
+    }
+
+    async fn update(&self, template: &MailTemplate) -> Result<(), MailDaoError> {
+        let id = template.id.as_bytes().to_vec();
+        let version = template.version.as_bytes().to_vec();
+        let deleted = template
+            .deleted
+            .as_ref()
+            .map(|d| format_datetime(d))
+            .transpose()?;
+
+        sqlx::query(
+            "UPDATE mail_templates SET name = ?, subject = ?, body = ?, version = ?, deleted = ? WHERE id = ?",
+        )
+        .bind(template.name.as_ref())
+        .bind(template.subject.as_ref())
+        .bind(template.body.as_ref())
+        .bind(version)
+        .bind(deleted)
+        .bind(id)
+        .execute(self.pool.as_ref())
+        .await
+        .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
+
+        Ok(())
+    }
+
+    async fn dump_all(&self) -> Result<Arc<[MailTemplate]>, MailDaoError> {
+        let rows = sqlx::query_as::<_, MailTemplateDb>(
+            "SELECT id, created, deleted, version, name, subject, body FROM mail_templates",
+        )
+        .fetch_all(self.pool.as_ref())
+        .await
+        .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
+
+        rows.iter()
+            .map(MailTemplate::try_from)
+            .collect::<Result<Vec<_>, _>>()
+            .map(|v| v.into())
+    }
+
+    async fn find_by_id(&self, id: Uuid) -> Result<Option<MailTemplate>, MailDaoError> {
+        let id_bytes = id.as_bytes().to_vec();
+        let row = sqlx::query_as::<_, MailTemplateDb>(
+            "SELECT id, created, deleted, version, name, subject, body \
+             FROM mail_templates WHERE id = ? AND deleted IS NULL",
+        )
+        .bind(id_bytes)
+        .fetch_optional(self.pool.as_ref())
+        .await
+        .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
+
+        row.as_ref().map(MailTemplate::try_from).transpose()
+    }
+
+    async fn all(&self) -> Result<Arc<[MailTemplate]>, MailDaoError> {
+        let rows = sqlx::query_as::<_, MailTemplateDb>(
+            "SELECT id, created, deleted, version, name, subject, body \
+             FROM mail_templates WHERE deleted IS NULL ORDER BY name ASC",
+        )
+        .fetch_all(self.pool.as_ref())
+        .await
+        .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
+
+        rows.iter()
+            .map(MailTemplate::try_from)
+            .collect::<Result<Vec<_>, _>>()
+            .map(|v| v.into())
+    }
+
+    async fn find_by_name(&self, name: &str) -> Result<Option<MailTemplate>, MailDaoError> {
+        let row = sqlx::query_as::<_, MailTemplateDb>(
+            "SELECT id, created, deleted, version, name, subject, body \
+             FROM mail_templates WHERE name = ? AND deleted IS NULL",
+        )
+        .bind(name)
+        .fetch_optional(self.pool.as_ref())
+        .await
+        .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
+
+        row.as_ref().map(MailTemplate::try_from).transpose()
     }
 }
 

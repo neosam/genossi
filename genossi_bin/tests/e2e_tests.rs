@@ -11,6 +11,7 @@ use genossi_rest_types::{
 use std::collections::HashMap;
 use genossi_config::rest::{ConfigEntryTO, SetConfigRequest};
 use genossi_mail::rest::{SendBulkMailRequest, BulkRecipient, SendMailRequest, MailJobTO, MailJobDetailTO, TestMailRequest};
+use genossi_mail::rest_templates::MailTemplateTO;
 use genossi_rest::mail_footer::FooterResponse;
 use reqwest::StatusCode;
 use sqlx::SqlitePool;
@@ -7327,4 +7328,189 @@ async fn test_timestamp_manual_trigger_not_configured() {
 
     // Should be 400 (BadRequest) because TSA is not configured
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+// ── Mail Template CRUD Tests ────────────────────────────────────────────────
+
+#[tokio::test]
+async fn mail_template_crud_lifecycle() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Create
+    let response = client
+        .post(server.url("/api/mail/templates"))
+        .json(&serde_json::json!({
+            "name": "Einladung MV",
+            "subject": "Einladung zur Mitgliederversammlung",
+            "body": "Hallo {{ first_name }}!"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let created: MailTemplateTO = response.json().await.unwrap();
+    assert_eq!(created.name, "Einladung MV");
+    assert_eq!(created.subject, "Einladung zur Mitgliederversammlung");
+    assert_eq!(created.body, "Hallo {{ first_name }}!");
+    assert!(!created.id.is_empty());
+    assert!(!created.version.is_empty());
+
+    // List (should include seeded + newly created)
+    let response = client
+        .get(server.url("/api/mail/templates"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let templates: Vec<MailTemplateTO> = response.json().await.unwrap();
+    assert!(templates.len() >= 3); // 2 seeded + 1 created
+    assert!(templates.iter().any(|t| t.name == "Einladung MV"));
+
+    // Get by id
+    let response = client
+        .get(server.url(&format!("/api/mail/templates/{}", created.id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let fetched: MailTemplateTO = response.json().await.unwrap();
+    assert_eq!(fetched.id, created.id);
+    assert_eq!(fetched.name, "Einladung MV");
+
+    // Update
+    let response = client
+        .put(server.url(&format!("/api/mail/templates/{}", created.id)))
+        .json(&serde_json::json!({
+            "name": "Einladung MV 2026",
+            "subject": "Einladung MV am 01.06.2026",
+            "body": "Liebe/r {{ first_name }}, ...",
+            "version": created.version
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let updated: MailTemplateTO = response.json().await.unwrap();
+    assert_eq!(updated.name, "Einladung MV 2026");
+    assert_ne!(updated.version, created.version);
+
+    // Delete
+    let response = client
+        .delete(server.url(&format!("/api/mail/templates/{}", created.id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+
+    // Get after delete => 404
+    let response = client
+        .get(server.url(&format!("/api/mail/templates/{}", created.id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn mail_template_duplicate_name_rejected() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Create first
+    let response = client
+        .post(server.url("/api/mail/templates"))
+        .json(&serde_json::json!({
+            "name": "Unique Name",
+            "subject": "Sub",
+            "body": "Body"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    // Create duplicate
+    let response = client
+        .post(server.url("/api/mail/templates"))
+        .json(&serde_json::json!({
+            "name": "Unique Name",
+            "subject": "Sub2",
+            "body": "Body2"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+}
+
+#[tokio::test]
+async fn mail_template_version_conflict() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Create
+    let response = client
+        .post(server.url("/api/mail/templates"))
+        .json(&serde_json::json!({
+            "name": "Version Test",
+            "subject": "Sub",
+            "body": "Body"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let created: MailTemplateTO = response.json().await.unwrap();
+
+    // Update with correct version
+    let response = client
+        .put(server.url(&format!("/api/mail/templates/{}", created.id)))
+        .json(&serde_json::json!({
+            "name": "Version Test",
+            "subject": "Updated",
+            "body": "Body",
+            "version": created.version
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Try update with old (now stale) version
+    let response = client
+        .put(server.url(&format!("/api/mail/templates/{}", created.id)))
+        .json(&serde_json::json!({
+            "name": "Version Test",
+            "subject": "Conflict!",
+            "body": "Body",
+            "version": created.version
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+}
+
+#[tokio::test]
+async fn mail_template_predefined_present_after_migration() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(server.url("/api/mail/templates"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let templates: Vec<MailTemplateTO> = response.json().await.unwrap();
+
+    assert!(
+        templates.iter().any(|t| t.name == "Formelle Anrede"),
+        "Expected 'Formelle Anrede' to be seeded"
+    );
+    assert!(
+        templates.iter().any(|t| t.name == "Informelle Anrede"),
+        "Expected 'Informelle Anrede' to be seeded"
+    );
 }

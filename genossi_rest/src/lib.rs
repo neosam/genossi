@@ -142,7 +142,7 @@ type ContextType = MockContext;
 type ContextType = AuthenticatedContext;
 
 #[async_trait]
-pub trait RestStateDef: Clone + Send + Sync + 'static + genossi_config::rest::ConfigRestState + genossi_mail::rest::MailRestState + genossi_mail::inbox_rest::InboxRestState + genossi_mail::communication_rest::CommunicationRestState {
+pub trait RestStateDef: Clone + Send + Sync + 'static + genossi_config::rest::ConfigRestState + genossi_mail::rest::MailRestState + genossi_mail::rest_templates::MailTemplateRestState + genossi_mail::inbox_rest::InboxRestState + genossi_mail::communication_rest::CommunicationRestState {
     type MemberService: genossi_service::member::MemberService<Context = ContextType>
         + Send
         + Sync
@@ -372,6 +372,7 @@ pub async fn create_app<RestState: RestStateDef + public_stats::PublicStatsState
         .nest("/api/user-preferences", user_preference::generate_route())
         .nest("/api/config", genossi_config::rest::generate_route())
         .nest("/api/mail", genossi_mail::rest::generate_route())
+        .nest("/api/mail/templates", genossi_mail::rest_templates::generate_route::<RestState>())
         .nest("/api/mail/footer", mail_footer::generate_route::<RestState>())
         .nest("/api/inbox", genossi_mail::inbox_rest::generate_route::<RestState>())
         .nest(
