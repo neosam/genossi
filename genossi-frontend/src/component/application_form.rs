@@ -30,16 +30,38 @@ pub fn ApplicationForm(
     let i18n = use_i18n();
     let is_edit = matches!(mode, ApplicationFormMode::Edit { .. });
 
-    let (init_salutation, init_title, init_first_name, init_last_name, init_email,
-         init_street, init_house_number, init_postal_code, init_city, init_shares,
-         init_version) = match &mode {
+    let (
+        init_salutation,
+        init_title,
+        init_first_name,
+        init_last_name,
+        init_email,
+        init_street,
+        init_house_number,
+        init_postal_code,
+        init_city,
+        init_shares,
+        init_version,
+    ) = match &mode {
         ApplicationFormMode::Create => (
-            String::new(), String::new(), String::new(), String::new(), String::new(),
-            String::new(), String::new(), String::new(), String::new(), "1".to_string(),
+            String::new(),
+            String::new(),
+            String::new(),
+            String::new(),
+            String::new(),
+            String::new(),
+            String::new(),
+            String::new(),
+            String::new(),
+            "1".to_string(),
             None,
         ),
         ApplicationFormMode::Edit { application } => (
-            application.salutation.as_ref().map(salutation_to_string).unwrap_or_default(),
+            application
+                .salutation
+                .as_ref()
+                .map(salutation_to_string)
+                .unwrap_or_default(),
             application.title.clone().unwrap_or_default(),
             application.first_name.clone(),
             application.last_name.clone(),

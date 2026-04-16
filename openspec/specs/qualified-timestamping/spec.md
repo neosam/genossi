@@ -45,20 +45,25 @@ The system SHALL create an RFC 3161 TimeStampReq containing the SHA256 hash of t
 - **WHEN** the TSA server returns a TimeStampResp with a non-success status
 - **THEN** the system logs an ERROR with the TSA status, stores a record with status "tsa_failed", and continues
 
-### Requirement: Timestamp token WebDAV upload
-The system SHALL upload the .tsr token file to the configured WebDAV server in an `audit-timestamps/` subdirectory. The file SHALL be named `audit-checkpoint-{ISO8601-timestamp}.tsr`. WebDAV upload is optional — if WebDAV is not configured, the token is stored locally only.
+### Requirement: Timestamp worker WebDAV responsibility
+The timestamp worker SHALL NOT perform WebDAV uploads. The .tsr token upload to WebDAV is handled by the backup worker. The timestamp worker only creates timestamps and stores them locally in the database.
 
-#### Scenario: Successful upload
-- **WHEN** a TSR token is obtained and WebDAV is configured
-- **THEN** the system uploads the token to `audit-timestamps/audit-checkpoint-2026-04-15T14:30:00.tsr` and updates the record's webdav_path
+#### Scenario: Timestamp created
+- **WHEN** the timestamp worker creates a timestamp successfully
+- **THEN** the token is stored in the database with `webdav_path = NULL`; WebDAV upload is deferred to the backup worker
 
-#### Scenario: WebDAV upload fails
-- **WHEN** a TSR token is obtained but WebDAV upload fails
-- **THEN** the system logs a WARN, sets the record status to "upload_failed", and continues (the token is still stored locally in the database)
+### Requirement: AuditTimestampDao additional methods
+The AuditTimestampDao SHALL provide methods to support the backup worker's .tsr upload:
+- `get_pending_upload()`: Returns all entries where `webdav_path IS NULL AND status = 'success'`
+- `update_webdav_path(id, path)`: Sets the `webdav_path` for a given entry
 
-#### Scenario: WebDAV not configured
-- **WHEN** a TSR token is obtained but WebDAV backup is not configured
-- **THEN** the token is stored locally only, no upload is attempted
+#### Scenario: Query pending uploads
+- **WHEN** the backup worker queries for pending uploads
+- **THEN** only entries with status "success" and no webdav_path are returned
+
+#### Scenario: Mark as uploaded
+- **WHEN** a .tsr file is uploaded successfully
+- **THEN** the backup worker calls `update_webdav_path` with the WebDAV path
 
 ### Requirement: Timestamp configuration
 The system SHALL use the following config store keys:

@@ -1,18 +1,18 @@
 use dioxus::prelude::*;
 
+pub use crate::page::inbox_page::InboxDetail;
+pub use crate::page::mail_page::MailJobDetail;
 pub use crate::page::ApplicationsPage;
 pub use crate::page::AuditLogPage;
+pub use crate::page::BackupPage;
 pub use crate::page::ConfigPage;
 pub use crate::page::Home;
 pub use crate::page::InboxPage;
-pub use crate::page::inbox_page::InboxDetail;
 pub use crate::page::MailPage;
 pub use crate::page::MailTemplatesPage;
-pub use crate::page::mail_page::MailJobDetail;
 pub use crate::page::MemberDetails;
 pub use crate::page::Members;
 pub use crate::page::Permissions;
-pub use crate::page::BackupPage;
 pub use crate::page::StaticDocumentsPage;
 pub use crate::page::Templates;
 pub use crate::page::Validation;

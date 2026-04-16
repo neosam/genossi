@@ -1,8 +1,14 @@
-## ADDED Requirements
+# Frontend Datetime Formatting
+
+## Purpose
+
+Einheitliche, lokalisierbare Formatierung von Datums- und Zeitstempelanzeigen im Frontend. Komponenten und Pages leiten Zeitstempel durch zentrale `I18n`-Methoden statt eigene Helfer zu definieren oder rohe ISO8601-Strings (inkl. Nanosekunden) darzustellen.
+
+## Requirements
 
 ### Requirement: i18n.format_datetime für Anzeige mit Stunden und Minuten
 
-Die `I18n`-Struktur SHALL eine Methode `format_datetime` bereitstellen, die einen Zeitstempel (entweder als `time::OffsetDateTime` oder als ISO8601-String) entgegennimmt und einen lokalisierten String mit Datum und Uhrzeit (Stunden und Minuten, ohne Sekunden) zurückgibt.
+Die `I18n`-Struktur SHALL eine Methode `format_datetime` bereitstellen, die einen ISO8601-String entgegennimmt und einen lokalisierten String mit Datum und Uhrzeit (Stunden und Minuten, ohne Sekunden) zurückgibt. Kann der String nicht geparst werden, wird er unverändert zurückgegeben.
 
 #### Scenario: Deutsche Locale
 
@@ -15,11 +21,6 @@ Die `I18n`-Struktur SHALL eine Methode `format_datetime` bereitstellen, die eine
 - **WHEN** die UI-Sprache auf Englisch eingestellt ist
 - **AND** derselbe Zeitstempel formatiert wird
 - **THEN** das Ergebnis nutzt das englische Locale-Format mit Stunden und Minuten, ohne Sekunden
-
-#### Scenario: Tschechische Locale
-
-- **WHEN** die UI-Sprache auf Tschechisch eingestellt ist
-- **THEN** das Ergebnis nutzt das tschechische Locale-Format mit Stunden und Minuten, ohne Sekunden
 
 ### Requirement: i18n.format_datetime_long für Sekundengenauigkeit
 

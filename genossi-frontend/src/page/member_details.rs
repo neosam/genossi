@@ -1,5 +1,8 @@
 use dioxus::prelude::*;
-use rest_types::{ActionTypeTO, CommunicationEntryTO, DocumentTypeTO, MemberActionTO, MemberDocumentTO, MemberStatusTO, MemberTO, MigrationStatusTO, SalutationTO};
+use rest_types::{
+    ActionTypeTO, CommunicationEntryTO, DocumentTypeTO, MemberActionTO, MemberDocumentTO,
+    MemberStatusTO, MemberTO, MigrationStatusTO, SalutationTO,
+};
 use uuid::Uuid;
 
 use crate::api::{self, FileTreeEntry};
@@ -48,10 +51,13 @@ pub fn MemberDetails(id: String) -> Element {
     let mut member = use_signal(|| {
         let today = js_sys::Date::new_0();
         let year = today.get_full_year() as i32;
-        let month: time::Month = (today.get_month() as u8 + 1).try_into().unwrap_or(time::Month::January);
+        let month: time::Month = (today.get_month() as u8 + 1)
+            .try_into()
+            .unwrap_or(time::Month::January);
         let day = today.get_date() as u8;
-        let join_date = time::Date::from_calendar_date(year, month, day)
-            .unwrap_or_else(|_| time::Date::from_calendar_date(2025, time::Month::January, 1).unwrap());
+        let join_date = time::Date::from_calendar_date(year, month, day).unwrap_or_else(|_| {
+            time::Date::from_calendar_date(2025, time::Month::January, 1).unwrap()
+        });
 
         MemberTO {
             id: None,
@@ -102,10 +108,13 @@ pub fn MemberDetails(id: String) -> Element {
     let mut action_date = use_signal(|| {
         let today = js_sys::Date::new_0();
         let year = today.get_full_year() as i32;
-        let month: time::Month = (today.get_month() as u8 + 1).try_into().unwrap_or(time::Month::January);
+        let month: time::Month = (today.get_month() as u8 + 1)
+            .try_into()
+            .unwrap_or(time::Month::January);
         let day = today.get_date() as u8;
-        time::Date::from_calendar_date(year, month, day)
-            .unwrap_or_else(|_| time::Date::from_calendar_date(2025, time::Month::January, 1).unwrap())
+        time::Date::from_calendar_date(year, month, day).unwrap_or_else(|_| {
+            time::Date::from_calendar_date(2025, time::Month::January, 1).unwrap()
+        })
     });
     let mut action_shares_change = use_signal(|| 1_i32);
     let mut action_transfer_member_id = use_signal(|| String::new());
@@ -229,7 +238,11 @@ pub fn MemberDetails(id: String) -> Element {
             let at = action_type.read().clone();
             let shares = if at.needs_shares_input() {
                 let val = *action_shares_change.read();
-                if at.negates_shares() { -val.abs() } else { val.abs() }
+                if at.negates_shares() {
+                    -val.abs()
+                } else {
+                    val.abs()
+                }
             } else {
                 0
             };
@@ -253,7 +266,11 @@ pub fn MemberDetails(id: String) -> Element {
                 shares_change: shares,
                 transfer_member_id: transfer_id,
                 effective_date: eff_date,
-                comment: if comment_val.is_empty() { None } else { Some(comment_val) },
+                comment: if comment_val.is_empty() {
+                    None
+                } else {
+                    Some(comment_val)
+                },
                 created: None,
                 deleted: None,
                 version: editing_action.read().as_ref().and_then(|a| a.version),

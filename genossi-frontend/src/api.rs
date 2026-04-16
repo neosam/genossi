@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use rest_types::{MemberActionTO, MemberDocumentTO, MemberTO, MigrationStatusTO, UserTO, ValidationResultTO};
+use rest_types::{
+    MemberActionTO, MemberDocumentTO, MemberTO, MigrationStatusTO, UserTO, ValidationResultTO,
+};
 use tracing::info;
 use uuid::Uuid;
 
@@ -56,21 +58,19 @@ pub async fn get_member(config: &Config, id: Uuid) -> Result<MemberTO, reqwest::
     Ok(response.json().await?)
 }
 
-pub async fn create_member(
-    config: &Config,
-    member: MemberTO,
-) -> Result<MemberTO, reqwest::Error> {
+pub async fn create_member(config: &Config, member: MemberTO) -> Result<MemberTO, reqwest::Error> {
     info!("Creating member");
     let url = format!("{}/api/members", config.backend);
-    let response = reqwest::Client::new().post(url).json(&member).send().await?;
+    let response = reqwest::Client::new()
+        .post(url)
+        .json(&member)
+        .send()
+        .await?;
     response.error_for_status_ref()?;
     Ok(response.json().await?)
 }
 
-pub async fn update_member(
-    config: &Config,
-    member: MemberTO,
-) -> Result<MemberTO, reqwest::Error> {
+pub async fn update_member(config: &Config, member: MemberTO) -> Result<MemberTO, reqwest::Error> {
     info!("Updating member {:?}", member.id);
     let id = member.id.unwrap();
     let url = format!("{}/api/members/{id}", config.backend);
@@ -82,7 +82,11 @@ pub async fn update_member(
 pub async fn delete_member(config: &Config, id: Uuid) -> Result<(), reqwest::Error> {
     info!("Deleting member {id}");
     let url = format!("{}/api/members/{id}", config.backend);
-    reqwest::Client::new().delete(url).send().await?.error_for_status_ref()?;
+    reqwest::Client::new()
+        .delete(url)
+        .send()
+        .await?
+        .error_for_status_ref()?;
     Ok(())
 }
 
@@ -105,7 +109,11 @@ pub async fn create_member_action(
 ) -> Result<MemberActionTO, reqwest::Error> {
     info!("Creating action for member {member_id}");
     let url = format!("{}/api/members/{member_id}/actions", config.backend);
-    let response = reqwest::Client::new().post(url).json(&action).send().await?;
+    let response = reqwest::Client::new()
+        .post(url)
+        .json(&action)
+        .send()
+        .await?;
     response.error_for_status_ref()?;
     Ok(response.json().await?)
 }
@@ -158,10 +166,7 @@ pub async fn get_migration_status(
     Ok(response.json().await?)
 }
 
-pub async fn confirm_migration(
-    config: &Config,
-    member_id: Uuid,
-) -> Result<(), reqwest::Error> {
+pub async fn confirm_migration(config: &Config, member_id: Uuid) -> Result<(), reqwest::Error> {
     info!("Confirming migration for member {member_id}");
     let url = format!(
         "{}/api/members/{member_id}/actions/confirm-migration",
@@ -367,7 +372,11 @@ pub async fn save_template(config: &Config, path: &str, content: &str) -> Result
     Ok(())
 }
 
-pub async fn upload_template_file(config: &Config, path: &str, bytes: Vec<u8>) -> Result<(), String> {
+pub async fn upload_template_file(
+    config: &Config,
+    path: &str,
+    bytes: Vec<u8>,
+) -> Result<(), String> {
     info!("Uploading template file: {path}");
     let url = format!("{}/api/templates/{}", config.backend, path);
     let response = reqwest::Client::new()
@@ -408,7 +417,11 @@ pub fn template_render_url(config: &Config, path: &str, member_id: Uuid) -> Stri
     )
 }
 
-pub async fn render_template_pdf(config: &Config, path: &str, member_id: Uuid) -> Result<String, String> {
+pub async fn render_template_pdf(
+    config: &Config,
+    path: &str,
+    member_id: Uuid,
+) -> Result<String, String> {
     use wasm_bindgen::JsCast;
     use wasm_bindgen_futures::JsFuture;
 
@@ -444,9 +457,7 @@ pub async fn render_template_pdf(config: &Config, path: &str, member_id: Uuid) -
         .await
         .map_err(|e| format!("Failed to read blob: {:?}", e))?;
 
-    let blob: web_sys::Blob = blob
-        .dyn_into()
-        .map_err(|_| "Not a Blob".to_string())?;
+    let blob: web_sys::Blob = blob.dyn_into().map_err(|_| "Not a Blob".to_string())?;
 
     let blob_url = web_sys::Url::create_object_url_with_blob(&blob)
         .map_err(|e| format!("Failed to create blob URL: {:?}", e))?;
@@ -454,14 +465,22 @@ pub async fn render_template_pdf(config: &Config, path: &str, member_id: Uuid) -
     Ok(blob_url)
 }
 
-pub fn template_render_application_url(config: &Config, path: &str, application_id: Uuid) -> String {
+pub fn template_render_application_url(
+    config: &Config,
+    path: &str,
+    application_id: Uuid,
+) -> String {
     format!(
         "{}/api/templates/render-application/{}/{}",
         config.backend, path, application_id
     )
 }
 
-pub async fn render_template_pdf_application(config: &Config, path: &str, application_id: Uuid) -> Result<String, String> {
+pub async fn render_template_pdf_application(
+    config: &Config,
+    path: &str,
+    application_id: Uuid,
+) -> Result<String, String> {
     use wasm_bindgen::JsCast;
     use wasm_bindgen_futures::JsFuture;
 
@@ -497,9 +516,7 @@ pub async fn render_template_pdf_application(config: &Config, path: &str, applic
         .await
         .map_err(|e| format!("Failed to read blob: {:?}", e))?;
 
-    let blob: web_sys::Blob = blob
-        .dyn_into()
-        .map_err(|_| "Not a Blob".to_string())?;
+    let blob: web_sys::Blob = blob.dyn_into().map_err(|_| "Not a Blob".to_string())?;
 
     let blob_url = web_sys::Url::create_object_url_with_blob(&blob)
         .map_err(|e| format!("Failed to create blob URL: {:?}", e))?;
@@ -645,10 +662,7 @@ pub async fn get_applications(
     Ok(response.json().await?)
 }
 
-pub async fn get_application(
-    config: &Config,
-    id: Uuid,
-) -> Result<ApplicationTO, reqwest::Error> {
+pub async fn get_application(config: &Config, id: Uuid) -> Result<ApplicationTO, reqwest::Error> {
     info!("Fetching application {id}");
     let url = format!("{}/api/applications/{}", config.backend, id);
     let response = reqwest::get(url).await?;
@@ -673,7 +687,11 @@ pub async fn create_application(
 ) -> Result<ApplicationTO, reqwest::Error> {
     info!("Creating application");
     let url = format!("{}/api/applications", config.backend);
-    let response = reqwest::Client::new().post(url).json(request).send().await?;
+    let response = reqwest::Client::new()
+        .post(url)
+        .json(request)
+        .send()
+        .await?;
     response.error_for_status_ref()?;
     Ok(response.json().await?)
 }
@@ -957,7 +975,10 @@ pub async fn get_mail_footer(config: &Config) -> Result<String, String> {
 }
 
 // User Preferences API
-pub async fn get_user_preference(config: &Config, key: &str) -> Result<Option<rest_types::UserPreferenceTO>, reqwest::Error> {
+pub async fn get_user_preference(
+    config: &Config,
+    key: &str,
+) -> Result<Option<rest_types::UserPreferenceTO>, reqwest::Error> {
     info!("Fetching user preference: {key}");
     let url = format!("{}/api/user-preferences/{}", config.backend, key);
     let response = reqwest::get(url).await?;
@@ -968,7 +989,11 @@ pub async fn get_user_preference(config: &Config, key: &str) -> Result<Option<re
     Ok(Some(response.json().await?))
 }
 
-pub async fn set_user_preference(config: &Config, key: &str, value: &str) -> Result<rest_types::UserPreferenceTO, reqwest::Error> {
+pub async fn set_user_preference(
+    config: &Config,
+    key: &str,
+    value: &str,
+) -> Result<rest_types::UserPreferenceTO, reqwest::Error> {
     info!("Setting user preference: {key}");
     let url = format!("{}/api/user-preferences/{}", config.backend, key);
     let body = rest_types::UserPreferenceTO {
@@ -1010,7 +1035,10 @@ pub async fn get_all_users(config: &Config) -> Result<Vec<UserResponseTO>, reqwe
     Ok(response.json().await?)
 }
 
-pub async fn get_user_roles(config: &Config, username: &str) -> Result<Vec<RoleResponseTO>, reqwest::Error> {
+pub async fn get_user_roles(
+    config: &Config,
+    username: &str,
+) -> Result<Vec<RoleResponseTO>, reqwest::Error> {
     info!("Fetching roles for user: {username}");
     let url = format!("{}/api/permission/user/{}/roles", config.backend, username);
     let response = reqwest::get(url).await?;
@@ -1018,7 +1046,11 @@ pub async fn get_user_roles(config: &Config, username: &str) -> Result<Vec<RoleR
     Ok(response.json().await?)
 }
 
-pub async fn assign_user_role(config: &Config, user: &str, role: &str) -> Result<(), reqwest::Error> {
+pub async fn assign_user_role(
+    config: &Config,
+    user: &str,
+    role: &str,
+) -> Result<(), reqwest::Error> {
     info!("Assigning role {role} to user {user}");
     let url = format!("{}/api/permission/user-role", config.backend);
     let body = UserRoleTO {
@@ -1031,7 +1063,11 @@ pub async fn assign_user_role(config: &Config, user: &str, role: &str) -> Result
     Ok(())
 }
 
-pub async fn remove_user_role(config: &Config, user: &str, role: &str) -> Result<(), reqwest::Error> {
+pub async fn remove_user_role(
+    config: &Config,
+    user: &str,
+    role: &str,
+) -> Result<(), reqwest::Error> {
     info!("Removing role {role} from user {user}");
     let url = format!("{}/api/permission/user-role", config.backend);
     let body = UserRoleTO {
@@ -1044,9 +1080,16 @@ pub async fn remove_user_role(config: &Config, user: &str, role: &str) -> Result
     Ok(())
 }
 
-pub async fn get_user_preference_admin(config: &Config, username: &str, key: &str) -> Result<Option<rest_types::UserPreferenceTO>, reqwest::Error> {
+pub async fn get_user_preference_admin(
+    config: &Config,
+    username: &str,
+    key: &str,
+) -> Result<Option<rest_types::UserPreferenceTO>, reqwest::Error> {
     info!("Admin fetching preference {key} for user {username}");
-    let url = format!("{}/api/permission/user/{}/preferences/{}", config.backend, username, key);
+    let url = format!(
+        "{}/api/permission/user/{}/preferences/{}",
+        config.backend, username, key
+    );
     let response = reqwest::get(url).await?;
     if response.status() == reqwest::StatusCode::NOT_FOUND {
         return Ok(None);
@@ -1055,9 +1098,17 @@ pub async fn get_user_preference_admin(config: &Config, username: &str, key: &st
     Ok(Some(response.json().await?))
 }
 
-pub async fn set_user_preference_admin(config: &Config, username: &str, key: &str, value: &str) -> Result<rest_types::UserPreferenceTO, reqwest::Error> {
+pub async fn set_user_preference_admin(
+    config: &Config,
+    username: &str,
+    key: &str,
+    value: &str,
+) -> Result<rest_types::UserPreferenceTO, reqwest::Error> {
     info!("Admin setting preference {key} for user {username}");
-    let url = format!("{}/api/permission/user/{}/preferences/{}", config.backend, username, key);
+    let url = format!(
+        "{}/api/permission/user/{}/preferences/{}",
+        config.backend, username, key
+    );
     let body = rest_types::UserPreferenceTO {
         id: None,
         key: None,
@@ -1157,10 +1208,7 @@ pub async fn upload_static_document(
     Ok(doc)
 }
 
-pub async fn delete_static_document(
-    config: &Config,
-    id: &str,
-) -> Result<(), reqwest::Error> {
+pub async fn delete_static_document(config: &Config, id: &str) -> Result<(), reqwest::Error> {
     info!("Deleting static document {id}");
     let url = format!("{}/api/static-documents/{id}", config.backend);
     reqwest::Client::new()
@@ -1451,10 +1499,7 @@ pub async fn get_audit_by_entity(
     entity_type: &str,
     entity_id: Uuid,
 ) -> Result<Vec<rest_types::AuditLogEntryTO>, reqwest::Error> {
-    let url = format!(
-        "{}/api/audit/{}/{}",
-        config.backend, entity_type, entity_id
-    );
+    let url = format!("{}/api/audit/{}/{}", config.backend, entity_type, entity_id);
     let response = reqwest::get(url).await?;
     response.error_for_status_ref()?;
     Ok(response.json().await?)

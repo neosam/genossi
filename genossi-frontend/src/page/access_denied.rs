@@ -1,6 +1,6 @@
-use dioxus::prelude::*;
 use crate::component::TopBar;
 use crate::i18n::{use_i18n, Key};
+use dioxus::prelude::*;
 
 #[derive(PartialEq, Clone, Props)]
 pub struct AccessDeniedProps {

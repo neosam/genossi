@@ -32,5 +32,4 @@ impl AuthInfo {
     pub fn has_privilege(&self, privilege: &str) -> bool {
         self.privileges.iter().any(|p| p.as_ref() == privilege)
     }
-
 }

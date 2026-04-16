@@ -163,11 +163,7 @@ pub fn Templates() -> Element {
                 editor_content.set(content);
             });
 
-            match js::create_typst_editor(
-                "codemirror-container",
-                &initial_content,
-                &on_change,
-            ) {
+            match js::create_typst_editor("codemirror-container", &initial_content, &on_change) {
                 Ok(id) => {
                     on_change.forget();
                     editor_id.set(Some(id));
@@ -238,10 +234,18 @@ pub fn Templates() -> Element {
 
     let mut on_file_select = move |path: String| {
         // Don't open binary files in the code editor
-        let is_text = path.ends_with(".typ") || path.ends_with(".txt") || path.ends_with(".md")
-            || path.ends_with(".toml") || path.ends_with(".yaml") || path.ends_with(".yml")
-            || path.ends_with(".json") || path.ends_with(".csv") || path.ends_with(".xml")
-            || path.ends_with(".html") || path.ends_with(".css") || path.ends_with(".js");
+        let is_text = path.ends_with(".typ")
+            || path.ends_with(".txt")
+            || path.ends_with(".md")
+            || path.ends_with(".toml")
+            || path.ends_with(".yaml")
+            || path.ends_with(".yml")
+            || path.ends_with(".json")
+            || path.ends_with(".csv")
+            || path.ends_with(".xml")
+            || path.ends_with(".html")
+            || path.ends_with(".css")
+            || path.ends_with(".js");
         if !is_text {
             return;
         }

@@ -2,8 +2,8 @@ use dioxus::prelude::*;
 
 use crate::api::{self, MailTemplateTO};
 use crate::auth::RequirePrivilege;
-use crate::component::TopBar;
 use crate::component::mail_compose::TemplateVarButtons;
+use crate::component::TopBar;
 use crate::i18n::{use_i18n, Key};
 use crate::page::AccessDeniedPage;
 use crate::service::config::CONFIG;

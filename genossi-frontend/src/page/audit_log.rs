@@ -313,7 +313,7 @@ pub fn AuditLogPage() -> Element {
                                             rsx! {
                                                 tr { class: "border-b hover:bg-blue-50 {bg}",
                                                     td { class: "py-2 px-3 whitespace-nowrap text-xs",
-                                                        {entry.timestamp.chars().take(19).collect::<String>()}
+                                                        {i18n.format_datetime_long(&entry.timestamp)}
                                                     }
                                                     td { class: "py-2 px-3", "{entry.user_id}" }
                                                     td { class: "py-2 px-3",

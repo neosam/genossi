@@ -201,9 +201,11 @@ fn render_timestamp_row(
     let mut verify_result = verify_result.clone();
     let mut verify_loading = verify_loading.clone();
 
+    let timestamp_display = i18n.format_datetime_long(&ts.timestamp);
+
     rsx! {
         tr { class: "border-b hover:bg-gray-50",
-            td { class: "py-2 px-3", "{ts.timestamp}" }
+            td { class: "py-2 px-3", "{timestamp_display}" }
             td { class: "py-2 px-3 font-mono text-xs", title: "{ts.audit_hash}",
                 "{hash_short}"
             }

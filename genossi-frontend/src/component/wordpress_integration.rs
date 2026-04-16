@@ -46,8 +46,7 @@ pub fn WordPressIntegrationSection(
     let backend_url = CONFIG.read().backend.to_string();
 
     rsx! {
-        div { class: "bg-white rounded-lg shadow p-6 mb-6",
-            h2 { class: "text-xl font-semibold mb-1", {i18n.t(Key::WordPressIntegration)} }
+        div {
             p { class: "text-sm text-gray-500 mb-4", {i18n.t(Key::WordPressIntegrationDesc)} }
 
             // Status indicator

@@ -280,7 +280,12 @@ pub fn Validation() -> Element {
     }
 }
 
-fn rule_section_header(is_ok: bool, i18n: &crate::i18n::I18n, title_key: Key, severity: &str) -> Element {
+fn rule_section_header(
+    is_ok: bool,
+    i18n: &crate::i18n::I18n,
+    title_key: Key,
+    severity: &str,
+) -> Element {
     let (icon, icon_color, title_color) = if is_ok {
         ("✓", "text-green-600", "text-green-700")
     } else {

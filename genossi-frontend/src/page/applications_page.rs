@@ -2,7 +2,10 @@ use dioxus::prelude::*;
 
 use crate::api::{self, ApplicationTO};
 use crate::auth::RequirePrivilege;
-use crate::component::{ApplicationCreateForm, ApplicationDetail, ApplicationForm, ApplicationFormMode, ApplicationList, TopBar};
+use crate::component::{
+    ApplicationCreateForm, ApplicationDetail, ApplicationForm, ApplicationFormMode,
+    ApplicationList, TopBar,
+};
 use crate::i18n::{use_i18n, Key};
 use crate::page::AccessDeniedPage;
 use crate::service::config::CONFIG;
@@ -25,7 +28,11 @@ pub fn ApplicationsPage() -> Element {
             loading.set(true);
             error.set(None);
             let config = CONFIG.read().clone();
-            let filter = if tab == "all" { None } else { Some(tab.as_str()) };
+            let filter = if tab == "all" {
+                None
+            } else {
+                Some(tab.as_str())
+            };
             match api::get_applications(&config, filter).await {
                 Ok(data) => {
                     applications.set(data);

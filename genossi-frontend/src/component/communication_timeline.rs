@@ -4,21 +4,6 @@ use rest_types::{CommunicationDirection, CommunicationEntryTO};
 use crate::i18n::{use_i18n, Key};
 use crate::router::Route;
 
-fn format_datetime_short(iso: &str) -> String {
-    // Parse ISO8601 and format as DD.MM.YYYY HH:MM
-    if let Some((date_part, time_part)) = iso.split_once('T') {
-        let date_parts: Vec<&str> = date_part.split('-').collect();
-        if date_parts.len() == 3 {
-            let time_short = &time_part[..5.min(time_part.len())];
-            return format!(
-                "{}.{}.{} {}",
-                date_parts[2], date_parts[1], date_parts[0], time_short
-            );
-        }
-    }
-    iso.to_string()
-}
-
 #[component]
 pub fn CommunicationTimeline(entries: Vec<CommunicationEntryTO>) -> Element {
     let i18n = use_i18n();
@@ -77,7 +62,7 @@ fn render_entry(i18n: &crate::i18n::I18n, entry: &CommunicationEntryTO) -> Eleme
     };
 
     let status_badges = render_status(i18n, entry);
-    let date_str = format_datetime_short(&entry.date);
+    let date_str = i18n.format_datetime(&entry.date);
     let subject = entry.subject.clone();
 
     // Deep link to specific mail detail
@@ -123,16 +108,28 @@ fn render_status(i18n: &crate::i18n::I18n, entry: &CommunicationEntryTO) -> Elem
         if let Some(ref status) = entry.inbound_status {
             let mut badges = Vec::new();
             if status.done {
-                badges.push(("bg-green-100 text-green-800", i18n.t(Key::CommunicationStatusDone)));
+                badges.push((
+                    "bg-green-100 text-green-800",
+                    i18n.t(Key::CommunicationStatusDone),
+                ));
             }
             if status.replied {
-                badges.push(("bg-blue-100 text-blue-800", i18n.t(Key::CommunicationStatusReplied)));
+                badges.push((
+                    "bg-blue-100 text-blue-800",
+                    i18n.t(Key::CommunicationStatusReplied),
+                ));
             }
             if status.archived {
-                badges.push(("bg-gray-100 text-gray-800", i18n.t(Key::CommunicationStatusArchived)));
+                badges.push((
+                    "bg-gray-100 text-gray-800",
+                    i18n.t(Key::CommunicationStatusArchived),
+                ));
             }
             if badges.is_empty() {
-                badges.push(("bg-yellow-100 text-yellow-800", i18n.t(Key::CommunicationStatusPending)));
+                badges.push((
+                    "bg-yellow-100 text-yellow-800",
+                    i18n.t(Key::CommunicationStatusPending),
+                ));
             }
             return rsx! {
                 div { class: "flex gap-1 flex-wrap",
@@ -149,9 +146,18 @@ fn render_status(i18n: &crate::i18n::I18n, entry: &CommunicationEntryTO) -> Elem
     // Outbound status
     if let Some(ref status) = entry.outbound_status {
         let (color, label) = match status.as_str() {
-            "sent" => ("bg-green-100 text-green-800", i18n.t(Key::CommunicationStatusSent)),
-            "failed" => ("bg-red-100 text-red-800", i18n.t(Key::CommunicationStatusFailed)),
-            _ => ("bg-yellow-100 text-yellow-800", i18n.t(Key::CommunicationStatusPending)),
+            "sent" => (
+                "bg-green-100 text-green-800",
+                i18n.t(Key::CommunicationStatusSent),
+            ),
+            "failed" => (
+                "bg-red-100 text-red-800",
+                i18n.t(Key::CommunicationStatusFailed),
+            ),
+            _ => (
+                "bg-yellow-100 text-yellow-800",
+                i18n.t(Key::CommunicationStatusPending),
+            ),
         };
         return rsx! {
             span { class: "inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {color}",

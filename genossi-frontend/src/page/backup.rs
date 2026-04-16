@@ -23,11 +23,7 @@ pub fn BackupPage() -> Element {
     let config = CONFIG.read().clone();
     let mut date = use_signal(|| today_string());
 
-    let members_url = format!(
-        "{}/api/backup/members?date={}",
-        config.backend,
-        date.read()
-    );
+    let members_url = format!("{}/api/backup/members?date={}", config.backend, date.read());
     let actions_url = format!("{}/api/backup/actions", config.backend);
     let documents_url = format!("{}/api/backup/documents", config.backend);
 

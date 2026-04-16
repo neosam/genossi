@@ -3,8 +3,9 @@ use rest_types::MemberTO;
 
 use crate::api::{self, InboundMailDetailTO, InboundMailTO};
 use crate::auth::RequirePrivilege;
-use crate::component::TopBar;
 use crate::component::inbox::{InboxMailListItem, InboxReplyForm, InboxStatusBadge};
+use crate::component::TopBar;
+use crate::i18n::use_i18n;
 use crate::page::AccessDeniedPage;
 use crate::service::config::CONFIG;
 use crate::service::member::{refresh_members, MEMBERS};
@@ -37,6 +38,7 @@ pub fn InboxDetail(id: String) -> Element {
 
 #[component]
 fn InboxPageInner(initial_id: Option<String>) -> Element {
+    let i18n = use_i18n();
     let mut mails = use_signal(Vec::<InboundMailTO>::new);
     let mut loading = use_signal(|| true);
     let mut error = use_signal(|| None::<String>);
@@ -277,7 +279,7 @@ fn InboxPageInner(initial_id: Option<String>) -> Element {
                                                     InboxMailListItem {
                                                         subject: mail.subject.clone(),
                                                         from_address: mail.from_address.clone(),
-                                                        received_at: mail.received_at.clone(),
+                                                        received_at: i18n.format_datetime(&mail.received_at),
                                                         replied: mail.replied,
                                                         done: mail.done,
                                                         archived: mail.archived,
@@ -320,7 +322,7 @@ fn InboxPageInner(initial_id: Option<String>) -> Element {
                                 "Von: {d.from_address}"
                             }
                             div { class: "text-xs text-gray-500",
-                                "Empfangen: {d.received_at}"
+                                "Empfangen: {i18n.format_datetime(&d.received_at)}"
                             }
                             div { class: "text-xs",
                                 InboxStatusBadge { replied: d.replied, done: d.done, archived: d.archived }

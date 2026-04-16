@@ -37,7 +37,11 @@ fn trigger_preview(
 }
 
 #[component]
-pub fn TemplatePreview(subject: ReadOnlySignal<String>, body: ReadOnlySignal<String>, member_ids: Vec<Uuid>) -> Element {
+pub fn TemplatePreview(
+    subject: ReadOnlySignal<String>,
+    body: ReadOnlySignal<String>,
+    member_ids: Vec<Uuid>,
+) -> Element {
     let i18n = use_i18n();
     let mut preview_member_id = use_signal(|| None::<Uuid>);
     let mut preview_result = use_signal(|| None::<PreviewResponse>);

@@ -5,19 +5,6 @@ use crate::component::Modal;
 use crate::i18n::{use_i18n, Key};
 use crate::service::config::CONFIG;
 
-fn format_datetime(dt: &Option<String>) -> String {
-    match dt {
-        Some(s) => {
-            if s.len() >= 16 {
-                format!("{} {}", &s[..10], &s[11..16])
-            } else {
-                s.clone()
-            }
-        }
-        None => "-".to_string(),
-    }
-}
-
 fn salutation_label(s: &rest_types::SalutationTO) -> &'static str {
     match s {
         rest_types::SalutationTO::Herr => "Herr",
@@ -116,7 +103,15 @@ pub fn ApplicationDetail(
                 }
                 div { class: "grid grid-cols-3 gap-2",
                     span { class: "text-sm text-gray-500", {i18n.t(Key::SubmittedAt)} }
-                    span { class: "col-span-2 text-sm", {format_datetime(&application.created)} }
+                    span { class: "col-span-2 text-sm",
+                        {
+                            application
+                                .created
+                                .as_deref()
+                                .map(|s| i18n.format_datetime(s))
+                                .unwrap_or_else(|| "-".to_string())
+                        }
+                    }
                 }
             }
 

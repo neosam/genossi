@@ -14,31 +14,20 @@ fn status_label(i18n: &crate::i18n::I18n, status: &ApplicationStatusTO) -> Strin
 
 fn status_badge_class(status: &ApplicationStatusTO) -> &'static str {
     match status {
-        ApplicationStatusTO::Offen => "bg-yellow-100 text-yellow-800 px-2 py-1 rounded text-xs font-medium",
-        ApplicationStatusTO::Bestaetigt => "bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-medium",
-        ApplicationStatusTO::Abgelehnt => "bg-red-100 text-red-800 px-2 py-1 rounded text-xs font-medium",
-    }
-}
-
-fn format_datetime(dt: &Option<String>) -> String {
-    match dt {
-        Some(s) => {
-            // Truncate ISO8601 to readable format
-            if s.len() >= 16 {
-                format!("{} {}", &s[..10], &s[11..16])
-            } else {
-                s.clone()
-            }
+        ApplicationStatusTO::Offen => {
+            "bg-yellow-100 text-yellow-800 px-2 py-1 rounded text-xs font-medium"
         }
-        None => "-".to_string(),
+        ApplicationStatusTO::Bestaetigt => {
+            "bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-medium"
+        }
+        ApplicationStatusTO::Abgelehnt => {
+            "bg-red-100 text-red-800 px-2 py-1 rounded text-xs font-medium"
+        }
     }
 }
 
 #[component]
-pub fn ApplicationList(
-    applications: Vec<ApplicationTO>,
-    on_select: EventHandler<Uuid>,
-) -> Element {
+pub fn ApplicationList(applications: Vec<ApplicationTO>, on_select: EventHandler<Uuid>) -> Element {
     let i18n = use_i18n();
 
     if applications.is_empty() {
@@ -66,7 +55,11 @@ pub fn ApplicationList(
                             let id = app.id;
                             let status_text = status_label(&i18n, &app.status);
                             let badge_class = status_badge_class(&app.status);
-                            let created = format_datetime(&app.created);
+                            let created = app
+                                .created
+                                .as_deref()
+                                .map(|s| i18n.format_datetime(s))
+                                .unwrap_or_else(|| "-".to_string());
                             rsx! {
                                 tr {
                                     class: "border-b hover:bg-gray-50 cursor-pointer",

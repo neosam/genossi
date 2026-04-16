@@ -7,10 +7,7 @@ use crate::i18n::{use_i18n, Key};
 use crate::service::config::CONFIG;
 
 #[component]
-pub fn ApplicationCreateForm(
-    on_close: EventHandler<()>,
-    on_created: EventHandler<()>,
-) -> Element {
+pub fn ApplicationCreateForm(on_close: EventHandler<()>, on_created: EventHandler<()>) -> Element {
     let i18n = use_i18n();
     let mut salutation = use_signal(|| String::new());
     let mut title = use_signal(String::new);

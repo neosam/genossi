@@ -1,11 +1,11 @@
-use std::collections::HashMap;
 use dioxus::prelude::*;
 use gloo_timers::future::TimeoutFuture;
 use rest_types::DocumentTypeTO;
+use std::collections::HashMap;
 use uuid::Uuid;
 
 use crate::api::{self, MailJobTO};
-use crate::columns::{self, ALL_COLUMNS, ColumnDef, InputType};
+use crate::columns::{self, ColumnDef, InputType, ALL_COLUMNS};
 use crate::component::TopBar;
 use crate::i18n::use_i18n;
 use crate::i18n::Key;
@@ -73,8 +73,15 @@ async fn save_row_if_dirty(
     let Some(edited_member) = edited else { return };
 
     // Find original to compare
-    let original = MEMBERS.read().items.iter().find(|m| m.id == Some(member_id)).cloned();
-    let Some(original_member) = original else { return };
+    let original = MEMBERS
+        .read()
+        .items
+        .iter()
+        .find(|m| m.id == Some(member_id))
+        .cloned();
+    let Some(original_member) = original else {
+        return;
+    };
 
     // Dirty check: compare serialized forms
     let orig_json = serde_json::to_string(&original_member).unwrap_or_default();
@@ -85,7 +92,10 @@ async fn save_row_if_dirty(
 
     // Frontend validation: required fields
     if edited_member.first_name.trim().is_empty() || edited_member.last_name.trim().is_empty() {
-        let msg = format!("Mitglied {}: Vor- und Nachname dürfen nicht leer sein", edited_member.member_number);
+        let msg = format!(
+            "Mitglied {}: Vor- und Nachname dürfen nicht leer sein",
+            edited_member.member_number
+        );
         row_errors.write().insert(member_id, msg.clone());
         show_toast(toast_messages, toast_counter, msg);
         return;
@@ -142,19 +152,27 @@ async fn handle_upload(
     };
     let description = {
         let desc = upload_description.read().clone();
-        if desc.trim().is_empty() { None } else { Some(desc) }
+        if desc.trim().is_empty() {
+            None
+        } else {
+            Some(desc)
+        }
     };
 
     let input_id = format!("upload-file-{}", member_id);
     let file = match get_file_from_input(&input_id) {
         Some(f) => f,
         None => {
-            upload_status.write().insert(member_id, UploadStatus::Error("No file selected".into()));
+            upload_status
+                .write()
+                .insert(member_id, UploadStatus::Error("No file selected".into()));
             return;
         }
     };
 
-    upload_status.write().insert(member_id, UploadStatus::Uploading);
+    upload_status
+        .write()
+        .insert(member_id, UploadStatus::Uploading);
 
     let config = CONFIG.read().clone();
     match api::upload_member_document(
@@ -167,17 +185,26 @@ async fn handle_upload(
     .await
     {
         Ok(_) => {
-            let is_singleton = matches!(doc_type, DocumentTypeTO::JoinDeclaration | DocumentTypeTO::JoinConfirmation);
+            let is_singleton = matches!(
+                doc_type,
+                DocumentTypeTO::JoinDeclaration | DocumentTypeTO::JoinConfirmation
+            );
             if is_singleton {
-                upload_status.write().insert(member_id, UploadStatus::Existing);
+                upload_status
+                    .write()
+                    .insert(member_id, UploadStatus::Existing);
             } else {
-                upload_status.write().insert(member_id, UploadStatus::Success);
+                upload_status
+                    .write()
+                    .insert(member_id, UploadStatus::Success);
             }
             *document_counts.write().entry(member_id).or_insert(0) += 1;
         }
         Err(e) => {
             let msg = format!("{}", e);
-            upload_status.write().insert(member_id, UploadStatus::Error(msg.clone()));
+            upload_status
+                .write()
+                .insert(member_id, UploadStatus::Error(msg.clone()));
             show_toast(toast_messages, toast_counter, msg);
         }
     }
@@ -276,7 +303,9 @@ pub fn Members() -> Element {
         .iter()
         .filter(|m| m.deleted.is_none())
         .filter(|m| {
-            if filter_query.is_empty() { return true; }
+            if filter_query.is_empty() {
+                return true;
+            }
             let q = filter_query.to_lowercase();
             m.first_name.to_lowercase().contains(&q)
                 || m.last_name.to_lowercase().contains(&q)
@@ -284,16 +313,34 @@ pub fn Members() -> Element {
                 || m.city.as_deref().unwrap_or("").to_lowercase().contains(&q)
                 || m.email.as_deref().unwrap_or("").to_lowercase().contains(&q)
         })
-        .filter(|m| if show_only_active { is_active(m, &ref_date) } else { true })
-        .filter(|m| if show_exited_in_year { exited_in_year(m, &ref_date) } else { true })
-        .filter(|m| if show_only_pending_migration { !m.migrated } else { true })
+        .filter(|m| {
+            if show_only_active {
+                is_active(m, &ref_date)
+            } else {
+                true
+            }
+        })
+        .filter(|m| {
+            if show_exited_in_year {
+                exited_in_year(m, &ref_date)
+            } else {
+                true
+            }
+        })
+        .filter(|m| {
+            if show_only_pending_migration {
+                !m.migrated
+            } else {
+                true
+            }
+        })
         .collect();
 
     let selection = SELECTED_MEMBER_IDS.read();
     let selected_count = selection.count();
     let filtered_ids: Vec<_> = filtered_members.iter().filter_map(|m| m.id).collect();
-    let all_filtered_selected = !filtered_ids.is_empty()
-        && filtered_ids.iter().all(|id| selection.is_selected(id));
+    let all_filtered_selected =
+        !filtered_ids.is_empty() && filtered_ids.iter().all(|id| selection.is_selected(id));
 
     let active_columns: Vec<&ColumnDef> = columns::columns_for_keys(&selected_columns.read());
     let is_edit_mode = *edit_mode.read();

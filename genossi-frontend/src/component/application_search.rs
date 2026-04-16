@@ -54,8 +54,8 @@ pub fn ApplicationSearch(
     let apps = applications.read();
 
     // Find selected application for display
-    let selected_app: Option<&ApplicationTO> = selected_id
-        .and_then(|sid| apps.iter().find(|a| a.id == sid));
+    let selected_app: Option<&ApplicationTO> =
+        selected_id.and_then(|sid| apps.iter().find(|a| a.id == sid));
 
     // Filter results
     let filtered = filter_applications(&apps, &query.read());
@@ -135,7 +135,13 @@ pub fn ApplicationSearch(
 mod tests {
     use super::*;
 
-    fn make_app(id: Uuid, first: &str, last: &str, shares: i32, status: ApplicationStatusTO) -> ApplicationTO {
+    fn make_app(
+        id: Uuid,
+        first: &str,
+        last: &str,
+        shares: i32,
+        status: ApplicationStatusTO,
+    ) -> ApplicationTO {
         ApplicationTO {
             id,
             first_name: first.to_string(),
@@ -157,11 +163,41 @@ mod tests {
 
     fn test_applications() -> Vec<ApplicationTO> {
         vec![
-            make_app(Uuid::from_u128(1), "Anna", "Weber", 3, ApplicationStatusTO::Offen),
-            make_app(Uuid::from_u128(2), "Karl", "Schmidt", 1, ApplicationStatusTO::Offen),
-            make_app(Uuid::from_u128(3), "Maria", "Müller", 5, ApplicationStatusTO::Bestaetigt),
-            make_app(Uuid::from_u128(4), "Hans", "Weber", 2, ApplicationStatusTO::Abgelehnt),
-            make_app(Uuid::from_u128(5), "Fritz", "Weber", 1, ApplicationStatusTO::Offen),
+            make_app(
+                Uuid::from_u128(1),
+                "Anna",
+                "Weber",
+                3,
+                ApplicationStatusTO::Offen,
+            ),
+            make_app(
+                Uuid::from_u128(2),
+                "Karl",
+                "Schmidt",
+                1,
+                ApplicationStatusTO::Offen,
+            ),
+            make_app(
+                Uuid::from_u128(3),
+                "Maria",
+                "Müller",
+                5,
+                ApplicationStatusTO::Bestaetigt,
+            ),
+            make_app(
+                Uuid::from_u128(4),
+                "Hans",
+                "Weber",
+                2,
+                ApplicationStatusTO::Abgelehnt,
+            ),
+            make_app(
+                Uuid::from_u128(5),
+                "Fritz",
+                "Weber",
+                1,
+                ApplicationStatusTO::Offen,
+            ),
         ]
     }
 
@@ -171,7 +207,9 @@ mod tests {
         let results = filter_applications(&apps, "weber");
         // Only Anna and Fritz are Offen, Hans is Abgelehnt
         assert_eq!(results.len(), 2);
-        assert!(results.iter().all(|a| a.status == ApplicationStatusTO::Offen));
+        assert!(results
+            .iter()
+            .all(|a| a.status == ApplicationStatusTO::Offen));
     }
 
     #[test]
@@ -206,7 +244,13 @@ mod tests {
 
     #[test]
     fn test_format_application() {
-        let app = make_app(Uuid::from_u128(1), "Anna", "Weber", 3, ApplicationStatusTO::Offen);
+        let app = make_app(
+            Uuid::from_u128(1),
+            "Anna",
+            "Weber",
+            3,
+            ApplicationStatusTO::Offen,
+        );
         assert_eq!(format_application(&app), "Anna Weber (3 Anteile)");
     }
 }

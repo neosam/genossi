@@ -39,8 +39,7 @@ fn detect_browser_locale() -> Locale {
 
 fn is_german_language(lang: &str) -> bool {
     let lang_lower = lang.to_lowercase();
-    lang_lower == "de"
-        || lang_lower.starts_with("de-")
+    lang_lower == "de" || lang_lower.starts_with("de-")
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -512,6 +511,86 @@ impl I18n {
             Locale::De => format!("{:.2} EUR", euros).replace('.', ","),
         }
     }
+
+    /// Format an ISO8601 timestamp with minute precision, localised.
+    /// Returns the input unchanged if it cannot be parsed.
+    pub fn format_datetime(&self, iso: &str) -> String {
+        let Some(c) = parse_iso_components(iso) else {
+            return iso.to_string();
+        };
+        match self.locale {
+            Locale::En => format!(
+                "{:04}-{:02}-{:02} {:02}:{:02}",
+                c.year, c.month, c.day, c.hour, c.minute
+            ),
+            Locale::De => format!(
+                "{:02}.{:02}.{:04} {:02}:{:02}",
+                c.day, c.month, c.year, c.hour, c.minute
+            ),
+        }
+    }
+
+    /// Format an ISO8601 timestamp with second precision, localised.
+    /// Returns the input unchanged if it cannot be parsed.
+    pub fn format_datetime_long(&self, iso: &str) -> String {
+        let Some(c) = parse_iso_components(iso) else {
+            return iso.to_string();
+        };
+        match self.locale {
+            Locale::En => format!(
+                "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+                c.year, c.month, c.day, c.hour, c.minute, c.second
+            ),
+            Locale::De => format!(
+                "{:02}.{:02}.{:04} {:02}:{:02}:{:02}",
+                c.day, c.month, c.year, c.hour, c.minute, c.second
+            ),
+        }
+    }
+}
+
+struct IsoComponents {
+    year: i32,
+    month: u8,
+    day: u8,
+    hour: u8,
+    minute: u8,
+    second: u8,
+}
+
+fn parse_iso_components(s: &str) -> Option<IsoComponents> {
+    let (date_part, time_part) = s.split_once('T')?;
+    let mut date_it = date_part.split('-');
+    let year: i32 = date_it.next()?.parse().ok()?;
+    let month: u8 = date_it.next()?.parse().ok()?;
+    let day: u8 = date_it.next()?.parse().ok()?;
+    if date_it.next().is_some() {
+        return None;
+    }
+
+    let mut time_it = time_part.split(':');
+    let hour: u8 = time_it.next()?.parse().ok()?;
+    let minute: u8 = time_it.next()?.parse().ok()?;
+    let second_raw = time_it.next()?;
+    // Seconds may be followed by fractional seconds and/or a timezone marker;
+    // take only the leading integer digits.
+    let second_digits: String = second_raw
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
+    if second_digits.is_empty() {
+        return None;
+    }
+    let second: u8 = second_digits.parse().ok()?;
+
+    Some(IsoComponents {
+        year,
+        month,
+        day,
+        hour,
+        minute,
+        second,
+    })
 }
 
 impl Clone for I18n {
@@ -526,4 +605,55 @@ static I18N: GlobalSignal<I18n> = GlobalSignal::new(|| I18n::new(detect_browser_
 
 pub fn use_i18n() -> I18n {
     I18N.read().clone()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SAMPLE_ISO: &str = "2026-04-16T16:03:34.512345678Z";
+
+    #[test]
+    fn format_datetime_de_drops_fractional_seconds() {
+        let i18n = I18n::new(Locale::De);
+        assert_eq!(i18n.format_datetime(SAMPLE_ISO), "16.04.2026 16:03");
+    }
+
+    #[test]
+    fn format_datetime_en_uses_iso_date() {
+        let i18n = I18n::new(Locale::En);
+        assert_eq!(i18n.format_datetime(SAMPLE_ISO), "2026-04-16 16:03");
+    }
+
+    #[test]
+    fn format_datetime_long_de_includes_seconds() {
+        let i18n = I18n::new(Locale::De);
+        assert_eq!(i18n.format_datetime_long(SAMPLE_ISO), "16.04.2026 16:03:34");
+    }
+
+    #[test]
+    fn format_datetime_long_en_includes_seconds() {
+        let i18n = I18n::new(Locale::En);
+        assert_eq!(i18n.format_datetime_long(SAMPLE_ISO), "2026-04-16 16:03:34");
+    }
+
+    #[test]
+    fn format_datetime_accepts_timestamp_without_fraction() {
+        let i18n = I18n::new(Locale::De);
+        assert_eq!(
+            i18n.format_datetime("2026-04-16T16:03:34Z"),
+            "16.04.2026 16:03"
+        );
+    }
+
+    #[test]
+    fn format_datetime_returns_input_for_unparsable_string() {
+        let i18n = I18n::new(Locale::De);
+        assert_eq!(i18n.format_datetime("not-a-date"), "not-a-date");
+        assert_eq!(i18n.format_datetime(""), "");
+        assert_eq!(
+            i18n.format_datetime_long("2026-04-16 16:03:34"),
+            "2026-04-16 16:03:34"
+        );
+    }
 }

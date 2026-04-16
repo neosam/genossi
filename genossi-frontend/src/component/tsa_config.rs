@@ -54,7 +54,11 @@ pub fn TsaConfigSection(
                 let mut had_error = false;
 
                 let settings = vec![
-                    ("tsa_enabled", if enabled { "true" } else { "false" }, "bool"),
+                    (
+                        "tsa_enabled",
+                        if enabled { "true" } else { "false" },
+                        "bool",
+                    ),
                     ("tsa_url", &url, "string"),
                     ("tsa_user", &user, "string"),
                     ("tsa_pass", &pass, "secret"),
@@ -79,8 +83,7 @@ pub fn TsaConfigSection(
     };
 
     rsx! {
-        div { class: "bg-white rounded-lg shadow p-6 mb-6",
-            h2 { class: "text-xl font-semibold mb-1", {i18n.t(Key::TimestampTsaConfig)} }
+        div {
             p { class: "text-sm text-gray-500 mb-4",
                 "RFC 3161 Qualified Timestamping (eIDAS)"
             }

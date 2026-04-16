@@ -1,10 +1,10 @@
-use dioxus::prelude::*;
 use crate::api;
 use crate::auth::RequirePrivilege;
 use crate::component::TopBar;
 use crate::i18n::{use_i18n, Key};
 use crate::page::AccessDeniedPage;
 use crate::service::config::CONFIG;
+use dioxus::prelude::*;
 
 #[derive(Clone, Debug)]
 struct UserRow {
@@ -30,15 +30,18 @@ pub fn Permissions() -> Element {
                 Ok(all_users) => {
                     let mut rows = Vec::new();
                     for user in &all_users {
-                        let roles = api::get_user_roles(&config, &user.name).await.unwrap_or_default();
+                        let roles = api::get_user_roles(&config, &user.name)
+                            .await
+                            .unwrap_or_default();
                         let is_admin = roles.iter().any(|r| r.name == "admin");
 
-                        let sender_name = api::get_user_preference_admin(&config, &user.name, "sender_name")
-                            .await
-                            .ok()
-                            .flatten()
-                            .map(|p| p.value)
-                            .unwrap_or_default();
+                        let sender_name =
+                            api::get_user_preference_admin(&config, &user.name, "sender_name")
+                                .await
+                                .ok()
+                                .flatten()
+                                .map(|p| p.value)
+                                .unwrap_or_default();
 
                         rows.push(UserRow {
                             username: user.name.clone(),

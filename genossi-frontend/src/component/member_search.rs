@@ -51,8 +51,8 @@ pub fn MemberSearch(
     let members = &members_state.items;
 
     // Find selected member for display
-    let selected_member: Option<&MemberTO> = selected_id
-        .and_then(|sid| members.iter().find(|m| m.id == Some(sid)));
+    let selected_member: Option<&MemberTO> =
+        selected_id.and_then(|sid| members.iter().find(|m| m.id == Some(sid)));
 
     // Filter results
     let filtered = filter_members(members, &query.read(), exclude_id);

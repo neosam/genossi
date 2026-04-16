@@ -2,13 +2,13 @@ use dioxus::prelude::*;
 use rest_types::{MemberDocumentTO, MemberTO};
 use uuid::Uuid;
 
-use crate::api::{self, BulkRecipient, MailJobTO, MailJobDetailTO};
+use crate::api::{self, BulkRecipient, MailJobDetailTO, MailJobTO};
 use crate::auth::RequirePrivilege;
-use crate::component::TopBar;
 use crate::component::mail_compose::{
     MailBodyEditor, MailSubjectInput, TemplatePreview, TemplateSelector, TemplateVarButtons,
 };
 use crate::component::member_search::filter_members;
+use crate::component::TopBar;
 use crate::i18n::{use_i18n, Key};
 use crate::member_utils::{is_active, today};
 use crate::page::AccessDeniedPage;
@@ -62,8 +62,7 @@ pub fn MailPage() -> Element {
     let mut selected_attachment_ids = use_signal(|| Vec::<Uuid>::new());
 
     // Static documents (global, available for every bulk send)
-    let mut available_static_documents =
-        use_signal(|| Vec::<crate::api::StaticDocumentTO>::new());
+    let mut available_static_documents = use_signal(|| Vec::<crate::api::StaticDocumentTO>::new());
     let mut selected_static_document_ids = use_signal(|| Vec::<String>::new());
 
     // Member search state
@@ -156,13 +155,17 @@ pub fn MailPage() -> Element {
         let ids = selected_member_ids.read();
         ids.iter()
             .filter_map(|id| {
-                members.items.iter().find(|m| m.id == Some(*id)).and_then(|m| {
-                    if m.email.is_none() {
-                        Some(format_member(m))
-                    } else {
-                        None
-                    }
-                })
+                members
+                    .items
+                    .iter()
+                    .find(|m| m.id == Some(*id))
+                    .and_then(|m| {
+                        if m.email.is_none() {
+                            Some(format_member(m))
+                        } else {
+                            None
+                        }
+                    })
             })
             .collect()
     };
@@ -738,7 +741,7 @@ pub fn MailJobDetail(id: String) -> Element {
                         span { class: "{job_status_color(&d.job.status)} font-medium",
                             {i18n.t(job_status_key(&d.job.status))}
                         }
-                        span { class: "text-gray-500", "{d.job.created}" }
+                        span { class: "text-gray-500", {i18n.format_datetime(&d.job.created)} }
                         span { class: "text-gray-500",
                             "{d.job.sent_count}/{d.job.total_count} {i18n.t(Key::MailSent)}"
                         }
