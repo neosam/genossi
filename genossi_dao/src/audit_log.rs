@@ -22,6 +22,16 @@ pub struct AuditLogEntry {
     pub entry_hash: Arc<str>,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct AuditQueryFilter {
+    pub entity_type: Option<String>,
+    pub entity_id: Option<Uuid>,
+    pub user_id: Option<String>,
+    pub action: Option<String>,
+    pub from: Option<String>,
+    pub to: Option<String>,
+}
+
 #[automock(type Transaction = crate::MockTransaction;)]
 #[async_trait]
 pub trait AuditLogDao {
@@ -49,4 +59,18 @@ pub trait AuditLogDao {
         &self,
         tx: Self::Transaction,
     ) -> Result<Arc<[AuditLogEntry]>, DaoError>;
+
+    async fn query(
+        &self,
+        filter: AuditQueryFilter,
+        limit: i64,
+        offset: i64,
+        tx: Self::Transaction,
+    ) -> Result<Arc<[AuditLogEntry]>, DaoError>;
+
+    async fn count(
+        &self,
+        filter: AuditQueryFilter,
+        tx: Self::Transaction,
+    ) -> Result<i64, DaoError>;
 }

@@ -420,6 +420,15 @@ pub enum Key {
     AuditActionDelete,
     AuditActionSnapshot,
 
+    // Pagination
+    PaginationFirst,
+    PaginationPrev,
+    PaginationNext,
+    PaginationLast,
+    PageSize,
+    PageOfTotal,
+    TotalEntries,
+
     // Qualified Timestamps
     TimestampTitle,
     TimestampCreateButton,

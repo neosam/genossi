@@ -1,19 +1,24 @@
 use std::collections::HashMap;
 
 use dioxus::prelude::*;
-use rest_types::{AuditLogEntryTO, VerifyResponseTO};
+use rest_types::VerifyResponseTO;
 
 use crate::api;
 use crate::auth::RequirePrivilege;
-use crate::component::{TimestampSection, TopBar};
+use crate::component::{PageSizeSelect, PaginationControls, TimestampSection, TopBar};
 use crate::i18n::{use_i18n, Key};
 use crate::page::AccessDeniedPage;
 use crate::service::config::CONFIG;
 
+const DEFAULT_PAGE_SIZE: i64 = 50;
+
 #[component]
 pub fn AuditLogPage() -> Element {
     let i18n = use_i18n();
-    let mut entries = use_signal(|| Vec::<AuditLogEntryTO>::new());
+    let mut entries = use_signal(|| Vec::<rest_types::AuditLogEntryTO>::new());
+    let mut total = use_signal(|| 0_i64);
+    let mut current_page = use_signal(|| 0_i64);
+    let mut page_size = use_signal(|| DEFAULT_PAGE_SIZE);
     let mut loading = use_signal(|| true);
     let mut error = use_signal(|| None::<String>);
     let mut verify_result = use_signal(|| None::<VerifyResponseTO>);
@@ -32,6 +37,8 @@ pub fn AuditLogPage() -> Element {
         let action = filter_action.read().clone();
         let from = filter_from.read().clone();
         let to = filter_to.read().clone();
+        let page = *current_page.read();
+        let size = *page_size.read();
 
         spawn(async move {
             loading.set(true);
@@ -52,9 +59,10 @@ pub fn AuditLogPage() -> Element {
             if !to.is_empty() {
                 params.insert("to".to_string(), to);
             }
-            match api::get_audit_log(&config, &params).await {
-                Ok(data) => {
-                    entries.set(data);
+            match api::get_audit_log(&config, &params, page, size).await {
+                Ok(envelope) => {
+                    entries.set(envelope.entries);
+                    total.set(envelope.total);
                     error.set(None);
                 }
                 Err(e) => {
@@ -91,6 +99,26 @@ pub fn AuditLogPage() -> Element {
     let on_filter = {
         let load = load_entries.clone();
         move |_| {
+            // Filter change must reset to page 0 so users don't land on an
+            // empty page beyond the new filtered total.
+            current_page.set(0);
+            load();
+        }
+    };
+
+    let on_page_change = {
+        let load = load_entries.clone();
+        move |new_page: i64| {
+            current_page.set(new_page);
+            load();
+        }
+    };
+
+    let on_size_change = {
+        let load = load_entries.clone();
+        move |new_size: i64| {
+            page_size.set(new_size);
+            current_page.set(0);
             load();
         }
     };
@@ -105,20 +133,13 @@ pub fn AuditLogPage() -> Element {
         }
     };
 
-    // Group entries by transaction_id for visual grouping
-    let grouped_entries = {
-        let entries_read = entries.read();
-        let mut groups: Vec<(uuid::Uuid, Vec<AuditLogEntryTO>)> = Vec::new();
-        let mut current_tx: Option<uuid::Uuid> = None;
-        for entry in entries_read.iter() {
-            if current_tx.as_ref() != Some(&entry.transaction_id) {
-                groups.push((entry.transaction_id, vec![entry.clone()]));
-                current_tx = Some(entry.transaction_id);
-            } else if let Some(last) = groups.last_mut() {
-                last.1.push(entry.clone());
-            }
-        }
-        groups
+    let total_value = *total.read();
+    let size_value = *page_size.read();
+    let page_value = *current_page.read();
+    let total_pages = if total_value <= 0 {
+        1
+    } else {
+        (total_value + size_value - 1) / size_value
     };
 
     rsx! {
@@ -227,17 +248,47 @@ pub fn AuditLogPage() -> Element {
                         }
                     }
 
+                    // Pagination toolbar (top): page-size + total + page-of-total
+                    div { class: "bg-white rounded-lg shadow p-3 mb-4 flex flex-wrap items-center justify-between gap-4",
+                        div { class: "flex items-center gap-4",
+                            PageSizeSelect {
+                                current_size: size_value,
+                                on_size_change: on_size_change.clone(),
+                            }
+                            div { class: "text-sm text-gray-600",
+                                "{i18n.t(Key::PageOfTotal)} {page_value + 1} / {total_pages} · {total_value} {i18n.t(Key::TotalEntries)}"
+                            }
+                        }
+                        PaginationControls {
+                            current_page: page_value,
+                            total_pages: total_pages,
+                            on_page_change: on_page_change.clone(),
+                        }
+                    }
+
                     // Content
-                    if *loading.read() {
-                        p { class: "text-gray-600", {i18n.t(Key::Loading)} }
-                    } else if let Some(err) = error.read().as_ref() {
-                        div { class: "bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded",
+                    if let Some(err) = error.read().as_ref() {
+                        div { class: "bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4",
                             "{err}"
                         }
-                    } else if entries.read().is_empty() {
-                        p { class: "text-gray-500", {i18n.t(Key::AuditNoEntries)} }
+                    }
+                    if entries.read().is_empty() {
+                        if *loading.read() {
+                            p { class: "text-gray-600", {i18n.t(Key::Loading)} }
+                        } else {
+                            p { class: "text-gray-500", {i18n.t(Key::AuditNoEntries)} }
+                        }
                     } else {
-                        div { class: "bg-white rounded-lg shadow overflow-x-auto",
+                        // Keep the table + bottom pagination mounted across page
+                        // transitions so the browser doesn't lose scroll position
+                        // when the clicked button disappears. Dim the table while
+                        // a new page is being fetched.
+                        div {
+                            class: if *loading.read() {
+                                "bg-white rounded-lg shadow overflow-x-auto opacity-60 transition-opacity"
+                            } else {
+                                "bg-white rounded-lg shadow overflow-x-auto transition-opacity"
+                            },
                             table { class: "w-full text-sm",
                                 thead { tr { class: "border-b text-left bg-gray-50",
                                     th { class: "py-2 px-3", {i18n.t(Key::AuditTimestamp)} }
@@ -250,46 +301,60 @@ pub fn AuditLogPage() -> Element {
                                     th { class: "py-2 px-3", {i18n.t(Key::AuditNewValue)} }
                                 }}
                                 tbody {
-                                    for (idx, (tx_id, group)) in grouped_entries.iter().enumerate() {
+                                    for entry in entries.read().iter() {
                                         {
-                                            let bg = if idx % 2 == 0 { "" } else { "bg-gray-50" };
+                                            // Zebra stripe derived from transaction_id so a transaction
+                                            // split across page boundaries keeps a single colour.
+                                            let bg = if entry.transaction_id.as_bytes()[0] & 1 == 0 {
+                                                ""
+                                            } else {
+                                                "bg-gray-50"
+                                            };
                                             rsx! {
-                                                for entry in group.iter() {
-                                                    tr { class: "border-b hover:bg-blue-50 {bg}",
-                                                        td { class: "py-2 px-3 whitespace-nowrap text-xs",
-                                                            {entry.timestamp.chars().take(19).collect::<String>()}
+                                                tr { class: "border-b hover:bg-blue-50 {bg}",
+                                                    td { class: "py-2 px-3 whitespace-nowrap text-xs",
+                                                        {entry.timestamp.chars().take(19).collect::<String>()}
+                                                    }
+                                                    td { class: "py-2 px-3", "{entry.user_id}" }
+                                                    td { class: "py-2 px-3",
+                                                        span {
+                                                            class: match entry.action.as_str() {
+                                                                "create" => "bg-green-100 text-green-800 px-2 py-0.5 rounded text-xs",
+                                                                "update" => "bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded text-xs",
+                                                                "delete" => "bg-red-100 text-red-800 px-2 py-0.5 rounded text-xs",
+                                                                "snapshot" => "bg-blue-100 text-blue-800 px-2 py-0.5 rounded text-xs",
+                                                                _ => "px-2 py-0.5 rounded text-xs",
+                                                            },
+                                                            {action_label(&entry.action)}
                                                         }
-                                                        td { class: "py-2 px-3", "{entry.user_id}" }
-                                                        td { class: "py-2 px-3",
-                                                            span {
-                                                                class: match entry.action.as_str() {
-                                                                    "create" => "bg-green-100 text-green-800 px-2 py-0.5 rounded text-xs",
-                                                                    "update" => "bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded text-xs",
-                                                                    "delete" => "bg-red-100 text-red-800 px-2 py-0.5 rounded text-xs",
-                                                                    "snapshot" => "bg-blue-100 text-blue-800 px-2 py-0.5 rounded text-xs",
-                                                                    _ => "px-2 py-0.5 rounded text-xs",
-                                                                },
-                                                                {action_label(&entry.action)}
-                                                            }
-                                                        }
-                                                        td { class: "py-2 px-3", "{entry.entity_type}" }
-                                                        td { class: "py-2 px-3 text-xs font-mono",
-                                                            {entry.entity_id.to_string().chars().take(8).collect::<String>()}
-                                                            "..."
-                                                        }
-                                                        td { class: "py-2 px-3 font-medium", "{entry.field_name}" }
-                                                        td { class: "py-2 px-3 text-gray-500 max-w-xs truncate",
-                                                            {entry.old_value.as_deref().unwrap_or("-").to_string()}
-                                                        }
-                                                        td { class: "py-2 px-3 max-w-xs truncate",
-                                                            {entry.new_value.as_deref().unwrap_or("-").to_string()}
-                                                        }
+                                                    }
+                                                    td { class: "py-2 px-3", "{entry.entity_type}" }
+                                                    td { class: "py-2 px-3 text-xs font-mono",
+                                                        {entry.entity_id.to_string().chars().take(8).collect::<String>()}
+                                                        "..."
+                                                    }
+                                                    td { class: "py-2 px-3 font-medium", "{entry.field_name}" }
+                                                    td { class: "py-2 px-3 text-gray-500 max-w-xs truncate",
+                                                        {entry.old_value.as_deref().unwrap_or("-").to_string()}
+                                                    }
+                                                    td { class: "py-2 px-3 max-w-xs truncate",
+                                                        {entry.new_value.as_deref().unwrap_or("-").to_string()}
                                                     }
                                                 }
                                             }
                                         }
                                     }
                                 }
+                            }
+                        }
+
+                        // Pagination toolbar (bottom): same controls duplicated
+                        // for convenience after a long table
+                        div { class: "mt-4 flex justify-end",
+                            PaginationControls {
+                                current_page: page_value,
+                                total_pages: total_pages,
+                                on_page_change: on_page_change.clone(),
                             }
                         }
                     }

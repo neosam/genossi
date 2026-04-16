@@ -1429,17 +1429,18 @@ pub async fn get_member_communications(
 pub async fn get_audit_log(
     config: &Config,
     params: &std::collections::HashMap<String, String>,
-) -> Result<Vec<rest_types::AuditLogEntryTO>, reqwest::Error> {
-    let query_string: String = params
+    page: i64,
+    size: i64,
+) -> Result<rest_types::PagedAuditLogTO, reqwest::Error> {
+    let mut all_params = params.clone();
+    all_params.insert("page".to_string(), page.to_string());
+    all_params.insert("size".to_string(), size.to_string());
+    let query_string: String = all_params
         .iter()
         .map(|(k, v)| format!("{}={}", k, v))
         .collect::<Vec<_>>()
         .join("&");
-    let url = if query_string.is_empty() {
-        format!("{}/api/audit", config.backend)
-    } else {
-        format!("{}/api/audit?{}", config.backend, query_string)
-    };
+    let url = format!("{}/api/audit?{}", config.backend, query_string);
     let response = reqwest::get(url).await?;
     response.error_for_status_ref()?;
     Ok(response.json().await?)

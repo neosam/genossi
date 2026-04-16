@@ -5,8 +5,8 @@ use axum::{
     routing::get,
     Extension, Router,
 };
-use genossi_dao::audit_log::AuditLogDao;
-use genossi_rest_types::{AuditLogEntryTO, BrokenLinkTO, VerifyResponseTO};
+use genossi_dao::audit_log::{AuditLogDao, AuditQueryFilter};
+use genossi_rest_types::{AuditLogEntryTO, BrokenLinkTO, PagedAuditLogTO, VerifyResponseTO};
 use genossi_service::permission::{Authentication, PermissionService};
 use serde::Deserialize;
 use tracing::instrument;
@@ -14,6 +14,20 @@ use utoipa::OpenApi;
 use uuid::Uuid;
 
 use crate::{error_handler, Context, RestError, RestStateDef};
+
+const DEFAULT_PAGE_SIZE: i64 = 50;
+const ALLOWED_PAGE_SIZES: [i64; 5] = [25, 50, 100, 200, 500];
+
+fn clamp_page_size(requested: Option<i64>) -> i64 {
+    match requested {
+        Some(n) if ALLOWED_PAGE_SIZES.contains(&n) => n,
+        _ => DEFAULT_PAGE_SIZE,
+    }
+}
+
+fn clamp_page(requested: Option<i64>) -> i64 {
+    requested.map(|p| p.max(0)).unwrap_or(0)
+}
 
 pub trait AuditRestState: RestStateDef {
     type AuditLogDao: AuditLogDao + Send + Sync + 'static;
@@ -47,7 +61,7 @@ pub fn generate_route<RestState: AuditRestState>() -> Router<RestState> {
 #[derive(OpenApi)]
 #[openapi(
     paths(get_audit_log, get_audit_by_entity, verify_chain),
-    components(schemas(AuditLogEntryTO, VerifyResponseTO, BrokenLinkTO)),
+    components(schemas(AuditLogEntryTO, PagedAuditLogTO, VerifyResponseTO, BrokenLinkTO)),
     tags((name = "Audit Log", description = "Audit log and integrity verification"))
 )]
 pub struct ApiDoc;
@@ -60,6 +74,8 @@ pub struct AuditQueryParams {
     pub from: Option<String>,
     pub to: Option<String>,
     pub action: Option<String>,
+    pub page: Option<i64>,
+    pub size: Option<i64>,
 }
 
 #[instrument(skip(rest_state))]
@@ -69,7 +85,7 @@ pub struct AuditQueryParams {
     path = "",
     params(AuditQueryParams),
     responses(
-        (status = 200, description = "Audit log entries", body = Vec<AuditLogEntryTO>),
+        (status = 200, description = "Paginated audit log entries", body = PagedAuditLogTO),
         (status = 401, description = "Unauthorized"),
     ),
 )]
@@ -87,45 +103,51 @@ pub async fn get_audit_log<RestState: AuditRestState>(
                 .check_permission("admin", authentication)
                 .await?;
 
-            let tx = rest_state
+            let page = clamp_page(params.page);
+            let size = clamp_page_size(params.size);
+            let offset = page.saturating_mul(size);
+
+            let filter = AuditQueryFilter {
+                entity_type: params.entity_type,
+                entity_id: params.entity_id,
+                user_id: params.user_id,
+                action: params.action,
+                from: params.from,
+                to: params.to,
+            };
+
+            let tx_count = rest_state
                 .audit_transaction()
                 .await
                 .map_err(|e| RestError::InternalError(format!("{:?}", e)))?;
-
-            let all_entries = rest_state
+            let total = rest_state
                 .audit_log_dao()
-                .get_all_ordered(tx)
+                .count(filter.clone(), tx_count)
                 .await
                 .map_err(|e| RestError::InternalError(format!("{:?}", e)))?;
 
-            let mut entries: Vec<AuditLogEntryTO> =
-                all_entries.iter().map(AuditLogEntryTO::from).collect();
+            let tx_query = rest_state
+                .audit_transaction()
+                .await
+                .map_err(|e| RestError::InternalError(format!("{:?}", e)))?;
+            let rows = rest_state
+                .audit_log_dao()
+                .query(filter, size, offset, tx_query)
+                .await
+                .map_err(|e| RestError::InternalError(format!("{:?}", e)))?;
 
-            if let Some(ref et) = params.entity_type {
-                entries.retain(|e| e.entity_type == *et);
-            }
-            if let Some(ref eid) = params.entity_id {
-                entries.retain(|e| e.entity_id == *eid);
-            }
-            if let Some(ref uid) = params.user_id {
-                entries.retain(|e| e.user_id == *uid);
-            }
-            if let Some(ref action) = params.action {
-                entries.retain(|e| e.action == *action);
-            }
-            if let Some(ref from) = params.from {
-                entries.retain(|e| e.timestamp.as_str() >= from.as_str());
-            }
-            if let Some(ref to) = params.to {
-                entries.retain(|e| e.timestamp.as_str() <= to.as_str());
-            }
-
-            entries.reverse();
+            let entries: Vec<AuditLogEntryTO> = rows.iter().map(AuditLogEntryTO::from).collect();
+            let envelope = PagedAuditLogTO {
+                entries,
+                total,
+                page,
+                size,
+            };
 
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::to_string(&entries).unwrap()))
+                .body(Body::new(serde_json::to_string(&envelope).unwrap()))
                 .unwrap())
         })
         .await,

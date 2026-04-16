@@ -357,6 +357,14 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::AuditActionDelete => "Gelöscht".into(),
         Key::AuditActionSnapshot => "Snapshot".into(),
 
+        Key::PaginationFirst => "« Erste".into(),
+        Key::PaginationPrev => "‹ Zurück".into(),
+        Key::PaginationNext => "Weiter ›".into(),
+        Key::PaginationLast => "Letzte »".into(),
+        Key::PageSize => "Pro Seite".into(),
+        Key::PageOfTotal => "Seite".into(),
+        Key::TotalEntries => "Einträge".into(),
+
         Key::TimestampTitle => "Qualifizierte Zeitstempel".into(),
         Key::TimestampCreateButton => "Zeitstempel jetzt erstellen".into(),
         Key::TimestampCreating => "Zeitstempel wird erstellt...".into(),

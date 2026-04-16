@@ -966,6 +966,14 @@ impl From<&genossi_dao::audit_log::AuditLogEntry> for AuditLogEntryTO {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct PagedAuditLogTO {
+    pub entries: Vec<AuditLogEntryTO>,
+    pub total: i64,
+    pub page: i64,
+    pub size: i64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct VerifyResponseTO {
     pub valid: bool,
     pub total_entries: usize,

@@ -2037,6 +2037,14 @@ video {
   --tw-ring-color: rgb(239 68 68 / var(--tw-ring-opacity, 1));
 }
 
+.disabled\:cursor-not-allowed:disabled {
+  cursor: not-allowed;
+}
+
+.disabled\:opacity-40:disabled {
+  opacity: 0.4;
+}
+
 .disabled\:opacity-50:disabled {
   opacity: 0.5;
 }

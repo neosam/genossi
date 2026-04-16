@@ -7098,8 +7098,11 @@ async fn test_audit_log_empty() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let entries: Vec<genossi_rest_types::AuditLogEntryTO> = response.json().await.unwrap();
-    assert!(entries.is_empty());
+    let page: genossi_rest_types::PagedAuditLogTO = response.json().await.unwrap();
+    assert!(page.entries.is_empty());
+    assert_eq!(page.total, 0);
+    assert_eq!(page.page, 0);
+    assert_eq!(page.size, 50);
 }
 
 #[tokio::test]
@@ -7234,8 +7237,10 @@ async fn test_audit_log_filter_by_action() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let entries: Vec<genossi_rest_types::AuditLogEntryTO> = response.json().await.unwrap();
-    assert!(entries.iter().all(|e| e.action == "create"));
+    let page: genossi_rest_types::PagedAuditLogTO = response.json().await.unwrap();
+    assert!(page.entries.iter().all(|e| e.action == "create"));
+    assert!(page.total > 0);
+    assert_eq!(page.total as usize, page.entries.len());
 
     let response = client
         .get(server.url("/api/audit?action=delete"))
@@ -7243,8 +7248,161 @@ async fn test_audit_log_filter_by_action() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let entries: Vec<genossi_rest_types::AuditLogEntryTO> = response.json().await.unwrap();
-    assert!(entries.is_empty());
+    let page: genossi_rest_types::PagedAuditLogTO = response.json().await.unwrap();
+    assert!(page.entries.is_empty());
+    assert_eq!(page.total, 0);
+}
+
+#[tokio::test]
+async fn test_audit_log_pagination_explicit_page_and_size() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Create three members so we have plenty of audit entries.
+    for i in 0..3 {
+        let mut member = sample_member();
+        member.member_number = 100 + i;
+        member.first_name = format!("Member{i}");
+        let response = client
+            .post(server.url("/api/members"))
+            .json(&member)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    let response = client
+        .get(server.url("/api/audit?page=0&size=25"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let page0: genossi_rest_types::PagedAuditLogTO = response.json().await.unwrap();
+    assert_eq!(page0.page, 0);
+    assert_eq!(page0.size, 25);
+    assert!(page0.total >= 3);
+    assert_eq!(page0.entries.len(), 25.min(page0.total as usize));
+
+    // Page 1 with same size: should not duplicate any id from page 0.
+    let response = client
+        .get(server.url("/api/audit?page=1&size=25"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let page1: genossi_rest_types::PagedAuditLogTO = response.json().await.unwrap();
+    assert_eq!(page1.page, 1);
+    let ids0: std::collections::HashSet<_> = page0.entries.iter().map(|e| e.id).collect();
+    let ids1: std::collections::HashSet<_> = page1.entries.iter().map(|e| e.id).collect();
+    assert!(ids0.is_disjoint(&ids1));
+    // Total stays the same regardless of page.
+    assert_eq!(page0.total, page1.total);
+}
+
+#[tokio::test]
+async fn test_audit_log_pagination_size_clamping() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/members"))
+        .json(&sample_member())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Out-of-set size falls back to default 50.
+    let response = client
+        .get(server.url("/api/audit?size=10000"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let page: genossi_rest_types::PagedAuditLogTO = response.json().await.unwrap();
+    assert_eq!(page.size, 50);
+
+    // Allowed sizes pass through.
+    for allowed in [25_i64, 50, 100, 200, 500] {
+        let response = client
+            .get(server.url(&format!("/api/audit?size={allowed}")))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let page: genossi_rest_types::PagedAuditLogTO = response.json().await.unwrap();
+        assert_eq!(page.size, allowed);
+    }
+}
+
+#[tokio::test]
+async fn test_audit_log_pagination_page_beyond_total() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/members"))
+        .json(&sample_member())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let response = client
+        .get(server.url("/api/audit?page=999&size=50"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let page: genossi_rest_types::PagedAuditLogTO = response.json().await.unwrap();
+    assert!(page.entries.is_empty());
+    assert_eq!(page.page, 999);
+    assert!(page.total > 0);
+}
+
+#[tokio::test]
+async fn test_audit_log_pagination_filter_total_reflects_filter() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Create then update — produces both create and update audit entries.
+    let response = client
+        .post(server.url("/api/members"))
+        .json(&sample_member())
+        .send()
+        .await
+        .unwrap();
+    let mut member: MemberTO = response.json().await.unwrap();
+    member.first_name = "Updated".to_string();
+    let response = client
+        .put(server.url(&format!("/api/members/{}", member.id.unwrap())))
+        .json(&member)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let response_unfiltered = client
+        .get(server.url("/api/audit"))
+        .send()
+        .await
+        .unwrap();
+    let page_unfiltered: genossi_rest_types::PagedAuditLogTO =
+        response_unfiltered.json().await.unwrap();
+
+    let response_filtered = client
+        .get(server.url("/api/audit?action=update"))
+        .send()
+        .await
+        .unwrap();
+    let page_filtered: genossi_rest_types::PagedAuditLogTO =
+        response_filtered.json().await.unwrap();
+
+    // Filtered total must be strictly less than unfiltered total.
+    assert!(page_filtered.total < page_unfiltered.total);
+    assert!(page_filtered.total > 0);
+    assert!(page_filtered.entries.iter().all(|e| e.action == "update"));
 }
 
 // Audit Timestamp E2E Tests

@@ -357,6 +357,14 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::AuditActionDelete => "Deleted".into(),
         Key::AuditActionSnapshot => "Snapshot".into(),
 
+        Key::PaginationFirst => "« First".into(),
+        Key::PaginationPrev => "‹ Prev".into(),
+        Key::PaginationNext => "Next ›".into(),
+        Key::PaginationLast => "Last »".into(),
+        Key::PageSize => "Per page".into(),
+        Key::PageOfTotal => "Page".into(),
+        Key::TotalEntries => "entries".into(),
+
         Key::TimestampTitle => "Qualified Timestamps".into(),
         Key::TimestampCreateButton => "Create Timestamp Now".into(),
         Key::TimestampCreating => "Creating timestamp...".into(),

@@ -746,6 +746,14 @@ pub struct AuditLogEntryTO {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PagedAuditLogTO {
+    pub entries: Vec<AuditLogEntryTO>,
+    pub total: i64,
+    pub page: i64,
+    pub size: i64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct VerifyResponseTO {
     pub valid: bool,
     pub total_entries: usize,
