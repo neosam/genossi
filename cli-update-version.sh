@@ -5,7 +5,16 @@ set -euo pipefail
 # Show commands being executed (for debugging)
 set -x
 
-BRANCH="${1:-main}"
+TAG_MESSAGE=""
+BRANCH="main"
+
+while getopts "m:b:" opt; do
+    case $opt in
+        m) TAG_MESSAGE="$OPTARG" ;;
+        b) BRANCH="$OPTARG" ;;
+        *) echo "Usage: $0 [-m tag-message] [-b branch]" >&2; exit 1 ;;
+    esac
+done
 
 # Calculate date-based version components
 YEAR=$(date +%Y)
@@ -33,7 +42,11 @@ cargo build
 jj commit -m "Set version to $NEW_VERSION"
 jj b m "$BRANCH" --to @-
 jj git push
-git tag -a "v$NEW_VERSION" "$BRANCH"
+if [[ -n "$TAG_MESSAGE" ]]; then
+    git tag -a "v$NEW_VERSION" -m "$TAG_MESSAGE" "$BRANCH"
+else
+    git tag -a "v$NEW_VERSION" "$BRANCH"
+fi
 git push --tags
 
 ./update_versions.sh "$FOLLOWING_VERSION"
@@ -41,3 +54,5 @@ cargo build
 jj commit -m "Set version to $FOLLOWING_VERSION"
 jj b m "$BRANCH" --to @-
 jj git push
+
+echo "Released version: $NEW_VERSION"
