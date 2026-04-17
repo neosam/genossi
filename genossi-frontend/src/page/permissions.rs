@@ -93,6 +93,9 @@ pub fn Permissions() -> Element {
                                         th { class: "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider",
                                             "Admin"
                                         }
+                                        th { class: "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider",
+                                            {i18n.t(Key::Sessions)}
+                                        }
                                     }
                                 }
                                 tbody { class: "bg-white divide-y divide-gray-200",
@@ -115,6 +118,7 @@ pub fn Permissions() -> Element {
 
 #[component]
 fn UserRowComponent(idx: usize, mut users: Signal<Vec<UserRow>>) -> Element {
+    let i18n = use_i18n();
     let user = &users.read()[idx];
     let username = user.username.clone();
     let sender_name = user.sender_name.clone();
@@ -122,6 +126,8 @@ fn UserRowComponent(idx: usize, mut users: Signal<Vec<UserRow>>) -> Element {
 
     let mut saving_name = use_signal(|| false);
     let mut toggling_admin = use_signal(|| false);
+    let mut revoking_sessions = use_signal(|| false);
+    let mut revoke_status: Signal<Option<Result<u64, String>>> = use_signal(|| None);
 
     rsx! {
         tr {
@@ -191,6 +197,13 @@ fn UserRowComponent(idx: usize, mut users: Signal<Vec<UserRow>>) -> Element {
                                             row.is_admin = checked;
                                         }
                                         users.set(current);
+
+                                        // Auto-revoke sessions when removing admin role
+                                        if !checked {
+                                            if let Err(e) = api::revoke_user_sessions(&config, &username).await {
+                                                tracing::error!("Failed to revoke sessions for {}: {}", username, e);
+                                            }
+                                        }
                                     }
                                     Err(e) => {
                                         tracing::error!("Failed to toggle admin: {}", e);
@@ -200,6 +213,51 @@ fn UserRowComponent(idx: usize, mut users: Signal<Vec<UserRow>>) -> Element {
                             });
                         }
                     },
+                }
+            }
+            td { class: "px-6 py-4 whitespace-nowrap text-sm text-gray-500",
+                div { class: "flex items-center gap-2",
+                    button {
+                        class: "bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm disabled:opacity-50",
+                        disabled: *revoking_sessions.read(),
+                        onclick: {
+                            let username = username.clone();
+                            move |_| {
+                                let username = username.clone();
+                                spawn(async move {
+                                    revoking_sessions.set(true);
+                                    revoke_status.set(None);
+                                    let config = CONFIG.read().clone();
+                                    match api::revoke_user_sessions(&config, &username).await {
+                                        Ok(resp) => {
+                                            revoke_status.set(Some(Ok(resp.revoked_count)));
+                                        }
+                                        Err(e) => {
+                                            revoke_status.set(Some(Err(e.to_string())));
+                                        }
+                                    }
+                                    revoking_sessions.set(false);
+                                });
+                            }
+                        },
+                        if *revoking_sessions.read() {
+                            "..."
+                        } else {
+                            {i18n.t(Key::RevokeSessions)}
+                        }
+                    }
+                    if let Some(ref status) = *revoke_status.read() {
+                        match status {
+                            Ok(count) => rsx! {
+                                span { class: "text-green-600 text-xs",
+                                    {format!("{} ({count})", i18n.t(Key::SessionsRevoked))}
+                                }
+                            },
+                            Err(msg) => rsx! {
+                                span { class: "text-red-600 text-xs", "{msg}" }
+                            },
+                        }
+                    }
                 }
             }
         }

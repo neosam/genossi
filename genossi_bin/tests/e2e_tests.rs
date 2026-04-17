@@ -7964,6 +7964,21 @@ async fn test_revoke_all_sessions_returns_200() {
 }
 
 #[tokio::test]
+async fn test_admin_revoke_user_sessions_returns_200() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/session/revoke/someuser"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: SessionRevokeResponse = response.json().await.unwrap();
+    assert!(body.message.contains("someuser"));
+}
+
+#[tokio::test]
 async fn mail_template_predefined_present_after_migration() {
     let server = setup().await;
     let client = reqwest::Client::new();

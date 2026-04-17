@@ -58,6 +58,12 @@ pub enum Key {
     // Authentication
     Login,
     Logout,
+    RevokeAllSessions,
+    RevokeSessionsConfirmTitle,
+    RevokeSessionsConfirmText,
+    RevokeSessions,
+    SessionsRevoked,
+    Sessions,
     NotAuthenticated,
     WelcomeTitle,
     PleaseLogin,

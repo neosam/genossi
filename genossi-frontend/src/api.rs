@@ -1478,6 +1478,16 @@ pub async fn revoke_all_sessions(
     Ok(response.json().await?)
 }
 
+pub async fn revoke_user_sessions(
+    config: &Config,
+    user_id: &str,
+) -> Result<rest_types::SessionRevokeResponse, AppError> {
+    let url = format!("{}/api/session/revoke/{}", config.backend, user_id);
+    let response = reqwest::Client::new().post(url).send().await?;
+    let response = check_response(response).await?;
+    Ok(response.json().await?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

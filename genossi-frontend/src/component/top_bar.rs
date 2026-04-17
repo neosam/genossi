@@ -1,7 +1,10 @@
 use dioxus::prelude::*;
 
 use crate::{
-    component::nav_group::{NavGroup, NavItem},
+    component::{
+        nav_group::{NavGroup, NavItem},
+        RevokeSessionsButton,
+    },
     i18n::{use_i18n, Key},
     router::Route,
     service::{auth::AUTH, config::CONFIG},
@@ -198,6 +201,7 @@ pub fn TopBar() -> Element {
                         li { class: "px-3 py-2 md:py-4 text-gray-300",
                             "{auth.user}"
                         }
+                        RevokeSessionsButton {}
                         li {
                             a {
                                 class: "hover:underline px-3 py-2 md:py-4",

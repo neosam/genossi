@@ -15,6 +15,12 @@ pub fn translate(key: Key) -> Rc<str> {
 
         Key::Login => "Anmelden".into(),
         Key::Logout => "Abmelden".into(),
+        Key::RevokeAllSessions => "Sessions beenden".into(),
+        Key::RevokeSessionsConfirmTitle => "Alle Sessions beenden".into(),
+        Key::RevokeSessionsConfirmText => "Alle Sessions werden beendet. Sie werden ausgeloggt und müssen sich erneut anmelden.".into(),
+        Key::RevokeSessions => "Sessions beenden".into(),
+        Key::SessionsRevoked => "Sessions beendet".into(),
+        Key::Sessions => "Sessions".into(),
         Key::NotAuthenticated => "Nicht angemeldet".into(),
         Key::WelcomeTitle => "Willkommen bei Genossi".into(),
         Key::PleaseLogin => "Bitte melden Sie sich an.".into(),
