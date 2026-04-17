@@ -8,7 +8,7 @@ use crate::component::mail_compose::{
     MailBodyEditor, MailSubjectInput, TemplatePreview, TemplateSelector, TemplateVarButtons,
 };
 use crate::component::member_search::filter_members;
-use crate::component::TopBar;
+use crate::component::{ErrorAlert, TopBar};
 use crate::i18n::{use_i18n, Key};
 use crate::member_utils::{is_active, today};
 use crate::page::AccessDeniedPage;
@@ -42,7 +42,7 @@ pub fn MailPage() -> Element {
     let i18n = use_i18n();
     let mut jobs = use_signal(|| Vec::<MailJobTO>::new());
     let mut loading = use_signal(|| true);
-    let mut error = use_signal(|| None::<String>);
+    let mut error: Signal<Option<api::AppError>> = use_signal(|| None);
     let mut success_msg = use_signal(|| None::<String>);
     let mut expanded_job_id = use_signal(|| None::<String>);
     let mut job_detail = use_signal(|| None::<MailJobDetailTO>);
@@ -99,7 +99,7 @@ pub fn MailPage() -> Element {
                     error.set(None);
                 }
                 Err(e) => {
-                    error.set(Some(format!("{}", e)));
+                    error.set(Some(e));
                 }
             }
             loading.set(false);
@@ -205,9 +205,10 @@ pub fn MailPage() -> Element {
                     }
 
                     // Error message
-                    if let Some(err) = error.read().as_ref() {
-                        div { class: "bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4",
-                            "{err}"
+                    if let Some(ref err) = *error.read() {
+                        ErrorAlert {
+                            error: err.clone(),
+                            on_dismiss: move |_| error.set(None),
                         }
                     }
 
@@ -707,7 +708,7 @@ pub fn MailJobDetail(id: String) -> Element {
     let i18n = use_i18n();
     let mut detail = use_signal(|| None::<MailJobDetailTO>);
     let mut loading = use_signal(|| true);
-    let mut error = use_signal(|| None::<String>);
+    let mut error: Signal<Option<api::AppError>> = use_signal(|| None);
 
     use_effect(move || {
         let id = id.clone();
@@ -715,7 +716,7 @@ pub fn MailJobDetail(id: String) -> Element {
             let config = CONFIG.read().clone();
             match api::get_mail_job_detail(&config, &id).await {
                 Ok(d) => detail.set(Some(d)),
-                Err(e) => error.set(Some(e.to_string())),
+                Err(e) => error.set(Some(e)),
             }
             loading.set(false);
         });
@@ -733,7 +734,10 @@ pub fn MailJobDetail(id: String) -> Element {
             if *loading.read() {
                 div { class: "text-gray-500", {i18n.t(Key::Loading)} }
             } else if let Some(ref err) = *error.read() {
-                div { class: "text-red-500", "{err}" }
+                ErrorAlert {
+                    error: err.clone(),
+                    on_dismiss: move |_| error.set(None),
+                }
             } else if let Some(d) = detail.read().as_ref() {
                 div { class: "space-y-4",
                     h1 { class: "text-2xl font-bold", "{d.job.subject}" }

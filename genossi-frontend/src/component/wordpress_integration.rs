@@ -24,7 +24,7 @@ pub fn WordPressIntegrationSection(
     bank_name: Signal<String>,
     bank_bic: Signal<String>,
     genossenschaft_name: Signal<String>,
-    error: Signal<Option<String>>,
+    error: Signal<Option<api::AppError>>,
     success_msg: Signal<Option<String>>,
     on_reload: EventHandler<()>,
 ) -> Element {
@@ -90,7 +90,7 @@ pub fn WordPressIntegrationSection(
                                                 on_reload.call(());
                                             }
                                             Err(e) => {
-                                                error.set(Some(format!("{}", e)));
+                                                error.set(Some(e));
                                             }
                                         }
                                         generating.set(false);
@@ -274,7 +274,7 @@ pub fn WordPressIntegrationSection(
 
                                     for (key, value, vtype) in &entries_to_save {
                                         if let Err(e) = api::set_config_entry(&config, key, value, vtype).await {
-                                            error.set(Some(format!("{}", e)));
+                                            error.set(Some(e));
                                             all_ok = false;
                                             break;
                                         }

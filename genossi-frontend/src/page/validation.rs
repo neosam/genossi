@@ -3,7 +3,7 @@ use rest_types::{ActionTypeTO, ValidationResultTO};
 
 use crate::api;
 use crate::auth::RequirePrivilege;
-use crate::component::TopBar;
+use crate::component::{ErrorAlert, TopBar};
 use crate::i18n::{use_i18n, Key};
 use crate::page::AccessDeniedPage;
 use crate::service::config::CONFIG;
@@ -13,7 +13,7 @@ pub fn Validation() -> Element {
     let i18n = use_i18n();
     let mut result = use_signal(|| None::<ValidationResultTO>);
     let mut loading = use_signal(|| true);
-    let mut error = use_signal(|| None::<String>);
+    let mut error: Signal<Option<api::AppError>> = use_signal(|| None);
 
     use_effect(move || {
         spawn(async move {
@@ -25,7 +25,7 @@ pub fn Validation() -> Element {
                     error.set(None);
                 }
                 Err(e) => {
-                    error.set(Some(format!("{}", e)));
+                    error.set(Some(e));
                 }
             }
             loading.set(false);
@@ -53,9 +53,10 @@ pub fn Validation() -> Element {
 
                     if *loading.read() {
                         p { class: "text-gray-600", {i18n.t(Key::Loading)} }
-                    } else if let Some(err) = error.read().as_ref() {
-                        div { class: "bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded",
-                            "{err}"
+                    } else if let Some(ref err) = *error.read() {
+                        ErrorAlert {
+                            error: err.clone(),
+                            on_dismiss: move |_| error.set(None),
                         }
                     } else if let Some(data) = result.read().as_ref() {
 

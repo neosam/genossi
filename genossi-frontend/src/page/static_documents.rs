@@ -1,14 +1,14 @@
 use dioxus::prelude::*;
 
 use crate::api::{self, StaticDocumentTO};
-use crate::component::TopBar;
+use crate::component::{ErrorAlert, TopBar};
 use crate::service::config::CONFIG;
 
 #[component]
 pub fn StaticDocumentsPage() -> Element {
     let mut documents = use_signal(Vec::<StaticDocumentTO>::new);
     let mut loading = use_signal(|| true);
-    let mut error = use_signal(|| None::<String>);
+    let mut error: Signal<Option<api::AppError>> = use_signal(|| None);
     let mut new_name = use_signal(String::new);
     let mut uploading = use_signal(|| false);
 
@@ -21,7 +21,7 @@ pub fn StaticDocumentsPage() -> Element {
                     documents.set(data);
                     error.set(None);
                 }
-                Err(e) => error.set(Some(format!("Fehler beim Laden: {}", e))),
+                Err(e) => error.set(Some(e)),
             }
             loading.set(false);
         });
@@ -39,9 +39,10 @@ pub fn StaticDocumentsPage() -> Element {
                 "Statische Dokumente (z.B. Satzung, Flyer), die an Bulk-Mails angehängt werden können."
             }
 
-            if let Some(err) = error.read().as_ref() {
-                div { class: "bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4",
-                    "{err}"
+            if let Some(ref err) = *error.read() {
+                ErrorAlert {
+                    error: err.clone(),
+                    on_dismiss: move |_| error.set(None),
                 }
             }
 
@@ -102,10 +103,10 @@ pub fn StaticDocumentsPage() -> Element {
                                                     new_name.set(String::new());
                                                     reload();
                                                 }
-                                                Err(e) => error.set(Some(format!("Upload fehlgeschlagen: {}", e))),
+                                                Err(e) => error.set(Some(e)),
                                             }
                                         }
-                                        None => error.set(Some("Keine Datei ausgewählt".to_string())),
+                                        None => error.set(Some(api::AppError::new(None, "Keine Datei ausgewählt", None))),
                                     }
                                     uploading.set(false);
                                 });
@@ -167,7 +168,7 @@ pub fn StaticDocumentsPage() -> Element {
                                                             let config = CONFIG.read().clone();
                                                             match api::delete_static_document(&config, &id_str).await {
                                                                 Ok(_) => reload(),
-                                                                Err(e) => error.set(Some(format!("Löschen fehlgeschlagen: {}", e))),
+                                                                Err(e) => error.set(Some(e)),
                                                             }
                                                         });
                                                     },

@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 
 use crate::api::{self, ConfigEntryTO};
 use crate::auth::RequirePrivilege;
-use crate::component::{CollapsibleSection, TopBar, TsaConfigSection, WordPressIntegrationSection};
+use crate::component::{CollapsibleSection, ErrorAlert, TopBar, TsaConfigSection, WordPressIntegrationSection};
 use crate::i18n::{use_i18n, Key};
 use crate::page::AccessDeniedPage;
 use crate::service::config::CONFIG;
@@ -24,7 +24,7 @@ pub fn ConfigPage() -> Element {
     let i18n = use_i18n();
     let mut entries = use_signal(|| Vec::<ConfigEntryTO>::new());
     let mut loading = use_signal(|| true);
-    let mut error = use_signal(|| None::<String>);
+    let mut error: Signal<Option<api::AppError>> = use_signal(|| None);
     let mut success_msg = use_signal(|| None::<String>);
 
     // SMTP form state
@@ -183,7 +183,7 @@ pub fn ConfigPage() -> Element {
                     error.set(None);
                 }
                 Err(e) => {
-                    error.set(Some(format!("{}", e)));
+                    error.set(Some(e));
                 }
             }
             loading.set(false);
@@ -213,9 +213,10 @@ pub fn ConfigPage() -> Element {
                 }
 
                 // Error message
-                if let Some(err) = error.read().as_ref() {
-                    div { class: "bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4",
-                        "{err}"
+                if let Some(ref err) = *error.read() {
+                    ErrorAlert {
+                        error: err.clone(),
+                        on_dismiss: move |_| error.set(None),
                     }
                 }
 
@@ -392,7 +393,7 @@ pub fn ConfigPage() -> Element {
 
                                             for (key, value, vtype) in &entries_to_save {
                                                 if let Err(e) = api::set_config_entry(&config, key, value, vtype).await {
-                                                    error.set(Some(format!("{}", e)));
+                                                    error.set(Some(e));
                                                     all_ok = false;
                                                     break;
                                                 }
@@ -446,7 +447,7 @@ pub fn ConfigPage() -> Element {
                                                         success_msg.set(Some(i18n.t(Key::SmtpTestSuccess).to_string()));
                                                     }
                                                     Err(e) => {
-                                                        error.set(Some(format!("{}: {}", i18n.t(Key::SmtpTestFailed), e)));
+                                                        error.set(Some(api::AppError::new(e.status, format!("{}: {}", i18n.t(Key::SmtpTestFailed), e.message), e.detail)));
                                                     }
                                                 }
                                                 test_sending.set(false);
@@ -495,7 +496,7 @@ pub fn ConfigPage() -> Element {
                                                         success_msg.set(Some(i18n.t(Key::Save).to_string()));
                                                     }
                                                     Err(e) => {
-                                                        error.set(Some(format!("{}", e)));
+                                                        error.set(Some(e));
                                                     }
                                                 }
                                                 sender_name_saving.set(false);
@@ -538,7 +539,7 @@ pub fn ConfigPage() -> Element {
                                                         success_msg.set(Some(i18n.t(Key::Save).to_string()));
                                                     }
                                                     Err(e) => {
-                                                        error.set(Some(format!("{}", e)));
+                                                        error.set(Some(e));
                                                     }
                                                 }
                                                 mail_footer_saving.set(false);
@@ -625,7 +626,7 @@ pub fn ConfigPage() -> Element {
                                                         imap_folders_loaded.set(true);
                                                     }
                                                     Err(e) => {
-                                                        error.set(Some(format!("Ordner laden fehlgeschlagen: {}", e)));
+                                                        error.set(Some(api::AppError::new(e.status, format!("Ordner laden fehlgeschlagen: {}", e.message), e.detail)));
                                                     }
                                                 }
                                                 imap_folders_loading.set(false);
@@ -753,7 +754,7 @@ pub fn ConfigPage() -> Element {
 
                                             for (key, value, vtype) in &entries_to_save {
                                                 if let Err(e) = api::set_config_entry(&config, key, value, vtype).await {
-                                                    error.set(Some(format!("{}", e)));
+                                                    error.set(Some(e));
                                                     all_ok = false;
                                                     break;
                                                 }
@@ -907,7 +908,7 @@ pub fn ConfigPage() -> Element {
 
                                             for (key, value, vtype) in &entries_to_save {
                                                 if let Err(e) = api::set_config_entry(&config, key, value, vtype).await {
-                                                    error.set(Some(format!("{}", e)));
+                                                    error.set(Some(e));
                                                     all_ok = false;
                                                     break;
                                                 }
@@ -950,7 +951,7 @@ pub fn ConfigPage() -> Element {
                                                     success_msg.set(Some(i18n.t(Key::WebDavTestSuccess).to_string()));
                                                 }
                                                 Err(e) => {
-                                                    error.set(Some(format!("{}: {}", i18n.t(Key::WebDavTestFailed), e)));
+                                                    error.set(Some(api::AppError::new(e.status, format!("{}: {}", i18n.t(Key::WebDavTestFailed), e.message), e.detail)));
                                                 }
                                             }
                                             webdav_testing.set(false);
@@ -1084,7 +1085,7 @@ pub fn ConfigPage() -> Element {
                                                                 reload();
                                                             }
                                                             Err(e) => {
-                                                                error.set(Some(format!("{}", e)));
+                                                                error.set(Some(e));
                                                             }
                                                         }
                                                         saving.set(false);
@@ -1175,7 +1176,7 @@ pub fn ConfigPage() -> Element {
                                                                                             reload();
                                                                                         }
                                                                                         Err(e) => {
-                                                                                            error.set(Some(format!("{}", e)));
+                                                                                            error.set(Some(e));
                                                                                         }
                                                                                     }
                                                                                     saving.set(false);
@@ -1208,7 +1209,7 @@ pub fn ConfigPage() -> Element {
                                                                                     let config = CONFIG.read().clone();
                                                                                     match api::delete_config_entry(&config, &key).await {
                                                                                         Ok(_) => reload(),
-                                                                                        Err(e) => error.set(Some(format!("{}", e))),
+                                                                                        Err(e) => error.set(Some(e)),
                                                                                     }
                                                                                 });
                                                                             },

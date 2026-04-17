@@ -89,7 +89,7 @@ pub fn InboxReplyForm(
                         let cfg = CONFIG.read().clone();
                         match api::reply_inbox_mail(&cfg, &mid, &subj, &b).await {
                             Ok(_) => on_sent.call(()),
-                            Err(e) => on_error.call(e),
+                            Err(e) => on_error.call(e.to_string()),
                         }
                         sending.set(false);
                     });

@@ -9,21 +9,136 @@ use uuid::Uuid;
 
 use crate::state::{AuthInfo, Config};
 
+// ── AppError ────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AppError {
+    pub status: Option<u16>,
+    pub message: String,
+    pub detail: Option<String>,
+}
+
+impl AppError {
+    pub fn new(status: Option<u16>, message: impl Into<String>, detail: Option<String>) -> Self {
+        Self {
+            status,
+            message: message.into(),
+            detail,
+        }
+    }
+}
+
+impl std::fmt::Display for AppError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl std::error::Error for AppError {}
+
+impl From<reqwest::Error> for AppError {
+    fn from(e: reqwest::Error) -> Self {
+        AppError {
+            status: e.status().map(|s| s.as_u16()),
+            message: "Verbindungsfehler — bitte Internetverbindung prüfen".into(),
+            detail: Some(e.to_string()),
+        }
+    }
+}
+
+fn status_to_message(status: u16) -> &'static str {
+    match status {
+        400 => "Ungültige Anfrage",
+        401 => "Keine Berechtigung — bitte erneut anmelden",
+        403 => "Keine Berechtigung für diese Aktion",
+        404 => "Nicht gefunden",
+        409 => "Konflikt — das Element wurde zwischenzeitlich geändert",
+        415 => "Dateityp nicht erlaubt",
+        422 => "Validierungsfehler",
+        429 => "Zu viele Anfragen — bitte warten",
+        500..=599 => "Serverfehler — bitte später erneut versuchen",
+        _ => "Unbekannter Fehler",
+    }
+}
+
+async fn map_response_error(response: reqwest::Response) -> AppError {
+    let status = response.status().as_u16();
+    let body = response.text().await.unwrap_or_default();
+
+    let message = if status == 415 {
+        parse_415_message(&body)
+    } else {
+        status_to_message(status).to_string()
+    };
+
+    AppError {
+        status: Some(status),
+        message,
+        detail: if body.is_empty() { None } else { Some(body) },
+    }
+}
+
+fn parse_415_message(body: &str) -> String {
+    #[derive(serde::Deserialize)]
+    struct FileTypeError {
+        allowed_extensions: Option<Vec<String>>,
+    }
+    if let Ok(parsed) = serde_json::from_str::<FileTypeError>(body) {
+        if let Some(exts) = parsed.allowed_extensions {
+            return format!("Dateityp nicht erlaubt. Erlaubte Typen: {}", exts.join(", "));
+        }
+    }
+    "Dateityp nicht erlaubt".to_string()
+}
+
+async fn check_response(response: reqwest::Response) -> Result<reqwest::Response, AppError> {
+    if response.status().is_success() {
+        Ok(response)
+    } else {
+        Err(map_response_error(response).await)
+    }
+}
+
+async fn map_web_response_error(resp: &web_sys::Response) -> AppError {
+    use wasm_bindgen_futures::JsFuture;
+    let status = resp.status();
+    let body = if let Ok(text_promise) = resp.text() {
+        JsFuture::from(text_promise)
+            .await
+            .ok()
+            .and_then(|v| v.as_string())
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+
+    let message = if status == 415 {
+        parse_415_message(&body)
+    } else {
+        status_to_message(status).to_string()
+    };
+
+    AppError {
+        status: Some(status),
+        message,
+        detail: if body.is_empty() { None } else { Some(body) },
+    }
+}
+
 // Config API
-pub async fn fetch_config() -> Result<Config, reqwest::Error> {
+pub async fn fetch_config() -> Result<Config, AppError> {
     info!("Fetching config");
     let window = web_sys::window().unwrap();
     let origin = window.location().origin().unwrap();
     let url = format!("{}/assets/config.json", origin);
-    let response = reqwest::get(url).await?;
-    response.error_for_status_ref()?;
+    let response = check_response(reqwest::get(url).await?).await?;
     let config: Config = response.json().await?;
     info!("Config fetched: {:?}", config);
     Ok(config)
 }
 
 // Authentication API
-pub async fn fetch_auth_info(backend_url: Rc<str>) -> Result<Option<AuthInfo>, reqwest::Error> {
+pub async fn fetch_auth_info(backend_url: Rc<str>) -> Result<Option<AuthInfo>, AppError> {
     info!("Fetching auth info");
     let response = reqwest::get(format!("{}/api/auth/info", backend_url)).await?;
     if response.status() != 200 {
@@ -42,23 +157,21 @@ pub async fn fetch_auth_info(backend_url: Rc<str>) -> Result<Option<AuthInfo>, r
 }
 
 // Member API
-pub async fn get_members(config: &Config) -> Result<Vec<MemberTO>, reqwest::Error> {
+pub async fn get_members(config: &Config) -> Result<Vec<MemberTO>, AppError> {
     info!("Fetching members");
     let url = format!("{}/api/members", config.backend);
-    let response = reqwest::get(url).await?;
-    response.error_for_status_ref()?;
+    let response = check_response(reqwest::get(url).await?).await?;
     Ok(response.json().await?)
 }
 
-pub async fn get_member(config: &Config, id: Uuid) -> Result<MemberTO, reqwest::Error> {
+pub async fn get_member(config: &Config, id: Uuid) -> Result<MemberTO, AppError> {
     info!("Fetching member {id}");
     let url = format!("{}/api/members/{id}", config.backend);
-    let response = reqwest::get(url).await?;
-    response.error_for_status_ref()?;
+    let response = check_response(reqwest::get(url).await?).await?;
     Ok(response.json().await?)
 }
 
-pub async fn create_member(config: &Config, member: MemberTO) -> Result<MemberTO, reqwest::Error> {
+pub async fn create_member(config: &Config, member: MemberTO) -> Result<MemberTO, AppError> {
     info!("Creating member");
     let url = format!("{}/api/members", config.backend);
     let response = reqwest::Client::new()
@@ -66,27 +179,24 @@ pub async fn create_member(config: &Config, member: MemberTO) -> Result<MemberTO
         .json(&member)
         .send()
         .await?;
-    response.error_for_status_ref()?;
+    let response = check_response(response).await?;
     Ok(response.json().await?)
 }
 
-pub async fn update_member(config: &Config, member: MemberTO) -> Result<MemberTO, reqwest::Error> {
+pub async fn update_member(config: &Config, member: MemberTO) -> Result<MemberTO, AppError> {
     info!("Updating member {:?}", member.id);
     let id = member.id.unwrap();
     let url = format!("{}/api/members/{id}", config.backend);
     let response = reqwest::Client::new().put(url).json(&member).send().await?;
-    response.error_for_status_ref()?;
+    let response = check_response(response).await?;
     Ok(response.json().await?)
 }
 
-pub async fn delete_member(config: &Config, id: Uuid) -> Result<(), reqwest::Error> {
+pub async fn delete_member(config: &Config, id: Uuid) -> Result<(), AppError> {
     info!("Deleting member {id}");
     let url = format!("{}/api/members/{id}", config.backend);
-    reqwest::Client::new()
-        .delete(url)
-        .send()
-        .await?
-        .error_for_status_ref()?;
+    let response = reqwest::Client::new().delete(url).send().await?;
+    check_response(response).await?;
     Ok(())
 }
 
@@ -94,11 +204,10 @@ pub async fn delete_member(config: &Config, id: Uuid) -> Result<(), reqwest::Err
 pub async fn get_member_actions(
     config: &Config,
     member_id: Uuid,
-) -> Result<Vec<MemberActionTO>, reqwest::Error> {
+) -> Result<Vec<MemberActionTO>, AppError> {
     info!("Fetching actions for member {member_id}");
     let url = format!("{}/api/members/{member_id}/actions", config.backend);
-    let response = reqwest::get(url).await?;
-    response.error_for_status_ref()?;
+    let response = check_response(reqwest::get(url).await?).await?;
     Ok(response.json().await?)
 }
 
@@ -106,7 +215,7 @@ pub async fn create_member_action(
     config: &Config,
     member_id: Uuid,
     action: MemberActionTO,
-) -> Result<MemberActionTO, reqwest::Error> {
+) -> Result<MemberActionTO, AppError> {
     info!("Creating action for member {member_id}");
     let url = format!("{}/api/members/{member_id}/actions", config.backend);
     let response = reqwest::Client::new()
@@ -114,7 +223,7 @@ pub async fn create_member_action(
         .json(&action)
         .send()
         .await?;
-    response.error_for_status_ref()?;
+    let response = check_response(response).await?;
     Ok(response.json().await?)
 }
 
@@ -123,14 +232,14 @@ pub async fn update_member_action(
     member_id: Uuid,
     action_id: Uuid,
     action: MemberActionTO,
-) -> Result<MemberActionTO, reqwest::Error> {
+) -> Result<MemberActionTO, AppError> {
     info!("Updating action {action_id} for member {member_id}");
     let url = format!(
         "{}/api/members/{member_id}/actions/{action_id}",
         config.backend
     );
     let response = reqwest::Client::new().put(url).json(&action).send().await?;
-    response.error_for_status_ref()?;
+    let response = check_response(response).await?;
     Ok(response.json().await?)
 }
 
@@ -138,42 +247,38 @@ pub async fn delete_member_action(
     config: &Config,
     member_id: Uuid,
     action_id: Uuid,
-) -> Result<(), reqwest::Error> {
+) -> Result<(), AppError> {
     info!("Deleting action {action_id} for member {member_id}");
     let url = format!(
         "{}/api/members/{member_id}/actions/{action_id}",
         config.backend
     );
-    reqwest::Client::new()
-        .delete(url)
-        .send()
-        .await?
-        .error_for_status_ref()?;
+    let response = reqwest::Client::new().delete(url).send().await?;
+    check_response(response).await?;
     Ok(())
 }
 
 pub async fn get_migration_status(
     config: &Config,
     member_id: Uuid,
-) -> Result<MigrationStatusTO, reqwest::Error> {
+) -> Result<MigrationStatusTO, AppError> {
     info!("Fetching migration status for member {member_id}");
     let url = format!(
         "{}/api/members/{member_id}/actions/migration-status",
         config.backend
     );
-    let response = reqwest::get(url).await?;
-    response.error_for_status_ref()?;
+    let response = check_response(reqwest::get(url).await?).await?;
     Ok(response.json().await?)
 }
 
-pub async fn confirm_migration(config: &Config, member_id: Uuid) -> Result<(), reqwest::Error> {
+pub async fn confirm_migration(config: &Config, member_id: Uuid) -> Result<(), AppError> {
     info!("Confirming migration for member {member_id}");
     let url = format!(
         "{}/api/members/{member_id}/actions/confirm-migration",
         config.backend
     );
-    let client = reqwest::Client::new();
-    client.post(url).send().await?.error_for_status_ref()?;
+    let response = reqwest::Client::new().post(url).send().await?;
+    check_response(response).await?;
     Ok(())
 }
 
@@ -181,11 +286,10 @@ pub async fn confirm_migration(config: &Config, member_id: Uuid) -> Result<(), r
 pub async fn get_member_documents(
     config: &Config,
     member_id: Uuid,
-) -> Result<Vec<MemberDocumentTO>, reqwest::Error> {
+) -> Result<Vec<MemberDocumentTO>, AppError> {
     info!("Fetching documents for member {member_id}");
     let url = format!("{}/api/members/{member_id}/documents", config.backend);
-    let response = reqwest::get(url).await?;
-    response.error_for_status_ref()?;
+    let response = check_response(reqwest::get(url).await?).await?;
     Ok(response.json().await?)
 }
 
@@ -195,58 +299,53 @@ pub async fn upload_member_document(
     document_type: &str,
     description: Option<&str>,
     file: web_sys::File,
-) -> Result<MemberDocumentTO, String> {
+) -> Result<MemberDocumentTO, AppError> {
     use wasm_bindgen::JsCast;
     use wasm_bindgen_futures::JsFuture;
 
     let url = format!("{}/api/members/{member_id}/documents", config.backend);
 
-    let form_data =
-        web_sys::FormData::new().map_err(|e| format!("Failed to create FormData: {:?}", e))?;
+    let form_data = web_sys::FormData::new()
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
     form_data
         .append_with_str("document_type", document_type)
-        .map_err(|e| format!("Failed to append document_type: {:?}", e))?;
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
     if let Some(desc) = description {
         form_data
             .append_with_str("description", desc)
-            .map_err(|e| format!("Failed to append description: {:?}", e))?;
+            .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
     }
     form_data
         .append_with_blob_and_filename("file", &file, &file.name())
-        .map_err(|e| format!("Failed to append file: {:?}", e))?;
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
 
     let mut opts = web_sys::RequestInit::new();
     opts.method("POST");
     opts.body(Some(&form_data));
 
     let request = web_sys::Request::new_with_str_and_init(&url, &opts)
-        .map_err(|e| format!("Failed to create request: {:?}", e))?;
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
 
-    let window = web_sys::window().ok_or("No window")?;
+    let window = web_sys::window()
+        .ok_or_else(|| AppError::new(None, "Verbindungsfehler", None))?;
     let resp_value = JsFuture::from(window.fetch_with_request(&request))
         .await
-        .map_err(|e| format!("Fetch failed: {:?}", e))?;
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
 
     let resp: web_sys::Response = resp_value
         .dyn_into()
-        .map_err(|_| "Response is not a Response object".to_string())?;
+        .map_err(|_| AppError::new(None, "Verbindungsfehler", None))?;
 
     if !resp.ok() {
-        let status = resp.status();
-        let text = JsFuture::from(resp.text().unwrap())
-            .await
-            .map_err(|e| format!("Failed to read error body: {:?}", e))?
-            .as_string()
-            .unwrap_or_default();
-        return Err(format!("Upload failed ({}): {}", status, text));
+        return Err(map_web_response_error(&resp).await);
     }
 
     let json = JsFuture::from(resp.json().unwrap())
         .await
-        .map_err(|e| format!("Failed to parse response: {:?}", e))?;
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
 
     let doc: MemberDocumentTO = serde_wasm_bindgen::from_value(json)
-        .map_err(|e| format!("Failed to deserialize: {:?}", e))?;
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
 
     Ok(doc)
 }
@@ -255,17 +354,14 @@ pub async fn delete_member_document(
     config: &Config,
     member_id: Uuid,
     document_id: Uuid,
-) -> Result<(), reqwest::Error> {
+) -> Result<(), AppError> {
     info!("Deleting document {document_id} for member {member_id}");
     let url = format!(
         "{}/api/members/{member_id}/documents/{document_id}",
         config.backend
     );
-    reqwest::Client::new()
-        .delete(url)
-        .send()
-        .await?
-        .error_for_status_ref()?;
+    let response = reqwest::Client::new().delete(url).send().await?;
+    check_response(response).await?;
     Ok(())
 }
 
@@ -280,39 +376,28 @@ pub async fn generate_member_document(
     config: &Config,
     member_id: Uuid,
     document_type: &str,
-) -> Result<MemberDocumentTO, String> {
+) -> Result<MemberDocumentTO, AppError> {
     info!("Generating document {document_type} for member {member_id}");
     let url = format!(
         "{}/api/members/{member_id}/documents/generate/{document_type}",
         config.backend
     );
-    let response = reqwest::Client::new()
-        .post(url)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    if response.status() == 409 {
-        return Err("Document of this type already exists".to_string());
-    }
-
-    let response = response.error_for_status().map_err(|e| e.to_string())?;
-    response.json().await.map_err(|e| e.to_string())
+    let response = reqwest::Client::new().post(url).send().await?;
+    let response = check_response(response).await?;
+    Ok(response.json().await?)
 }
 
 pub async fn get_member_document_counts(
     config: &Config,
     document_type: &str,
-) -> Result<HashMap<Uuid, i64>, String> {
+) -> Result<HashMap<Uuid, i64>, AppError> {
     info!("Fetching document counts for type {document_type}");
     let url = format!(
         "{}/api/member-documents/counts?type={document_type}",
         config.backend
     );
-    let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
-    let response = response.error_for_status().map_err(|e| e.to_string())?;
-    let string_counts: HashMap<String, i64> = response.json().await.map_err(|e| e.to_string())?;
-    // Convert String keys back to Uuid
+    let response = check_response(reqwest::get(&url).await?).await?;
+    let string_counts: HashMap<String, i64> = response.json().await?;
     let counts = string_counts
         .into_iter()
         .filter_map(|(k, v)| Uuid::parse_str(&k).ok().map(|id| (id, v)))
@@ -334,27 +419,21 @@ pub enum FileTreeEntry {
     },
 }
 
-pub async fn get_templates(config: &Config) -> Result<Vec<FileTreeEntry>, reqwest::Error> {
+pub async fn get_templates(config: &Config) -> Result<Vec<FileTreeEntry>, AppError> {
     info!("Fetching templates");
     let url = format!("{}/api/templates", config.backend);
-    let response = reqwest::get(url).await?;
-    response.error_for_status_ref()?;
+    let response = check_response(reqwest::get(url).await?).await?;
     Ok(response.json().await?)
 }
 
-pub async fn get_template_content(config: &Config, path: &str) -> Result<String, String> {
+pub async fn get_template_content(config: &Config, path: &str) -> Result<String, AppError> {
     info!("Fetching template content: {path}");
     let url = format!("{}/api/templates/{}", config.backend, path);
-    let response = reqwest::get(url).await.map_err(|e| e.to_string())?;
-    if !response.status().is_success() {
-        let status = response.status();
-        let text = response.text().await.unwrap_or_default();
-        return Err(format!("{}: {}", status, text));
-    }
-    response.text().await.map_err(|e| e.to_string())
+    let response = check_response(reqwest::get(url).await?).await?;
+    Ok(response.text().await?)
 }
 
-pub async fn save_template(config: &Config, path: &str, content: &str) -> Result<(), String> {
+pub async fn save_template(config: &Config, path: &str, content: &str) -> Result<(), AppError> {
     info!("Saving template: {path}");
     let url = format!("{}/api/templates/{}", config.backend, path);
     let response = reqwest::Client::new()
@@ -362,13 +441,8 @@ pub async fn save_template(config: &Config, path: &str, content: &str) -> Result
         .header("Content-Type", "text/plain")
         .body(content.to_string())
         .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    if !response.status().is_success() {
-        let status = response.status();
-        let text = response.text().await.unwrap_or_default();
-        return Err(format!("{}: {}", status, text));
-    }
+        .await?;
+    check_response(response).await?;
     Ok(())
 }
 
@@ -376,7 +450,7 @@ pub async fn upload_template_file(
     config: &Config,
     path: &str,
     bytes: Vec<u8>,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     info!("Uploading template file: {path}");
     let url = format!("{}/api/templates/{}", config.backend, path);
     let response = reqwest::Client::new()
@@ -384,29 +458,16 @@ pub async fn upload_template_file(
         .header("Content-Type", "application/octet-stream")
         .body(bytes)
         .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    if !response.status().is_success() {
-        let status = response.status();
-        let text = response.text().await.unwrap_or_default();
-        return Err(format!("{}: {}", status, text));
-    }
+        .await?;
+    check_response(response).await?;
     Ok(())
 }
 
-pub async fn delete_template(config: &Config, path: &str) -> Result<(), String> {
+pub async fn delete_template(config: &Config, path: &str) -> Result<(), AppError> {
     info!("Deleting template: {path}");
     let url = format!("{}/api/templates/{}", config.backend, path);
-    let response = reqwest::Client::new()
-        .delete(url)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    if !response.status().is_success() {
-        let status = response.status();
-        let text = response.text().await.unwrap_or_default();
-        return Err(format!("{}: {}", status, text));
-    }
+    let response = reqwest::Client::new().delete(url).send().await?;
+    check_response(response).await?;
     Ok(())
 }
 
@@ -421,7 +482,7 @@ pub async fn render_template_pdf(
     config: &Config,
     path: &str,
     member_id: Uuid,
-) -> Result<String, String> {
+) -> Result<String, AppError> {
     use wasm_bindgen::JsCast;
     use wasm_bindgen_futures::JsFuture;
 
@@ -432,35 +493,32 @@ pub async fn render_template_pdf(
     opts.set_method("POST");
 
     let request = web_sys::Request::new_with_str_and_init(&url, &opts)
-        .map_err(|e| format!("Failed to create request: {:?}", e))?;
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
 
-    let window = web_sys::window().ok_or("No window")?;
+    let window = web_sys::window()
+        .ok_or_else(|| AppError::new(None, "Verbindungsfehler", None))?;
     let resp_value = JsFuture::from(window.fetch_with_request(&request))
         .await
-        .map_err(|e| format!("Fetch failed: {:?}", e))?;
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
 
     let resp: web_sys::Response = resp_value
         .dyn_into()
-        .map_err(|_| "Response is not a Response object".to_string())?;
+        .map_err(|_| AppError::new(None, "Verbindungsfehler", None))?;
 
     if !resp.ok() {
-        let status = resp.status();
-        let text = JsFuture::from(resp.text().unwrap())
-            .await
-            .map_err(|e| format!("Failed to read error body: {:?}", e))?
-            .as_string()
-            .unwrap_or_default();
-        return Err(format!("{}: {}", status, text));
+        return Err(map_web_response_error(&resp).await);
     }
 
     let blob = JsFuture::from(resp.blob().unwrap())
         .await
-        .map_err(|e| format!("Failed to read blob: {:?}", e))?;
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
 
-    let blob: web_sys::Blob = blob.dyn_into().map_err(|_| "Not a Blob".to_string())?;
+    let blob: web_sys::Blob = blob
+        .dyn_into()
+        .map_err(|_| AppError::new(None, "Verbindungsfehler", None))?;
 
     let blob_url = web_sys::Url::create_object_url_with_blob(&blob)
-        .map_err(|e| format!("Failed to create blob URL: {:?}", e))?;
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
 
     Ok(blob_url)
 }
@@ -480,7 +538,7 @@ pub async fn render_template_pdf_application(
     config: &Config,
     path: &str,
     application_id: Uuid,
-) -> Result<String, String> {
+) -> Result<String, AppError> {
     use wasm_bindgen::JsCast;
     use wasm_bindgen_futures::JsFuture;
 
@@ -491,35 +549,32 @@ pub async fn render_template_pdf_application(
     opts.set_method("POST");
 
     let request = web_sys::Request::new_with_str_and_init(&url, &opts)
-        .map_err(|e| format!("Failed to create request: {:?}", e))?;
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
 
-    let window = web_sys::window().ok_or("No window")?;
+    let window = web_sys::window()
+        .ok_or_else(|| AppError::new(None, "Verbindungsfehler", None))?;
     let resp_value = JsFuture::from(window.fetch_with_request(&request))
         .await
-        .map_err(|e| format!("Fetch failed: {:?}", e))?;
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
 
     let resp: web_sys::Response = resp_value
         .dyn_into()
-        .map_err(|_| "Response is not a Response object".to_string())?;
+        .map_err(|_| AppError::new(None, "Verbindungsfehler", None))?;
 
     if !resp.ok() {
-        let status = resp.status();
-        let text = JsFuture::from(resp.text().unwrap())
-            .await
-            .map_err(|e| format!("Failed to read error body: {:?}", e))?
-            .as_string()
-            .unwrap_or_default();
-        return Err(format!("{}: {}", status, text));
+        return Err(map_web_response_error(&resp).await);
     }
 
     let blob = JsFuture::from(resp.blob().unwrap())
         .await
-        .map_err(|e| format!("Failed to read blob: {:?}", e))?;
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
 
-    let blob: web_sys::Blob = blob.dyn_into().map_err(|_| "Not a Blob".to_string())?;
+    let blob: web_sys::Blob = blob
+        .dyn_into()
+        .map_err(|_| AppError::new(None, "Verbindungsfehler", None))?;
 
     let blob_url = web_sys::Url::create_object_url_with_blob(&blob)
-        .map_err(|e| format!("Failed to create blob URL: {:?}", e))?;
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
 
     Ok(blob_url)
 }
@@ -538,11 +593,10 @@ pub struct SetConfigRequest {
     pub value_type: String,
 }
 
-pub async fn get_config_entries(config: &Config) -> Result<Vec<ConfigEntryTO>, reqwest::Error> {
+pub async fn get_config_entries(config: &Config) -> Result<Vec<ConfigEntryTO>, AppError> {
     info!("Fetching config entries");
     let url = format!("{}/api/config", config.backend);
-    let response = reqwest::get(url).await?;
-    response.error_for_status_ref()?;
+    let response = check_response(reqwest::get(url).await?).await?;
     Ok(response.json().await?)
 }
 
@@ -551,7 +605,7 @@ pub async fn set_config_entry(
     key: &str,
     value: &str,
     value_type: &str,
-) -> Result<ConfigEntryTO, reqwest::Error> {
+) -> Result<ConfigEntryTO, AppError> {
     info!("Setting config entry: {key}");
     let url = format!("{}/api/config/{}", config.backend, key);
     let body = SetConfigRequest {
@@ -559,18 +613,15 @@ pub async fn set_config_entry(
         value_type: value_type.to_string(),
     };
     let response = reqwest::Client::new().put(url).json(&body).send().await?;
-    response.error_for_status_ref()?;
+    let response = check_response(response).await?;
     Ok(response.json().await?)
 }
 
-pub async fn delete_config_entry(config: &Config, key: &str) -> Result<(), reqwest::Error> {
+pub async fn delete_config_entry(config: &Config, key: &str) -> Result<(), AppError> {
     info!("Deleting config entry: {key}");
     let url = format!("{}/api/config/{}", config.backend, key);
-    reqwest::Client::new()
-        .delete(url)
-        .send()
-        .await?
-        .error_for_status_ref()?;
+    let response = reqwest::Client::new().delete(url).send().await?;
+    check_response(response).await?;
     Ok(())
 }
 
@@ -579,11 +630,11 @@ pub struct GenerateApiKeyResponse {
     pub key: String,
 }
 
-pub async fn generate_api_key(config: &Config) -> Result<String, reqwest::Error> {
+pub async fn generate_api_key(config: &Config) -> Result<String, AppError> {
     info!("Generating API key");
     let url = format!("{}/api/config/generate-api-key", config.backend);
     let response = reqwest::Client::new().post(url).send().await?;
-    response.error_for_status_ref()?;
+    let response = check_response(response).await?;
     let resp: GenerateApiKeyResponse = response.json().await?;
     Ok(resp.key)
 }
@@ -651,40 +702,38 @@ pub struct AdminCreateApplicationRequest {
 pub async fn get_applications(
     config: &Config,
     status_filter: Option<&str>,
-) -> Result<Vec<ApplicationTO>, reqwest::Error> {
+) -> Result<Vec<ApplicationTO>, AppError> {
     info!("Fetching applications");
     let url = match status_filter {
         Some(status) => format!("{}/api/applications?status={}", config.backend, status),
         None => format!("{}/api/applications", config.backend),
     };
-    let response = reqwest::get(url).await?;
-    response.error_for_status_ref()?;
+    let response = check_response(reqwest::get(url).await?).await?;
     Ok(response.json().await?)
 }
 
-pub async fn get_application(config: &Config, id: Uuid) -> Result<ApplicationTO, reqwest::Error> {
+pub async fn get_application(config: &Config, id: Uuid) -> Result<ApplicationTO, AppError> {
     info!("Fetching application {id}");
     let url = format!("{}/api/applications/{}", config.backend, id);
-    let response = reqwest::get(url).await?;
-    response.error_for_status_ref()?;
+    let response = check_response(reqwest::get(url).await?).await?;
     Ok(response.json().await?)
 }
 
 pub async fn confirm_application(
     config: &Config,
     id: Uuid,
-) -> Result<ApplicationTO, reqwest::Error> {
+) -> Result<ApplicationTO, AppError> {
     info!("Confirming application {id}");
     let url = format!("{}/api/applications/{}/confirm", config.backend, id);
     let response = reqwest::Client::new().post(url).send().await?;
-    response.error_for_status_ref()?;
+    let response = check_response(response).await?;
     Ok(response.json().await?)
 }
 
 pub async fn create_application(
     config: &Config,
     request: &AdminCreateApplicationRequest,
-) -> Result<ApplicationTO, reqwest::Error> {
+) -> Result<ApplicationTO, AppError> {
     info!("Creating application");
     let url = format!("{}/api/applications", config.backend);
     let response = reqwest::Client::new()
@@ -692,7 +741,7 @@ pub async fn create_application(
         .json(request)
         .send()
         .await?;
-    response.error_for_status_ref()?;
+    let response = check_response(response).await?;
     Ok(response.json().await?)
 }
 
@@ -722,22 +771,22 @@ pub async fn update_application(
     config: &Config,
     id: Uuid,
     request: &UpdateApplicationRequest,
-) -> Result<ApplicationTO, reqwest::Error> {
+) -> Result<ApplicationTO, AppError> {
     info!("Updating application {id}");
     let url = format!("{}/api/applications/{}", config.backend, id);
     let response = reqwest::Client::new().put(url).json(request).send().await?;
-    response.error_for_status_ref()?;
+    let response = check_response(response).await?;
     Ok(response.json().await?)
 }
 
 pub async fn reject_application(
     config: &Config,
     id: Uuid,
-) -> Result<ApplicationTO, reqwest::Error> {
+) -> Result<ApplicationTO, AppError> {
     info!("Rejecting application {id}");
     let url = format!("{}/api/applications/{}/reject", config.backend, id);
     let response = reqwest::Client::new().post(url).send().await?;
-    response.error_for_status_ref()?;
+    let response = check_response(response).await?;
     Ok(response.json().await?)
 }
 
@@ -802,7 +851,7 @@ pub async fn send_bulk_mail(
     body: &str,
     attachment_ids: &[String],
     static_document_ids: &[String],
-) -> Result<MailJobTO, String> {
+) -> Result<MailJobTO, AppError> {
     info!("Sending bulk mail to {} recipients", recipients.len());
     let url = format!("{}/api/mail/send-bulk", config.backend);
     let req = SendBulkMailRequest {
@@ -812,18 +861,9 @@ pub async fn send_bulk_mail(
         attachment_ids: attachment_ids.to_vec(),
         static_document_ids: static_document_ids.to_vec(),
     };
-    let response = reqwest::Client::new()
-        .post(url)
-        .json(&req)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    if !response.status().is_success() {
-        let status = response.status();
-        let text = response.text().await.unwrap_or_default();
-        return Err(format!("{}: {}", status, text));
-    }
-    response.json().await.map_err(|e| e.to_string())
+    let response = reqwest::Client::new().post(url).json(&req).send().await?;
+    let response = check_response(response).await?;
+    Ok(response.json().await?)
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -846,113 +886,64 @@ pub async fn preview_mail(
     subject: &str,
     body: &str,
     member_id: &str,
-) -> Result<PreviewResponse, String> {
+) -> Result<PreviewResponse, AppError> {
     let url = format!("{}/api/mail/preview", config.backend);
     let req = PreviewRequest {
         subject: subject.to_string(),
         body: body.to_string(),
         member_id: member_id.to_string(),
     };
-    let response = reqwest::Client::new()
-        .post(url)
-        .json(&req)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    if !response.status().is_success() {
-        let status = response.status();
-        let text = response.text().await.unwrap_or_default();
-        return Err(format!("{}: {}", status, text));
-    }
-    response.json().await.map_err(|e| e.to_string())
+    let response = reqwest::Client::new().post(url).json(&req).send().await?;
+    let response = check_response(response).await?;
+    Ok(response.json().await?)
 }
 
-pub async fn get_mail_jobs(config: &Config) -> Result<Vec<MailJobTO>, String> {
+pub async fn get_mail_jobs(config: &Config) -> Result<Vec<MailJobTO>, AppError> {
     info!("Fetching mail jobs");
     let url = format!("{}/api/mail/jobs", config.backend);
-    let response = reqwest::get(url).await.map_err(|e| e.to_string())?;
-    if !response.status().is_success() {
-        let status = response.status();
-        let text = response.text().await.unwrap_or_default();
-        return Err(format!("{}: {}", status, text));
-    }
-    response.json().await.map_err(|e| e.to_string())
+    let response = check_response(reqwest::get(url).await?).await?;
+    Ok(response.json().await?)
 }
 
-pub async fn get_mail_job_detail(config: &Config, id: &str) -> Result<MailJobDetailTO, String> {
+pub async fn get_mail_job_detail(config: &Config, id: &str) -> Result<MailJobDetailTO, AppError> {
     info!("Fetching mail job detail: {id}");
     let url = format!("{}/api/mail/jobs/{}", config.backend, id);
-    let response = reqwest::get(url).await.map_err(|e| e.to_string())?;
-    if !response.status().is_success() {
-        let status = response.status();
-        let text = response.text().await.unwrap_or_default();
-        return Err(format!("{}: {}", status, text));
-    }
-    response.json().await.map_err(|e| e.to_string())
+    let response = check_response(reqwest::get(url).await?).await?;
+    Ok(response.json().await?)
 }
 
-pub async fn retry_mail_job(config: &Config, id: &str) -> Result<MailJobTO, String> {
+pub async fn retry_mail_job(config: &Config, id: &str) -> Result<MailJobTO, AppError> {
     info!("Retrying mail job: {id}");
     let url = format!("{}/api/mail/jobs/{}/retry", config.backend, id);
-    let response = reqwest::Client::new()
-        .post(url)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    if !response.status().is_success() {
-        let status = response.status();
-        let text = response.text().await.unwrap_or_default();
-        return Err(format!("{}: {}", status, text));
-    }
-    response.json().await.map_err(|e| e.to_string())
+    let response = reqwest::Client::new().post(url).send().await?;
+    let response = check_response(response).await?;
+    Ok(response.json().await?)
 }
 
 pub async fn get_members_not_reached_by(
     config: &Config,
     job_id: &str,
-) -> Result<Vec<MemberTO>, String> {
+) -> Result<Vec<MemberTO>, AppError> {
     info!("Fetching members not reached by job {job_id}");
     let url = format!("{}/api/members/not-reached-by/{}", config.backend, job_id);
-    let response = reqwest::get(url).await.map_err(|e| e.to_string())?;
-    if !response.status().is_success() {
-        let status = response.status();
-        let text = response.text().await.unwrap_or_default();
-        return Err(format!("{}: {}", status, text));
-    }
-    response.json().await.map_err(|e| e.to_string())
+    let response = check_response(reqwest::get(url).await?).await?;
+    Ok(response.json().await?)
 }
 
-pub async fn send_test_mail(config: &Config, to_address: &str) -> Result<(), String> {
+pub async fn send_test_mail(config: &Config, to_address: &str) -> Result<(), AppError> {
     info!("Sending test mail to: {to_address}");
     let url = format!("{}/api/mail/test", config.backend);
     let req = serde_json::json!({ "to_address": to_address });
-    let response = reqwest::Client::new()
-        .post(url)
-        .json(&req)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    if !response.status().is_success() {
-        let status = response.status();
-        let text = response.text().await.unwrap_or_default();
-        return Err(format!("{}: {}", status, text));
-    }
+    let response = reqwest::Client::new().post(url).json(&req).send().await?;
+    check_response(response).await?;
     Ok(())
 }
 
-pub async fn test_webdav_connection(config: &Config) -> Result<(), String> {
+pub async fn test_webdav_connection(config: &Config) -> Result<(), AppError> {
     info!("Testing WebDAV connection");
     let url = format!("{}/api/backup/test-webdav", config.backend);
-    let response = reqwest::Client::new()
-        .post(url)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    if !response.status().is_success() {
-        let status = response.status();
-        let text = response.text().await.unwrap_or_default();
-        return Err(format!("{}: {}", status, text));
-    }
+    let response = reqwest::Client::new().post(url).send().await?;
+    check_response(response).await?;
     Ok(())
 }
 
@@ -961,16 +952,11 @@ pub struct FooterResponse {
     pub footer: String,
 }
 
-pub async fn get_mail_footer(config: &Config) -> Result<String, String> {
+pub async fn get_mail_footer(config: &Config) -> Result<String, AppError> {
     info!("Fetching mail footer");
     let url = format!("{}/api/mail/footer", config.backend);
-    let response = reqwest::get(url).await.map_err(|e| e.to_string())?;
-    if !response.status().is_success() {
-        let status = response.status();
-        let text = response.text().await.unwrap_or_default();
-        return Err(format!("{}: {}", status, text));
-    }
-    let footer: FooterResponse = response.json().await.map_err(|e| e.to_string())?;
+    let response = check_response(reqwest::get(url).await?).await?;
+    let footer: FooterResponse = response.json().await?;
     Ok(footer.footer)
 }
 
@@ -978,14 +964,14 @@ pub async fn get_mail_footer(config: &Config) -> Result<String, String> {
 pub async fn get_user_preference(
     config: &Config,
     key: &str,
-) -> Result<Option<rest_types::UserPreferenceTO>, reqwest::Error> {
+) -> Result<Option<rest_types::UserPreferenceTO>, AppError> {
     info!("Fetching user preference: {key}");
     let url = format!("{}/api/user-preferences/{}", config.backend, key);
     let response = reqwest::get(url).await?;
     if response.status() == reqwest::StatusCode::NOT_FOUND {
         return Ok(None);
     }
-    response.error_for_status_ref()?;
+    let response = check_response(response).await?;
     Ok(Some(response.json().await?))
 }
 
@@ -993,7 +979,7 @@ pub async fn set_user_preference(
     config: &Config,
     key: &str,
     value: &str,
-) -> Result<rest_types::UserPreferenceTO, reqwest::Error> {
+) -> Result<rest_types::UserPreferenceTO, AppError> {
     info!("Setting user preference: {key}");
     let url = format!("{}/api/user-preferences/{}", config.backend, key);
     let body = rest_types::UserPreferenceTO {
@@ -1003,9 +989,8 @@ pub async fn set_user_preference(
         created: None,
         version: None,
     };
-    let client = reqwest::Client::new();
-    let response = client.put(url).json(&body).send().await?;
-    response.error_for_status_ref()?;
+    let response = reqwest::Client::new().put(url).json(&body).send().await?;
+    let response = check_response(response).await?;
     Ok(response.json().await?)
 }
 
@@ -1027,22 +1012,20 @@ pub struct UserRoleTO {
     pub role: String,
 }
 
-pub async fn get_all_users(config: &Config) -> Result<Vec<UserResponseTO>, reqwest::Error> {
+pub async fn get_all_users(config: &Config) -> Result<Vec<UserResponseTO>, AppError> {
     info!("Fetching all users");
     let url = format!("{}/api/permission/user", config.backend);
-    let response = reqwest::get(url).await?;
-    response.error_for_status_ref()?;
+    let response = check_response(reqwest::get(url).await?).await?;
     Ok(response.json().await?)
 }
 
 pub async fn get_user_roles(
     config: &Config,
     username: &str,
-) -> Result<Vec<RoleResponseTO>, reqwest::Error> {
+) -> Result<Vec<RoleResponseTO>, AppError> {
     info!("Fetching roles for user: {username}");
     let url = format!("{}/api/permission/user/{}/roles", config.backend, username);
-    let response = reqwest::get(url).await?;
-    response.error_for_status_ref()?;
+    let response = check_response(reqwest::get(url).await?).await?;
     Ok(response.json().await?)
 }
 
@@ -1050,16 +1033,15 @@ pub async fn assign_user_role(
     config: &Config,
     user: &str,
     role: &str,
-) -> Result<(), reqwest::Error> {
+) -> Result<(), AppError> {
     info!("Assigning role {role} to user {user}");
     let url = format!("{}/api/permission/user-role", config.backend);
     let body = UserRoleTO {
         user: user.to_string(),
         role: role.to_string(),
     };
-    let client = reqwest::Client::new();
-    let response = client.post(url).json(&body).send().await?;
-    response.error_for_status_ref()?;
+    let response = reqwest::Client::new().post(url).json(&body).send().await?;
+    check_response(response).await?;
     Ok(())
 }
 
@@ -1067,16 +1049,19 @@ pub async fn remove_user_role(
     config: &Config,
     user: &str,
     role: &str,
-) -> Result<(), reqwest::Error> {
+) -> Result<(), AppError> {
     info!("Removing role {role} from user {user}");
     let url = format!("{}/api/permission/user-role", config.backend);
     let body = UserRoleTO {
         user: user.to_string(),
         role: role.to_string(),
     };
-    let client = reqwest::Client::new();
-    let response = client.delete(url).json(&body).send().await?;
-    response.error_for_status_ref()?;
+    let response = reqwest::Client::new()
+        .delete(url)
+        .json(&body)
+        .send()
+        .await?;
+    check_response(response).await?;
     Ok(())
 }
 
@@ -1084,7 +1069,7 @@ pub async fn get_user_preference_admin(
     config: &Config,
     username: &str,
     key: &str,
-) -> Result<Option<rest_types::UserPreferenceTO>, reqwest::Error> {
+) -> Result<Option<rest_types::UserPreferenceTO>, AppError> {
     info!("Admin fetching preference {key} for user {username}");
     let url = format!(
         "{}/api/permission/user/{}/preferences/{}",
@@ -1094,7 +1079,7 @@ pub async fn get_user_preference_admin(
     if response.status() == reqwest::StatusCode::NOT_FOUND {
         return Ok(None);
     }
-    response.error_for_status_ref()?;
+    let response = check_response(response).await?;
     Ok(Some(response.json().await?))
 }
 
@@ -1103,7 +1088,7 @@ pub async fn set_user_preference_admin(
     username: &str,
     key: &str,
     value: &str,
-) -> Result<rest_types::UserPreferenceTO, reqwest::Error> {
+) -> Result<rest_types::UserPreferenceTO, AppError> {
     info!("Admin setting preference {key} for user {username}");
     let url = format!(
         "{}/api/permission/user/{}/preferences/{}",
@@ -1116,18 +1101,16 @@ pub async fn set_user_preference_admin(
         created: None,
         version: None,
     };
-    let client = reqwest::Client::new();
-    let response = client.put(url).json(&body).send().await?;
-    response.error_for_status_ref()?;
+    let response = reqwest::Client::new().put(url).json(&body).send().await?;
+    let response = check_response(response).await?;
     Ok(response.json().await?)
 }
 
 // Validation API
-pub async fn get_validation(config: &Config) -> Result<ValidationResultTO, reqwest::Error> {
+pub async fn get_validation(config: &Config) -> Result<ValidationResultTO, AppError> {
     info!("Fetching validation results");
     let url = format!("{}/api/validation", config.backend);
-    let response = reqwest::get(url).await?;
-    response.error_for_status_ref()?;
+    let response = check_response(reqwest::get(url).await?).await?;
     Ok(response.json().await?)
 }
 
@@ -1145,11 +1128,10 @@ pub struct StaticDocumentTO {
 
 pub async fn list_static_documents(
     config: &Config,
-) -> Result<Vec<StaticDocumentTO>, reqwest::Error> {
+) -> Result<Vec<StaticDocumentTO>, AppError> {
     info!("Fetching static documents");
     let url = format!("{}/api/static-documents", config.backend);
-    let response = reqwest::get(url).await?;
-    response.error_for_status_ref()?;
+    let response = check_response(reqwest::get(url).await?).await?;
     Ok(response.json().await?)
 }
 
@@ -1157,65 +1139,57 @@ pub async fn upload_static_document(
     config: &Config,
     name: &str,
     file: web_sys::File,
-) -> Result<StaticDocumentTO, String> {
+) -> Result<StaticDocumentTO, AppError> {
     use wasm_bindgen::JsCast;
     use wasm_bindgen_futures::JsFuture;
 
     let url = format!("{}/api/static-documents", config.backend);
 
-    let form_data =
-        web_sys::FormData::new().map_err(|e| format!("Failed to create FormData: {:?}", e))?;
+    let form_data = web_sys::FormData::new()
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
     form_data
         .append_with_str("name", name)
-        .map_err(|e| format!("Failed to append name: {:?}", e))?;
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
     form_data
         .append_with_blob_and_filename("file", &file, &file.name())
-        .map_err(|e| format!("Failed to append file: {:?}", e))?;
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
 
     let mut opts = web_sys::RequestInit::new();
     opts.method("POST");
     opts.body(Some(&form_data));
 
     let request = web_sys::Request::new_with_str_and_init(&url, &opts)
-        .map_err(|e| format!("Failed to create request: {:?}", e))?;
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
 
-    let window = web_sys::window().ok_or("No window")?;
+    let window = web_sys::window()
+        .ok_or_else(|| AppError::new(None, "Verbindungsfehler", None))?;
     let resp_value = JsFuture::from(window.fetch_with_request(&request))
         .await
-        .map_err(|e| format!("Fetch failed: {:?}", e))?;
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
 
     let resp: web_sys::Response = resp_value
         .dyn_into()
-        .map_err(|_| "Response is not a Response object".to_string())?;
+        .map_err(|_| AppError::new(None, "Verbindungsfehler", None))?;
 
     if !resp.ok() {
-        let status = resp.status();
-        let text = JsFuture::from(resp.text().unwrap())
-            .await
-            .map_err(|e| format!("Failed to read error body: {:?}", e))?
-            .as_string()
-            .unwrap_or_default();
-        return Err(format!("Upload failed ({}): {}", status, text));
+        return Err(map_web_response_error(&resp).await);
     }
 
     let json = JsFuture::from(resp.json().unwrap())
         .await
-        .map_err(|e| format!("Failed to parse response: {:?}", e))?;
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
 
     let doc: StaticDocumentTO = serde_wasm_bindgen::from_value(json)
-        .map_err(|e| format!("Failed to deserialize: {:?}", e))?;
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
 
     Ok(doc)
 }
 
-pub async fn delete_static_document(config: &Config, id: &str) -> Result<(), reqwest::Error> {
+pub async fn delete_static_document(config: &Config, id: &str) -> Result<(), AppError> {
     info!("Deleting static document {id}");
     let url = format!("{}/api/static-documents/{id}", config.backend);
-    reqwest::Client::new()
-        .delete(url)
-        .send()
-        .await?
-        .error_for_status_ref()?;
+    let response = reqwest::Client::new().delete(url).send().await?;
+    check_response(response).await?;
     Ok(())
 }
 
@@ -1234,16 +1208,11 @@ pub struct MailTemplateTO {
     pub version: String,
 }
 
-pub async fn list_mail_templates(config: &Config) -> Result<Vec<MailTemplateTO>, String> {
+pub async fn list_mail_templates(config: &Config) -> Result<Vec<MailTemplateTO>, AppError> {
     info!("Fetching mail templates");
     let url = format!("{}/api/mail/templates", config.backend);
-    let response = reqwest::get(url).await.map_err(|e| e.to_string())?;
-    if !response.status().is_success() {
-        let status = response.status();
-        let text = response.text().await.unwrap_or_default();
-        return Err(format!("{}: {}", status, text));
-    }
-    response.json().await.map_err(|e| e.to_string())
+    let response = check_response(reqwest::get(url).await?).await?;
+    Ok(response.json().await?)
 }
 
 pub async fn create_mail_template(
@@ -1251,7 +1220,7 @@ pub async fn create_mail_template(
     name: &str,
     subject: &str,
     body: &str,
-) -> Result<MailTemplateTO, String> {
+) -> Result<MailTemplateTO, AppError> {
     info!("Creating mail template: {name}");
     let url = format!("{}/api/mail/templates", config.backend);
     let req = serde_json::json!({
@@ -1259,18 +1228,9 @@ pub async fn create_mail_template(
         "subject": subject,
         "body": body,
     });
-    let response = reqwest::Client::new()
-        .post(url)
-        .json(&req)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    if !response.status().is_success() {
-        let status = response.status();
-        let text = response.text().await.unwrap_or_default();
-        return Err(format!("{}: {}", status, text));
-    }
-    response.json().await.map_err(|e| e.to_string())
+    let response = reqwest::Client::new().post(url).json(&req).send().await?;
+    let response = check_response(response).await?;
+    Ok(response.json().await?)
 }
 
 pub async fn update_mail_template(
@@ -1280,7 +1240,7 @@ pub async fn update_mail_template(
     subject: &str,
     body: &str,
     version: &str,
-) -> Result<MailTemplateTO, String> {
+) -> Result<MailTemplateTO, AppError> {
     info!("Updating mail template: {id}");
     let url = format!("{}/api/mail/templates/{id}", config.backend);
     let req = serde_json::json!({
@@ -1289,33 +1249,16 @@ pub async fn update_mail_template(
         "body": body,
         "version": version,
     });
-    let response = reqwest::Client::new()
-        .put(url)
-        .json(&req)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    if !response.status().is_success() {
-        let status = response.status();
-        let text = response.text().await.unwrap_or_default();
-        return Err(format!("{}: {}", status, text));
-    }
-    response.json().await.map_err(|e| e.to_string())
+    let response = reqwest::Client::new().put(url).json(&req).send().await?;
+    let response = check_response(response).await?;
+    Ok(response.json().await?)
 }
 
-pub async fn delete_mail_template(config: &Config, id: &str) -> Result<(), String> {
+pub async fn delete_mail_template(config: &Config, id: &str) -> Result<(), AppError> {
     info!("Deleting mail template: {id}");
     let url = format!("{}/api/mail/templates/{id}", config.backend);
-    let response = reqwest::Client::new()
-        .delete(url)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    if !response.status().is_success() {
-        let status = response.status();
-        let text = response.text().await.unwrap_or_default();
-        return Err(format!("{}: {}", status, text));
-    }
+    let response = reqwest::Client::new().delete(url).send().await?;
+    check_response(response).await?;
     Ok(())
 }
 
@@ -1357,32 +1300,29 @@ struct AssignMemberReq {
     member_id: String,
 }
 
-pub async fn get_imap_folders(config: &Config) -> Result<Vec<String>, String> {
+pub async fn get_imap_folders(config: &Config) -> Result<Vec<String>, AppError> {
     let url = format!("{}/api/inbox/folders", config.backend);
-    let response = reqwest::get(url).await.map_err(|e| e.to_string())?;
-    response.error_for_status_ref().map_err(|e| e.to_string())?;
-    response.json().await.map_err(|e| e.to_string())
+    let response = check_response(reqwest::get(url).await?).await?;
+    Ok(response.json().await?)
 }
 
-pub async fn get_inbox(config: &Config) -> Result<Vec<InboundMailTO>, String> {
+pub async fn get_inbox(config: &Config) -> Result<Vec<InboundMailTO>, AppError> {
     let url = format!("{}/api/inbox", config.backend);
-    let response = reqwest::get(url).await.map_err(|e| e.to_string())?;
-    response.error_for_status_ref().map_err(|e| e.to_string())?;
-    response.json().await.map_err(|e| e.to_string())
+    let response = check_response(reqwest::get(url).await?).await?;
+    Ok(response.json().await?)
 }
 
-pub async fn get_inbox_detail(config: &Config, id: &str) -> Result<InboundMailDetailTO, String> {
+pub async fn get_inbox_detail(config: &Config, id: &str) -> Result<InboundMailDetailTO, AppError> {
     let url = format!("{}/api/inbox/{}", config.backend, id);
-    let response = reqwest::get(url).await.map_err(|e| e.to_string())?;
-    response.error_for_status_ref().map_err(|e| e.to_string())?;
-    response.json().await.map_err(|e| e.to_string())
+    let response = check_response(reqwest::get(url).await?).await?;
+    Ok(response.json().await?)
 }
 
 pub async fn assign_inbox_mail(
     config: &Config,
     id: &str,
     member_id: &str,
-) -> Result<InboundMailTO, String> {
+) -> Result<InboundMailTO, AppError> {
     let url = format!("{}/api/inbox/{}/assign", config.backend, id);
     let response = reqwest::Client::new()
         .post(url)
@@ -1390,54 +1330,37 @@ pub async fn assign_inbox_mail(
             member_id: member_id.to_string(),
         })
         .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    response.error_for_status_ref().map_err(|e| e.to_string())?;
-    response.json().await.map_err(|e| e.to_string())
+        .await?;
+    let response = check_response(response).await?;
+    Ok(response.json().await?)
 }
 
-pub async fn unassign_inbox_mail(config: &Config, id: &str) -> Result<InboundMailTO, String> {
+pub async fn unassign_inbox_mail(config: &Config, id: &str) -> Result<InboundMailTO, AppError> {
     let url = format!("{}/api/inbox/{}/unassign", config.backend, id);
-    let response = reqwest::Client::new()
-        .post(url)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    response.error_for_status_ref().map_err(|e| e.to_string())?;
-    response.json().await.map_err(|e| e.to_string())
+    let response = reqwest::Client::new().post(url).send().await?;
+    let response = check_response(response).await?;
+    Ok(response.json().await?)
 }
 
-pub async fn mark_inbox_mail_read(config: &Config, id: &str) -> Result<(), String> {
+pub async fn mark_inbox_mail_read(config: &Config, id: &str) -> Result<(), AppError> {
     let url = format!("{}/api/inbox/{}/mark-read", config.backend, id);
-    let response = reqwest::Client::new()
-        .post(url)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    response.error_for_status_ref().map_err(|e| e.to_string())?;
+    let response = reqwest::Client::new().post(url).send().await?;
+    check_response(response).await?;
     Ok(())
 }
 
-pub async fn archive_inbox_mail(config: &Config, id: &str) -> Result<InboundMailTO, String> {
+pub async fn archive_inbox_mail(config: &Config, id: &str) -> Result<InboundMailTO, AppError> {
     let url = format!("{}/api/inbox/{}/archive", config.backend, id);
-    let response = reqwest::Client::new()
-        .post(url)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    response.error_for_status_ref().map_err(|e| e.to_string())?;
-    response.json().await.map_err(|e| e.to_string())
+    let response = reqwest::Client::new().post(url).send().await?;
+    let response = check_response(response).await?;
+    Ok(response.json().await?)
 }
 
-pub async fn done_inbox_mail(config: &Config, id: &str) -> Result<InboundMailTO, String> {
+pub async fn done_inbox_mail(config: &Config, id: &str) -> Result<InboundMailTO, AppError> {
     let url = format!("{}/api/inbox/{}/done", config.backend, id);
-    let response = reqwest::Client::new()
-        .post(url)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    response.error_for_status_ref().map_err(|e| e.to_string())?;
-    response.json().await.map_err(|e| e.to_string())
+    let response = reqwest::Client::new().post(url).send().await?;
+    let response = check_response(response).await?;
+    Ok(response.json().await?)
 }
 
 pub async fn reply_inbox_mail(
@@ -1445,32 +1368,26 @@ pub async fn reply_inbox_mail(
     id: &str,
     subject: &str,
     body: &str,
-) -> Result<(), String> {
+) -> Result<(), AppError> {
     let url = format!("{}/api/inbox/{}/reply", config.backend, id);
     let payload = serde_json::json!({
         "subject": subject,
         "body": body,
     });
-    let response = reqwest::Client::new()
-        .post(url)
-        .json(&payload)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    response.error_for_status_ref().map_err(|e| e.to_string())?;
+    let response = reqwest::Client::new().post(url).json(&payload).send().await?;
+    check_response(response).await?;
     Ok(())
 }
 
 pub async fn get_member_communications(
     config: &Config,
     member_id: Uuid,
-) -> Result<Vec<rest_types::CommunicationEntryTO>, reqwest::Error> {
+) -> Result<Vec<rest_types::CommunicationEntryTO>, AppError> {
     let url = format!(
         "{}/api/members/{}/communications",
         config.backend, member_id
     );
-    let response = reqwest::get(url).await?;
-    response.error_for_status_ref()?;
+    let response = check_response(reqwest::get(url).await?).await?;
     Ok(response.json().await?)
 }
 
@@ -1479,7 +1396,7 @@ pub async fn get_audit_log(
     params: &std::collections::HashMap<String, String>,
     page: i64,
     size: i64,
-) -> Result<rest_types::PagedAuditLogTO, reqwest::Error> {
+) -> Result<rest_types::PagedAuditLogTO, AppError> {
     let mut all_params = params.clone();
     all_params.insert("page".to_string(), page.to_string());
     all_params.insert("size".to_string(), size.to_string());
@@ -1489,8 +1406,7 @@ pub async fn get_audit_log(
         .collect::<Vec<_>>()
         .join("&");
     let url = format!("{}/api/audit?{}", config.backend, query_string);
-    let response = reqwest::get(url).await?;
-    response.error_for_status_ref()?;
+    let response = check_response(reqwest::get(url).await?).await?;
     Ok(response.json().await?)
 }
 
@@ -1498,47 +1414,43 @@ pub async fn get_audit_by_entity(
     config: &Config,
     entity_type: &str,
     entity_id: Uuid,
-) -> Result<Vec<rest_types::AuditLogEntryTO>, reqwest::Error> {
+) -> Result<Vec<rest_types::AuditLogEntryTO>, AppError> {
     let url = format!("{}/api/audit/{}/{}", config.backend, entity_type, entity_id);
-    let response = reqwest::get(url).await?;
-    response.error_for_status_ref()?;
+    let response = check_response(reqwest::get(url).await?).await?;
     Ok(response.json().await?)
 }
 
 pub async fn verify_audit_chain(
     config: &Config,
-) -> Result<rest_types::VerifyResponseTO, reqwest::Error> {
+) -> Result<rest_types::VerifyResponseTO, AppError> {
     let url = format!("{}/api/audit/verify", config.backend);
-    let response = reqwest::get(url).await?;
-    response.error_for_status_ref()?;
+    let response = check_response(reqwest::get(url).await?).await?;
     Ok(response.json().await?)
 }
 
 pub async fn get_timestamps(
     config: &Config,
-) -> Result<Vec<rest_types::TimestampResponseTO>, reqwest::Error> {
+) -> Result<Vec<rest_types::TimestampResponseTO>, AppError> {
     let url = format!("{}/api/audit/timestamps", config.backend);
-    let response = reqwest::get(url).await?;
-    response.error_for_status_ref()?;
+    let response = check_response(reqwest::get(url).await?).await?;
     Ok(response.json().await?)
 }
 
 pub async fn create_timestamp(
     config: &Config,
-) -> Result<rest_types::TimestampCreateResponseTO, reqwest::Error> {
+) -> Result<rest_types::TimestampCreateResponseTO, AppError> {
     let url = format!("{}/api/audit/timestamps", config.backend);
     let response = reqwest::Client::new().post(url).send().await?;
-    response.error_for_status_ref()?;
+    let response = check_response(response).await?;
     Ok(response.json().await?)
 }
 
 pub async fn verify_timestamp(
     config: &Config,
     id: uuid::Uuid,
-) -> Result<rest_types::TimestampVerifyResponseTO, reqwest::Error> {
+) -> Result<rest_types::TimestampVerifyResponseTO, AppError> {
     let url = format!("{}/api/audit/timestamps/{}/verify", config.backend, id);
-    let response = reqwest::get(url).await?;
-    response.error_for_status_ref()?;
+    let response = check_response(reqwest::get(url).await?).await?;
     Ok(response.json().await?)
 }
 
@@ -1559,10 +1471,99 @@ pub async fn get_open_inbox_count(config: &Config) -> Option<usize> {
 // Session Management API
 pub async fn revoke_all_sessions(
     config: &Config,
-) -> Result<rest_types::SessionRevokeResponse, reqwest::Error> {
+) -> Result<rest_types::SessionRevokeResponse, AppError> {
     let url = format!("{}/api/session/revoke-all", config.backend);
-    let client = reqwest::Client::new();
-    let response = client.post(url).send().await?;
-    response.error_for_status_ref()?;
+    let response = reqwest::Client::new().post(url).send().await?;
+    let response = check_response(response).await?;
     Ok(response.json().await?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_status_to_message_known_codes() {
+        assert_eq!(status_to_message(400), "Ungültige Anfrage");
+        assert_eq!(
+            status_to_message(401),
+            "Keine Berechtigung — bitte erneut anmelden"
+        );
+        assert_eq!(
+            status_to_message(403),
+            "Keine Berechtigung für diese Aktion"
+        );
+        assert_eq!(status_to_message(404), "Nicht gefunden");
+        assert_eq!(
+            status_to_message(409),
+            "Konflikt — das Element wurde zwischenzeitlich geändert"
+        );
+        assert_eq!(status_to_message(415), "Dateityp nicht erlaubt");
+        assert_eq!(status_to_message(422), "Validierungsfehler");
+        assert_eq!(
+            status_to_message(429),
+            "Zu viele Anfragen — bitte warten"
+        );
+        assert_eq!(
+            status_to_message(500),
+            "Serverfehler — bitte später erneut versuchen"
+        );
+        assert_eq!(
+            status_to_message(502),
+            "Serverfehler — bitte später erneut versuchen"
+        );
+    }
+
+    #[test]
+    fn test_status_to_message_unknown_code() {
+        assert_eq!(status_to_message(418), "Unbekannter Fehler");
+    }
+
+    #[test]
+    fn test_parse_415_with_extensions() {
+        let body = r#"{"error":"File type 'exe' is not allowed","allowed_extensions":["pdf","png","jpg"]}"#;
+        assert_eq!(
+            parse_415_message(body),
+            "Dateityp nicht erlaubt. Erlaubte Typen: pdf, png, jpg"
+        );
+    }
+
+    #[test]
+    fn test_parse_415_without_extensions() {
+        let body = "Unsupported Media Type";
+        assert_eq!(parse_415_message(body), "Dateityp nicht erlaubt");
+    }
+
+    #[test]
+    fn test_parse_415_json_without_extensions_field() {
+        let body = r#"{"error":"not allowed"}"#;
+        assert_eq!(parse_415_message(body), "Dateityp nicht erlaubt");
+    }
+
+    #[test]
+    fn test_app_error_display() {
+        let err = AppError::new(Some(404), "Nicht gefunden", None);
+        assert_eq!(format!("{}", err), "Nicht gefunden");
+    }
+
+    #[test]
+    fn test_app_error_display_with_detail() {
+        let err = AppError::new(Some(500), "Serverfehler", Some("internal".into()));
+        assert_eq!(format!("{}", err), "Serverfehler");
+    }
+
+    #[test]
+    fn test_app_error_new() {
+        let err = AppError::new(Some(422), "Validierungsfehler", Some("field invalid".into()));
+        assert_eq!(err.status, Some(422));
+        assert_eq!(err.message, "Validierungsfehler");
+        assert_eq!(err.detail.as_deref(), Some("field invalid"));
+    }
+
+    #[test]
+    fn test_app_error_new_no_detail() {
+        let err = AppError::new(None, "Verbindungsfehler", None);
+        assert_eq!(err.status, None);
+        assert!(err.detail.is_none());
+    }
 }

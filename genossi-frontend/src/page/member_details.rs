@@ -6,7 +6,7 @@ use rest_types::{
 use uuid::Uuid;
 
 use crate::api::{self, FileTreeEntry};
-use crate::component::{CommunicationTimeline, MemberSearch, Modal, TopBar};
+use crate::component::{CommunicationTimeline, ErrorAlert, MemberSearch, Modal, TopBar};
 use crate::i18n::use_i18n;
 use crate::i18n::Key;
 use crate::router::Route;
@@ -118,7 +118,7 @@ pub fn MemberDetails(id: String) -> Element {
         }
     });
     let mut loading = use_signal(|| false);
-    let mut error = use_signal(|| None::<String>);
+    let mut error: Signal<Option<api::AppError>> = use_signal(|| None);
     let mut show_delete_modal = use_signal(|| false);
 
     // Actions state
@@ -170,7 +170,7 @@ pub fn MemberDetails(id: String) -> Element {
                             *member.write() = data;
                         }
                         Err(e) => {
-                            error.set(Some(format!("Failed to load member: {}", e)));
+                            error.set(Some(e));
                         }
                     }
                     // Load actions
@@ -179,7 +179,7 @@ pub fn MemberDetails(id: String) -> Element {
                             *actions.write() = data;
                         }
                         Err(e) => {
-                            error.set(Some(format!("Failed to load actions: {}", e)));
+                            error.set(Some(e));
                         }
                     }
                     // Load documents
@@ -225,7 +225,7 @@ pub fn MemberDetails(id: String) -> Element {
                     nav.push(Route::Members {});
                 }
                 Err(e) => {
-                    error.set(Some(format!("Failed to save: {}", e)));
+                    error.set(Some(e));
                 }
             }
             loading.set(false);
@@ -247,7 +247,7 @@ pub fn MemberDetails(id: String) -> Element {
                         nav.push(Route::Members {});
                     }
                     Err(e) => {
-                        error.set(Some(format!("Failed to delete: {}", e)));
+                        error.set(Some(e));
                     }
                 }
                 loading.set(false);
@@ -332,7 +332,7 @@ pub fn MemberDetails(id: String) -> Element {
                     action_effective_date.set(String::new());
                 }
                 Err(e) => {
-                    error.set(Some(format!("Failed to save action: {}", e)));
+                    error.set(Some(e));
                 }
             }
             loading.set(false);
@@ -449,9 +449,10 @@ pub fn MemberDetails(id: String) -> Element {
                     }
                 }
 
-                if let Some(err) = error.read().as_ref() {
-                    div { class: "mb-4 p-4 bg-red-100 text-red-700 rounded",
-                        "{err}"
+                if let Some(ref err) = *error.read() {
+                    ErrorAlert {
+                        error: err.clone(),
+                        on_dismiss: move |_| error.set(None),
                     }
                 }
 
@@ -1056,7 +1057,7 @@ pub fn MemberDetails(id: String) -> Element {
                                                                                     }
                                                                                 }
                                                                                 Err(e) => {
-                                                                                    error.set(Some(format!("Failed to delete action: {}", e)));
+                                                                                    error.set(Some(e));
                                                                                 }
                                                                             }
                                                                         });
@@ -1099,7 +1100,7 @@ pub fn MemberDetails(id: String) -> Element {
                                                                             *documents.write() = data;
                                                                         }
                                                                     }
-                                                                    Err(e) => error.set(Some(format!("{}: {}", err_label, e))),
+                                                                    Err(e) => error.set(Some(api::AppError::new(e.status, format!("{}: {}", err_label, e.message), e.detail))),
                                                                 }
                                                             });
                                                         }
@@ -1238,12 +1239,12 @@ pub fn MemberDetails(id: String) -> Element {
                                                                     doc_description.set(String::new());
                                                                 }
                                                                 Err(e) => {
-                                                                    error.set(Some(format!("Upload failed: {}", e)));
+                                                                    error.set(Some(e));
                                                                 }
                                                             }
                                                         }
                                                         None => {
-                                                            error.set(Some("No file selected".to_string()));
+                                                            error.set(Some(api::AppError::new(None, "No file selected", None)));
                                                         }
                                                     }
                                                     loading.set(false);
@@ -1321,7 +1322,7 @@ pub fn MemberDetails(id: String) -> Element {
                                                                                         }
                                                                                     }
                                                                                     Err(e) => {
-                                                                                        error.set(Some(format!("Failed to delete document: {}", e)));
+                                                                                        error.set(Some(e));
                                                                                     }
                                                                                 }
                                                                             });
@@ -1409,7 +1410,7 @@ pub fn MemberDetails(id: String) -> Element {
                                                                 let window = web_sys::window().unwrap();
                                                                 let _ = window.open_with_url_and_target(&blob_url, "_blank");
                                                             }
-                                                            Err(e) => error.set(Some(format!("Render failed: {}", e))),
+                                                            Err(e) => error.set(Some(e)),
                                                         }
                                                     });
                                                 }

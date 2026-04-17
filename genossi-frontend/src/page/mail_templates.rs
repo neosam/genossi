@@ -3,7 +3,7 @@ use dioxus::prelude::*;
 use crate::api::{self, MailTemplateTO};
 use crate::auth::RequirePrivilege;
 use crate::component::mail_compose::TemplateVarButtons;
-use crate::component::TopBar;
+use crate::component::{ErrorAlert, TopBar};
 use crate::i18n::{use_i18n, Key};
 use crate::page::AccessDeniedPage;
 use crate::service::config::CONFIG;
@@ -20,7 +20,7 @@ pub fn MailTemplatesPage() -> Element {
     let i18n = use_i18n();
     let mut templates = use_signal(Vec::<MailTemplateTO>::new);
     let mut loading = use_signal(|| true);
-    let mut error = use_signal(|| None::<String>);
+    let mut error: Signal<Option<api::AppError>> = use_signal(|| None);
     let mut editor_mode = use_signal(|| EditorMode::None);
     let mut edit_name = use_signal(String::new);
     let mut edit_subject = use_signal(String::new);
@@ -142,9 +142,10 @@ pub fn MailTemplatesPage() -> Element {
                         {i18n.t(Key::MailTemplates)}
                     }
 
-                    if let Some(err) = error.read().as_ref() {
-                        div { class: "bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4",
-                            "{err}"
+                    if let Some(ref err) = *error.read() {
+                        ErrorAlert {
+                            error: err.clone(),
+                            on_dismiss: move |_| error.set(None),
                         }
                     }
 

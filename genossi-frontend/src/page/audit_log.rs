@@ -5,7 +5,7 @@ use rest_types::VerifyResponseTO;
 
 use crate::api;
 use crate::auth::RequirePrivilege;
-use crate::component::{PageSizeSelect, PaginationControls, TimestampSection, TopBar};
+use crate::component::{ErrorAlert, PageSizeSelect, PaginationControls, TimestampSection, TopBar};
 use crate::i18n::{use_i18n, Key};
 use crate::page::AccessDeniedPage;
 use crate::service::config::CONFIG;
@@ -20,7 +20,7 @@ pub fn AuditLogPage() -> Element {
     let mut current_page = use_signal(|| 0_i64);
     let mut page_size = use_signal(|| DEFAULT_PAGE_SIZE);
     let mut loading = use_signal(|| true);
-    let mut error = use_signal(|| None::<String>);
+    let mut error: Signal<Option<api::AppError>> = use_signal(|| None);
     let mut verify_result = use_signal(|| None::<VerifyResponseTO>);
     let mut verify_loading = use_signal(|| false);
 
@@ -66,7 +66,7 @@ pub fn AuditLogPage() -> Element {
                     error.set(None);
                 }
                 Err(e) => {
-                    error.set(Some(format!("{}", e)));
+                    error.set(Some(e));
                 }
             }
             loading.set(false);
@@ -89,7 +89,7 @@ pub fn AuditLogPage() -> Element {
                     verify_result.set(Some(result));
                 }
                 Err(e) => {
-                    error.set(Some(format!("{}", e)));
+                    error.set(Some(e));
                 }
             }
             verify_loading.set(false);
@@ -267,9 +267,10 @@ pub fn AuditLogPage() -> Element {
                     }
 
                     // Content
-                    if let Some(err) = error.read().as_ref() {
-                        div { class: "bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4",
-                            "{err}"
+                    if let Some(ref err) = *error.read() {
+                        ErrorAlert {
+                            error: err.clone(),
+                            on_dismiss: move |_| error.set(None),
                         }
                     }
                     if entries.read().is_empty() {

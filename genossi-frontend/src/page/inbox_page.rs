@@ -4,7 +4,7 @@ use rest_types::MemberTO;
 use crate::api::{self, InboundMailDetailTO, InboundMailTO};
 use crate::auth::RequirePrivilege;
 use crate::component::inbox::{InboxMailListItem, InboxReplyForm, InboxStatusBadge};
-use crate::component::TopBar;
+use crate::component::{ErrorAlert, TopBar};
 use crate::i18n::use_i18n;
 use crate::page::AccessDeniedPage;
 use crate::service::config::CONFIG;
@@ -41,7 +41,7 @@ fn InboxPageInner(initial_id: Option<String>) -> Element {
     let i18n = use_i18n();
     let mut mails = use_signal(Vec::<InboundMailTO>::new);
     let mut loading = use_signal(|| true);
-    let mut error = use_signal(|| None::<String>);
+    let mut error: Signal<Option<api::AppError>> = use_signal(|| None);
     let mut info = use_signal(|| None::<String>);
     let mut selected_id = use_signal(|| None::<String>);
     let mut detail = use_signal(|| None::<InboundMailDetailTO>);
@@ -197,9 +197,10 @@ fn InboxPageInner(initial_id: Option<String>) -> Element {
             div { class: "flex-none",
                 h1 { class: "text-2xl font-bold mb-4", "Posteingang" }
 
-                if let Some(e) = error.read().clone() {
-                    div { class: "bg-red-100 border border-red-400 text-red-700 px-3 py-2 mb-3 rounded",
-                        "{e}"
+                if let Some(ref err) = *error.read() {
+                    ErrorAlert {
+                        error: err.clone(),
+                        on_dismiss: move |_| error.set(None),
                     }
                 }
                 if let Some(m) = info.read().clone() {
@@ -469,7 +470,7 @@ fn InboxPageInner(initial_id: Option<String>) -> Element {
                                                     }
                                                 },
                                                 on_error: move |e: String| {
-                                                    error.set(Some(e));
+                                                    error.set(Some(api::AppError::new(None, e, None)));
                                                 },
                                             }
                                         }

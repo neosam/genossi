@@ -15,7 +15,7 @@ fn get_value(entries: &[ConfigEntryTO], key: &str) -> String {
 #[component]
 pub fn TsaConfigSection(
     entries: Signal<Vec<ConfigEntryTO>>,
-    error: Signal<Option<String>>,
+    error: Signal<Option<api::AppError>>,
     success_msg: Signal<Option<String>>,
     on_reload: EventHandler<()>,
 ) -> Element {
@@ -67,7 +67,7 @@ pub fn TsaConfigSection(
 
                 for (key, value, value_type) in settings {
                     if let Err(e) = api::set_config_entry(&config, key, value, value_type).await {
-                        error.set(Some(format!("Error saving {}: {}", key, e)));
+                        error.set(Some(api::AppError::new(e.status, format!("Error saving {}: {}", key, e.message), e.detail)));
                         had_error = true;
                         break;
                     }

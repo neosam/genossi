@@ -4,7 +4,7 @@ use crate::api::{self, ApplicationTO};
 use crate::auth::RequirePrivilege;
 use crate::component::{
     ApplicationCreateForm, ApplicationDetail, ApplicationForm, ApplicationFormMode,
-    ApplicationList, TopBar,
+    ApplicationList, ErrorAlert, TopBar,
 };
 use crate::i18n::{use_i18n, Key};
 use crate::page::AccessDeniedPage;
@@ -16,7 +16,7 @@ pub fn ApplicationsPage() -> Element {
     let i18n = use_i18n();
     let mut applications = use_signal(|| Vec::<ApplicationTO>::new());
     let mut loading = use_signal(|| true);
-    let mut error = use_signal(|| None::<String>);
+    let mut error: Signal<Option<api::AppError>> = use_signal(|| None);
     let mut active_tab = use_signal(|| "Offen".to_string());
     let mut selected_app = use_signal(|| None::<ApplicationTO>);
     let mut show_create_form = use_signal(|| false);
@@ -38,7 +38,7 @@ pub fn ApplicationsPage() -> Element {
                     applications.set(data);
                 }
                 Err(e) => {
-                    error.set(Some(format!("{}", e)));
+                    error.set(Some(e));
                 }
             }
             loading.set(false);
@@ -103,9 +103,10 @@ pub fn ApplicationsPage() -> Element {
                 }
 
                 // Error
-                if let Some(err) = error.read().as_ref() {
-                    div { class: "mb-4 p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm",
-                        "{err}"
+                if let Some(ref err) = *error.read() {
+                    ErrorAlert {
+                        error: err.clone(),
+                        on_dismiss: move |_| error.set(None),
                     }
                 }
 

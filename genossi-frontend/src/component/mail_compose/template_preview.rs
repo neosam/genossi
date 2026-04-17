@@ -29,7 +29,7 @@ fn trigger_preview(
             Err(e) => preview_result.set(Some(PreviewResponse {
                 subject: String::new(),
                 body: String::new(),
-                errors: vec![e],
+                errors: vec![e.to_string()],
             })),
         }
         preview_loading.set(false);

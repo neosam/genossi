@@ -1,6 +1,6 @@
 use crate::api;
 use crate::auth::RequirePrivilege;
-use crate::component::TopBar;
+use crate::component::{ErrorAlert, TopBar};
 use crate::i18n::{use_i18n, Key};
 use crate::page::AccessDeniedPage;
 use crate::service::config::CONFIG;
@@ -18,7 +18,7 @@ pub fn Permissions() -> Element {
     let i18n = use_i18n();
     let mut users: Signal<Vec<UserRow>> = use_signal(Vec::new);
     let mut loading = use_signal(|| true);
-    let mut error: Signal<Option<String>> = use_signal(|| None);
+    let mut error: Signal<Option<api::AppError>> = use_signal(|| None);
 
     use_effect(move || {
         spawn(async move {
@@ -52,7 +52,7 @@ pub fn Permissions() -> Element {
                     users.set(rows);
                 }
                 Err(e) => {
-                    error.set(Some(format!("{}", e)));
+                    error.set(Some(e));
                 }
             }
             loading.set(false);
@@ -70,9 +70,10 @@ pub fn Permissions() -> Element {
                         {i18n.t(Key::Permissions)}
                     }
 
-                    if let Some(err) = error.read().as_ref() {
-                        div { class: "bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4",
-                            "{err}"
+                    if let Some(ref err) = *error.read() {
+                        ErrorAlert {
+                            error: err.clone(),
+                            on_dismiss: move |_| error.set(None),
                         }
                     }
 

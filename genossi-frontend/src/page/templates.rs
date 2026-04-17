@@ -4,7 +4,7 @@ use uuid::Uuid;
 use wasm_bindgen::prelude::*;
 
 use crate::api::{self, FileTreeEntry};
-use crate::component::{ApplicationSearch, MemberSearch, Modal, TopBar};
+use crate::component::{ApplicationSearch, ErrorAlert, MemberSearch, Modal, TopBar};
 use crate::i18n::{use_i18n, Key};
 use crate::js;
 use crate::service::config::CONFIG;
@@ -104,7 +104,7 @@ pub fn Templates() -> Element {
     let mut editor_content = use_signal(|| String::new());
     let mut original_content = use_signal(|| String::new());
     let mut loading = use_signal(|| false);
-    let mut error = use_signal(|| None::<String>);
+    let mut error: Signal<Option<api::AppError>> = use_signal(|| None);
     let mut success_msg = use_signal(|| None::<String>);
 
     // CodeMirror editor state
@@ -124,7 +124,7 @@ pub fn Templates() -> Element {
     let mut preview_mode = use_signal(|| PreviewMode::Member);
     let mut preview_member_id = use_signal(|| None::<Uuid>);
     let mut preview_application_id = use_signal(|| None::<Uuid>);
-    let preview_error = use_signal(|| None::<String>);
+    let mut preview_error: Signal<Option<api::AppError>> = use_signal(|| None);
 
     let has_unsaved_changes = {
         let editor = editor_content.read().clone();
@@ -188,7 +188,7 @@ pub fn Templates() -> Element {
             let config = CONFIG.read().clone();
             match api::get_templates(&config).await {
                 Ok(entries) => tree.set(entries),
-                Err(e) => error.set(Some(format!("Failed to load templates: {}", e))),
+                Err(e) => error.set(Some(e)),
             }
         });
     });
@@ -353,14 +353,10 @@ pub fn Templates() -> Element {
             h1 { class: "text-2xl font-bold mb-4", {i18n.t(Key::TemplateEditor)} }
 
             // Error/Success messages
-            if let Some(err) = error.read().as_ref() {
-                div { class: "bg-red-100 text-red-700 p-3 rounded mb-4",
-                    "{err}"
-                    button {
-                        class: "ml-2 text-red-900 font-bold",
-                        onclick: move |_| error.set(None),
-                        "\u{2716}"
-                    }
+            if let Some(ref err) = *error.read() {
+                ErrorAlert {
+                    error: err.clone(),
+                    on_dismiss: move |_| error.set(None),
                 }
             }
             if let Some(msg) = success_msg.read().as_ref() {
@@ -577,8 +573,11 @@ pub fn Templates() -> Element {
                                         }
                                     }
                                 }
-                                if let Some(err) = preview_error.read().as_ref() {
-                                    span { class: "text-red-600 text-sm", "{err}" }
+                                if let Some(ref err) = *preview_error.read() {
+                                    ErrorAlert {
+                                        error: err.clone(),
+                                        on_dismiss: move |_| preview_error.set(None),
+                                    }
                                 }
                             }
                         }
