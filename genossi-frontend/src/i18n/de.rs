@@ -398,6 +398,11 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::TimestampTsaEnabled => "Zeitstempel aktiviert".into(),
         Key::TimestampTsaInterval => "Intervall (Stunden)".into(),
 
+        Key::OpenApplicationsCount => "{} offene Anträge".into(),
+        Key::OpenApplicationsNone => "Keine offenen Anträge".into(),
+        Key::OpenInboxCount => "{} offene Mails".into(),
+        Key::OpenInboxNone => "Keine offenen Mails".into(),
+
         Key::NoDataFound => "Keine Daten gefunden.".into(),
         Key::ErrorLoadingData => "Fehler beim Laden der Daten.".into(),
         Key::ConfirmDelete => "Sind Sie sicher, dass Sie dieses Mitglied löschen möchten?".into(),

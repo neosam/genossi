@@ -463,6 +463,12 @@ pub enum Key {
     TimestampTsaEnabled,
     TimestampTsaInterval,
 
+    // Status Bar
+    OpenApplicationsCount,
+    OpenApplicationsNone,
+    OpenInboxCount,
+    OpenInboxNone,
+
     // Messages
     NoDataFound,
     ErrorLoadingData,

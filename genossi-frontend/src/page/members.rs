@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 use crate::api::{self, MailJobTO};
 use crate::columns::{self, ColumnDef, InputType, ALL_COLUMNS};
-use crate::component::TopBar;
+use crate::component::{StatusBar, StatusBarItem, TopBar};
 use crate::i18n::use_i18n;
 use crate::i18n::Key;
 use crate::member_utils::{exited_in_year, is_active, today};
@@ -229,9 +229,26 @@ pub fn Members() -> Element {
     let mut toast_messages: Signal<Vec<(u64, String)>> = use_signal(Vec::new);
     let mut toast_counter = use_signal(|| 0u64);
 
+    // Status bar counts
+    let mut open_applications_count: Signal<Option<usize>> = use_signal(|| None);
+    let mut open_inbox_count: Signal<Option<usize>> = use_signal(|| None);
+
     use_effect(move || {
         spawn(async move {
             refresh_members().await;
+        });
+    });
+
+    // Load status bar counts on mount
+    use_effect(move || {
+        spawn(async move {
+            let config = CONFIG.read().clone();
+            if !config.backend.is_empty() {
+                let apps = api::get_open_applications_count(&config).await;
+                open_applications_count.set(apps);
+                let inbox = api::get_open_inbox_count(&config).await;
+                open_inbox_count.set(inbox);
+            }
         });
     });
 
@@ -345,8 +362,27 @@ pub fn Members() -> Element {
     let active_columns: Vec<&ColumnDef> = columns::columns_for_keys(&selected_columns.read());
     let is_edit_mode = *edit_mode.read();
 
+    let status_items = vec![
+        StatusBarItem {
+            label_with_count: i18n.t(Key::OpenApplicationsCount),
+            label_none: i18n.t(Key::OpenApplicationsNone),
+            count: *open_applications_count.read(),
+            route: Route::ApplicationsPage {},
+        },
+        StatusBarItem {
+            label_with_count: i18n.t(Key::OpenInboxCount),
+            label_none: i18n.t(Key::OpenInboxNone),
+            count: *open_inbox_count.read(),
+            route: Route::InboxPage {},
+        },
+    ];
+
     rsx! {
         TopBar {}
+
+        div { class: "container mx-auto px-4 pt-2",
+            StatusBar { items: status_items }
+        }
 
         // Toast notifications (fixed top-right)
         if !toast_messages.read().is_empty() {

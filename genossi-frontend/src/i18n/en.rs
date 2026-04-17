@@ -398,6 +398,11 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::TimestampTsaEnabled => "Timestamps enabled".into(),
         Key::TimestampTsaInterval => "Interval (hours)".into(),
 
+        Key::OpenApplicationsCount => "{} open applications".into(),
+        Key::OpenApplicationsNone => "No open applications".into(),
+        Key::OpenInboxCount => "{} open mails".into(),
+        Key::OpenInboxNone => "No open mails".into(),
+
         Key::NoDataFound => "No data found.".into(),
         Key::ErrorLoadingData => "Error loading data.".into(),
         Key::ConfirmDelete => "Are you sure you want to delete this member?".into(),

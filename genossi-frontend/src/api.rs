@@ -1541,3 +1541,11 @@ pub async fn verify_timestamp(
     response.error_for_status_ref()?;
     Ok(response.json().await?)
 }
+
+pub async fn get_open_applications_count(config: &Config) -> Option<usize> {
+    get_applications(config, Some("Offen")).await.ok().map(|v| v.len())
+}
+
+pub async fn get_open_inbox_count(config: &Config) -> Option<usize> {
+    get_inbox(config).await.ok().map(|mails| mails.iter().filter(|m| !m.done).count())
+}
