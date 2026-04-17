@@ -1,18 +1,17 @@
-
 use axum::extract::Request;
 use axum::extract::State;
 use axum::middleware::Next;
 use axum::response::Response;
 #[cfg(feature = "oidc")]
 use axum_oidc::{EmptyAdditionalClaims, OidcClaims};
-#[cfg(feature = "oidc")]
-use genossi_service::session::SessionService;
-#[cfg(feature = "oidc")]
-use tower_cookies::Cookies;
 #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
 use genossi_service::permission::MockContext;
 #[cfg(feature = "oidc")]
+use genossi_service::session::SessionService;
+#[cfg(feature = "oidc")]
 use std::sync::Arc;
+#[cfg(feature = "oidc")]
+use tower_cookies::Cookies;
 
 #[cfg(feature = "oidc")]
 use crate::Context;
@@ -91,13 +90,17 @@ pub async fn context_extractor<RestState: RestStateDef>(
             request.extensions_mut().insert(Some(auth_context));
         } else {
             tracing::info!("Session not found");
-            request.extensions_mut().insert(None::<genossi_service::auth_types::AuthenticatedContext>);
+            request
+                .extensions_mut()
+                .insert(None::<genossi_service::auth_types::AuthenticatedContext>);
         }
     } else {
         tracing::info!("app_session cookie not found");
-        request.extensions_mut().insert(None::<genossi_service::auth_types::AuthenticatedContext>);
+        request
+            .extensions_mut()
+            .insert(None::<genossi_service::auth_types::AuthenticatedContext>);
     };
-    
+
     next.run(request).await
 }
 

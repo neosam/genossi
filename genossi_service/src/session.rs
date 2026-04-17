@@ -66,7 +66,8 @@ pub trait SessionService: Send + Sync {
     ) -> Result<UserSession, ServiceError> {
         // Default implementation just calls create_session_with_claims
         // Implementations that need auto-registration should override this
-        self.create_session_with_claims(user_id, expires_in_seconds, claims).await
+        self.create_session_with_claims(user_id, expires_in_seconds, claims)
+            .await
     }
 }
 

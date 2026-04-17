@@ -169,7 +169,11 @@ pub trait MemberDao {
             .cloned())
     }
 
-    async fn count_active(&self, today: time::Date, tx: Self::Transaction) -> Result<u64, DaoError> {
+    async fn count_active(
+        &self,
+        today: time::Date,
+        tx: Self::Transaction,
+    ) -> Result<u64, DaoError> {
         let all_entities = self.dump_all(tx).await?;
         let count = all_entities
             .iter()
@@ -209,23 +213,38 @@ impl crate::auditable::Auditable for MemberEntity {
             ("member_number", Some(self.member_number.to_string())),
             ("first_name", Some(self.first_name.to_string())),
             ("last_name", Some(self.last_name.to_string())),
-            ("salutation", self.salutation.as_ref().map(|s| s.as_str().to_string())),
+            (
+                "salutation",
+                self.salutation.as_ref().map(|s| s.as_str().to_string()),
+            ),
             ("title", self.title.as_ref().map(|s| s.to_string())),
             ("email", self.email.as_ref().map(|s| s.to_string())),
             ("company", self.company.as_ref().map(|s| s.to_string())),
             ("comment", self.comment.as_ref().map(|s| s.to_string())),
             ("street", self.street.as_ref().map(|s| s.to_string())),
-            ("house_number", self.house_number.as_ref().map(|s| s.to_string())),
-            ("postal_code", self.postal_code.as_ref().map(|s| s.to_string())),
+            (
+                "house_number",
+                self.house_number.as_ref().map(|s| s.to_string()),
+            ),
+            (
+                "postal_code",
+                self.postal_code.as_ref().map(|s| s.to_string()),
+            ),
             ("city", self.city.as_ref().map(|s| s.to_string())),
             ("join_date", Some(format_date(&self.join_date))),
-            ("shares_at_joining", Some(self.shares_at_joining.to_string())),
+            (
+                "shares_at_joining",
+                Some(self.shares_at_joining.to_string()),
+            ),
             ("current_shares", Some(self.current_shares.to_string())),
             ("current_balance", Some(self.current_balance.to_string())),
             ("action_count", Some(self.action_count.to_string())),
             ("migrated", Some(self.migrated.to_string())),
             ("exit_date", self.exit_date.as_ref().map(format_date)),
-            ("bank_account", self.bank_account.as_ref().map(|s| s.to_string())),
+            (
+                "bank_account",
+                self.bank_account.as_ref().map(|s| s.to_string()),
+            ),
             ("status", Some(self.status.as_str().to_string())),
         ]
     }
@@ -240,7 +259,11 @@ mod tests {
         make_entity_with_exit(member_number, deleted, None)
     }
 
-    fn make_entity_with_exit(member_number: i64, deleted: Option<time::PrimitiveDateTime>, exit_date: Option<time::Date>) -> MemberEntity {
+    fn make_entity_with_exit(
+        member_number: i64,
+        deleted: Option<time::PrimitiveDateTime>,
+        exit_date: Option<time::Date>,
+    ) -> MemberEntity {
         let date = time::Date::from_calendar_date(2025, time::Month::January, 1).unwrap();
         let datetime = time::PrimitiveDateTime::new(date, time::Time::MIDNIGHT);
         MemberEntity {
@@ -387,10 +410,7 @@ mod tests {
             time::Time::MIDNIGHT,
         );
         let dao = TestMemberDao {
-            entities: Arc::from(vec![
-                make_entity(1, None),
-                make_entity(2, Some(deleted_at)),
-            ]),
+            entities: Arc::from(vec![make_entity(1, None), make_entity(2, Some(deleted_at))]),
         };
         let today = time::Date::from_calendar_date(2025, time::Month::June, 1).unwrap();
         let count = dao.count_active(today, mock_tx()).await.unwrap();
@@ -439,9 +459,7 @@ mod tests {
     async fn test_count_active_exit_date_today_not_counted() {
         let today = time::Date::from_calendar_date(2025, time::Month::June, 1).unwrap();
         let dao = TestMemberDao {
-            entities: Arc::from(vec![
-                make_entity_with_exit(1, None, Some(today)),
-            ]),
+            entities: Arc::from(vec![make_entity_with_exit(1, None, Some(today))]),
         };
         let count = dao.count_active(today, mock_tx()).await.unwrap();
         assert_eq!(count, 0);
@@ -481,7 +499,10 @@ mod tests {
     #[test]
     fn test_member_status_as_str() {
         assert_eq!(MemberStatus::Normal.as_str(), "Normal");
-        assert_eq!(MemberStatus::FehlerhaftErfasst.as_str(), "FehlerhaftErfasst");
+        assert_eq!(
+            MemberStatus::FehlerhaftErfasst.as_str(),
+            "FehlerhaftErfasst"
+        );
     }
 
     #[test]
@@ -506,10 +527,7 @@ mod tests {
         let mut entity = make_entity(1, None);
         entity.status = MemberStatus::FehlerhaftErfasst;
         let dao = TestMemberDao {
-            entities: Arc::from(vec![
-                make_entity(2, None),
-                entity,
-            ]),
+            entities: Arc::from(vec![make_entity(2, None), entity]),
         };
         let today = time::Date::from_calendar_date(2025, time::Month::June, 1).unwrap();
         let count = dao.count_active(today, mock_tx()).await.unwrap();

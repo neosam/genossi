@@ -43,10 +43,7 @@ pub trait AuditLogDao {
         tx: Self::Transaction,
     ) -> Result<(), DaoError>;
 
-    async fn get_latest_hash(
-        &self,
-        tx: Self::Transaction,
-    ) -> Result<Option<String>, DaoError>;
+    async fn get_latest_hash(&self, tx: Self::Transaction) -> Result<Option<String>, DaoError>;
 
     async fn get_by_entity(
         &self,
@@ -68,9 +65,6 @@ pub trait AuditLogDao {
         tx: Self::Transaction,
     ) -> Result<Arc<[AuditLogEntry]>, DaoError>;
 
-    async fn count(
-        &self,
-        filter: AuditQueryFilter,
-        tx: Self::Transaction,
-    ) -> Result<i64, DaoError>;
+    async fn count(&self, filter: AuditQueryFilter, tx: Self::Transaction)
+        -> Result<i64, DaoError>;
 }

@@ -211,7 +211,11 @@ impl<Deps: MemberServiceDeps> MemberService for MemberServiceImpl<Deps> {
             city: item.city.clone(),
             join_date: item.join_date,
             shares_at_joining: item.shares_at_joining,
-            current_shares: if item.status.is_normal() { item.shares_at_joining } else { 0 },
+            current_shares: if item.status.is_normal() {
+                item.shares_at_joining
+            } else {
+                0
+            },
             current_balance: 0,
             action_count: 0,
             migrated: false,
@@ -224,7 +228,14 @@ impl<Deps: MemberServiceDeps> MemberService for MemberServiceImpl<Deps> {
         };
 
         let member_entity: genossi_dao::member::MemberEntity = (&new_member).into();
-        crate::audited_create!(self, self.member_dao, &member_entity, MEMBER_SERVICE_PROCESS, &user_id, tx);
+        crate::audited_create!(
+            self,
+            self.member_dao,
+            &member_entity,
+            MEMBER_SERVICE_PROCESS,
+            &user_id,
+            tx
+        );
 
         if item.status.is_normal() {
             // Create Eintritt action
@@ -241,7 +252,14 @@ impl<Deps: MemberServiceDeps> MemberService for MemberServiceImpl<Deps> {
                 deleted: None,
                 version: self.uuid_service.new_v4().await,
             };
-            crate::audited_create!(self, self.member_action_dao, &eintritt, MEMBER_SERVICE_PROCESS, &user_id, tx);
+            crate::audited_create!(
+                self,
+                self.member_action_dao,
+                &eintritt,
+                MEMBER_SERVICE_PROCESS,
+                &user_id,
+                tx
+            );
 
             // Create Aufstockung action
             let aufstockung = genossi_dao::member_action::MemberActionEntity {
@@ -257,7 +275,14 @@ impl<Deps: MemberServiceDeps> MemberService for MemberServiceImpl<Deps> {
                 deleted: None,
                 version: self.uuid_service.new_v4().await,
             };
-            crate::audited_create!(self, self.member_action_dao, &aufstockung, MEMBER_SERVICE_PROCESS, &user_id, tx);
+            crate::audited_create!(
+                self,
+                self.member_action_dao,
+                &aufstockung,
+                MEMBER_SERVICE_PROCESS,
+                &user_id,
+                tx
+            );
         }
 
         self.recalc_dates(new_member.id, tx.clone()).await?;
@@ -303,7 +328,15 @@ impl<Deps: MemberServiceDeps> MemberService for MemberServiceImpl<Deps> {
         }
 
         let member_entity: genossi_dao::member::MemberEntity = item.into();
-        crate::audited_update!(self, self.member_dao, item.id, &member_entity, MEMBER_SERVICE_PROCESS, &user_id, tx);
+        crate::audited_update!(
+            self,
+            self.member_dao,
+            item.id,
+            &member_entity,
+            MEMBER_SERVICE_PROCESS,
+            &user_id,
+            tx
+        );
 
         self.recalc_migrated(item.id, tx.clone()).await?;
 
@@ -336,7 +369,14 @@ impl<Deps: MemberServiceDeps> MemberService for MemberServiceImpl<Deps> {
             .check_permission(MANAGE_MEMBERS_PRIVILEGE, context)
             .await?;
 
-        crate::audited_delete!(self, self.member_dao, id, MEMBER_SERVICE_PROCESS, &user_id, tx);
+        crate::audited_delete!(
+            self,
+            self.member_dao,
+            id,
+            MEMBER_SERVICE_PROCESS,
+            &user_id,
+            tx
+        );
 
         self.transaction_dao.commit(tx).await?;
         Ok(())

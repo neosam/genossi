@@ -61,10 +61,7 @@ pub fn build_audit_entries<E: Auditable>(
     let now = time::OffsetDateTime::now_utc();
     let timestamp = time::PrimitiveDateTime::new(now.date(), now.time());
     let format = &time::format_description::well_known::Iso8601::DEFAULT;
-    let timestamp_str = timestamp
-        .assume_utc()
-        .format(format)
-        .unwrap_or_default();
+    let timestamp_str = timestamp.assume_utc().format(format).unwrap_or_default();
     let transaction_id = uuid_fn();
     let entity_type = E::entity_type();
     let entity_id = entity.entity_id();
@@ -132,7 +129,9 @@ pub fn build_create_entries<E: Auditable>(
             new_value: value,
         })
         .collect();
-    build_audit_entries("create", &changes, entity, user_id, process, prev_hash, uuid_fn)
+    build_audit_entries(
+        "create", &changes, entity, user_id, process, prev_hash, uuid_fn,
+    )
 }
 
 pub fn build_snapshot_entries<E: Auditable>(
@@ -151,7 +150,9 @@ pub fn build_snapshot_entries<E: Auditable>(
             new_value: value,
         })
         .collect();
-    build_audit_entries("snapshot", &changes, entity, user_id, process, prev_hash, uuid_fn)
+    build_audit_entries(
+        "snapshot", &changes, entity, user_id, process, prev_hash, uuid_fn,
+    )
 }
 
 pub fn build_update_entries<E: Auditable>(
@@ -166,7 +167,9 @@ pub fn build_update_entries<E: Auditable>(
     if changes.is_empty() {
         return Vec::new();
     }
-    build_audit_entries("update", &changes, new, user_id, process, prev_hash, uuid_fn)
+    build_audit_entries(
+        "update", &changes, new, user_id, process, prev_hash, uuid_fn,
+    )
 }
 
 pub fn build_delete_entries<E: Auditable>(
@@ -185,7 +188,9 @@ pub fn build_delete_entries<E: Auditable>(
             new_value: None,
         })
         .collect();
-    build_audit_entries("delete", &changes, entity, user_id, process, prev_hash, uuid_fn)
+    build_audit_entries(
+        "delete", &changes, entity, user_id, process, prev_hash, uuid_fn,
+    )
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -308,7 +313,10 @@ mod tests {
         assert_eq!(entries[0].new_value.as_deref(), Some("alice@example.com"));
         // Chain: first entry prev_hash is empty, second links to first
         assert_eq!(entries[0].prev_hash.as_ref(), "");
-        assert_eq!(entries[1].prev_hash.as_ref(), entries[0].entry_hash.as_ref());
+        assert_eq!(
+            entries[1].prev_hash.as_ref(),
+            entries[0].entry_hash.as_ref()
+        );
         // Same transaction_id
         assert_eq!(entries[0].transaction_id, entries[1].transaction_id);
     }
@@ -472,11 +480,17 @@ mod tests {
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].action.as_ref(), "snapshot");
         // email is None but still logged
-        let email_entry = entries.iter().find(|e| e.field_name.as_ref() == "email").unwrap();
+        let email_entry = entries
+            .iter()
+            .find(|e| e.field_name.as_ref() == "email")
+            .unwrap();
         assert!(email_entry.old_value.is_none());
         assert!(email_entry.new_value.is_none());
         // name has a value
-        let name_entry = entries.iter().find(|e| e.field_name.as_ref() == "name").unwrap();
+        let name_entry = entries
+            .iter()
+            .find(|e| e.field_name.as_ref() == "name")
+            .unwrap();
         assert!(name_entry.old_value.is_none());
         assert_eq!(name_entry.new_value.as_deref(), Some("Alice"));
     }

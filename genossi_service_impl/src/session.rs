@@ -164,7 +164,8 @@ impl<Deps: SessionServiceDeps> SessionService for SessionServiceImpl<Deps> {
             .await?;
 
         // Now create the session with claims
-        self.create_session_with_claims(user_id, expires_in_seconds, claims).await
+        self.create_session_with_claims(user_id, expires_in_seconds, claims)
+            .await
     }
 }
 

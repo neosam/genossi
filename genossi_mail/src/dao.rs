@@ -6,7 +6,11 @@ use uuid::Uuid;
 /// Normalize a Message-ID header value by stripping surrounding angle brackets
 /// and whitespace. Returns `None` for empty input.
 pub fn normalize_message_id(raw: &str) -> Option<String> {
-    let trimmed = raw.trim().trim_start_matches('<').trim_end_matches('>').trim();
+    let trimmed = raw
+        .trim()
+        .trim_start_matches('<')
+        .trim_end_matches('>')
+        .trim();
     if trimmed.is_empty() {
         None
     } else {
@@ -115,10 +119,7 @@ impl StaticDocument {
 pub trait StaticDocumentDao: Send + Sync + 'static {
     async fn create(&self, doc: &StaticDocument) -> Result<(), MailDaoError>;
     async fn find_by_id(&self, id: Uuid) -> Result<Option<StaticDocument>, MailDaoError>;
-    async fn find_many_by_ids(
-        &self,
-        ids: &[Uuid],
-    ) -> Result<Arc<[StaticDocument]>, MailDaoError>;
+    async fn find_many_by_ids(&self, ids: &[Uuid]) -> Result<Arc<[StaticDocument]>, MailDaoError>;
     async fn all_active(&self) -> Result<Arc<[StaticDocument]>, MailDaoError>;
     async fn soft_delete(&self, id: Uuid) -> Result<(), MailDaoError>;
 }
@@ -238,14 +239,7 @@ pub trait InboundMailDao: Send + Sync + 'static {
     async fn find_by_id(&self, id: Uuid) -> Result<Option<InboundMail>, MailDaoError>;
     /// All inbound mails, ordered by received_at DESC.
     async fn list_active(&self) -> Result<Arc<[InboundMail]>, MailDaoError>;
-    async fn exists_by_uid(
-        &self,
-        uid_validity: i64,
-        imap_uid: i64,
-    ) -> Result<bool, MailDaoError>;
-    async fn max_uid_for_validity(
-        &self,
-        uid_validity: i64,
-    ) -> Result<Option<i64>, MailDaoError>;
+    async fn exists_by_uid(&self, uid_validity: i64, imap_uid: i64) -> Result<bool, MailDaoError>;
+    async fn max_uid_for_validity(&self, uid_validity: i64) -> Result<Option<i64>, MailDaoError>;
     async fn update(&self, mail: &InboundMail) -> Result<(), MailDaoError>;
 }

@@ -176,10 +176,7 @@ async fn list_inbox<S: InboxRestState>(State(state): State<S>) -> Response {
         (status = 404, description = "Not found")
     )
 )]
-async fn get_inbox<S: InboxRestState>(
-    State(state): State<S>,
-    Path(id): Path<String>,
-) -> Response {
+async fn get_inbox<S: InboxRestState>(State(state): State<S>, Path(id): Path<String>) -> Response {
     let svc = state.inbox_service();
     let uuid = match Uuid::parse_str(&id) {
         Ok(u) => u,
@@ -307,10 +304,7 @@ async fn archive_inbox<S: InboxRestState>(
     params(("id" = String, Path, description = "Inbound mail id")),
     responses((status = 200, description = "Marked as done", body = InboundMailTO))
 )]
-async fn done_inbox<S: InboxRestState>(
-    State(state): State<S>,
-    Path(id): Path<String>,
-) -> Response {
+async fn done_inbox<S: InboxRestState>(State(state): State<S>, Path(id): Path<String>) -> Response {
     let svc = state.inbox_service();
     let mail_id = match Uuid::parse_str(&id) {
         Ok(u) => u,

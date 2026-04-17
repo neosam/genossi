@@ -41,7 +41,11 @@ impl ConfigDao for ConfigDaoSqlite {
         .await
         .map_err(|e| ConfigDaoError::DatabaseError(Arc::from(e.to_string())))?;
 
-        Ok(rows.iter().map(ConfigEntry::from).collect::<Vec<_>>().into())
+        Ok(rows
+            .iter()
+            .map(ConfigEntry::from)
+            .collect::<Vec<_>>()
+            .into())
     }
 
     async fn get(&self, key: &str) -> Result<Option<ConfigEntry>, ConfigDaoError> {

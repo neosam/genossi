@@ -1,6 +1,5 @@
 use genossi_dao::backup::{
-    BackupCommunicationSyncDao, BackupDocumentSyncDao, CommunicationBackupRow,
-    DocumentBackupRow,
+    BackupCommunicationSyncDao, BackupDocumentSyncDao, CommunicationBackupRow, DocumentBackupRow,
 };
 use genossi_service::document_storage::DocumentStorage;
 use sha2::{Digest, Sha256};
@@ -40,11 +39,7 @@ pub async fn sync_documents<S: BackupDocumentSyncDao, D: DocumentStorage>(
             Ok(true) => stats.uploaded += 1,
             Ok(false) => stats.skipped += 1,
             Err(e) => {
-                tracing::warn!(
-                    "Failed to sync document {}: {}",
-                    doc.relative_path,
-                    e
-                );
+                tracing::warn!("Failed to sync document {}: {}", doc.relative_path, e);
                 stats.failed += 1;
             }
         }
@@ -87,9 +82,7 @@ async fn sync_single_document<S: BackupDocumentSyncDao, D: DocumentStorage>(
         .await
         .map_err(|e| format!("Failed to create directory: {}", e))?;
 
-    let file_path = format!(
-        "{}/{}_{}", member_dir, doc.document_type, doc.file_name
-    );
+    let file_path = format!("{}/{}_{}", member_dir, doc.document_type, doc.file_name);
     webdav
         .put(&file_path, data)
         .await
@@ -143,8 +136,12 @@ pub async fn sync_communications<CS: BackupCommunicationSyncDao>(
             base_dir, comm.member_number, comm.last_name, comm.first_name
         );
 
-        let base_filename =
-            generator::generate_communication_filename(&comm.date, &comm.direction, &comm.subject, None);
+        let base_filename = generator::generate_communication_filename(
+            &comm.date,
+            &comm.direction,
+            &comm.subject,
+            None,
+        );
 
         let count = filename_counts
             .entry(format!("{}/{}", member_dir, base_filename))
@@ -153,7 +150,12 @@ pub async fn sync_communications<CS: BackupCommunicationSyncDao>(
 
         let filename = if *count > 1 {
             let suffix = &comm.mail_id.to_string()[..8];
-            generator::generate_communication_filename(&comm.date, &comm.direction, &comm.subject, Some(suffix))
+            generator::generate_communication_filename(
+                &comm.date,
+                &comm.direction,
+                &comm.subject,
+                Some(suffix),
+            )
         } else {
             base_filename
         };
@@ -499,10 +501,7 @@ mod tests {
         let log_clone = call_log.clone();
         wiremock::Mock::given(wiremock::matchers::method("MKCOL"))
             .respond_with(move |req: &wiremock::Request| {
-                log_clone
-                    .lock()
-                    .unwrap()
-                    .push(req.url.path().to_string());
+                log_clone.lock().unwrap().push(req.url.path().to_string());
                 wiremock::ResponseTemplate::new(201)
             })
             .mount(&server)

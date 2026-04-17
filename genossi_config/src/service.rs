@@ -35,9 +35,7 @@ pub struct ConfigServiceImpl<D: crate::dao::ConfigDao> {
 
 impl<D: crate::dao::ConfigDao> ConfigServiceImpl<D> {
     pub fn new(dao: D) -> Self {
-        Self {
-            dao: Arc::new(dao),
-        }
+        Self { dao: Arc::new(dao) }
     }
 }
 
@@ -45,9 +43,10 @@ fn validate_value(value: &str, value_type: &str) -> Result<(), ConfigServiceErro
     match value_type {
         "string" | "secret" => Ok(()),
         "int" => value.parse::<i64>().map(|_| ()).map_err(|_| {
-            ConfigServiceError::ValidationError(
-                Arc::from(format!("Value '{}' is not a valid integer", value)),
-            )
+            ConfigServiceError::ValidationError(Arc::from(format!(
+                "Value '{}' is not a valid integer",
+                value
+            )))
         }),
         "bool" => match value {
             "true" | "false" => Ok(()),
@@ -70,10 +69,7 @@ impl<D: crate::dao::ConfigDao> ConfigService for ConfigServiceImpl<D> {
     }
 
     async fn get(&self, key: &str) -> Result<ConfigEntry, ConfigServiceError> {
-        self.dao
-            .get(key)
-            .await?
-            .ok_or(ConfigServiceError::NotFound)
+        self.dao.get(key).await?.ok_or(ConfigServiceError::NotFound)
     }
 
     async fn set(&self, entry: &ConfigEntry) -> Result<(), ConfigServiceError> {

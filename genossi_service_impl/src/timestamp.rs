@@ -309,11 +309,11 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use genossi_config::dao::ConfigEntry;
     use genossi_config::service::MockConfigService;
     use genossi_dao::audit_log::MockAuditLogDao;
     use genossi_dao::audit_timestamp::MockAuditTimestampDao;
     use genossi_dao::{DaoError, MockTransaction, MockTransactionDao};
-    use genossi_config::dao::ConfigEntry;
 
     fn setup_mock_tx() -> MockTransactionDao {
         let mut tx_dao = MockTransactionDao::new();
@@ -378,12 +378,8 @@ mod tests {
         let audit_ts_dao = MockAuditTimestampDao::new();
         let config = mock_config_disabled();
 
-        let service = TimestampServiceImpl::new(
-            tx_dao,
-            audit_ts_dao,
-            audit_log_dao,
-            Arc::new(config),
-        );
+        let service =
+            TimestampServiceImpl::new(tx_dao, audit_ts_dao, audit_log_dao, Arc::new(config));
 
         let result = service.create_timestamp().await;
         assert!(matches!(result, Err(TimestampError::NotConfigured)));
@@ -400,12 +396,8 @@ mod tests {
         let audit_ts_dao = MockAuditTimestampDao::new();
         let config = mock_config_enabled();
 
-        let service = TimestampServiceImpl::new(
-            tx_dao,
-            audit_ts_dao,
-            audit_log_dao,
-            Arc::new(config),
-        );
+        let service =
+            TimestampServiceImpl::new(tx_dao, audit_ts_dao, audit_log_dao, Arc::new(config));
 
         let result = service.create_timestamp().await;
         assert!(matches!(result, Err(TimestampError::NothingToTimestamp)));
@@ -425,28 +417,22 @@ mod tests {
         let mut audit_ts_dao = MockAuditTimestampDao::new();
         let date = time::Date::from_calendar_date(2026, time::Month::April, 15).unwrap();
         let datetime = time::PrimitiveDateTime::new(date, time::Time::MIDNIGHT);
-        audit_ts_dao
-            .expect_get_latest()
-            .returning(move |_| {
-                Ok(Some(AuditTimestampEntry {
-                    id: Uuid::new_v4(),
-                    timestamp: datetime,
-                    audit_hash: Arc::from("hash123"),
-                    audit_entry_count: 10,
-                    tsr_token: Some(Arc::from(vec![1u8].as_slice())),
-                    webdav_path: None,
-                    status: Arc::from("success"),
-                }))
-            });
+        audit_ts_dao.expect_get_latest().returning(move |_| {
+            Ok(Some(AuditTimestampEntry {
+                id: Uuid::new_v4(),
+                timestamp: datetime,
+                audit_hash: Arc::from("hash123"),
+                audit_entry_count: 10,
+                tsr_token: Some(Arc::from(vec![1u8].as_slice())),
+                webdav_path: None,
+                status: Arc::from("success"),
+            }))
+        });
 
         let config = mock_config_enabled();
 
-        let service = TimestampServiceImpl::new(
-            tx_dao,
-            audit_ts_dao,
-            audit_log_dao,
-            Arc::new(config),
-        );
+        let service =
+            TimestampServiceImpl::new(tx_dao, audit_ts_dao, audit_log_dao, Arc::new(config));
 
         let result = service.create_timestamp().await;
         assert!(matches!(result, Err(TimestampError::DuplicateHash)));

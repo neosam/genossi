@@ -191,10 +191,10 @@ pub async fn upload_document<RestState: RestStateDef>(
 
             let data = file_data
                 .ok_or_else(|| RestError::BadRequest("file field is required".to_string()))?;
-            let fname = filename
-                .clone()
-                .unwrap_or_else(|| "document".to_string());
-            let name_final = name.filter(|n| !n.trim().is_empty()).unwrap_or(fname.clone());
+            let fname = filename.clone().unwrap_or_else(|| "document".to_string());
+            let name_final = name
+                .filter(|n| !n.trim().is_empty())
+                .unwrap_or(fname.clone());
             let ctype = content_type.unwrap_or_else(|| "application/octet-stream".to_string());
 
             let upload = UploadStaticDocument {

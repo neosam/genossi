@@ -73,12 +73,21 @@ impl crate::auditable::Auditable for ApplicationEntity {
         vec![
             ("first_name", Some(self.first_name.to_string())),
             ("last_name", Some(self.last_name.to_string())),
-            ("salutation", self.salutation.as_ref().map(|s| s.as_str().to_string())),
+            (
+                "salutation",
+                self.salutation.as_ref().map(|s| s.as_str().to_string()),
+            ),
             ("title", self.title.as_ref().map(|s| s.to_string())),
             ("email", self.email.as_ref().map(|s| s.to_string())),
             ("street", self.street.as_ref().map(|s| s.to_string())),
-            ("house_number", self.house_number.as_ref().map(|s| s.to_string())),
-            ("postal_code", self.postal_code.as_ref().map(|s| s.to_string())),
+            (
+                "house_number",
+                self.house_number.as_ref().map(|s| s.to_string()),
+            ),
+            (
+                "postal_code",
+                self.postal_code.as_ref().map(|s| s.to_string()),
+            ),
             ("city", self.city.as_ref().map(|s| s.to_string())),
             ("shares", Some(self.shares.to_string())),
             ("status", Some(self.status.as_str().to_string())),
@@ -91,10 +100,7 @@ impl crate::auditable::Auditable for ApplicationEntity {
 pub trait ApplicationDao {
     type Transaction: crate::Transaction;
 
-    async fn dump_all(
-        &self,
-        tx: Self::Transaction,
-    ) -> Result<Arc<[ApplicationEntity]>, DaoError>;
+    async fn dump_all(&self, tx: Self::Transaction) -> Result<Arc<[ApplicationEntity]>, DaoError>;
 
     async fn create(
         &self,
@@ -110,10 +116,7 @@ pub trait ApplicationDao {
         tx: Self::Transaction,
     ) -> Result<(), DaoError>;
 
-    async fn all(
-        &self,
-        tx: Self::Transaction,
-    ) -> Result<Arc<[ApplicationEntity]>, DaoError> {
+    async fn all(&self, tx: Self::Transaction) -> Result<Arc<[ApplicationEntity]>, DaoError> {
         let all_entities = self.dump_all(tx).await?;
         let active_entities: Vec<ApplicationEntity> = all_entities
             .iter()

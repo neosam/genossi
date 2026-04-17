@@ -1,13 +1,12 @@
 use std::sync::Arc;
 
 use genossi_dao_impl_sqlite::{TransactionDaoImpl, TransactionImpl};
-use uuid::Uuid as UuidType;
+#[cfg(feature = "oidc")]
+use genossi_service::auth_types::AuthenticatedContext;
 #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
 use genossi_service::permission::MockContext;
 #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
 use genossi_service::user_service::MockUserService;
-#[cfg(feature = "oidc")]
-use genossi_service::auth_types::AuthenticatedContext;
 use genossi_service_impl::application::ApplicationServiceDeps;
 use genossi_service_impl::member::MemberServiceDeps;
 use genossi_service_impl::member_action::MemberActionServiceDeps;
@@ -17,6 +16,7 @@ use genossi_service_impl::permission::PermissionServiceDeps;
 use genossi_service_impl::user_preference::UserPreferenceServiceDeps;
 use genossi_service_impl::validation::ValidationServiceDeps;
 use sqlx::SqlitePool;
+use uuid::Uuid as UuidType;
 
 pub struct PoolMemberResolver {
     pool: Arc<SqlitePool>,
@@ -33,19 +33,18 @@ impl genossi_mail::template::MemberResolver for PoolMemberResolver {
     async fn find_member_by_id(
         &self,
         id: UuidType,
-    ) -> Result<Option<genossi_dao::member::MemberEntity>, genossi_mail::service::MailServiceError> {
-        use genossi_dao::TransactionDao as _;
+    ) -> Result<Option<genossi_dao::member::MemberEntity>, genossi_mail::service::MailServiceError>
+    {
         use genossi_dao::member::MemberDao as _;
+        use genossi_dao::TransactionDao as _;
         let transaction_dao = TransactionDaoImpl::new(self.pool.clone());
         let member_dao = genossi_dao_impl_sqlite::member::MemberDaoImpl::new(self.pool.clone());
-        let tx = transaction_dao
-            .transaction()
-            .await
-            .map_err(|e| genossi_mail::service::MailServiceError::DataAccess(Arc::from(format!("{:?}", e))))?;
-        member_dao
-            .find_by_id(id, tx)
-            .await
-            .map_err(|e| genossi_mail::service::MailServiceError::DataAccess(Arc::from(format!("{:?}", e))))
+        let tx = transaction_dao.transaction().await.map_err(|e| {
+            genossi_mail::service::MailServiceError::DataAccess(Arc::from(format!("{:?}", e)))
+        })?;
+        member_dao.find_by_id(id, tx).await.map_err(|e| {
+            genossi_mail::service::MailServiceError::DataAccess(Arc::from(format!("{:?}", e)))
+        })
     }
 }
 
@@ -84,8 +83,7 @@ type PermissionService =
 type SessionService = genossi_service_impl::session::MockSessionServiceImpl;
 
 #[cfg(feature = "oidc")]
-type SessionService =
-    genossi_service_impl::session::SessionServiceImpl<SessionServiceDependencies>;
+type SessionService = genossi_service_impl::session::SessionServiceImpl<SessionServiceDependencies>;
 
 #[cfg(feature = "oidc")]
 pub struct SessionServiceDependencies;
@@ -119,8 +117,7 @@ impl MemberServiceDeps for MemberServiceDependencies {
     type TransactionDao = TransactionDao;
 }
 
-type MemberService =
-    genossi_service_impl::member::MemberServiceImpl<MemberServiceDependencies>;
+type MemberService = genossi_service_impl::member::MemberServiceImpl<MemberServiceDependencies>;
 
 type ApplicationDao = genossi_dao_impl_sqlite::application::ApplicationDaoImpl;
 
@@ -171,7 +168,12 @@ type BackupDao = genossi_dao_impl_sqlite::backup::BackupDaoImpl;
 type BackupDocumentSyncDao = genossi_dao_impl_sqlite::backup::BackupDocumentSyncDaoImpl;
 type BackupCommunicationSyncDao = genossi_dao_impl_sqlite::backup::BackupCommunicationSyncDaoImpl;
 type AuditTimestampDao = genossi_dao_impl_sqlite::audit_timestamp::AuditTimestampDaoImpl;
-type TimestampServiceType = genossi_service_impl::timestamp::TimestampServiceImpl<TransactionDao, AuditTimestampDao, AuditLogDao, ConfigService>;
+type TimestampServiceType = genossi_service_impl::timestamp::TimestampServiceImpl<
+    TransactionDao,
+    AuditTimestampDao,
+    AuditLogDao,
+    ConfigService,
+>;
 
 pub struct MemberActionServiceDependencies;
 
@@ -208,8 +210,9 @@ impl MemberDocumentServiceDeps for MemberDocumentServiceDependencies {
     type TransactionDao = TransactionDao;
 }
 
-type MemberDocumentService =
-    genossi_service_impl::member_document::MemberDocumentServiceImpl<MemberDocumentServiceDependencies>;
+type MemberDocumentService = genossi_service_impl::member_document::MemberDocumentServiceImpl<
+    MemberDocumentServiceDependencies,
+>;
 
 type DocumentStorage = genossi_service_impl::document_storage::FilesystemDocumentStorage;
 
@@ -246,8 +249,9 @@ impl UserPreferenceServiceDeps for UserPreferenceServiceDependencies {
     type TransactionDao = TransactionDao;
 }
 
-type UserPreferenceService =
-    genossi_service_impl::user_preference::UserPreferenceServiceImpl<UserPreferenceServiceDependencies>;
+type UserPreferenceService = genossi_service_impl::user_preference::UserPreferenceServiceImpl<
+    UserPreferenceServiceDependencies,
+>;
 
 type ConfigDao = genossi_config::dao_sqlite::ConfigDaoSqlite;
 type ConfigService = genossi_config::service::ConfigServiceImpl<ConfigDao>;
@@ -258,8 +262,7 @@ type MailTemplateDaoType = genossi_mail::dao_sqlite::MailTemplateDaoSqlite;
 type MailTemplateServiceType =
     genossi_mail::mail_template_service::MailTemplateServiceImpl<MailTemplateDaoType>;
 type StaticDocumentDaoType = genossi_mail::dao_sqlite::StaticDocumentDaoSqlite;
-type MailJobStaticAttachmentDaoType =
-    genossi_mail::dao_sqlite::MailJobStaticAttachmentDaoSqlite;
+type MailJobStaticAttachmentDaoType = genossi_mail::dao_sqlite::MailJobStaticAttachmentDaoSqlite;
 type InboundMailDaoType = genossi_mail::dao_sqlite::InboundMailDaoSqlite;
 type InboxImapClientType = genossi_mail::inbox_imap::AsyncImapClient;
 type InboxServiceType = genossi_mail::inbox::InboxServiceImpl<
@@ -277,11 +280,10 @@ type MailServiceType = genossi_mail::service::MailServiceImpl<
     StaticDocumentDaoType,
     MailJobStaticAttachmentDaoType,
 >;
-type StaticDocumentServiceType =
-    genossi_mail::static_document_service::StaticDocumentServiceImpl<
-        StaticDocumentDaoType,
-        DocumentStorage,
-    >;
+type StaticDocumentServiceType = genossi_mail::static_document_service::StaticDocumentServiceImpl<
+    StaticDocumentDaoType,
+    DocumentStorage,
+>;
 
 // RestStateImpl with all services
 #[derive(Clone)]
@@ -330,8 +332,9 @@ impl RestStateImpl {
         // Create DAOs
         let transaction_dao = Arc::new(TransactionDao::new(pool.clone()));
         let member_dao = Arc::new(MemberDao::new(pool.clone()));
-        let permission_dao =
-            Arc::new(genossi_dao_impl_sqlite::permission::PermissionDaoImpl::new(pool.clone()));
+        let permission_dao = Arc::new(genossi_dao_impl_sqlite::permission::PermissionDaoImpl::new(
+            pool.clone(),
+        ));
 
         // Create services
         #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
@@ -349,37 +352,38 @@ impl RestStateImpl {
         let member_action_dao = Arc::new(MemberActionDao::new(pool.clone()));
         let audit_log_dao = Arc::new(AuditLogDao::new(pool.clone()));
 
-        let member_service =
-            Arc::new(genossi_service_impl::member::MemberServiceImpl {
-                member_dao: member_dao.clone(),
-                member_action_dao: member_action_dao.clone(),
-                audit_log_dao: audit_log_dao.clone(),
-                permission_service: permission_service.clone(),
-                uuid_service: uuid_service.clone(),
-                transaction_dao: transaction_dao.clone(),
-            });
+        let member_service = Arc::new(genossi_service_impl::member::MemberServiceImpl {
+            member_dao: member_dao.clone(),
+            member_action_dao: member_action_dao.clone(),
+            audit_log_dao: audit_log_dao.clone(),
+            permission_service: permission_service.clone(),
+            uuid_service: uuid_service.clone(),
+            transaction_dao: transaction_dao.clone(),
+        });
 
-        let member_action_service =
-            Arc::new(genossi_service_impl::member_action::MemberActionServiceImpl {
+        let member_action_service = Arc::new(
+            genossi_service_impl::member_action::MemberActionServiceImpl {
                 member_action_dao: member_action_dao.clone(),
                 member_dao: member_dao.clone(),
                 audit_log_dao: audit_log_dao.clone(),
                 permission_service: permission_service.clone(),
                 uuid_service: uuid_service.clone(),
                 transaction_dao: transaction_dao.clone(),
-            });
+            },
+        );
 
         let member_document_dao = Arc::new(MemberDocumentDao::new(pool.clone()));
 
-        let member_document_service =
-            Arc::new(genossi_service_impl::member_document::MemberDocumentServiceImpl {
+        let member_document_service = Arc::new(
+            genossi_service_impl::member_document::MemberDocumentServiceImpl {
                 member_document_dao,
                 member_dao: member_dao.clone(),
                 audit_log_dao: audit_log_dao.clone(),
                 permission_service: permission_service.clone(),
                 uuid_service: uuid_service.clone(),
                 transaction_dao: transaction_dao.clone(),
-            });
+            },
+        );
 
         let document_storage = Arc::new(DocumentStorage::from_env());
 
@@ -393,24 +397,26 @@ impl RestStateImpl {
 
         let user_preference_dao = Arc::new(UserPreferenceDao::new(pool.clone()));
 
-        let user_preference_service =
-            Arc::new(genossi_service_impl::user_preference::UserPreferenceServiceImpl {
+        let user_preference_service = Arc::new(
+            genossi_service_impl::user_preference::UserPreferenceServiceImpl {
                 user_preference_dao,
                 permission_service: permission_service.clone(),
                 uuid_service: uuid_service.clone(),
                 transaction_dao: transaction_dao.clone(),
-            });
+            },
+        );
 
         let application_dao = Arc::new(ApplicationDao::new(pool.clone()));
 
-        let member_import_service =
-            Arc::new(genossi_service_impl::member_import::MemberImportServiceImpl {
+        let member_import_service = Arc::new(
+            genossi_service_impl::member_import::MemberImportServiceImpl {
                 member_dao: member_dao.clone(),
                 member_action_dao: member_action_dao.clone(),
                 permission_service: permission_service.clone(),
                 uuid_service: uuid_service.clone(),
                 transaction_dao: transaction_dao.clone(),
-            });
+            },
+        );
 
         #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
         let session_service = Arc::new(genossi_service_impl::session::MockSessionServiceImpl);
@@ -422,8 +428,7 @@ impl RestStateImpl {
 
         let template_storage =
             Arc::new(genossi_service_impl::template_storage::TemplateStorage::from_env());
-        let pdf_generator =
-            Arc::new(genossi_service_impl::pdf_generation::PdfGenerator::new());
+        let pdf_generator = Arc::new(genossi_service_impl::pdf_generation::PdfGenerator::new());
 
         let config_dao = ConfigDao::new(pool.clone());
         let config_service = Arc::new(ConfigService::new(config_dao));
@@ -432,8 +437,7 @@ impl RestStateImpl {
         let mail_recipient_dao = MailRecipientDao::new(pool.clone());
         let mail_attachment_dao = MailRecipientAttachmentDao::new(pool.clone());
         let mail_static_dao = StaticDocumentDaoType::new(pool.clone());
-        let mail_job_static_attachment_dao =
-            MailJobStaticAttachmentDaoType::new(pool.clone());
+        let mail_job_static_attachment_dao = MailJobStaticAttachmentDaoType::new(pool.clone());
         let config_dao_for_mail = ConfigDao::new(pool.clone());
         let config_service_for_mail = ConfigService::new(config_dao_for_mail);
         let mail_service = Arc::new(MailServiceType::new(
@@ -464,8 +468,7 @@ impl RestStateImpl {
         let mail_template_dao = Arc::new(MailTemplateDaoType::new(pool.clone()));
         let mail_template_service = Arc::new(MailTemplateServiceType::new(mail_template_dao));
 
-        let static_document_dao_for_service =
-            Arc::new(StaticDocumentDaoType::new(pool.clone()));
+        let static_document_dao_for_service = Arc::new(StaticDocumentDaoType::new(pool.clone()));
         let static_document_service = Arc::new(StaticDocumentServiceType::new(
             static_document_dao_for_service,
             document_storage.clone(),
@@ -480,18 +483,15 @@ impl RestStateImpl {
         let inbox_config_service = Arc::new(ConfigService::new(inbox_config_dao));
         let inbox_job_dao = Arc::new(MailJobDao::new(pool.clone()));
         let inbox_recipient_dao = Arc::new(MailRecipientDao::new(pool.clone()));
-        let inbox_service = Arc::new(
-            genossi_mail::inbox::InboxServiceImpl::new(
-                inbox_config_service.clone(),
-                inbox_dao.clone(),
-                inbox_imap_client.clone(),
-                inbox_job_dao,
-                inbox_recipient_dao,
-            ),
-        );
+        let inbox_service = Arc::new(genossi_mail::inbox::InboxServiceImpl::new(
+            inbox_config_service.clone(),
+            inbox_dao.clone(),
+            inbox_imap_client.clone(),
+            inbox_job_dao,
+            inbox_recipient_dao,
+        ));
         let worker_inbox_config_dao = ConfigDao::new(pool.clone());
-        let worker_inbox_config_service =
-            Arc::new(ConfigService::new(worker_inbox_config_dao));
+        let worker_inbox_config_service = Arc::new(ConfigService::new(worker_inbox_config_dao));
         let worker_inbox_dao = Arc::new(InboundMailDaoType::new(pool.clone()));
         let worker_inbox_imap_client = Arc::new(InboxImapClientType::new());
 
@@ -508,12 +508,13 @@ impl RestStateImpl {
         let audit_timestamp_dao = AuditTimestampDao::new(pool.clone());
         let timestamp_config_dao = ConfigDao::new(pool.clone());
         let timestamp_config_service = Arc::new(ConfigService::new(timestamp_config_dao));
-        let timestamp_service = Arc::new(genossi_service_impl::timestamp::TimestampServiceImpl::new(
-            TransactionDao::new(pool.clone()),
-            audit_timestamp_dao,
-            AuditLogDao::new(pool.clone()),
-            timestamp_config_service,
-        ));
+        let timestamp_service =
+            Arc::new(genossi_service_impl::timestamp::TimestampServiceImpl::new(
+                TransactionDao::new(pool.clone()),
+                audit_timestamp_dao,
+                AuditLogDao::new(pool.clone()),
+                timestamp_config_service,
+            ));
 
         // Backup worker dependencies
         let backup_config_dao = ConfigDao::new(pool.clone());
@@ -522,7 +523,9 @@ impl RestStateImpl {
         let backup_comm_sync_dao = Arc::new(BackupCommunicationSyncDao::new(pool.clone()));
 
         Self {
-            public_stats_cache: std::sync::Arc::new(genossi_rest::public_stats::PublicStatsCache::new()),
+            public_stats_cache: std::sync::Arc::new(
+                genossi_rest::public_stats::PublicStatsCache::new(),
+            ),
             member_service,
             member_import_service,
             member_action_service,
@@ -561,20 +564,25 @@ impl RestStateImpl {
 
 impl RestStateImpl {
     pub async fn initialize_audit_snapshot(&self) -> Result<(), Box<dyn std::error::Error>> {
+        use genossi_dao::application::ApplicationDao;
         use genossi_dao::audit_log::AuditLogDao;
         use genossi_dao::auditable::Auditable;
         use genossi_dao::member::MemberDao;
         use genossi_dao::member_action::MemberActionDao;
         use genossi_dao::member_document::MemberDocumentDao;
-        use genossi_dao::application::ApplicationDao;
         use genossi_dao::{Transaction, TransactionDao};
 
         let transaction_dao = TransactionDaoImpl::new(self.pool.clone());
-        let tx = transaction_dao.transaction().await
+        let tx = transaction_dao
+            .transaction()
+            .await
             .map_err(|e| format!("Failed to start transaction: {:?}", e))?;
 
         // Check if audit_log is empty
-        let latest = self.audit_log_dao.get_latest_hash(tx.clone()).await
+        let latest = self
+            .audit_log_dao
+            .get_latest_hash(tx.clone())
+            .await
             .map_err(|e| format!("Failed to check audit_log: {:?}", e))?;
         if latest.is_some() {
             tracing::info!("Audit log already has entries, skipping initial snapshot");
@@ -584,86 +592,121 @@ impl RestStateImpl {
         tracing::info!("Audit log is empty, creating initial snapshot of all entities...");
 
         let member_dao = genossi_dao_impl_sqlite::member::MemberDaoImpl::new(self.pool.clone());
-        let member_action_dao = genossi_dao_impl_sqlite::member_action::MemberActionDaoImpl::new(self.pool.clone());
-        let member_document_dao = genossi_dao_impl_sqlite::member_document::MemberDocumentDaoImpl::new(self.pool.clone());
-        let application_dao = genossi_dao_impl_sqlite::application::ApplicationDaoImpl::new(self.pool.clone());
+        let member_action_dao =
+            genossi_dao_impl_sqlite::member_action::MemberActionDaoImpl::new(self.pool.clone());
+        let member_document_dao =
+            genossi_dao_impl_sqlite::member_document::MemberDocumentDaoImpl::new(self.pool.clone());
+        let application_dao =
+            genossi_dao_impl_sqlite::application::ApplicationDaoImpl::new(self.pool.clone());
 
         let mut prev_hash = String::new();
         let mut total_entries = 0usize;
 
         // Snapshot all members
-        let members = member_dao.dump_all(tx.clone()).await
+        let members = member_dao
+            .dump_all(tx.clone())
+            .await
             .map_err(|e| format!("Failed to load members: {:?}", e))?;
         let active_members: Vec<_> = members.iter().filter(|m| m.deleted.is_none()).collect();
         for member in &active_members {
             let entries = genossi_service_impl::audit_log::build_snapshot_entries(
-                *member, "SYSTEM", "audit-snapshot", &prev_hash,
+                *member,
+                "SYSTEM",
+                "audit-snapshot",
+                &prev_hash,
                 &mut || uuid::Uuid::new_v4(),
             );
             if let Some(last) = entries.last() {
                 prev_hash = last.entry_hash.to_string();
             }
             total_entries += entries.len();
-            self.audit_log_dao.create_entries(&entries, tx.clone()).await
+            self.audit_log_dao
+                .create_entries(&entries, tx.clone())
+                .await
                 .map_err(|e| format!("Failed to write member snapshot: {:?}", e))?;
         }
         tracing::info!("Snapshotted {} members", active_members.len());
 
         // Snapshot all member actions
-        let actions = member_action_dao.dump_all(tx.clone()).await
+        let actions = member_action_dao
+            .dump_all(tx.clone())
+            .await
             .map_err(|e| format!("Failed to load actions: {:?}", e))?;
         let active_actions: Vec<_> = actions.iter().filter(|a| a.deleted.is_none()).collect();
         for action in &active_actions {
             let entries = genossi_service_impl::audit_log::build_snapshot_entries(
-                *action, "SYSTEM", "audit-snapshot", &prev_hash,
+                *action,
+                "SYSTEM",
+                "audit-snapshot",
+                &prev_hash,
                 &mut || uuid::Uuid::new_v4(),
             );
             if let Some(last) = entries.last() {
                 prev_hash = last.entry_hash.to_string();
             }
             total_entries += entries.len();
-            self.audit_log_dao.create_entries(&entries, tx.clone()).await
+            self.audit_log_dao
+                .create_entries(&entries, tx.clone())
+                .await
                 .map_err(|e| format!("Failed to write action snapshot: {:?}", e))?;
         }
         tracing::info!("Snapshotted {} member actions", active_actions.len());
 
         // Snapshot all member documents
-        let documents = member_document_dao.dump_all(tx.clone()).await
+        let documents = member_document_dao
+            .dump_all(tx.clone())
+            .await
             .map_err(|e| format!("Failed to load documents: {:?}", e))?;
         let active_documents: Vec<_> = documents.iter().filter(|d| d.deleted.is_none()).collect();
         for document in &active_documents {
             let entries = genossi_service_impl::audit_log::build_snapshot_entries(
-                *document, "SYSTEM", "audit-snapshot", &prev_hash,
+                *document,
+                "SYSTEM",
+                "audit-snapshot",
+                &prev_hash,
                 &mut || uuid::Uuid::new_v4(),
             );
             if let Some(last) = entries.last() {
                 prev_hash = last.entry_hash.to_string();
             }
             total_entries += entries.len();
-            self.audit_log_dao.create_entries(&entries, tx.clone()).await
+            self.audit_log_dao
+                .create_entries(&entries, tx.clone())
+                .await
                 .map_err(|e| format!("Failed to write document snapshot: {:?}", e))?;
         }
         tracing::info!("Snapshotted {} member documents", active_documents.len());
 
         // Snapshot all applications
-        let applications = application_dao.dump_all(tx.clone()).await
+        let applications = application_dao
+            .dump_all(tx.clone())
+            .await
             .map_err(|e| format!("Failed to load applications: {:?}", e))?;
-        let active_applications: Vec<_> = applications.iter().filter(|a| a.deleted.is_none()).collect();
+        let active_applications: Vec<_> = applications
+            .iter()
+            .filter(|a| a.deleted.is_none())
+            .collect();
         for application in &active_applications {
             let entries = genossi_service_impl::audit_log::build_snapshot_entries(
-                *application, "SYSTEM", "audit-snapshot", &prev_hash,
+                *application,
+                "SYSTEM",
+                "audit-snapshot",
+                &prev_hash,
                 &mut || uuid::Uuid::new_v4(),
             );
             if let Some(last) = entries.last() {
                 prev_hash = last.entry_hash.to_string();
             }
             total_entries += entries.len();
-            self.audit_log_dao.create_entries(&entries, tx.clone()).await
+            self.audit_log_dao
+                .create_entries(&entries, tx.clone())
+                .await
                 .map_err(|e| format!("Failed to write application snapshot: {:?}", e))?;
         }
         tracing::info!("Snapshotted {} applications", active_applications.len());
 
-        tx.commit().await
+        tx.commit()
+            .await
             .map_err(|e| format!("Failed to commit snapshot transaction: {:?}", e))?;
 
         tracing::info!(
@@ -788,16 +831,13 @@ impl genossi_mail::rest::MailRestState for RestStateImpl {
         member_id: UuidType,
     ) -> std::pin::Pin<
         Box<
-            dyn std::future::Future<
-                    Output = Option<genossi_dao::member::MemberEntity>,
-                > + Send
-                + '_,
+            dyn std::future::Future<Output = Option<genossi_dao::member::MemberEntity>> + Send + '_,
         >,
     > {
         let pool = self.pool.clone();
         Box::pin(async move {
-            use genossi_dao::TransactionDao as _;
             use genossi_dao::member::MemberDao as _;
+            use genossi_dao::TransactionDao as _;
             let transaction_dao = TransactionDaoImpl::new(pool.clone());
             let member_dao = genossi_dao_impl_sqlite::member::MemberDaoImpl::new(pool);
             let tx = transaction_dao.transaction().await.ok()?;
@@ -808,17 +848,13 @@ impl genossi_mail::rest::MailRestState for RestStateImpl {
         &self,
         member_ids: &[UuidType],
     ) -> std::pin::Pin<
-        Box<
-            dyn std::future::Future<Output = Vec<genossi_dao::member::MemberEntity>>
-                + Send
-                + '_,
-        >,
+        Box<dyn std::future::Future<Output = Vec<genossi_dao::member::MemberEntity>> + Send + '_>,
     > {
         let pool = self.pool.clone();
         let ids = member_ids.to_vec();
         Box::pin(async move {
-            use genossi_dao::TransactionDao as _;
             use genossi_dao::member::MemberDao as _;
+            use genossi_dao::TransactionDao as _;
             let transaction_dao = TransactionDaoImpl::new(pool.clone());
             let member_dao = genossi_dao_impl_sqlite::member::MemberDaoImpl::new(pool);
             let tx = match transaction_dao.transaction().await {
@@ -840,9 +876,8 @@ impl genossi_mail::rest::MailRestState for RestStateImpl {
         document_id: UuidType,
     ) -> std::pin::Pin<
         Box<
-            dyn std::future::Future<
-                    Output = Option<genossi_mail::rest::ResolvedDocument>,
-                > + Send
+            dyn std::future::Future<Output = Option<genossi_mail::rest::ResolvedDocument>>
+                + Send
                 + '_,
         >,
     > {
@@ -875,9 +910,7 @@ impl genossi_mail::rest::MailRestState for RestStateImpl {
         recipient_id: UuidType,
     ) -> std::pin::Pin<
         Box<
-            dyn std::future::Future<Output = Vec<genossi_mail::rest::MailAttachmentTO>>
-                + Send
-                + '_,
+            dyn std::future::Future<Output = Vec<genossi_mail::rest::MailAttachmentTO>> + Send + '_,
         >,
     > {
         let attachment_dao = self.worker_attachment_dao.clone();
@@ -929,8 +962,8 @@ impl genossi_rest::public_stats::PublicStatsState for RestStateImpl {
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<u64>> + Send + '_>> {
         let pool = self.pool.clone();
         Box::pin(async move {
-            use genossi_dao::TransactionDao as _;
             use genossi_dao::member::MemberDao as _;
+            use genossi_dao::TransactionDao as _;
             let transaction_dao = TransactionDaoImpl::new(pool.clone());
             let member_dao = genossi_dao_impl_sqlite::member::MemberDaoImpl::new(pool);
             let tx = transaction_dao.transaction().await.ok()?;
@@ -989,16 +1022,13 @@ impl genossi_rest::audit_log::AuditRestState for RestStateImpl {
         &self,
     ) -> std::pin::Pin<
         Box<
-            dyn std::future::Future<
-                    Output = Result<Transaction, genossi_dao::DaoError>,
-                > + Send
+            dyn std::future::Future<Output = Result<Transaction, genossi_dao::DaoError>>
+                + Send
                 + '_,
         >,
     > {
         let pool = self.pool.clone();
-        Box::pin(async move {
-            genossi_dao_impl_sqlite::TransactionImpl::new(&pool).await
-        })
+        Box::pin(async move { genossi_dao_impl_sqlite::TransactionImpl::new(&pool).await })
     }
 }
 

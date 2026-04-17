@@ -38,7 +38,10 @@ impl DocumentType {
     }
 
     pub fn is_singleton(&self) -> bool {
-        matches!(self, DocumentType::JoinDeclaration | DocumentType::JoinConfirmation)
+        matches!(
+            self,
+            DocumentType::JoinDeclaration | DocumentType::JoinConfirmation
+        )
     }
 
     /// Returns the Typst template path for document types that support generation.

@@ -102,11 +102,7 @@ impl TryFrom<&MemberDb> for MemberEntity {
                 .transpose()?
                 .unwrap_or_default(),
             created: parse_datetime(&db.created)?,
-            deleted: db
-                .deleted
-                .as_ref()
-                .map(|d| parse_datetime(d))
-                .transpose()?,
+            deleted: db.deleted.as_ref().map(|d| parse_datetime(d)).transpose()?,
             version: Uuid::from_slice(&db.version)?,
         })
     }
@@ -303,7 +299,11 @@ impl MemberDao for MemberDaoImpl {
         Ok(())
     }
 
-    async fn count_active(&self, today: time::Date, tx: Self::Transaction) -> Result<u64, genossi_dao::DaoError> {
+    async fn count_active(
+        &self,
+        today: time::Date,
+        tx: Self::Transaction,
+    ) -> Result<u64, genossi_dao::DaoError> {
         let today_str = format_date(&today);
         let count = sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(*) FROM member WHERE deleted IS NULL AND (status IS NULL OR status = 'Normal') AND (exit_date IS NULL OR exit_date > ?)",

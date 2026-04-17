@@ -55,8 +55,7 @@ pub mod iso8601_date {
     {
         match date {
             Some(d) => {
-                let format =
-                    time::format_description::parse("[year]-[month]-[day]").unwrap();
+                let format = time::format_description::parse("[year]-[month]-[day]").unwrap();
                 let formatted = d.format(&format).map_err(serde::ser::Error::custom)?;
                 serializer.serialize_str(&formatted)
             }
@@ -71,8 +70,7 @@ pub mod iso8601_date {
         let opt: Option<String> = Option::deserialize(deserializer)?;
         match opt {
             Some(s) => {
-                let format =
-                    time::format_description::parse("[year]-[month]-[day]").unwrap();
+                let format = time::format_description::parse("[year]-[month]-[day]").unwrap();
                 Date::parse(&s, &format)
                     .map(Some)
                     .map_err(serde::de::Error::custom)
@@ -614,14 +612,46 @@ impl From<&genossi_service::validation::ValidationResult> for ValidationResultTO
     fn from(r: &genossi_service::validation::ValidationResult) -> Self {
         Self {
             member_number_gaps: r.member_number_gaps.to_vec(),
-            unmatched_transfers: r.unmatched_transfers.iter().map(UnmatchedTransferTO::from).collect(),
-            shares_mismatches: r.shares_mismatches.iter().map(SharesMismatchTO::from).collect(),
-            missing_entry_actions: r.missing_entry_actions.iter().map(MissingEntryActionTO::from).collect(),
-            exit_date_mismatches: r.exit_date_mismatches.iter().map(ExitDateMismatchTO::from).collect(),
-            active_members_no_shares: r.active_members_no_shares.iter().map(ActiveMemberNoSharesTO::from).collect(),
-            duplicate_member_numbers: r.duplicate_member_numbers.iter().map(DuplicateMemberNumberTO::from).collect(),
-            exited_members_with_shares: r.exited_members_with_shares.iter().map(ExitedMemberWithSharesTO::from).collect(),
-            migrated_flag_mismatches: r.migrated_flag_mismatches.iter().map(MigratedFlagMismatchTO::from).collect(),
+            unmatched_transfers: r
+                .unmatched_transfers
+                .iter()
+                .map(UnmatchedTransferTO::from)
+                .collect(),
+            shares_mismatches: r
+                .shares_mismatches
+                .iter()
+                .map(SharesMismatchTO::from)
+                .collect(),
+            missing_entry_actions: r
+                .missing_entry_actions
+                .iter()
+                .map(MissingEntryActionTO::from)
+                .collect(),
+            exit_date_mismatches: r
+                .exit_date_mismatches
+                .iter()
+                .map(ExitDateMismatchTO::from)
+                .collect(),
+            active_members_no_shares: r
+                .active_members_no_shares
+                .iter()
+                .map(ActiveMemberNoSharesTO::from)
+                .collect(),
+            duplicate_member_numbers: r
+                .duplicate_member_numbers
+                .iter()
+                .map(DuplicateMemberNumberTO::from)
+                .collect(),
+            exited_members_with_shares: r
+                .exited_members_with_shares
+                .iter()
+                .map(ExitedMemberWithSharesTO::from)
+                .collect(),
+            migrated_flag_mismatches: r
+                .migrated_flag_mismatches
+                .iter()
+                .map(MigratedFlagMismatchTO::from)
+                .collect(),
         }
     }
 }
@@ -629,52 +659,86 @@ impl From<&genossi_service::validation::ValidationResult> for ValidationResultTO
 impl From<&genossi_service::validation::UnmatchedTransfer> for UnmatchedTransferTO {
     fn from(t: &genossi_service::validation::UnmatchedTransfer) -> Self {
         Self {
-            action_id: t.action_id, member_id: t.member_id, member_number: t.member_number,
-            action_type: ActionTypeTO::from(&t.action_type), transfer_member_id: t.transfer_member_id,
-            transfer_member_number: t.transfer_member_number, shares_change: t.shares_change, date: t.date,
+            action_id: t.action_id,
+            member_id: t.member_id,
+            member_number: t.member_number,
+            action_type: ActionTypeTO::from(&t.action_type),
+            transfer_member_id: t.transfer_member_id,
+            transfer_member_number: t.transfer_member_number,
+            shares_change: t.shares_change,
+            date: t.date,
         }
     }
 }
 
 impl From<&genossi_service::validation::SharesMismatch> for SharesMismatchTO {
     fn from(s: &genossi_service::validation::SharesMismatch) -> Self {
-        Self { member_id: s.member_id, member_number: s.member_number, expected: s.expected, actual: s.actual }
+        Self {
+            member_id: s.member_id,
+            member_number: s.member_number,
+            expected: s.expected,
+            actual: s.actual,
+        }
     }
 }
 
 impl From<&genossi_service::validation::MissingEntryAction> for MissingEntryActionTO {
     fn from(m: &genossi_service::validation::MissingEntryAction) -> Self {
-        Self { member_id: m.member_id, member_number: m.member_number, actual_count: m.actual_count }
+        Self {
+            member_id: m.member_id,
+            member_number: m.member_number,
+            actual_count: m.actual_count,
+        }
     }
 }
 
 impl From<&genossi_service::validation::ExitDateMismatch> for ExitDateMismatchTO {
     fn from(e: &genossi_service::validation::ExitDateMismatch) -> Self {
-        Self { member_id: e.member_id, member_number: e.member_number, has_exit_date: e.has_exit_date, has_austritt_action: e.has_austritt_action }
+        Self {
+            member_id: e.member_id,
+            member_number: e.member_number,
+            has_exit_date: e.has_exit_date,
+            has_austritt_action: e.has_austritt_action,
+        }
     }
 }
 
 impl From<&genossi_service::validation::ActiveMemberNoShares> for ActiveMemberNoSharesTO {
     fn from(a: &genossi_service::validation::ActiveMemberNoShares) -> Self {
-        Self { member_id: a.member_id, member_number: a.member_number }
+        Self {
+            member_id: a.member_id,
+            member_number: a.member_number,
+        }
     }
 }
 
 impl From<&genossi_service::validation::DuplicateMemberNumber> for DuplicateMemberNumberTO {
     fn from(d: &genossi_service::validation::DuplicateMemberNumber) -> Self {
-        Self { member_number: d.member_number, member_ids: d.member_ids.to_vec() }
+        Self {
+            member_number: d.member_number,
+            member_ids: d.member_ids.to_vec(),
+        }
     }
 }
 
 impl From<&genossi_service::validation::ExitedMemberWithShares> for ExitedMemberWithSharesTO {
     fn from(e: &genossi_service::validation::ExitedMemberWithShares) -> Self {
-        Self { member_id: e.member_id, member_number: e.member_number, current_shares: e.current_shares }
+        Self {
+            member_id: e.member_id,
+            member_number: e.member_number,
+            current_shares: e.current_shares,
+        }
     }
 }
 
 impl From<&genossi_service::validation::MigratedFlagMismatch> for MigratedFlagMismatchTO {
     fn from(m: &genossi_service::validation::MigratedFlagMismatch) -> Self {
-        Self { member_id: m.member_id, member_number: m.member_number, flag_value: m.flag_value, computed_status: m.computed_status.to_string() }
+        Self {
+            member_id: m.member_id,
+            member_number: m.member_number,
+            flag_value: m.flag_value,
+            computed_status: m.computed_status.to_string(),
+        }
     }
 }
 
@@ -720,9 +784,7 @@ impl From<&genossi_service::member_action::MigrationStatus> for MigrationStatusT
         Self {
             member_id: s.member_id,
             status: match s.status {
-                genossi_service::member_action::MigrationState::Migrated => {
-                    "migrated".to_string()
-                }
+                genossi_service::member_action::MigrationState::Migrated => "migrated".to_string(),
                 genossi_service::member_action::MigrationState::Pending => "pending".to_string(),
             },
             expected_shares: s.expected_shares,
@@ -947,11 +1009,7 @@ impl From<&genossi_dao::audit_log::AuditLogEntry> for AuditLogEntryTO {
         let format = &time::format_description::well_known::Iso8601::DEFAULT;
         Self {
             id: e.id,
-            timestamp: e
-                .timestamp
-                .assume_utc()
-                .format(format)
-                .unwrap_or_default(),
+            timestamp: e.timestamp.assume_utc().format(format).unwrap_or_default(),
             user_id: e.user_id.to_string(),
             process: e.process.to_string(),
             transaction_id: e.transaction_id,
@@ -1003,11 +1061,7 @@ impl From<&genossi_dao::audit_timestamp::AuditTimestampEntry> for TimestampRespo
         let format = &time::format_description::well_known::Iso8601::DEFAULT;
         Self {
             id: e.id,
-            timestamp: e
-                .timestamp
-                .assume_utc()
-                .format(format)
-                .unwrap_or_default(),
+            timestamp: e.timestamp.assume_utc().format(format).unwrap_or_default(),
             audit_hash: e.audit_hash.to_string(),
             audit_entry_count: e.audit_entry_count,
             status: e.status.to_string(),
@@ -1032,11 +1086,7 @@ impl From<&genossi_service::timestamp::TimestampVerification> for TimestampVerif
             token_valid: v.token_valid,
             hash_matches: v.hash_matches,
             audit_log_consistent: v.audit_log_consistent,
-            timestamp: v
-                .timestamp
-                .assume_utc()
-                .format(format)
-                .unwrap_or_default(),
+            timestamp: v.timestamp.assume_utc().format(format).unwrap_or_default(),
             audit_hash: v.audit_hash.to_string(),
         }
     }

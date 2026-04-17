@@ -71,10 +71,7 @@ pub trait MailService: Send + Sync + 'static {
     async fn send_test_mail(&self, to: &str) -> Result<(), MailServiceError>;
 
     /// Get member IDs that were successfully reached (status = "sent") for a given job.
-    async fn get_reached_member_ids(
-        &self,
-        job_id: Uuid,
-    ) -> Result<Arc<[Uuid]>, MailServiceError>;
+    async fn get_reached_member_ids(&self, job_id: Uuid) -> Result<Arc<[Uuid]>, MailServiceError>;
 }
 
 pub struct SmtpConfig {
@@ -89,16 +86,21 @@ pub struct SmtpConfig {
 pub async fn load_smtp_config<C: ConfigService>(
     config_service: &C,
 ) -> Result<SmtpConfig, MailServiceError> {
-    let required_keys = ["smtp_host", "smtp_port", "smtp_user", "smtp_pass", "smtp_from"];
+    let required_keys = [
+        "smtp_host",
+        "smtp_port",
+        "smtp_user",
+        "smtp_pass",
+        "smtp_from",
+    ];
     let mut missing = Vec::new();
 
     let all_config = config_service.get_all().await.map_err(|e| {
         MailServiceError::DataAccess(Arc::from(format!("Failed to load config: {:?}", e)))
     })?;
 
-    let find = |key: &str| -> Option<&ConfigEntry> {
-        all_config.iter().find(|e| e.key.as_ref() == key)
-    };
+    let find =
+        |key: &str| -> Option<&ConfigEntry> { all_config.iter().find(|e| e.key.as_ref() == key) };
 
     for key in &required_keys {
         if find(key).is_none() {
@@ -113,11 +115,9 @@ pub async fn load_smtp_config<C: ConfigService>(
         ))));
     }
 
-    let port: u16 = find("smtp_port")
-        .unwrap()
-        .value
-        .parse()
-        .map_err(|_| MailServiceError::ConfigMissing(Arc::from("smtp_port is not a valid port number")))?;
+    let port: u16 = find("smtp_port").unwrap().value.parse().map_err(|_| {
+        MailServiceError::ConfigMissing(Arc::from("smtp_port is not a valid port number"))
+    })?;
 
     let tls = find("smtp_tls")
         .map(|e| e.value.to_string())
@@ -384,10 +384,7 @@ impl<
         Ok(())
     }
 
-    async fn get_reached_member_ids(
-        &self,
-        job_id: Uuid,
-    ) -> Result<Arc<[Uuid]>, MailServiceError> {
+    async fn get_reached_member_ids(&self, job_id: Uuid) -> Result<Arc<[Uuid]>, MailServiceError> {
         // Verify job exists
         self.job_dao.find_by_id(job_id).await?;
         Ok(self
@@ -406,7 +403,10 @@ mod tests {
     };
 
     fn empty_static_mocks() -> (MockStaticDocumentDao, MockMailJobStaticAttachmentDao) {
-        (MockStaticDocumentDao::new(), MockMailJobStaticAttachmentDao::new())
+        (
+            MockStaticDocumentDao::new(),
+            MockMailJobStaticAttachmentDao::new(),
+        )
     }
     use genossi_config::dao::ConfigEntry;
     use genossi_config::service::MockConfigService;
@@ -453,13 +453,17 @@ mod tests {
         let mut recipient_dao = MockMailRecipientDao::new();
 
         job_dao.expect_create().returning(|_| Ok(()));
-        recipient_dao
-            .expect_create()
-            .times(2)
-            .returning(|_| Ok(()));
+        recipient_dao.expect_create().times(2).returning(|_| Ok(()));
 
         let (sd_mock, msa_mock) = empty_static_mocks();
-        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao, MockMailRecipientAttachmentDao::new(), sd_mock, msa_mock);
+        let service = MailServiceImpl::new(
+            config_mock,
+            job_dao,
+            recipient_dao,
+            MockMailRecipientAttachmentDao::new(),
+            sd_mock,
+            msa_mock,
+        );
         let result = service
             .create_job(
                 "Test Subject",
@@ -493,7 +497,14 @@ mod tests {
         let recipient_dao = MockMailRecipientDao::new();
 
         let (sd_mock, msa_mock) = empty_static_mocks();
-        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao, MockMailRecipientAttachmentDao::new(), sd_mock, msa_mock);
+        let service = MailServiceImpl::new(
+            config_mock,
+            job_dao,
+            recipient_dao,
+            MockMailRecipientAttachmentDao::new(),
+            sd_mock,
+            msa_mock,
+        );
         let result = service
             .create_job("Test", "Body", vec![], vec![], vec![])
             .await;
@@ -507,12 +518,17 @@ mod tests {
         let mut job_dao = MockMailJobDao::new();
         let recipient_dao = MockMailRecipientDao::new();
 
-        job_dao
-            .expect_all()
-            .returning(|| Ok(vec![].into()));
+        job_dao.expect_all().returning(|| Ok(vec![].into()));
 
         let (sd_mock, msa_mock) = empty_static_mocks();
-        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao, MockMailRecipientAttachmentDao::new(), sd_mock, msa_mock);
+        let service = MailServiceImpl::new(
+            config_mock,
+            job_dao,
+            recipient_dao,
+            MockMailRecipientAttachmentDao::new(),
+            sd_mock,
+            msa_mock,
+        );
         let result = service.get_jobs().await.unwrap();
         assert!(result.is_empty());
     }
@@ -549,15 +565,20 @@ mod tests {
         job_dao
             .expect_find_by_id()
             .returning(move |_| Ok(job_clone.clone()));
-        recipient_dao
-            .expect_find_by_job_id()
-            .returning(move |id| {
-                assert_eq!(id, job_id_clone);
-                Ok(vec![].into())
-            });
+        recipient_dao.expect_find_by_job_id().returning(move |id| {
+            assert_eq!(id, job_id_clone);
+            Ok(vec![].into())
+        });
 
         let (sd_mock, msa_mock) = empty_static_mocks();
-        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao, MockMailRecipientAttachmentDao::new(), sd_mock, msa_mock);
+        let service = MailServiceImpl::new(
+            config_mock,
+            job_dao,
+            recipient_dao,
+            MockMailRecipientAttachmentDao::new(),
+            sd_mock,
+            msa_mock,
+        );
         let (found_job, recipients) = service.get_job_with_recipients(job_id).await.unwrap();
         assert_eq!(found_job.id, job_id);
         assert!(recipients.is_empty());
@@ -616,8 +637,7 @@ mod tests {
             sent_at: Some(now),
             message_id: Some(Arc::from("abc@example.com")),
         };
-        let recipients: Arc<[MailRecipient]> =
-            vec![failed_recipient, sent_recipient].into();
+        let recipients: Arc<[MailRecipient]> = vec![failed_recipient, sent_recipient].into();
         let recipients_clone = recipients.clone();
 
         job_dao
@@ -626,25 +646,26 @@ mod tests {
         recipient_dao
             .expect_find_by_job_id()
             .returning(move |_| Ok(recipients_clone.clone()));
-        recipient_dao
-            .expect_update()
-            .times(1)
-            .returning(|r| {
-                assert_eq!(r.status.as_ref(), "pending");
-                assert!(r.error.is_none());
-                Ok(())
-            });
-        job_dao
-            .expect_update()
-            .times(1)
-            .returning(|j| {
-                assert_eq!(j.status.as_ref(), "running");
-                assert_eq!(j.failed_count, 0);
-                Ok(())
-            });
+        recipient_dao.expect_update().times(1).returning(|r| {
+            assert_eq!(r.status.as_ref(), "pending");
+            assert!(r.error.is_none());
+            Ok(())
+        });
+        job_dao.expect_update().times(1).returning(|j| {
+            assert_eq!(j.status.as_ref(), "running");
+            assert_eq!(j.failed_count, 0);
+            Ok(())
+        });
 
         let (sd_mock, msa_mock) = empty_static_mocks();
-        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao, MockMailRecipientAttachmentDao::new(), sd_mock, msa_mock);
+        let service = MailServiceImpl::new(
+            config_mock,
+            job_dao,
+            recipient_dao,
+            MockMailRecipientAttachmentDao::new(),
+            sd_mock,
+            msa_mock,
+        );
         let result = service.retry_job(job_id).await.unwrap();
         assert_eq!(result.status.as_ref(), "running");
     }
@@ -658,7 +679,14 @@ mod tests {
         let recipient_dao = MockMailRecipientDao::new();
 
         let (sd_mock, msa_mock) = empty_static_mocks();
-        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao, MockMailRecipientAttachmentDao::new(), sd_mock, msa_mock);
+        let service = MailServiceImpl::new(
+            config_mock,
+            job_dao,
+            recipient_dao,
+            MockMailRecipientAttachmentDao::new(),
+            sd_mock,
+            msa_mock,
+        );
         let result = service.send_test_mail("to@example.com").await;
         assert!(matches!(result, Err(MailServiceError::ConfigMissing(_))));
     }
@@ -675,7 +703,14 @@ mod tests {
         let recipient_dao = MockMailRecipientDao::new();
 
         let (sd_mock, msa_mock) = empty_static_mocks();
-        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao, MockMailRecipientAttachmentDao::new(), sd_mock, msa_mock);
+        let service = MailServiceImpl::new(
+            config_mock,
+            job_dao,
+            recipient_dao,
+            MockMailRecipientAttachmentDao::new(),
+            sd_mock,
+            msa_mock,
+        );
         let result = service.send_test_mail("to@example.com").await;
         // SMTP will fail since no real server, but it should be SmtpError not ConfigMissing
         assert!(matches!(result, Err(MailServiceError::SmtpError(_))));
@@ -721,7 +756,14 @@ mod tests {
             .returning(move |_| Ok(sent_ids_clone.clone()));
 
         let (sd_mock, msa_mock) = empty_static_mocks();
-        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao, MockMailRecipientAttachmentDao::new(), sd_mock, msa_mock);
+        let service = MailServiceImpl::new(
+            config_mock,
+            job_dao,
+            recipient_dao,
+            MockMailRecipientAttachmentDao::new(),
+            sd_mock,
+            msa_mock,
+        );
         let result = service.get_reached_member_ids(job_id).await.unwrap();
         assert_eq!(result.len(), 2);
         assert!(result.contains(&member1));
@@ -739,7 +781,14 @@ mod tests {
             .returning(|_| Err(crate::dao::MailDaoError::NotFound));
 
         let (sd_mock, msa_mock) = empty_static_mocks();
-        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao, MockMailRecipientAttachmentDao::new(), sd_mock, msa_mock);
+        let service = MailServiceImpl::new(
+            config_mock,
+            job_dao,
+            recipient_dao,
+            MockMailRecipientAttachmentDao::new(),
+            sd_mock,
+            msa_mock,
+        );
         let result = service.get_reached_member_ids(Uuid::new_v4()).await;
         assert!(matches!(result, Err(MailServiceError::NotFound)));
     }
@@ -753,10 +802,20 @@ mod tests {
 
         job_dao.expect_create().returning(|_| Ok(()));
         recipient_dao.expect_create().times(1).returning(|_| Ok(()));
-        attachment_dao.expect_create().times(2).returning(|_| Ok(()));
+        attachment_dao
+            .expect_create()
+            .times(2)
+            .returning(|_| Ok(()));
 
         let (sd_mock, msa_mock) = empty_static_mocks();
-        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao, attachment_dao, sd_mock, msa_mock);
+        let service = MailServiceImpl::new(
+            config_mock,
+            job_dao,
+            recipient_dao,
+            attachment_dao,
+            sd_mock,
+            msa_mock,
+        );
         let result = service
             .create_job(
                 "Subject",
@@ -795,7 +854,14 @@ mod tests {
         let attachment_dao = MockMailRecipientAttachmentDao::new();
 
         let (sd_mock, msa_mock) = empty_static_mocks();
-        let service = MailServiceImpl::new(config_mock, job_dao, recipient_dao, attachment_dao, sd_mock, msa_mock);
+        let service = MailServiceImpl::new(
+            config_mock,
+            job_dao,
+            recipient_dao,
+            attachment_dao,
+            sd_mock,
+            msa_mock,
+        );
         let result = service
             .create_job(
                 "Subject",

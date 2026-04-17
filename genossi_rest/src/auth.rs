@@ -1,5 +1,7 @@
 use axum::{
-    Extension, Json, extract::State, response::{IntoResponse, Response}
+    extract::State,
+    response::{IntoResponse, Response},
+    Extension, Json,
 };
 use genossi_service::permission::PermissionService;
 use serde::{Deserialize, Serialize};
@@ -96,19 +98,20 @@ async fn get_auth_info_impl<RestState: RestStateDef>(
             Some(auth_context) => {
                 let username = auth_context.user_id.to_string();
 
-                let claims: HashMap<String, String> = auth_context.claims
+                let claims: HashMap<String, String> = auth_context
+                    .claims
                     .as_ref()
-                    .and_then(|json_str| serde_json::from_str::<HashMap<String, serde_json::Value>>(json_str).ok())
+                    .and_then(|json_str| {
+                        serde_json::from_str::<HashMap<String, serde_json::Value>>(json_str).ok()
+                    })
                     .map(|map| {
                         map.into_iter()
                             .filter(|(key, _)| key != "type")
-                            .filter_map(|(key, value)| {
-                                match value {
-                                    serde_json::Value::String(s) => Some((key, s)),
-                                    serde_json::Value::Number(n) => Some((key, n.to_string())),
-                                    serde_json::Value::Bool(b) => Some((key, b.to_string())),
-                                    _ => None,
-                                }
+                            .filter_map(|(key, value)| match value {
+                                serde_json::Value::String(s) => Some((key, s)),
+                                serde_json::Value::Number(n) => Some((key, n.to_string())),
+                                serde_json::Value::Bool(b) => Some((key, b.to_string())),
+                                _ => None,
                             })
                             .collect()
                     })
@@ -151,6 +154,5 @@ async fn get_auth_info_impl<RestState: RestStateDef>(
 pub fn generate_route<RestState: RestStateDef>() -> axum::Router<RestState> {
     use axum::routing::get;
 
-    axum::Router::new()
-        .route("/info", get(get_auth_info::<RestState>))
+    axum::Router::new().route("/info", get(get_auth_info::<RestState>))
 }

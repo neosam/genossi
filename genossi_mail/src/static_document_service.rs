@@ -23,8 +23,7 @@ impl From<MailDaoError> for StaticDocumentError {
 }
 
 pub const DEFAULT_MAX_SIZE_BYTES: u64 = 10 * 1024 * 1024; // 10 MB
-pub const ALLOWED_CONTENT_TYPES: &[&str] =
-    &["application/pdf", "image/png", "image/jpeg"];
+pub const ALLOWED_CONTENT_TYPES: &[&str] = &["application/pdf", "image/png", "image/jpeg"];
 
 pub struct UploadStaticDocument {
     pub name: String,
@@ -40,10 +39,7 @@ pub trait StaticDocumentService: Send + Sync + 'static {
         upload: UploadStaticDocument,
     ) -> Result<StaticDocument, StaticDocumentError>;
     async fn list(&self) -> Result<Arc<[StaticDocument]>, StaticDocumentError>;
-    async fn find_by_id(
-        &self,
-        id: Uuid,
-    ) -> Result<StaticDocument, StaticDocumentError>;
+    async fn find_by_id(&self, id: Uuid) -> Result<StaticDocument, StaticDocumentError>;
     async fn load_bytes(&self, id: Uuid) -> Result<(StaticDocument, Vec<u8>), StaticDocumentError>;
     async fn delete(&self, id: Uuid) -> Result<(), StaticDocumentError>;
 }
@@ -131,20 +127,14 @@ impl<D: StaticDocumentDao, S: DocumentStorage + 'static> StaticDocumentService
         Ok(self.dao.all_active().await?)
     }
 
-    async fn find_by_id(
-        &self,
-        id: Uuid,
-    ) -> Result<StaticDocument, StaticDocumentError> {
+    async fn find_by_id(&self, id: Uuid) -> Result<StaticDocument, StaticDocumentError> {
         self.dao
             .find_by_id(id)
             .await?
             .ok_or(StaticDocumentError::NotFound)
     }
 
-    async fn load_bytes(
-        &self,
-        id: Uuid,
-    ) -> Result<(StaticDocument, Vec<u8>), StaticDocumentError> {
+    async fn load_bytes(&self, id: Uuid) -> Result<(StaticDocument, Vec<u8>), StaticDocumentError> {
         let doc = self.find_by_id(id).await?;
         let data = self
             .storage

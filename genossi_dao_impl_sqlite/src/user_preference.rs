@@ -47,11 +47,7 @@ impl TryFrom<&UserPreferenceDb> for UserPreferenceEntity {
             key: Arc::from(db.key.as_str()),
             value: Arc::from(db.value.as_str()),
             created: parse_datetime(&db.created)?,
-            deleted: db
-                .deleted
-                .as_ref()
-                .map(|d| parse_datetime(d))
-                .transpose()?,
+            deleted: db.deleted.as_ref().map(|d| parse_datetime(d)).transpose()?,
             version: Uuid::from_slice(&db.version)?,
         })
     }

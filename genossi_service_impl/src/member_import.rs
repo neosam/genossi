@@ -85,8 +85,8 @@ pub fn parse_date_from_string(s: &str) -> Result<Date, String> {
                 month_str.parse::<u8>(),
                 year_str.parse::<i32>(),
             ) {
-                let month = Month::try_from(month)
-                    .map_err(|_| format!("Invalid month: {}", month))?;
+                let month =
+                    Month::try_from(month).map_err(|_| format!("Invalid month: {}", month))?;
                 return Date::from_calendar_date(year, month, day)
                     .map_err(|e| format!("Invalid date {}: {}", s, e));
             }
@@ -101,8 +101,8 @@ pub fn parse_date_from_string(s: &str) -> Result<Date, String> {
                 month_str.parse::<u8>(),
                 day_str.parse::<u8>(),
             ) {
-                let month = Month::try_from(month)
-                    .map_err(|_| format!("Invalid month: {}", month))?;
+                let month =
+                    Month::try_from(month).map_err(|_| format!("Invalid month: {}", month))?;
                 return Date::from_calendar_date(year, month, day)
                     .map_err(|e| format!("Invalid date {}: {}", s, e));
             }
@@ -193,18 +193,15 @@ fn get_cell<'a>(row: &'a [Data], col_index: &HashMap<String, usize>, col_name: &
 }
 
 /// Parse a single row into a partial Member (without id/version/created).
-fn parse_row(
-    row: &[Data],
-    col_index: &HashMap<String, usize>,
-) -> Result<ParsedMemberRow, String> {
-    let member_number = get_i64(get_cell(row, col_index, "ID1"))
-        .map_err(|e| format!("ID1: {}", e))?;
+fn parse_row(row: &[Data], col_index: &HashMap<String, usize>) -> Result<ParsedMemberRow, String> {
+    let member_number =
+        get_i64(get_cell(row, col_index, "ID1")).map_err(|e| format!("ID1: {}", e))?;
     let last_name = get_string(get_cell(row, col_index, "Nachname"))
         .ok_or_else(|| "Nachname is empty".to_string())?;
     let first_name = get_string(get_cell(row, col_index, "Vorname(n)"))
         .ok_or_else(|| "Vorname(n) is empty".to_string())?;
-    let join_date = parse_date(get_cell(row, col_index, "Beitritt"))
-        .map_err(|e| format!("Beitritt: {}", e))?;
+    let join_date =
+        parse_date(get_cell(row, col_index, "Beitritt")).map_err(|e| format!("Beitritt: {}", e))?;
 
     let shares_at_joining = match get_cell(row, col_index, "Anteile Beitritt") {
         Data::Empty => 0,
@@ -268,10 +265,13 @@ struct ParsedMemberRow {
 
 /// Parse a spreadsheet file from bytes and return parsed rows with errors.
 /// Supports xlsx, xls, ods, and xlsb formats.
-fn parse_spreadsheet(data: &[u8]) -> Result<(Vec<(usize, ParsedMemberRow)>, Vec<MemberImportError>, usize), ServiceError> {
+fn parse_spreadsheet(
+    data: &[u8],
+) -> Result<(Vec<(usize, ParsedMemberRow)>, Vec<MemberImportError>, usize), ServiceError> {
     let cursor = Cursor::new(data);
-    let mut workbook = calamine::open_workbook_auto_from_rs(cursor)
-        .map_err(|e| ServiceError::InternalError(Arc::from(format!("Failed to open spreadsheet: {}", e))))?;
+    let mut workbook = calamine::open_workbook_auto_from_rs(cursor).map_err(|e| {
+        ServiceError::InternalError(Arc::from(format!("Failed to open spreadsheet: {}", e)))
+    })?;
 
     let sheet_name = workbook
         .sheet_names()
@@ -279,14 +279,14 @@ fn parse_spreadsheet(data: &[u8]) -> Result<(Vec<(usize, ParsedMemberRow)>, Vec<
         .cloned()
         .ok_or_else(|| ServiceError::InternalError(Arc::from("No sheets found in xlsx")))?;
 
-    let range = workbook
-        .worksheet_range(&sheet_name)
-        .map_err(|e| ServiceError::InternalError(Arc::from(format!("Failed to read sheet: {}", e))))?;
+    let range = workbook.worksheet_range(&sheet_name).map_err(|e| {
+        ServiceError::InternalError(Arc::from(format!("Failed to read sheet: {}", e)))
+    })?;
 
     let mut rows = range.rows();
-    let header = rows
-        .next()
-        .ok_or_else(|| ServiceError::InternalError(Arc::from("Empty spreadsheet - no header row")))?;
+    let header = rows.next().ok_or_else(|| {
+        ServiceError::InternalError(Arc::from("Empty spreadsheet - no header row"))
+    })?;
 
     let col_index = build_column_index(header);
     check_required_columns(&col_index).map_err(|e| {
@@ -515,14 +515,20 @@ mod tests {
     fn test_parse_date_german_format() {
         let data = Data::String("01.03.2023".to_string());
         let date = parse_date(&data).unwrap();
-        assert_eq!(date, Date::from_calendar_date(2023, Month::March, 1).unwrap());
+        assert_eq!(
+            date,
+            Date::from_calendar_date(2023, Month::March, 1).unwrap()
+        );
     }
 
     #[test]
     fn test_parse_date_iso_format() {
         let data = Data::String("2023-03-01".to_string());
         let date = parse_date(&data).unwrap();
-        assert_eq!(date, Date::from_calendar_date(2023, Month::March, 1).unwrap());
+        assert_eq!(
+            date,
+            Date::from_calendar_date(2023, Month::March, 1).unwrap()
+        );
     }
 
     #[test]
@@ -530,14 +536,20 @@ mod tests {
         // 44927 = 2023-01-01 in Excel serial
         let data = Data::Float(44927.0);
         let date = parse_date(&data).unwrap();
-        assert_eq!(date, Date::from_calendar_date(2023, Month::January, 1).unwrap());
+        assert_eq!(
+            date,
+            Date::from_calendar_date(2023, Month::January, 1).unwrap()
+        );
     }
 
     #[test]
     fn test_parse_date_excel_serial_int() {
         let data = Data::Int(44927);
         let date = parse_date(&data).unwrap();
-        assert_eq!(date, Date::from_calendar_date(2023, Month::January, 1).unwrap());
+        assert_eq!(
+            date,
+            Date::from_calendar_date(2023, Month::January, 1).unwrap()
+        );
     }
 
     #[test]
@@ -568,7 +580,10 @@ mod tests {
     fn test_parse_optional_date_with_value() {
         let data = Data::String("15.06.2024".to_string());
         let result = parse_optional_date(&data).unwrap();
-        assert_eq!(result, Some(Date::from_calendar_date(2024, Month::June, 15).unwrap()));
+        assert_eq!(
+            result,
+            Some(Date::from_calendar_date(2024, Month::June, 15).unwrap())
+        );
     }
 
     #[test]

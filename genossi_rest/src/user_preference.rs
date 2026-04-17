@@ -76,7 +76,12 @@ pub async fn upsert_preference<RestState: RestStateDef>(
         (async {
             let pref = rest_state
                 .user_preference_service()
-                .upsert(&key, &body.value, crate::extract_auth_context(Some(context))?, None)
+                .upsert(
+                    &key,
+                    &body.value,
+                    crate::extract_auth_context(Some(context))?,
+                    None,
+                )
                 .await?;
             let to = UserPreferenceTO::from(&pref);
             Ok(Response::builder()

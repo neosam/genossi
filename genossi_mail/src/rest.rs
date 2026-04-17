@@ -29,30 +29,22 @@ pub trait MailRestState: Clone + Send + Sync + 'static {
     fn resolve_document(
         &self,
         document_id: uuid::Uuid,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Option<ResolvedDocument>> + Send + '_>,
-    >;
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<ResolvedDocument>> + Send + '_>>;
     /// Get attachments for a recipient.
     fn get_recipient_attachments(
         &self,
         recipient_id: uuid::Uuid,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Vec<MailAttachmentTO>> + Send + '_>,
-    >;
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Vec<MailAttachmentTO>> + Send + '_>>;
     /// Resolve a member by ID for template rendering.
     fn resolve_member(
         &self,
         member_id: uuid::Uuid,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Option<MemberEntity>> + Send + '_>,
-    >;
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<MemberEntity>> + Send + '_>>;
     /// Resolve multiple members by IDs for template validation.
     fn resolve_members(
         &self,
         member_ids: &[uuid::Uuid],
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Vec<MemberEntity>> + Send + '_>,
-    >;
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Vec<MemberEntity>> + Send + '_>>;
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
@@ -326,16 +318,12 @@ pub async fn send_bulk_mail<S: MailRestState>(
             }
 
             // Validate templates against all recipient members
-            let member_ids: Vec<uuid::Uuid> = recipients
-                .iter()
-                .filter_map(|r| r.member_id)
-                .collect();
+            let member_ids: Vec<uuid::Uuid> =
+                recipients.iter().filter_map(|r| r.member_id).collect();
             let members = state.resolve_members(&member_ids).await;
-            if let Err(errors) = crate::template::validate_template(
-                &body.subject,
-                &body.body,
-                &members,
-            ) {
+            if let Err(errors) =
+                crate::template::validate_template(&body.subject, &body.body, &members)
+            {
                 return Err(MailServiceError::TemplateValidation(Arc::from(
                     errors.join("; "),
                 )));
@@ -349,9 +337,7 @@ pub async fn send_bulk_mail<S: MailRestState>(
                         "Attachments are only supported for single-recipient sends",
                     )));
                 }
-                let recipient_member_id = recipients
-                    .first()
-                    .and_then(|r| r.member_id);
+                let recipient_member_id = recipients.first().and_then(|r| r.member_id);
 
                 for att_id_str in &body.attachment_ids {
                     let doc_id = uuid::Uuid::parse_str(att_id_str)
@@ -380,8 +366,7 @@ pub async fn send_bulk_mail<S: MailRestState>(
 
             let mut static_document_ids: Vec<uuid::Uuid> = Vec::new();
             for sid in &body.static_document_ids {
-                let parsed = uuid::Uuid::parse_str(sid)
-                    .map_err(|_| MailServiceError::NotFound)?;
+                let parsed = uuid::Uuid::parse_str(sid).map_err(|_| MailServiceError::NotFound)?;
                 static_document_ids.push(parsed);
             }
 
@@ -506,9 +491,7 @@ pub async fn send_test_mail<S: MailRestState>(
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(
-                    serde_json::json!({"success": true}).to_string(),
-                ))
+                .body(Body::new(serde_json::json!({"success": true}).to_string()))
                 .unwrap())
         })
         .await,
@@ -559,18 +542,11 @@ pub async fn get_jobs<S: MailRestState>(state: State<S>) -> Response {
         (status = 500, description = "Internal server error"),
     ),
 )]
-pub async fn get_job_detail<S: MailRestState>(
-    state: State<S>,
-    Path(id): Path<String>,
-) -> Response {
+pub async fn get_job_detail<S: MailRestState>(state: State<S>, Path(id): Path<String>) -> Response {
     error_handler(
         (async {
-            let job_id = uuid::Uuid::parse_str(&id)
-                .map_err(|_| MailServiceError::NotFound)?;
-            let (job, recipients) = state
-                .mail_service()
-                .get_job_with_recipients(job_id)
-                .await?;
+            let job_id = uuid::Uuid::parse_str(&id).map_err(|_| MailServiceError::NotFound)?;
+            let (job, recipients) = state.mail_service().get_job_with_recipients(job_id).await?;
             let mut recipient_tos = Vec::new();
             for r in recipients.iter() {
                 let mut to = MailRecipientTO::from(r);
@@ -605,15 +581,11 @@ pub async fn get_job_detail<S: MailRestState>(
         (status = 500, description = "Internal server error"),
     ),
 )]
-pub async fn retry_job<S: MailRestState>(
-    state: State<S>,
-    Path(id): Path<String>,
-) -> Response {
+pub async fn retry_job<S: MailRestState>(state: State<S>, Path(id): Path<String>) -> Response {
     tracing::info!("retry_job called for job_id={}", id);
     error_handler(
         (async {
-            let job_id = uuid::Uuid::parse_str(&id)
-                .map_err(|_| MailServiceError::NotFound)?;
+            let job_id = uuid::Uuid::parse_str(&id).map_err(|_| MailServiceError::NotFound)?;
             let job = state.mail_service().retry_job(job_id).await?;
             let to = MailJobTO::from(&job);
             Ok(Response::builder()

@@ -201,7 +201,14 @@ impl<Deps: ApplicationServiceDeps> ApplicationService for ApplicationServiceImpl
             version: self.uuid_service.new_v4().await,
         };
 
-        crate::audited_create!(self, self.application_dao, &entity, APPLICATION_SERVICE_PROCESS, "PUBLIC", tx);
+        crate::audited_create!(
+            self,
+            self.application_dao,
+            &entity,
+            APPLICATION_SERVICE_PROCESS,
+            "PUBLIC",
+            tx
+        );
 
         self.transaction_dao.commit(tx).await?;
 
@@ -229,11 +236,7 @@ impl<Deps: ApplicationServiceDeps> ApplicationService for ApplicationServiceImpl
 
         let filtered: Vec<Application> = all
             .iter()
-            .filter(|e| {
-                status_filter
-                    .as_ref()
-                    .map_or(true, |s| e.status == *s)
-            })
+            .filter(|e| status_filter.as_ref().map_or(true, |s| e.status == *s))
             .map(Application::from)
             .collect();
 
@@ -327,7 +330,14 @@ impl<Deps: ApplicationServiceDeps> ApplicationService for ApplicationServiceImpl
             version: self.uuid_service.new_v4().await,
         };
 
-        crate::audited_create!(self, self.member_dao, &member_entity, APPLICATION_SERVICE_PROCESS, &user_id, tx);
+        crate::audited_create!(
+            self,
+            self.member_dao,
+            &member_entity,
+            APPLICATION_SERVICE_PROCESS,
+            &user_id,
+            tx
+        );
 
         // Create Eintritt action
         let eintritt = genossi_dao::member_action::MemberActionEntity {
@@ -343,7 +353,14 @@ impl<Deps: ApplicationServiceDeps> ApplicationService for ApplicationServiceImpl
             deleted: None,
             version: self.uuid_service.new_v4().await,
         };
-        crate::audited_create!(self, self.member_action_dao, &eintritt, APPLICATION_SERVICE_PROCESS, &user_id, tx);
+        crate::audited_create!(
+            self,
+            self.member_action_dao,
+            &eintritt,
+            APPLICATION_SERVICE_PROCESS,
+            &user_id,
+            tx
+        );
 
         // Create Aufstockung action
         let aufstockung = genossi_dao::member_action::MemberActionEntity {
@@ -359,11 +376,26 @@ impl<Deps: ApplicationServiceDeps> ApplicationService for ApplicationServiceImpl
             deleted: None,
             version: self.uuid_service.new_v4().await,
         };
-        crate::audited_create!(self, self.member_action_dao, &aufstockung, APPLICATION_SERVICE_PROCESS, &user_id, tx);
+        crate::audited_create!(
+            self,
+            self.member_action_dao,
+            &aufstockung,
+            APPLICATION_SERVICE_PROCESS,
+            &user_id,
+            tx
+        );
 
         // Update application status
         entity.status = ApplicationStatus::Bestaetigt;
-        crate::audited_update!(self, self.application_dao, id, &entity, APPLICATION_SERVICE_PROCESS, &user_id, tx);
+        crate::audited_update!(
+            self,
+            self.application_dao,
+            id,
+            &entity,
+            APPLICATION_SERVICE_PROCESS,
+            &user_id,
+            tx
+        );
 
         self.transaction_dao.commit(tx).await?;
         Ok(Application::from(&entity))
@@ -400,7 +432,15 @@ impl<Deps: ApplicationServiceDeps> ApplicationService for ApplicationServiceImpl
         }
 
         entity.status = ApplicationStatus::Abgelehnt;
-        crate::audited_update!(self, self.application_dao, id, &entity, APPLICATION_SERVICE_PROCESS, &user_id, tx);
+        crate::audited_update!(
+            self,
+            self.application_dao,
+            id,
+            &entity,
+            APPLICATION_SERVICE_PROCESS,
+            &user_id,
+            tx
+        );
 
         self.transaction_dao.commit(tx).await?;
         Ok(Application::from(&entity))
@@ -472,7 +512,15 @@ impl<Deps: ApplicationServiceDeps> ApplicationService for ApplicationServiceImpl
         entity.city = update.city.clone();
         entity.shares = update.shares;
 
-        crate::audited_update!(self, self.application_dao, id, &entity, APPLICATION_SERVICE_PROCESS, &user_id, tx);
+        crate::audited_update!(
+            self,
+            self.application_dao,
+            id,
+            &entity,
+            APPLICATION_SERVICE_PROCESS,
+            &user_id,
+            tx
+        );
 
         self.transaction_dao.commit(tx).await?;
         Ok(Application::from(&entity))

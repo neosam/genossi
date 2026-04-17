@@ -32,10 +32,7 @@ pub trait AuditTimestampDao {
         tx: Self::Transaction,
     ) -> Result<Option<AuditTimestampEntry>, DaoError>;
 
-    async fn get_all(
-        &self,
-        tx: Self::Transaction,
-    ) -> Result<Arc<[AuditTimestampEntry]>, DaoError>;
+    async fn get_all(&self, tx: Self::Transaction) -> Result<Arc<[AuditTimestampEntry]>, DaoError>;
 
     async fn get_by_id(
         &self,

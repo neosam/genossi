@@ -155,10 +155,11 @@ pub async fn upload_document<RestState: RestStateDef>(
 
             let doc_type_str = document_type
                 .ok_or_else(|| RestError::BadRequest("document_type is required".to_string()))?;
-            let doc_type = DocumentType::from_str(&doc_type_str)
-                .ok_or_else(|| RestError::BadRequest(format!("Invalid document_type: {}", doc_type_str)))?;
-            let data = file_data
-                .ok_or_else(|| RestError::BadRequest("file is required".to_string()))?;
+            let doc_type = DocumentType::from_str(&doc_type_str).ok_or_else(|| {
+                RestError::BadRequest(format!("Invalid document_type: {}", doc_type_str))
+            })?;
+            let data =
+                file_data.ok_or_else(|| RestError::BadRequest("file is required".to_string()))?;
             let fname = file_name.unwrap_or_else(|| "document".to_string());
             let mtype = mime_type.unwrap_or_else(|| "application/octet-stream".to_string());
 
@@ -233,8 +234,7 @@ pub async fn download_document<RestState: RestStateDef>(
                 .await
                 .map_err(|e| RestError::InternalError(format!("Failed to load file: {}", e)))?;
 
-            let content_disposition =
-                format!("attachment; filename=\"{}\"", doc.file_name);
+            let content_disposition = format!("attachment; filename=\"{}\"", doc.file_name);
 
             Ok(Response::builder()
                 .status(200)
@@ -419,11 +419,12 @@ pub async fn document_counts<RestState: RestStateDef>(
 ) -> Response {
     error_handler(
         (async {
-            let doc_type_str = query
-                .document_type
-                .ok_or_else(|| RestError::BadRequest("'type' query parameter is required".to_string()))?;
-            let doc_type = DocumentType::from_str(&doc_type_str)
-                .ok_or_else(|| RestError::BadRequest(format!("Invalid document type: {}", doc_type_str)))?;
+            let doc_type_str = query.document_type.ok_or_else(|| {
+                RestError::BadRequest("'type' query parameter is required".to_string())
+            })?;
+            let doc_type = DocumentType::from_str(&doc_type_str).ok_or_else(|| {
+                RestError::BadRequest(format!("Invalid document type: {}", doc_type_str))
+            })?;
 
             let counts = rest_state
                 .member_document_service()

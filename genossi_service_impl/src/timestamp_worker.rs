@@ -21,10 +21,8 @@ fn is_tsa_enabled(entries: &[ConfigEntry]) -> bool {
         .unwrap_or(false)
 }
 
-pub async fn start_timestamp_worker<T, C>(
-    timestamp_service: Arc<T>,
-    config_service: Arc<C>,
-) where
+pub async fn start_timestamp_worker<T, C>(timestamp_service: Arc<T>, config_service: Arc<C>)
+where
     T: TimestampService,
     C: ConfigService,
 {

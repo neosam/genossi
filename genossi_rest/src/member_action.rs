@@ -48,11 +48,7 @@ pub async fn get_member_actions<RestState: RestStateDef>(
         (async {
             let actions: Arc<[MemberActionTO]> = rest_state
                 .member_action_service()
-                .get_by_member(
-                    member_id,
-                    crate::extract_auth_context(Some(context))?,
-                    None,
-                )
+                .get_by_member(member_id, crate::extract_auth_context(Some(context))?, None)
                 .await?
                 .iter()
                 .map(MemberActionTO::from)
@@ -221,11 +217,7 @@ pub async fn delete_member_action<RestState: RestStateDef>(
         (async {
             rest_state
                 .member_action_service()
-                .delete(
-                    action_id,
-                    crate::extract_auth_context(Some(context))?,
-                    None,
-                )
+                .delete(action_id, crate::extract_auth_context(Some(context))?, None)
                 .await?;
             Ok(Response::builder().status(204).body(Body::empty()).unwrap())
         })
@@ -257,11 +249,7 @@ pub async fn get_migration_status<RestState: RestStateDef>(
             let status = MigrationStatusTO::from(
                 &rest_state
                     .member_action_service()
-                    .migration_status(
-                        member_id,
-                        crate::extract_auth_context(Some(context))?,
-                        None,
-                    )
+                    .migration_status(member_id, crate::extract_auth_context(Some(context))?, None)
                     .await?,
             );
             Ok(Response::builder()
@@ -297,16 +285,9 @@ pub async fn confirm_migration<RestState: RestStateDef>(
         (async {
             rest_state
                 .member_action_service()
-                .confirm_migration(
-                    member_id,
-                    crate::extract_auth_context(Some(context))?,
-                    None,
-                )
+                .confirm_migration(member_id, crate::extract_auth_context(Some(context))?, None)
                 .await?;
-            Ok(Response::builder()
-                .status(200)
-                .body(Body::empty())
-                .unwrap())
+            Ok(Response::builder().status(200).body(Body::empty()).unwrap())
         })
         .await,
     )

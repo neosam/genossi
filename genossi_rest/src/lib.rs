@@ -22,10 +22,10 @@ pub mod validation;
 use async_trait::async_trait;
 use axum::routing::get;
 use axum::{body::Body, middleware, response::IntoResponse, response::Response, Router};
-#[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
-use genossi_service::permission::MockContext;
 #[cfg(feature = "oidc")]
 use genossi_service::auth_types::AuthenticatedContext;
+#[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
+use genossi_service::permission::MockContext;
 use std::sync::Arc;
 use tower_cookies::CookieManagerLayer;
 use tower_http::cors::CorsLayer;
@@ -43,7 +43,9 @@ pub type Context = Option<genossi_service::auth_types::AuthenticatedContext>;
 
 // Helper function to extract Authentication from simplified Context
 #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
-pub fn extract_auth_context(context: Option<Context>) -> Result<genossi_service::permission::Authentication<MockContext>, RestError> {
+pub fn extract_auth_context(
+    context: Option<Context>,
+) -> Result<genossi_service::permission::Authentication<MockContext>, RestError> {
     match context {
         Some(ctx) => Ok(genossi_service::permission::Authentication::Context(ctx)),
         None => Err(RestError::Unauthorized),
@@ -51,15 +53,19 @@ pub fn extract_auth_context(context: Option<Context>) -> Result<genossi_service:
 }
 
 #[cfg(feature = "oidc")]
-pub fn extract_auth_context(context: Option<Context>) -> Result<genossi_service::permission::Authentication<genossi_service::auth_types::AuthenticatedContext>, RestError> {
+pub fn extract_auth_context(
+    context: Option<Context>,
+) -> Result<
+    genossi_service::permission::Authentication<genossi_service::auth_types::AuthenticatedContext>,
+    RestError,
+> {
     match context {
-        Some(Some(auth_context)) => {
-            Ok(genossi_service::permission::Authentication::Context(auth_context))
-        }
+        Some(Some(auth_context)) => Ok(genossi_service::permission::Authentication::Context(
+            auth_context,
+        )),
         _ => Err(RestError::Unauthorized),
     }
 }
-
 
 pub enum RestError {
     NotFound,
@@ -142,7 +148,17 @@ type ContextType = MockContext;
 type ContextType = AuthenticatedContext;
 
 #[async_trait]
-pub trait RestStateDef: Clone + Send + Sync + 'static + genossi_config::rest::ConfigRestState + genossi_mail::rest::MailRestState + genossi_mail::rest_templates::MailTemplateRestState + genossi_mail::inbox_rest::InboxRestState + genossi_mail::communication_rest::CommunicationRestState {
+pub trait RestStateDef:
+    Clone
+    + Send
+    + Sync
+    + 'static
+    + genossi_config::rest::ConfigRestState
+    + genossi_mail::rest::MailRestState
+    + genossi_mail::rest_templates::MailTemplateRestState
+    + genossi_mail::inbox_rest::InboxRestState
+    + genossi_mail::communication_rest::CommunicationRestState
+{
     type MemberService: genossi_service::member::MemberService<Context = ContextType>
         + Send
         + Sync
@@ -306,7 +322,15 @@ async fn context_extractor<RestState: RestStateDef>(
     session::context_extractor(rest_state, request, next).await
 }
 
-pub async fn create_app<RestState: RestStateDef + public_stats::PublicStatsState + application::ApplicationRestState + audit_log::AuditRestState + audit_timestamp::TimestampRestState>(rest_state: RestState) -> Router {
+pub async fn create_app<
+    RestState: RestStateDef
+        + public_stats::PublicStatsState
+        + application::ApplicationRestState
+        + audit_log::AuditRestState
+        + audit_timestamp::TimestampRestState,
+>(
+    rest_state: RestState,
+) -> Router {
     let mut api_doc = ApiDoc::openapi();
     let base = std::env::var("BASE_PATH").unwrap_or("http://localhost:3000/".into());
     api_doc.servers = Some(vec![utoipa::openapi::ServerBuilder::new()
@@ -329,7 +353,7 @@ pub async fn create_app<RestState: RestStateDef + public_stats::PublicStatsState
     let swagger_router = SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", api_doc);
 
     let app = Router::new().route("/authenticate", get(login));
-    
+
     #[cfg(feature = "oidc")]
     let app = {
         use axum::error_handling::HandleErrorLayer;
@@ -368,13 +392,25 @@ pub async fn create_app<RestState: RestStateDef + public_stats::PublicStatsState
         .nest("/api/validation", validation::generate_route())
         .nest("/api/templates", template::generate_route())
         .nest("/api/templates/render", template::generate_render_route())
-        .nest("/api/templates/render-application", template::generate_render_application_route())
+        .nest(
+            "/api/templates/render-application",
+            template::generate_render_application_route(),
+        )
         .nest("/api/user-preferences", user_preference::generate_route())
         .nest("/api/config", genossi_config::rest::generate_route())
         .nest("/api/mail", genossi_mail::rest::generate_route())
-        .nest("/api/mail/templates", genossi_mail::rest_templates::generate_route::<RestState>())
-        .nest("/api/mail/footer", mail_footer::generate_route::<RestState>())
-        .nest("/api/inbox", genossi_mail::inbox_rest::generate_route::<RestState>())
+        .nest(
+            "/api/mail/templates",
+            genossi_mail::rest_templates::generate_route::<RestState>(),
+        )
+        .nest(
+            "/api/mail/footer",
+            mail_footer::generate_route::<RestState>(),
+        )
+        .nest(
+            "/api/inbox",
+            genossi_mail::inbox_rest::generate_route::<RestState>(),
+        )
         .nest(
             "/api/members/{member_id}/communications",
             genossi_mail::communication_rest::generate_route::<RestState>(),
@@ -387,18 +423,12 @@ pub async fn create_app<RestState: RestStateDef + public_stats::PublicStatsState
             "/api/static-documents",
             static_document::generate_route::<RestState>(),
         )
-        .nest(
-            "/api/backup",
-            backup::generate_route::<RestState>(),
-        )
+        .nest("/api/backup", backup::generate_route::<RestState>())
         .nest(
             "/api/applications",
             application::generate_route::<RestState>(),
         )
-        .nest(
-            "/api/audit",
-            audit_log::generate_route::<RestState>(),
-        )
+        .nest("/api/audit", audit_log::generate_route::<RestState>())
         .nest(
             "/api/audit/timestamps",
             audit_timestamp::generate_route::<RestState>(),
@@ -481,7 +511,10 @@ pub async fn create_app<RestState: RestStateDef + public_stats::PublicStatsState
     // Public routes (no auth required)
     let app = app
         .nest("/api/public", public_stats::generate_route::<RestState>())
-        .nest("/api/public", application::generate_public_route::<RestState>())
+        .nest(
+            "/api/public",
+            application::generate_public_route::<RestState>(),
+        )
         .with_state(rest_state.clone());
 
     // Dev-only routes (no auth required, only compiled in debug builds)
@@ -499,7 +532,15 @@ pub async fn serve_app(app: Router, listener: tokio::net::TcpListener) {
         .expect("Could not start server");
 }
 
-pub async fn start_server<RestState: RestStateDef + public_stats::PublicStatsState + application::ApplicationRestState + audit_log::AuditRestState + audit_timestamp::TimestampRestState>(rest_state: RestState) {
+pub async fn start_server<
+    RestState: RestStateDef
+        + public_stats::PublicStatsState
+        + application::ApplicationRestState
+        + audit_log::AuditRestState
+        + audit_timestamp::TimestampRestState,
+>(
+    rest_state: RestState,
+) {
     let app = create_app(rest_state).await;
 
     info!("Running server at {}", bind_address());

@@ -51,8 +51,7 @@ pub(crate) fn compute_migration_status(
     let expected_shares = member.current_shares;
     let expected_action_count = member.action_count + 1;
 
-    let status = if actual_shares == expected_shares
-        && actual_action_count == expected_action_count
+    let status = if actual_shares == expected_shares && actual_action_count == expected_action_count
     {
         MigrationState::Migrated
     } else {
@@ -335,10 +334,16 @@ impl<Deps: MemberActionServiceDeps> MemberActionService for MemberActionServiceI
         };
 
         let action_entity: genossi_dao::member_action::MemberActionEntity = (&new_action).into();
-        crate::audited_create!(self, self.member_action_dao, &action_entity, MEMBER_ACTION_SERVICE_PROCESS, &user_id, tx);
+        crate::audited_create!(
+            self,
+            self.member_action_dao,
+            &action_entity,
+            MEMBER_ACTION_SERVICE_PROCESS,
+            &user_id,
+            tx
+        );
 
-        self.recalc_dates(new_action.member_id, tx.clone())
-            .await?;
+        self.recalc_dates(new_action.member_id, tx.clone()).await?;
         self.recalc_migrated(new_action.member_id, tx.clone())
             .await?;
 
@@ -370,7 +375,15 @@ impl<Deps: MemberActionServiceDeps> MemberActionService for MemberActionServiceI
         }
 
         let action_entity: genossi_dao::member_action::MemberActionEntity = item.into();
-        crate::audited_update!(self, self.member_action_dao, item.id, &action_entity, MEMBER_ACTION_SERVICE_PROCESS, &user_id, tx);
+        crate::audited_update!(
+            self,
+            self.member_action_dao,
+            item.id,
+            &action_entity,
+            MEMBER_ACTION_SERVICE_PROCESS,
+            &user_id,
+            tx
+        );
 
         self.recalc_dates(item.member_id, tx.clone()).await?;
         self.recalc_migrated(item.member_id, tx.clone()).await?;
@@ -405,7 +418,14 @@ impl<Deps: MemberActionServiceDeps> MemberActionService for MemberActionServiceI
             .ok_or(ServiceError::EntityNotFound(id))?;
         let member_id = existing.member_id;
 
-        crate::audited_delete!(self, self.member_action_dao, id, MEMBER_ACTION_SERVICE_PROCESS, &user_id, tx);
+        crate::audited_delete!(
+            self,
+            self.member_action_dao,
+            id,
+            MEMBER_ACTION_SERVICE_PROCESS,
+            &user_id,
+            tx
+        );
 
         self.recalc_dates(member_id, tx.clone()).await?;
         self.recalc_migrated(member_id, tx.clone()).await?;
@@ -781,7 +801,12 @@ mod tests {
         let member = make_member_entity(join_date);
         let actions = vec![
             make_action_entity(member.id, ActionType::Eintritt, join_date, None),
-            make_action_entity(member.id, ActionType::Austritt, austritt_date, Some(effective)),
+            make_action_entity(
+                member.id,
+                ActionType::Austritt,
+                austritt_date,
+                Some(effective),
+            ),
         ];
         let (_, exit_date) = compute_dates(&member, &actions);
         assert_eq!(exit_date, Some(effective));
@@ -832,7 +857,12 @@ mod tests {
         let member = make_member_entity(join_date);
         let actions = vec![
             make_action_entity(member.id, ActionType::Eintritt, join_date, None),
-            make_action_entity(member.id, ActionType::Austritt, austritt_date, Some(effective)),
+            make_action_entity(
+                member.id,
+                ActionType::Austritt,
+                austritt_date,
+                Some(effective),
+            ),
             make_action_entity(member.id, ActionType::Todesfall, todesfall_date, None),
         ];
         let (_, exit_date) = compute_dates(&member, &actions);
@@ -982,12 +1012,8 @@ mod tests {
     fn test_migration_status_excludes_note_actions() {
         let join_date = time::Date::from_calendar_date(2024, time::Month::January, 1).unwrap();
         let member = make_member_entity(join_date);
-        let mut aufstockung = make_action_entity(
-            member.id,
-            ActionType::Aufstockung,
-            join_date,
-            None,
-        );
+        let mut aufstockung =
+            make_action_entity(member.id, ActionType::Aufstockung, join_date, None);
         aufstockung.shares_change = 5;
         let note = make_action_entity(member.id, ActionType::Note, join_date, None);
         let actions = vec![

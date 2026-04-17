@@ -33,7 +33,10 @@ impl crate::auditable::Auditable for MemberDocumentEntity {
         vec![
             ("member_id", Some(self.member_id.to_string())),
             ("document_type", Some(self.document_type.to_string())),
-            ("description", self.description.as_ref().map(|s| s.to_string())),
+            (
+                "description",
+                self.description.as_ref().map(|s| s.to_string()),
+            ),
             ("file_name", Some(self.file_name.to_string())),
             ("mime_type", Some(self.mime_type.to_string())),
             ("relative_path", Some(self.relative_path.to_string())),
@@ -46,8 +49,10 @@ impl crate::auditable::Auditable for MemberDocumentEntity {
 pub trait MemberDocumentDao {
     type Transaction: crate::Transaction;
 
-    async fn dump_all(&self, tx: Self::Transaction)
-        -> Result<Arc<[MemberDocumentEntity]>, DaoError>;
+    async fn dump_all(
+        &self,
+        tx: Self::Transaction,
+    ) -> Result<Arc<[MemberDocumentEntity]>, DaoError>;
 
     async fn create(
         &self,

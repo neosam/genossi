@@ -98,10 +98,7 @@ fn map_error(e: MailServiceError) -> Response {
     let (code, msg) = match e {
         MailServiceError::NotFound => (StatusCode::NOT_FOUND, "not found".to_string()),
         MailServiceError::DataAccess(m) => (StatusCode::INTERNAL_SERVER_ERROR, m.to_string()),
-        other => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("{:?}", other),
-        ),
+        other => (StatusCode::INTERNAL_SERVER_ERROR, format!("{:?}", other)),
     };
     (code, msg).into_response()
 }
@@ -129,7 +126,11 @@ pub async fn get_member_communications<S: CommunicationRestState>(
         Err(_) => return (StatusCode::BAD_REQUEST, "invalid member id").into_response(),
     };
 
-    match state.communication_dao().get_member_communications(uuid).await {
+    match state
+        .communication_dao()
+        .get_member_communications(uuid)
+        .await
+    {
         Ok(entries) => {
             let tos: Vec<CommunicationEntryTO> = entries.iter().map(Into::into).collect();
             axum::Json(tos).into_response()

@@ -298,10 +298,7 @@ async fn delete_template<S: MailTemplateRestState>(
     };
 
     match state.mail_template_service().delete(uuid).await {
-        Ok(()) => Response::builder()
-            .status(204)
-            .body(Body::empty())
-            .unwrap(),
+        Ok(()) => Response::builder().status(204).body(Body::empty()).unwrap(),
         Err(e) => error_response(e),
     }
 }

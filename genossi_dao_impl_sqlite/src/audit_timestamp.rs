@@ -121,10 +121,7 @@ impl AuditTimestampDao for AuditTimestampDaoImpl {
         }
     }
 
-    async fn get_all(
-        &self,
-        tx: Self::Transaction,
-    ) -> Result<Arc<[AuditTimestampEntry]>, DaoError> {
+    async fn get_all(&self, tx: Self::Transaction) -> Result<Arc<[AuditTimestampEntry]>, DaoError> {
         let rows = sqlx::query_as::<_, AuditTimestampDb>(
             "SELECT id, timestamp, audit_hash, audit_entry_count, tsr_token, webdav_path, status \
              FROM audit_timestamp ORDER BY rowid DESC",
@@ -256,7 +253,10 @@ mod tests {
         assert_eq!(result.audit_entry_count, 42);
         assert_eq!(result.status.as_ref(), "success");
         assert!(result.tsr_token.is_some());
-        assert_eq!(result.webdav_path.as_deref(), Some("audit-timestamps/test.tsr"));
+        assert_eq!(
+            result.webdav_path.as_deref(),
+            Some("audit-timestamps/test.tsr")
+        );
 
         tx.commit().await.unwrap();
     }
@@ -394,7 +394,10 @@ mod tests {
 
         // Verify updated
         let result = dao.get_by_id(entry.id, tx.clone()).await.unwrap().unwrap();
-        assert_eq!(result.webdav_path.as_deref(), Some("audit-timestamps/test.tsr"));
+        assert_eq!(
+            result.webdav_path.as_deref(),
+            Some("audit-timestamps/test.tsr")
+        );
 
         // Should no longer be pending
         let pending = dao.get_pending_upload(tx.clone()).await.unwrap();

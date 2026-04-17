@@ -177,10 +177,14 @@ mod tests {
     #[tokio::test]
     #[ignore] // Requires network access to freetsa.org
     async fn test_integration_freetsa() {
-        let response_bytes =
-            request_timestamp("https://freetsa.org/tsr", "test_audit_hash_12345", None, None)
-                .await
-                .unwrap();
+        let response_bytes = request_timestamp(
+            "https://freetsa.org/tsr",
+            "test_audit_hash_12345",
+            None,
+            None,
+        )
+        .await
+        .unwrap();
 
         assert!(!response_bytes.is_empty());
         let is_success = parse_timestamp_response(&response_bytes).unwrap();

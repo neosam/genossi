@@ -7,7 +7,10 @@ use axum::{
     Extension, Json, Router,
 };
 use genossi_dao::application::ApplicationStatus;
-use genossi_rest_types::{AdminCreateApplicationRequest, ApplicationStatusTO, ApplicationTO, PublicJoinRequest, PublicJoinResponse, UpdateApplicationRequest};
+use genossi_rest_types::{
+    AdminCreateApplicationRequest, ApplicationStatusTO, ApplicationTO, PublicJoinRequest,
+    PublicJoinResponse, UpdateApplicationRequest,
+};
 use genossi_service::application::{ApplicationService, ApplicationSubmission, ApplicationUpdate};
 use std::sync::Arc;
 use tracing::instrument;
@@ -17,7 +20,10 @@ use uuid::Uuid;
 use crate::{error_handler, Context, RestError, RestStateDef};
 
 pub trait ApplicationRestState: Clone + Send + Sync + 'static {
-    type ApplicationService: ApplicationService<Context = crate::ContextType> + Send + Sync + 'static;
+    type ApplicationService: ApplicationService<Context = crate::ContextType>
+        + Send
+        + Sync
+        + 'static;
 
     fn application_service(&self) -> Arc<Self::ApplicationService>;
     fn get_config_value(
@@ -91,7 +97,10 @@ pub async fn public_join<S: ApplicationRestState>(
                 )));
             }
 
-            let salutation = body.salutation.as_ref().map(genossi_dao::member::Salutation::from);
+            let salutation = body
+                .salutation
+                .as_ref()
+                .map(genossi_dao::member::Salutation::from);
 
             let submission = ApplicationSubmission {
                 first_name: Arc::from(body.first_name.as_str()),
@@ -106,7 +115,10 @@ pub async fn public_join<S: ApplicationRestState>(
                 shares: body.shares,
             };
 
-            state.application_service().submit(&submission, true).await?;
+            state
+                .application_service()
+                .submit(&submission, true)
+                .await?;
 
             Ok(Response::builder()
                 .status(201)
@@ -149,12 +161,16 @@ pub async fn list_applications<RestState: RestStateDef + ApplicationRestState>(
 ) -> Response {
     error_handler(
         (async {
-            let status_filter = query.status.as_deref().map(|s| match s {
-                "Offen" => Ok(ApplicationStatus::Offen),
-                "Bestaetigt" => Ok(ApplicationStatus::Bestaetigt),
-                "Abgelehnt" => Ok(ApplicationStatus::Abgelehnt),
-                other => Err(RestError::BadRequest(format!("Unknown status: {}", other))),
-            }).transpose()?;
+            let status_filter = query
+                .status
+                .as_deref()
+                .map(|s| match s {
+                    "Offen" => Ok(ApplicationStatus::Offen),
+                    "Bestaetigt" => Ok(ApplicationStatus::Bestaetigt),
+                    "Abgelehnt" => Ok(ApplicationStatus::Abgelehnt),
+                    other => Err(RestError::BadRequest(format!("Unknown status: {}", other))),
+                })
+                .transpose()?;
 
             let apps: Arc<[ApplicationTO]> = rest_state
                 .application_service()
@@ -195,7 +211,10 @@ pub async fn create_application<RestState: RestStateDef + ApplicationRestState>(
         (async {
             crate::extract_auth_context(Some(context))?;
 
-            let salutation = body.salutation.as_ref().map(genossi_dao::member::Salutation::from);
+            let salutation = body
+                .salutation
+                .as_ref()
+                .map(genossi_dao::member::Salutation::from);
             let send_mail = body.send_mail.unwrap_or(false);
 
             let submission = ApplicationSubmission {
@@ -254,7 +273,9 @@ pub async fn get_application<RestState: RestStateDef + ApplicationRestState>(
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::to_string(&ApplicationTO::from(&app)).unwrap()))
+                .body(Body::new(
+                    serde_json::to_string(&ApplicationTO::from(&app)).unwrap(),
+                ))
                 .unwrap())
         })
         .await,
@@ -288,7 +309,9 @@ pub async fn confirm_application<RestState: RestStateDef + ApplicationRestState>
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::to_string(&ApplicationTO::from(&app)).unwrap()))
+                .body(Body::new(
+                    serde_json::to_string(&ApplicationTO::from(&app)).unwrap(),
+                ))
                 .unwrap())
         })
         .await,
@@ -322,7 +345,9 @@ pub async fn reject_application<RestState: RestStateDef + ApplicationRestState>(
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::to_string(&ApplicationTO::from(&app)).unwrap()))
+                .body(Body::new(
+                    serde_json::to_string(&ApplicationTO::from(&app)).unwrap(),
+                ))
                 .unwrap())
         })
         .await,
@@ -351,7 +376,10 @@ pub async fn update_application<RestState: RestStateDef + ApplicationRestState>(
 ) -> Response {
     error_handler(
         (async {
-            let salutation = body.salutation.as_ref().map(genossi_dao::member::Salutation::from);
+            let salutation = body
+                .salutation
+                .as_ref()
+                .map(genossi_dao::member::Salutation::from);
 
             let update = ApplicationUpdate {
                 first_name: Arc::from(body.first_name.as_str()),
@@ -375,7 +403,9 @@ pub async fn update_application<RestState: RestStateDef + ApplicationRestState>(
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::to_string(&ApplicationTO::from(&app)).unwrap()))
+                .body(Body::new(
+                    serde_json::to_string(&ApplicationTO::from(&app)).unwrap(),
+                ))
                 .unwrap())
         })
         .await,
@@ -384,16 +414,35 @@ pub async fn update_application<RestState: RestStateDef + ApplicationRestState>(
 
 pub fn generate_route<RestState: RestStateDef + ApplicationRestState>() -> Router<RestState> {
     Router::new()
-        .route("/", get(list_applications::<RestState>).post(create_application::<RestState>))
-        .route("/{id}", get(get_application::<RestState>).put(update_application::<RestState>))
+        .route(
+            "/",
+            get(list_applications::<RestState>).post(create_application::<RestState>),
+        )
+        .route(
+            "/{id}",
+            get(get_application::<RestState>).put(update_application::<RestState>),
+        )
         .route("/{id}/confirm", post(confirm_application::<RestState>))
         .route("/{id}/reject", post(reject_application::<RestState>))
 }
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(list_applications, create_application, get_application, update_application, confirm_application, reject_application),
-    components(schemas(ApplicationTO, ApplicationStatusTO, AdminCreateApplicationRequest, UpdateApplicationRequest, PublicJoinResponse))
+    paths(
+        list_applications,
+        create_application,
+        get_application,
+        update_application,
+        confirm_application,
+        reject_application
+    ),
+    components(schemas(
+        ApplicationTO,
+        ApplicationStatusTO,
+        AdminCreateApplicationRequest,
+        UpdateApplicationRequest,
+        PublicJoinResponse
+    ))
 )]
 pub struct ApiDoc;
 

@@ -6,8 +6,8 @@ use genossi_service::member_action::MigrationState;
 use genossi_service::permission::{Authentication, PermissionService};
 use genossi_service::validation::{
     ActiveMemberNoShares, DuplicateMemberNumber, ExitDateMismatch, ExitedMemberWithShares,
-    MigratedFlagMismatch, MissingEntryAction, SharesMismatch, UnmatchedTransfer,
-    ValidationResult, ValidationService,
+    MigratedFlagMismatch, MissingEntryAction, SharesMismatch, UnmatchedTransfer, ValidationResult,
+    ValidationService,
 };
 use genossi_service::ServiceError;
 use std::collections::{HashMap, HashSet};
@@ -28,9 +28,7 @@ gen_service_impl! {
     }
 }
 
-fn find_member_number_gaps(
-    members: &[genossi_dao::member::MemberEntity],
-) -> Arc<[i64]> {
+fn find_member_number_gaps(members: &[genossi_dao::member::MemberEntity]) -> Arc<[i64]> {
     if members.is_empty() {
         return Arc::from([]);
     }
@@ -52,10 +50,8 @@ fn find_unmatched_transfers(
     actions: &[genossi_dao::member_action::MemberActionEntity],
     members: &[genossi_dao::member::MemberEntity],
 ) -> Arc<[UnmatchedTransfer]> {
-    let member_number_map: HashMap<Uuid, i64> = members
-        .iter()
-        .map(|m| (m.id, m.member_number))
-        .collect();
+    let member_number_map: HashMap<Uuid, i64> =
+        members.iter().map(|m| (m.id, m.member_number)).collect();
 
     let transfers: Vec<&genossi_dao::member_action::MemberActionEntity> = actions
         .iter()
@@ -104,9 +100,7 @@ fn find_unmatched_transfers(
                 member_number: *member_number_map.get(&a.member_id).unwrap_or(&0),
                 action_type: a.action_type.clone(),
                 transfer_member_id,
-                transfer_member_number: *member_number_map
-                    .get(&transfer_member_id)
-                    .unwrap_or(&0),
+                transfer_member_number: *member_number_map.get(&transfer_member_id).unwrap_or(&0),
                 shares_change: a.shares_change,
                 date: a.date,
             }
@@ -117,8 +111,13 @@ fn find_unmatched_transfers(
 fn is_complementary_type(a: &ActionType, b: &ActionType) -> bool {
     matches!(
         (a, b),
-        (ActionType::UebertragungAbgabe, ActionType::UebertragungEmpfang)
-            | (ActionType::UebertragungEmpfang, ActionType::UebertragungAbgabe)
+        (
+            ActionType::UebertragungAbgabe,
+            ActionType::UebertragungEmpfang
+        ) | (
+            ActionType::UebertragungEmpfang,
+            ActionType::UebertragungAbgabe
+        )
     )
 }
 
@@ -159,14 +158,13 @@ fn find_missing_entry_actions(
     members: &[genossi_dao::member::MemberEntity],
     actions: &[genossi_dao::member_action::MemberActionEntity],
 ) -> Arc<[MissingEntryAction]> {
-    let eintritt_counts: HashMap<Uuid, i32> =
-        actions
-            .iter()
-            .filter(|a| a.action_type == ActionType::Eintritt)
-            .fold(HashMap::new(), |mut map, a| {
-                *map.entry(a.member_id).or_insert(0) += 1;
-                map
-            });
+    let eintritt_counts: HashMap<Uuid, i32> = actions
+        .iter()
+        .filter(|a| a.action_type == ActionType::Eintritt)
+        .fold(HashMap::new(), |mut map, a| {
+            *map.entry(a.member_id).or_insert(0) += 1;
+            map
+        });
 
     members
         .iter()
@@ -223,7 +221,12 @@ fn find_active_members_no_shares(
 ) -> Arc<[ActiveMemberNoShares]> {
     members
         .iter()
-        .filter(|m| m.deleted.is_none() && m.status.is_normal() && m.exit_date.is_none() && m.current_shares <= 0)
+        .filter(|m| {
+            m.deleted.is_none()
+                && m.status.is_normal()
+                && m.exit_date.is_none()
+                && m.current_shares <= 0
+        })
         .map(|m| ActiveMemberNoShares {
             member_id: m.id,
             member_number: m.member_number,
@@ -256,7 +259,12 @@ fn find_exited_members_with_shares(
 ) -> Arc<[ExitedMemberWithShares]> {
     members
         .iter()
-        .filter(|m| m.deleted.is_none() && m.status.is_normal() && m.exit_date.is_some() && m.current_shares > 0)
+        .filter(|m| {
+            m.deleted.is_none()
+                && m.status.is_normal()
+                && m.exit_date.is_some()
+                && m.current_shares > 0
+        })
         .map(|m| ExitedMemberWithShares {
             member_id: m.id,
             member_number: m.member_number,
@@ -353,7 +361,11 @@ mod tests {
     use genossi_dao::member_action::MemberActionEntity;
     use time::{Date, Month, Time};
 
-    fn make_member(member_number: i64, id: Uuid, deleted: Option<time::PrimitiveDateTime>) -> MemberEntity {
+    fn make_member(
+        member_number: i64,
+        id: Uuid,
+        deleted: Option<time::PrimitiveDateTime>,
+    ) -> MemberEntity {
         let date = Date::from_calendar_date(2025, Month::January, 1).unwrap();
         let datetime = time::PrimitiveDateTime::new(date, Time::MIDNIGHT);
         MemberEntity {
@@ -504,8 +516,22 @@ mod tests {
         ];
 
         let actions = vec![
-            make_transfer(Uuid::new_v4(), member_a, ActionType::UebertragungAbgabe, member_b, -3, date),
-            make_transfer(Uuid::new_v4(), member_b, ActionType::UebertragungEmpfang, member_a, 3, date),
+            make_transfer(
+                Uuid::new_v4(),
+                member_a,
+                ActionType::UebertragungAbgabe,
+                member_b,
+                -3,
+                date,
+            ),
+            make_transfer(
+                Uuid::new_v4(),
+                member_b,
+                ActionType::UebertragungEmpfang,
+                member_a,
+                3,
+                date,
+            ),
         ];
 
         let unmatched = find_unmatched_transfers(&actions, &members);
@@ -524,7 +550,12 @@ mod tests {
         ];
 
         let actions = vec![make_transfer(
-            Uuid::new_v4(), member_a, ActionType::UebertragungAbgabe, member_b, -3, date,
+            Uuid::new_v4(),
+            member_a,
+            ActionType::UebertragungAbgabe,
+            member_b,
+            -3,
+            date,
         )];
 
         let unmatched = find_unmatched_transfers(&actions, &members);
@@ -544,8 +575,22 @@ mod tests {
         ];
 
         let actions = vec![
-            make_transfer(Uuid::new_v4(), member_a, ActionType::UebertragungAbgabe, member_b, -3, date),
-            make_transfer(Uuid::new_v4(), member_b, ActionType::UebertragungEmpfang, member_a, 2, date),
+            make_transfer(
+                Uuid::new_v4(),
+                member_a,
+                ActionType::UebertragungAbgabe,
+                member_b,
+                -3,
+                date,
+            ),
+            make_transfer(
+                Uuid::new_v4(),
+                member_b,
+                ActionType::UebertragungEmpfang,
+                member_a,
+                2,
+                date,
+            ),
         ];
 
         let unmatched = find_unmatched_transfers(&actions, &members);
@@ -565,8 +610,22 @@ mod tests {
         ];
 
         let actions = vec![
-            make_transfer(Uuid::new_v4(), member_a, ActionType::UebertragungAbgabe, member_b, -3, date1),
-            make_transfer(Uuid::new_v4(), member_b, ActionType::UebertragungEmpfang, member_a, 3, date2),
+            make_transfer(
+                Uuid::new_v4(),
+                member_a,
+                ActionType::UebertragungAbgabe,
+                member_b,
+                -3,
+                date1,
+            ),
+            make_transfer(
+                Uuid::new_v4(),
+                member_b,
+                ActionType::UebertragungEmpfang,
+                member_a,
+                3,
+                date2,
+            ),
         ];
 
         let unmatched = find_unmatched_transfers(&actions, &members);
@@ -757,10 +816,7 @@ mod tests {
     fn test_duplicate_numbers() {
         let id_a = Uuid::new_v4();
         let id_b = Uuid::new_v4();
-        let members = vec![
-            make_member(42, id_a, None),
-            make_member(42, id_b, None),
-        ];
+        let members = vec![make_member(42, id_a, None), make_member(42, id_b, None)];
         let result = find_duplicate_member_numbers(&members);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].member_number, 42);

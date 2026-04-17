@@ -23,7 +23,9 @@ fn push_filter<'a>(builder: &mut QueryBuilder<'a, Sqlite>, filter: &'a AuditQuer
 
     if let Some(ref entity_type) = filter.entity_type {
         push_where(builder);
-        builder.push("entity_type = ").push_bind(entity_type.clone());
+        builder
+            .push("entity_type = ")
+            .push_bind(entity_type.clone());
     }
     if let Some(entity_id) = filter.entity_id {
         push_where(builder);
@@ -171,10 +173,7 @@ impl AuditLogDao for AuditLogDaoImpl {
         Ok(())
     }
 
-    async fn get_latest_hash(
-        &self,
-        tx: Self::Transaction,
-    ) -> Result<Option<String>, DaoError> {
+    async fn get_latest_hash(&self, tx: Self::Transaction) -> Result<Option<String>, DaoError> {
         let result = sqlx::query_scalar::<_, String>(
             "SELECT entry_hash FROM audit_log ORDER BY rowid DESC LIMIT 1",
         )
@@ -457,16 +456,20 @@ mod tests {
         }
     }
 
-    fn ts(year: i32, month: time::Month, day: u8, hour: u8, minute: u8, second: u8) -> PrimitiveDateTime {
+    fn ts(
+        year: i32,
+        month: time::Month,
+        day: u8,
+        hour: u8,
+        minute: u8,
+        second: u8,
+    ) -> PrimitiveDateTime {
         let date = time::Date::from_calendar_date(year, month, day).unwrap();
         let time_v = time::Time::from_hms(hour, minute, second).unwrap();
         PrimitiveDateTime::new(date, time_v)
     }
 
-    async fn seed_diverse(
-        dao: &AuditLogDaoImpl,
-        tx: TransactionImpl,
-    ) -> Vec<AuditLogEntry> {
+    async fn seed_diverse(dao: &AuditLogDaoImpl, tx: TransactionImpl) -> Vec<AuditLogEntry> {
         let entries = vec![
             make_entry_with(
                 "first_name",

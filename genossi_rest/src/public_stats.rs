@@ -81,9 +81,7 @@ pub trait PublicStatsState: Clone + Send + Sync + 'static {
     ),
     tag = "Public Stats"
 )]
-async fn get_member_count<S: PublicStatsState>(
-    State(state): State<S>,
-) -> Response {
+async fn get_member_count<S: PublicStatsState>(State(state): State<S>) -> Response {
     let cache = state.public_stats_cache();
 
     // Check config (cached)
@@ -122,10 +120,7 @@ pub fn generate_route<S: PublicStatsState>() -> axum::Router<S> {
 }
 
 #[derive(utoipa::OpenApi)]
-#[openapi(
-    paths(get_member_count),
-    components(schemas(MemberCountResponse))
-)]
+#[openapi(paths(get_member_count), components(schemas(MemberCountResponse)))]
 pub struct ApiDoc;
 
 #[cfg(test)]

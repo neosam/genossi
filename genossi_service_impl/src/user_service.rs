@@ -1,9 +1,5 @@
 use async_trait::async_trait;
-use genossi_service::{
-    auth_types::AuthenticatedContext,
-    user_service::UserService,
-    ServiceError,
-};
+use genossi_service::{auth_types::AuthenticatedContext, user_service::UserService, ServiceError};
 
 /// UserService implementation that extracts user from AuthenticatedContext
 pub struct AuthContextUserService;

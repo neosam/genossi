@@ -15,7 +15,15 @@ pub mod test_support {
         }
     }
 
-    pub async fn start_test_server<RestState: RestStateDef + crate::public_stats::PublicStatsState + crate::application::ApplicationRestState + crate::audit_log::AuditRestState + crate::audit_timestamp::TimestampRestState>(rest_state: RestState) -> TestServer {
+    pub async fn start_test_server<
+        RestState: RestStateDef
+            + crate::public_stats::PublicStatsState
+            + crate::application::ApplicationRestState
+            + crate::audit_log::AuditRestState
+            + crate::audit_timestamp::TimestampRestState,
+    >(
+        rest_state: RestState,
+    ) -> TestServer {
         // Bind to a random available port
         let listener = TcpListener::bind("127.0.0.1:0")
             .await

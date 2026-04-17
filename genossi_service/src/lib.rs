@@ -1,6 +1,5 @@
 pub mod application;
 pub mod auth_types;
-pub mod template;
 pub mod claim_context;
 pub mod claim_utils;
 pub mod document_storage;
@@ -10,9 +9,10 @@ pub mod member_document;
 pub mod member_import;
 pub mod permission;
 pub mod session;
+pub mod template;
 pub mod timestamp;
-pub mod user_service;
 pub mod user_preference;
+pub mod user_service;
 pub mod uuid_service;
 pub mod validation;
 

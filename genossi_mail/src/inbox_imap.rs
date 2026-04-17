@@ -146,11 +146,7 @@ impl InboxImapClient for AsyncImapClient {
         Ok(out)
     }
 
-    async fn mark_seen(
-        &self,
-        config: &ImapConfig,
-        uid: i64,
-    ) -> Result<(), MailServiceError> {
+    async fn mark_seen(&self, config: &ImapConfig, uid: i64) -> Result<(), MailServiceError> {
         let mut session = open_select_session(config).await?;
         let stream = session
             .uid_store(format!("{}", uid), "+FLAGS (\\Seen)")
@@ -161,11 +157,7 @@ impl InboxImapClient for AsyncImapClient {
         Ok(())
     }
 
-    async fn move_to_archive(
-        &self,
-        config: &ImapConfig,
-        uid: i64,
-    ) -> Result<(), MailServiceError> {
+    async fn move_to_archive(&self, config: &ImapConfig, uid: i64) -> Result<(), MailServiceError> {
         let archive = config
             .archive_mailbox
             .as_deref()
@@ -180,10 +172,7 @@ impl InboxImapClient for AsyncImapClient {
         Ok(())
     }
 
-    async fn list_folders(
-        &self,
-        config: &ImapConfig,
-    ) -> Result<Vec<String>, MailServiceError> {
+    async fn list_folders(&self, config: &ImapConfig) -> Result<Vec<String>, MailServiceError> {
         let stream = connect_tls(config).await?;
         let client = Client::new(stream);
         let mut session = authenticate(client, config).await?;

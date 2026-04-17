@@ -1,10 +1,4 @@
-use axum::{
-    body::Body,
-    extract::State,
-    response::Response,
-    routing::get,
-    Extension, Router,
-};
+use axum::{body::Body, extract::State, response::Response, routing::get, Extension, Router};
 use genossi_rest_types::ValidationResultTO;
 use genossi_service::validation::ValidationService;
 use tracing::instrument;

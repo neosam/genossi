@@ -40,10 +40,7 @@ pub trait UserPreferenceDao {
         tx: Self::Transaction,
     ) -> Result<(), DaoError>;
 
-    async fn all(
-        &self,
-        tx: Self::Transaction,
-    ) -> Result<Arc<[UserPreferenceEntity]>, DaoError> {
+    async fn all(&self, tx: Self::Transaction) -> Result<Arc<[UserPreferenceEntity]>, DaoError> {
         let all_entities = self.dump_all(tx).await?;
         let active_entities: Vec<UserPreferenceEntity> = all_entities
             .iter()

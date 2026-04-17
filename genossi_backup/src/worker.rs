@@ -150,7 +150,11 @@ where
                 .map_err(|e| format!("Failed to upload {}: {}", path, e))?;
 
             csv_count += 1;
-            tracing::info!("Uploaded mitgliederliste-{}.csv ({} members)", year, members.len());
+            tracing::info!(
+                "Uploaded mitgliederliste-{}.csv ({} members)",
+                year,
+                members.len()
+            );
         }
 
         // 3. Upload current member CSV
@@ -283,7 +287,11 @@ where
                             .update_webdav_path(entry.id, &path, tx.clone())
                             .await
                         {
-                            tracing::warn!("Failed to update webdav_path for {}: {:?}", entry.id, e);
+                            tracing::warn!(
+                                "Failed to update webdav_path for {}: {:?}",
+                                entry.id,
+                                e
+                            );
                         }
                         tsr_uploaded += 1;
                         tracing::info!("Uploaded {}", filename);

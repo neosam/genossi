@@ -54,8 +54,9 @@ pub async fn export_members<RestState: RestStateDef>(
 
             let format = time::format_description::parse("[year]-[month]-[day]")
                 .map_err(|e| RestError::InternalError(e.to_string()))?;
-            let date = time::Date::parse(&query.date, &format)
-                .map_err(|_| RestError::BadRequest("Invalid date format. Use YYYY-MM-DD.".into()))?;
+            let date = time::Date::parse(&query.date, &format).map_err(|_| {
+                RestError::BadRequest("Invalid date format. Use YYYY-MM-DD.".into())
+            })?;
 
             let members = rest_state
                 .backup_dao()
@@ -63,8 +64,8 @@ pub async fn export_members<RestState: RestStateDef>(
                 .await
                 .map_err(|e| RestError::InternalError(format!("{:?}", e)))?;
 
-            let buf = generator::generate_members_csv(&members)
-                .map_err(RestError::InternalError)?;
+            let buf =
+                generator::generate_members_csv(&members).map_err(RestError::InternalError)?;
 
             let filename = format!("mitgliederliste_{}.csv", query.date);
             Ok(Response::builder()
@@ -96,8 +97,8 @@ pub async fn export_actions<RestState: RestStateDef>(
                 .await
                 .map_err(|e| RestError::InternalError(format!("{:?}", e)))?;
 
-            let buf = generator::generate_actions_csv(&actions)
-                .map_err(RestError::InternalError)?;
+            let buf =
+                generator::generate_actions_csv(&actions).map_err(RestError::InternalError)?;
 
             Ok(Response::builder()
                 .status(200)
@@ -159,8 +160,7 @@ pub async fn export_documents<RestState: RestStateDef>(
                         "{:03}_{}_{}",
                         doc.member_number, doc.last_name, doc.first_name
                     );
-                    let file_path =
-                        format!("{}/{}_{}", dir_name, doc.document_type, doc.file_name);
+                    let file_path = format!("{}/{}_{}", dir_name, doc.document_type, doc.file_name);
 
                     zip.start_file(&file_path, options)
                         .map_err(|e| RestError::InternalError(e.to_string()))?;
@@ -188,13 +188,12 @@ pub async fn export_documents<RestState: RestStateDef>(
 
                     let file_path = if *count > 1 {
                         let suffix = &comm.mail_id.to_string()[..8];
-                        let filename_with_suffix =
-                            generator::generate_communication_filename(
-                                &comm.date,
-                                &comm.direction,
-                                &comm.subject,
-                                Some(suffix),
-                            );
+                        let filename_with_suffix = generator::generate_communication_filename(
+                            &comm.date,
+                            &comm.direction,
+                            &comm.subject,
+                            Some(suffix),
+                        );
                         format!("{}/kommunikation/{}.txt", dir_name, filename_with_suffix)
                     } else {
                         format!("{}.txt", full_base)
@@ -250,12 +249,14 @@ pub async fn test_webdav<RestState: RestStateDef>(
 
             let url = find("backup_webdav_url")
                 .ok_or_else(|| RestError::BadRequest("backup_webdav_url not configured".into()))?;
-            let username = find("backup_webdav_username")
-                .ok_or_else(|| RestError::BadRequest("backup_webdav_username not configured".into()))?;
-            let password = find("backup_webdav_password")
-                .ok_or_else(|| RestError::BadRequest("backup_webdav_password not configured".into()))?;
-            let directory = find("backup_webdav_directory")
-                .unwrap_or_else(|| "genossi-export".to_string());
+            let username = find("backup_webdav_username").ok_or_else(|| {
+                RestError::BadRequest("backup_webdav_username not configured".into())
+            })?;
+            let password = find("backup_webdav_password").ok_or_else(|| {
+                RestError::BadRequest("backup_webdav_password not configured".into())
+            })?;
+            let directory =
+                find("backup_webdav_directory").unwrap_or_else(|| "genossi-export".to_string());
 
             let client = WebDavClient::new(&url, &username, &password);
             client
@@ -266,9 +267,7 @@ pub async fn test_webdav<RestState: RestStateDef>(
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(
-                    serde_json::json!({"success": true}).to_string(),
-                ))
+                .body(Body::new(serde_json::json!({"success": true}).to_string()))
                 .unwrap())
         })
         .await,

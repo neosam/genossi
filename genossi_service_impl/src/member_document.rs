@@ -6,10 +6,10 @@ use genossi_dao::TransactionDao;
 use genossi_service::member_document::{
     DocumentType, MemberDocument, MemberDocumentService, UploadDocument,
 };
-use std::collections::HashMap;
 use genossi_service::permission::{Authentication, PermissionService};
 use genossi_service::uuid_service::UuidService;
 use genossi_service::{ServiceError, ValidationFailureItem};
+use std::collections::HashMap;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -41,9 +41,7 @@ impl<Deps: MemberDocumentServiceDeps> MemberDocumentServiceImpl<Deps> {
 }
 
 #[async_trait]
-impl<Deps: MemberDocumentServiceDeps> MemberDocumentService
-    for MemberDocumentServiceImpl<Deps>
-{
+impl<Deps: MemberDocumentServiceDeps> MemberDocumentService for MemberDocumentServiceImpl<Deps> {
     type Context = Deps::Context;
     type Transaction = Deps::Transaction;
 
@@ -74,7 +72,12 @@ impl<Deps: MemberDocumentServiceDeps> MemberDocumentService
         }
 
         // Validate Other requires description
-        if upload.document_type == DocumentType::Other && upload.description.as_ref().map_or(true, |d| d.trim().is_empty()) {
+        if upload.document_type == DocumentType::Other
+            && upload
+                .description
+                .as_ref()
+                .map_or(true, |d| d.trim().is_empty())
+        {
             return Err(ServiceError::ValidationError(vec![ValidationFailureItem {
                 field: Arc::from("description"),
                 message: Arc::from("Description is required for document type 'Other'"),
@@ -123,7 +126,14 @@ impl<Deps: MemberDocumentServiceDeps> MemberDocumentService
         };
 
         let doc_entity: genossi_dao::member_document::MemberDocumentEntity = (&new_doc).into();
-        crate::audited_create!(self, self.member_document_dao, &doc_entity, PROCESS, &user_id, tx);
+        crate::audited_create!(
+            self,
+            self.member_document_dao,
+            &doc_entity,
+            PROCESS,
+            &user_id,
+            tx
+        );
 
         self.transaction_dao.commit(tx).await?;
         Ok(new_doc)
@@ -210,7 +220,14 @@ impl<Deps: MemberDocumentServiceDeps> MemberDocumentService
             return Err(ServiceError::EntityNotFound(document_id));
         }
 
-        crate::audited_delete!(self, self.member_document_dao, document_id, PROCESS, &user_id, tx);
+        crate::audited_delete!(
+            self,
+            self.member_document_dao,
+            document_id,
+            PROCESS,
+            &user_id,
+            tx
+        );
 
         self.transaction_dao.commit(tx).await?;
         Ok(())

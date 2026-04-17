@@ -209,9 +209,11 @@ mod tests {
     fn test_numeric_fields() {
         let member = make_member("Max", "Mustermann");
         let ctx = member_to_template_context(&member);
-        let result =
-            render_template("Nr: {{ member_number }}, Anteile: {{ current_shares }}", &ctx)
-                .unwrap();
+        let result = render_template(
+            "Nr: {{ member_number }}, Anteile: {{ current_shares }}",
+            &ctx,
+        )
+        .unwrap();
         assert_eq!(result, "Nr: 42, Anteile: 3");
     }
 
@@ -243,8 +245,12 @@ mod tests {
 
     #[test]
     fn test_validate_template_valid() {
-        let members = vec![make_member("Max", "Mustermann"), make_member("Erika", "Muster")];
-        let result = validate_template("Hallo {{ first_name }}", "Lieber {{ last_name }}", &members);
+        let members = vec![
+            make_member("Max", "Mustermann"),
+            make_member("Erika", "Muster"),
+        ];
+        let result =
+            validate_template("Hallo {{ first_name }}", "Lieber {{ last_name }}", &members);
         assert!(result.is_ok());
     }
 
@@ -381,15 +387,14 @@ mod tests {
 
     #[test]
     fn test_render_footer_with_sender_name() {
-        let result = render_footer("Mit freundlichen Grüßen\n{{ sender_name }}", "Anna Schmidt")
-            .unwrap();
+        let result =
+            render_footer("Mit freundlichen Grüßen\n{{ sender_name }}", "Anna Schmidt").unwrap();
         assert_eq!(result, "Mit freundlichen Grüßen\nAnna Schmidt");
     }
 
     #[test]
     fn test_render_footer_empty_sender_name() {
-        let result =
-            render_footer("Mit freundlichen Grüßen\n{{ sender_name }}", "").unwrap();
+        let result = render_footer("Mit freundlichen Grüßen\n{{ sender_name }}", "").unwrap();
         assert_eq!(result, "Mit freundlichen Grüßen\n");
     }
 

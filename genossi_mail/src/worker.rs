@@ -65,7 +65,11 @@ async fn mark_recipient_failed<R: MailRecipientDao, J: MailJobDao>(
     updated.sent_at = Some(now_primitive);
 
     if let Err(e) = recipient_dao.update(&updated).await {
-        tracing::error!("Worker: failed to update recipient {}: {:?}", recipient.id, e);
+        tracing::error!(
+            "Worker: failed to update recipient {}: {:?}",
+            recipient.id,
+            e
+        );
     }
 
     job.failed_count += 1;
@@ -245,21 +249,25 @@ pub async fn start_mail_worker<C, J, R, A, SA, D, M, IB>(
         };
 
         // Resolve In-Reply-To header for reply jobs
-        let reply_message_id: Option<String> = if let Some(inbound_id) = job.reply_to_inbound_mail_id {
-            match inbound_mail_dao.find_by_id(inbound_id).await {
-                Ok(Some(inbound)) => inbound.message_id.as_ref().map(|s| s.to_string()),
-                Ok(None) => {
-                    tracing::warn!("Worker: inbound mail {} not found for reply threading", inbound_id);
-                    None
+        let reply_message_id: Option<String> =
+            if let Some(inbound_id) = job.reply_to_inbound_mail_id {
+                match inbound_mail_dao.find_by_id(inbound_id).await {
+                    Ok(Some(inbound)) => inbound.message_id.as_ref().map(|s| s.to_string()),
+                    Ok(None) => {
+                        tracing::warn!(
+                            "Worker: inbound mail {} not found for reply threading",
+                            inbound_id
+                        );
+                        None
+                    }
+                    Err(e) => {
+                        tracing::warn!("Worker: failed to load inbound mail for reply: {:?}", e);
+                        None
+                    }
                 }
-                Err(e) => {
-                    tracing::warn!("Worker: failed to load inbound mail for reply: {:?}", e);
-                    None
-                }
-            }
-        } else {
-            None
-        };
+            } else {
+                None
+            };
 
         // Load SMTP config and send
         let send_result = send_mail_for_recipient(
@@ -285,11 +293,7 @@ pub async fn start_mail_worker<C, J, R, A, SA, D, M, IB>(
                 updated_recipient.sent_at = Some(now_primitive);
                 updated_recipient.message_id = message_id.map(Arc::from);
                 job.sent_count += 1;
-                tracing::info!(
-                    "Worker: sent mail to {} (job {})",
-                    next.to_address,
-                    job.id
-                );
+                tracing::info!("Worker: sent mail to {} (job {})", next.to_address, job.id);
             }
             Err(e) => {
                 let error_msg = format!("{:?}", e);
@@ -367,9 +371,7 @@ async fn send_mail_for_recipient<C: ConfigService, D: DocumentStorage>(
 
     if let Some(ref_id) = in_reply_to {
         let bracketed = format!("<{}>", ref_id);
-        builder = builder
-            .in_reply_to(bracketed.clone())
-            .references(bracketed);
+        builder = builder.in_reply_to(bracketed.clone()).references(bracketed);
     }
 
     let email = if attachments.is_empty() {
@@ -392,9 +394,13 @@ async fn send_mail_for_recipient<C: ConfigService, D: DocumentStorage>(
                 })?;
 
             let content_type = lettre::message::header::ContentType::parse(&att.mime_type)
-                .unwrap_or(lettre::message::header::ContentType::parse("application/octet-stream").unwrap());
+                .unwrap_or(
+                    lettre::message::header::ContentType::parse("application/octet-stream")
+                        .unwrap(),
+                );
 
-            let attachment = Attachment::new(att.file_name.to_string()).body(file_bytes, content_type);
+            let attachment =
+                Attachment::new(att.file_name.to_string()).body(file_bytes, content_type);
             multipart = multipart.singlepart(attachment);
         }
 
@@ -438,9 +444,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_send_interval_default() {
         let mut config_mock = MockConfigService::new();
-        config_mock
-            .expect_get_all()
-            .returning(|| Ok(vec![].into()));
+        config_mock.expect_get_all().returning(|| Ok(vec![].into()));
 
         let interval = get_send_interval(&config_mock).await;
         assert_eq!(interval, DEFAULT_SEND_INTERVAL_SECONDS);
@@ -621,8 +625,7 @@ mod tests {
             .headers()
             .get_raw("Message-ID")
             .expect("lettre should set a Message-ID");
-        let normalized =
-            crate::dao::normalize_message_id(raw).expect("normalized Message-ID");
+        let normalized = crate::dao::normalize_message_id(raw).expect("normalized Message-ID");
         assert!(
             !normalized.contains('<') && !normalized.contains('>'),
             "normalized Message-ID must not contain angle brackets: {normalized}"
@@ -645,8 +648,10 @@ mod tests {
         let body = "Anbei die Bescheinigung für Herrn Müller.";
         let text_part = SinglePart::plain(body.to_string());
 
-        let attachment = Attachment::new("test.pdf".to_string())
-            .body(b"%PDF-fake".to_vec(), ContentType::parse("application/pdf").unwrap());
+        let attachment = Attachment::new("test.pdf".to_string()).body(
+            b"%PDF-fake".to_vec(),
+            ContentType::parse("application/pdf").unwrap(),
+        );
 
         let multipart = MultiPart::mixed()
             .singlepart(text_part)

@@ -162,10 +162,8 @@ mod tests {
     #[tokio::test]
     async fn test_create_success() {
         let mut mock = MockMailTemplateDao::new();
-        mock.expect_find_by_name()
-            .returning(|_| Ok(None));
-        mock.expect_create()
-            .returning(|_| Ok(()));
+        mock.expect_find_by_name().returning(|_| Ok(None));
+        mock.expect_create().returning(|_| Ok(()));
 
         let service = MailTemplateServiceImpl::new(Arc::new(mock));
         let result = service.create("Test", "Subject", "Body").await;

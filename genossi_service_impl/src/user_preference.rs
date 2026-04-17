@@ -24,9 +24,7 @@ gen_service_impl! {
 }
 
 #[async_trait]
-impl<Deps: UserPreferenceServiceDeps> UserPreferenceService
-    for UserPreferenceServiceImpl<Deps>
-{
+impl<Deps: UserPreferenceServiceDeps> UserPreferenceService for UserPreferenceServiceImpl<Deps> {
     type Context = Deps::Context;
     type Transaction = Deps::Transaction;
 

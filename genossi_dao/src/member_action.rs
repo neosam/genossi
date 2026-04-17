@@ -83,8 +83,14 @@ impl crate::auditable::Auditable for MemberActionEntity {
             ("action_type", Some(self.action_type.as_str().to_string())),
             ("date", Some(format_date(&self.date))),
             ("shares_change", Some(self.shares_change.to_string())),
-            ("transfer_member_id", self.transfer_member_id.map(|u| u.to_string())),
-            ("effective_date", self.effective_date.as_ref().map(format_date)),
+            (
+                "transfer_member_id",
+                self.transfer_member_id.map(|u| u.to_string()),
+            ),
+            (
+                "effective_date",
+                self.effective_date.as_ref().map(format_date),
+            ),
             ("comment", self.comment.as_ref().map(|s| s.to_string())),
         ]
     }
@@ -95,10 +101,7 @@ impl crate::auditable::Auditable for MemberActionEntity {
 pub trait MemberActionDao {
     type Transaction: crate::Transaction;
 
-    async fn dump_all(
-        &self,
-        tx: Self::Transaction,
-    ) -> Result<Arc<[MemberActionEntity]>, DaoError>;
+    async fn dump_all(&self, tx: Self::Transaction) -> Result<Arc<[MemberActionEntity]>, DaoError>;
 
     async fn create(
         &self,

@@ -1,11 +1,11 @@
+use crate::RestStateDef;
 use axum::{extract::State, http::StatusCode, response::IntoResponse, routing::post, Json, Router};
+use genossi_dao::member_action::ActionType;
 use genossi_service::member::MemberService;
 use genossi_service::member_action::{MemberAction, MemberActionService};
 use genossi_service::permission::Authentication;
-use genossi_dao::member_action::ActionType;
 use std::sync::Arc;
 use time::Month;
-use crate::RestStateDef;
 
 pub fn api_doc() -> utoipa::openapi::OpenApi {
     utoipa::openapi::OpenApiBuilder::new()
@@ -221,8 +221,7 @@ fn test_members() -> Vec<TestMember> {
 }
 
 fn build_member(t: &TestMember) -> genossi_service::member::Member {
-    let join_date =
-        time::Date::from_calendar_date(t.join_year, t.join_month, t.join_day).unwrap();
+    let join_date = time::Date::from_calendar_date(t.join_year, t.join_month, t.join_day).unwrap();
     let exit_date = t.exit_year.map(|y| {
         time::Date::from_calendar_date(y, t.exit_month.unwrap(), t.exit_day.unwrap()).unwrap()
     });
@@ -276,21 +275,26 @@ async fn generate_test_data<RestState: RestStateDef>(
     rest_state: State<RestState>,
 ) -> impl IntoResponse {
     let member_service = rest_state.member_service();
-    let existing = member_service
-        .get_all(Authentication::Full, None)
-        .await;
+    let existing = member_service.get_all(Authentication::Full, None).await;
 
     match existing {
-        Ok(members) if !members.is_empty() => {
-            (StatusCode::OK, Json(serde_json::json!({"message": "Test data already exists", "count": members.len()}))).into_response()
-        }
+        Ok(members) if !members.is_empty() => (
+            StatusCode::OK,
+            Json(
+                serde_json::json!({"message": "Test data already exists", "count": members.len()}),
+            ),
+        )
+            .into_response(),
         Ok(_) => {
             let test_data = test_members();
             let member_action_service = rest_state.member_action_service();
             let mut created_count = 0;
             for t in &test_data {
                 let member = build_member(t);
-                let created_member = match member_service.create(&member, Authentication::Full, None).await {
+                let created_member = match member_service
+                    .create(&member, Authentication::Full, None)
+                    .await
+                {
                     Ok(m) => m,
                     Err(e) => {
                         tracing::error!("Failed to create test member {}: {:?}", t.first_name, e);
@@ -316,8 +320,15 @@ async fn generate_test_data<RestState: RestStateDef>(
                         deleted: None,
                         version: uuid::Uuid::new_v4(),
                     };
-                    if let Err(e) = member_action_service.create(&austritt, Authentication::Full, None).await {
-                        tracing::error!("Failed to create Austritt action for {}: {:?}", t.first_name, e);
+                    if let Err(e) = member_action_service
+                        .create(&austritt, Authentication::Full, None)
+                        .await
+                    {
+                        tracing::error!(
+                            "Failed to create Austritt action for {}: {:?}",
+                            t.first_name,
+                            e
+                        );
                         return (
                             StatusCode::INTERNAL_SERVER_ERROR,
                             Json(serde_json::json!({"error": format!("Failed to create Austritt action: {:?}", e)})),
@@ -326,14 +337,19 @@ async fn generate_test_data<RestState: RestStateDef>(
                 }
                 created_count += 1;
             }
-            (StatusCode::CREATED, Json(serde_json::json!({"message": "Test data generated", "count": created_count}))).into_response()
+            (
+                StatusCode::CREATED,
+                Json(serde_json::json!({"message": "Test data generated", "count": created_count})),
+            )
+                .into_response()
         }
         Err(e) => {
             tracing::error!("Failed to check existing members: {:?}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"error": format!("Failed to check members: {:?}", e)})),
-            ).into_response()
+            )
+                .into_response()
         }
     }
 }

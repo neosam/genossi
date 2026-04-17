@@ -110,9 +110,7 @@ impl MailJobDao for MailJobDaoSqlite {
         let version = job.version.as_bytes().to_vec();
         let created = format_datetime(&job.created)?;
 
-        let reply_to = job
-            .reply_to_inbound_mail_id
-            .map(|u| u.as_bytes().to_vec());
+        let reply_to = job.reply_to_inbound_mail_id.map(|u| u.as_bytes().to_vec());
 
         sqlx::query(
             "INSERT INTO mail_jobs (id, created, deleted, version, subject, body, status, total_count, sent_count, failed_count, reply_to_inbound_mail_id) \
@@ -503,10 +501,7 @@ impl StaticDocumentDao for StaticDocumentDaoSqlite {
         row.as_ref().map(StaticDocument::try_from).transpose()
     }
 
-    async fn find_many_by_ids(
-        &self,
-        ids: &[Uuid],
-    ) -> Result<Arc<[StaticDocument]>, MailDaoError> {
+    async fn find_many_by_ids(&self, ids: &[Uuid]) -> Result<Arc<[StaticDocument]>, MailDaoError> {
         if ids.is_empty() {
             return Ok(Arc::from(vec![]));
         }
@@ -762,11 +757,7 @@ impl InboundMailDao for InboundMailDaoSqlite {
             .map(|v| v.into())
     }
 
-    async fn exists_by_uid(
-        &self,
-        uid_validity: i64,
-        imap_uid: i64,
-    ) -> Result<bool, MailDaoError> {
+    async fn exists_by_uid(&self, uid_validity: i64, imap_uid: i64) -> Result<bool, MailDaoError> {
         let row: Option<(i64,)> = sqlx::query_as(
             "SELECT 1 FROM inbound_mails WHERE uid_validity = ? AND imap_uid = ? LIMIT 1",
         )
@@ -778,17 +769,13 @@ impl InboundMailDao for InboundMailDaoSqlite {
         Ok(row.is_some())
     }
 
-    async fn max_uid_for_validity(
-        &self,
-        uid_validity: i64,
-    ) -> Result<Option<i64>, MailDaoError> {
-        let row: Option<(Option<i64>,)> = sqlx::query_as(
-            "SELECT MAX(imap_uid) FROM inbound_mails WHERE uid_validity = ?",
-        )
-        .bind(uid_validity)
-        .fetch_optional(self.pool.as_ref())
-        .await
-        .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
+    async fn max_uid_for_validity(&self, uid_validity: i64) -> Result<Option<i64>, MailDaoError> {
+        let row: Option<(Option<i64>,)> =
+            sqlx::query_as("SELECT MAX(imap_uid) FROM inbound_mails WHERE uid_validity = ?")
+                .bind(uid_validity)
+                .fetch_optional(self.pool.as_ref())
+                .await
+                .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
         Ok(row.and_then(|r| r.0))
     }
 
@@ -842,9 +829,9 @@ impl TryFrom<&CommunicationEntryDb> for CommunicationEntry {
             "inbound" => CommunicationDirection::Inbound,
             "outbound" => CommunicationDirection::Outbound,
             other => {
-                return Err(MailDaoError::DatabaseError(
-                    Arc::from(format!("unknown direction: {other}")),
-                ))
+                return Err(MailDaoError::DatabaseError(Arc::from(format!(
+                    "unknown direction: {other}"
+                ))))
             }
         };
         Ok(CommunicationEntry {
@@ -1445,10 +1432,7 @@ mod tests {
 
         let found = recipient_dao.find_by_job_id(job.id).await.unwrap();
         assert_eq!(found[0].status.as_ref(), "sent");
-        assert_eq!(
-            found[0].message_id.as_deref(),
-            Some("abc.123@example.com")
-        );
+        assert_eq!(found[0].message_id.as_deref(), Some("abc.123@example.com"));
     }
 
     #[tokio::test]
@@ -1827,10 +1811,7 @@ mod tests {
     async fn test_communication_empty_for_unknown_member() {
         let pool = setup_db().await;
         let dao = CommunicationDaoSqlite::new(pool);
-        let result = dao
-            .get_member_communications(Uuid::new_v4())
-            .await
-            .unwrap();
+        let result = dao.get_member_communications(Uuid::new_v4()).await.unwrap();
         assert!(result.is_empty());
     }
 

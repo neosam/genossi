@@ -33,11 +33,18 @@ pub fn generate_route<RestState: RestStateDef>() -> Router<RestState> {
 }
 
 pub fn generate_render_route<RestState: RestStateDef>() -> Router<RestState> {
-    Router::new().route("/{*path}", axum::routing::post(render_template::<RestState>))
+    Router::new().route(
+        "/{*path}",
+        axum::routing::post(render_template::<RestState>),
+    )
 }
 
-pub fn generate_render_application_route<RestState: RestStateDef + ApplicationRestState>() -> Router<RestState> {
-    Router::new().route("/{*path}", axum::routing::post(render_application_template::<RestState>))
+pub fn generate_render_application_route<RestState: RestStateDef + ApplicationRestState>(
+) -> Router<RestState> {
+    Router::new().route(
+        "/{*path}",
+        axum::routing::post(render_application_template::<RestState>),
+    )
 }
 
 #[utoipa::path(
@@ -109,7 +116,23 @@ async fn read_template<RestState: RestStateDef>(
             let is_text = full_path
                 .extension()
                 .and_then(|ext| ext.to_str())
-                .map(|ext| matches!(ext, "typ" | "txt" | "md" | "toml" | "yaml" | "yml" | "json" | "csv" | "xml" | "html" | "css" | "js"))
+                .map(|ext| {
+                    matches!(
+                        ext,
+                        "typ"
+                            | "txt"
+                            | "md"
+                            | "toml"
+                            | "yaml"
+                            | "yml"
+                            | "json"
+                            | "csv"
+                            | "xml"
+                            | "html"
+                            | "css"
+                            | "js"
+                    )
+                })
                 .unwrap_or(true);
 
             if is_text {
@@ -185,10 +208,7 @@ async fn write_template<RestState: RestStateDef>(
                     .map_err(template_error_to_rest)?;
             }
 
-            Ok(Response::builder()
-                .status(200)
-                .body(Body::empty())
-                .unwrap())
+            Ok(Response::builder().status(200).body(Body::empty()).unwrap())
         })
         .await,
     )
@@ -227,10 +247,7 @@ async fn delete_template<RestState: RestStateDef>(
                 .await
                 .map_err(template_error_to_rest)?;
 
-            Ok(Response::builder()
-                .status(204)
-                .body(Body::empty())
-                .unwrap())
+            Ok(Response::builder().status(204).body(Body::empty()).unwrap())
         })
         .await,
     )

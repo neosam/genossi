@@ -119,7 +119,9 @@ impl TemplateStorage {
         dir: &Path,
         prefix: &str,
     ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<Vec<FileTreeEntry>, TemplateError>> + Send + '_>,
+        Box<
+            dyn std::future::Future<Output = Result<Vec<FileTreeEntry>, TemplateError>> + Send + '_,
+        >,
     > {
         let dir = dir.to_path_buf();
         let prefix = prefix.to_string();
@@ -316,10 +318,7 @@ mod tests {
         let (_dir, storage) = test_storage();
         tokio::fs::create_dir_all(&storage.base_path).await.unwrap();
 
-        storage
-            .write_file("test.typ", "hello world")
-            .await
-            .unwrap();
+        storage.write_file("test.typ", "hello world").await.unwrap();
         let content = storage.read_file("test.typ").await.unwrap();
         assert_eq!(content, "hello world");
     }
@@ -418,7 +417,9 @@ mod tests {
         assert!(tree.len() >= 3);
 
         // Check that directory has children
-        let sub_dir = tree.iter().find(|e| matches!(e, FileTreeEntry::Directory { name, .. } if name == "sub"));
+        let sub_dir = tree
+            .iter()
+            .find(|e| matches!(e, FileTreeEntry::Directory { name, .. } if name == "sub"));
         assert!(sub_dir.is_some());
         if let Some(FileTreeEntry::Directory { children, .. }) = sub_dir {
             assert_eq!(children.len(), 1);

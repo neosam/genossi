@@ -1,6 +1,13 @@
 #![cfg(feature = "mock_auth")]
 
 use genossi_bin::RestStateImpl;
+use genossi_config::rest::{ConfigEntryTO, SetConfigRequest};
+use genossi_mail::rest::{
+    BulkRecipient, MailJobDetailTO, MailJobTO, SendBulkMailRequest, SendMailRequest,
+    TestMailRequest,
+};
+use genossi_mail::rest_templates::MailTemplateTO;
+use genossi_rest::mail_footer::FooterResponse;
 use genossi_rest::test_server::test_support::start_test_server;
 use genossi_rest_types::{
     ActionTypeTO, AdminCreateApplicationRequest, ApplicationStatusTO, ApplicationTO,
@@ -8,13 +15,9 @@ use genossi_rest_types::{
     PublicJoinRequest, PublicJoinResponse, SalutationTO, UpdateApplicationRequest,
     UserPreferenceTO, ValidationResultTO,
 };
-use std::collections::HashMap;
-use genossi_config::rest::{ConfigEntryTO, SetConfigRequest};
-use genossi_mail::rest::{SendBulkMailRequest, BulkRecipient, SendMailRequest, MailJobTO, MailJobDetailTO, TestMailRequest};
-use genossi_mail::rest_templates::MailTemplateTO;
-use genossi_rest::mail_footer::FooterResponse;
 use reqwest::StatusCode;
 use sqlx::SqlitePool;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 async fn setup() -> genossi_rest::test_server::test_support::TestServer {
@@ -68,11 +71,7 @@ async fn test_get_all_members_empty() {
     let server = setup().await;
     let client = reqwest::Client::new();
 
-    let response = client
-        .get(server.url("/api/members"))
-        .send()
-        .await
-        .unwrap();
+    let response = client.get(server.url("/api/members")).send().await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
     let members: Vec<MemberTO> = response.json().await.unwrap();
@@ -215,11 +214,7 @@ async fn test_get_all_members_lists_created() {
         .unwrap();
 
     // Get all
-    let response = client
-        .get(server.url("/api/members"))
-        .send()
-        .await
-        .unwrap();
+    let response = client.get(server.url("/api/members")).send().await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
     let members: Vec<MemberTO> = response.json().await.unwrap();
@@ -277,10 +272,7 @@ async fn test_get_nonexistent_member() {
     let client = reqwest::Client::new();
 
     let response = client
-        .get(server.url(&format!(
-            "/api/members/{}",
-            uuid::Uuid::new_v4()
-        )))
+        .get(server.url(&format!("/api/members/{}", uuid::Uuid::new_v4())))
         .send()
         .await
         .unwrap();
@@ -298,9 +290,7 @@ fn create_xlsx(headers: &[&str], rows: &[Vec<&str>]) -> Vec<u8> {
     let worksheet = workbook.add_worksheet();
 
     for (col, header) in headers.iter().enumerate() {
-        worksheet
-            .write_string(0, col as u16, *header)
-            .unwrap();
+        worksheet.write_string(0, col as u16, *header).unwrap();
     }
 
     for (row_idx, row) in rows.iter().enumerate() {
@@ -355,12 +345,42 @@ async fn test_import_new_members() {
         &standard_headers(),
         &[
             vec![
-                "1", "Müller", "Hans", "Hauptstr.", "5", "10115", "Berlin",
-                "01.01.2020", "3", "5", "150", "1", "", "hans@test.de", "", "", "DE123",
+                "1",
+                "Müller",
+                "Hans",
+                "Hauptstr.",
+                "5",
+                "10115",
+                "Berlin",
+                "01.01.2020",
+                "3",
+                "5",
+                "150",
+                "1",
+                "",
+                "hans@test.de",
+                "",
+                "",
+                "DE123",
             ],
             vec![
-                "2", "Schmidt", "Anna", "Nebenstr.", "10", "80331", "München",
-                "15.06.2021", "2", "2", "100", "0", "", "anna@test.de", "Firma GmbH", "", "",
+                "2",
+                "Schmidt",
+                "Anna",
+                "Nebenstr.",
+                "10",
+                "80331",
+                "München",
+                "15.06.2021",
+                "2",
+                "2",
+                "100",
+                "0",
+                "",
+                "anna@test.de",
+                "Firma GmbH",
+                "",
+                "",
             ],
         ],
     );
@@ -386,11 +406,7 @@ async fn test_import_new_members() {
     assert!(result.errors.is_empty());
 
     // Verify members exist
-    let response = client
-        .get(server.url("/api/members"))
-        .send()
-        .await
-        .unwrap();
+    let response = client.get(server.url("/api/members")).send().await.unwrap();
     let members: Vec<MemberTO> = response.json().await.unwrap();
     assert_eq!(members.len(), 2);
 }
@@ -404,8 +420,23 @@ async fn test_import_upsert_existing_members() {
     let xlsx1 = create_xlsx(
         &standard_headers(),
         &[vec![
-            "1", "Müller", "Hans", "Hauptstr.", "5", "10115", "Berlin",
-            "01.01.2020", "3", "3", "100", "0", "", "", "", "", "",
+            "1",
+            "Müller",
+            "Hans",
+            "Hauptstr.",
+            "5",
+            "10115",
+            "Berlin",
+            "01.01.2020",
+            "3",
+            "3",
+            "100",
+            "0",
+            "",
+            "",
+            "",
+            "",
+            "",
         ]],
     );
 
@@ -426,8 +457,23 @@ async fn test_import_upsert_existing_members() {
     let xlsx2 = create_xlsx(
         &standard_headers(),
         &[vec![
-            "1", "Müller", "Hans-Peter", "Hauptstr.", "5", "10115", "Berlin",
-            "01.01.2020", "3", "5", "200", "1", "", "new@email.de", "", "", "",
+            "1",
+            "Müller",
+            "Hans-Peter",
+            "Hauptstr.",
+            "5",
+            "10115",
+            "Berlin",
+            "01.01.2020",
+            "3",
+            "5",
+            "200",
+            "1",
+            "",
+            "new@email.de",
+            "",
+            "",
+            "",
         ]],
     );
 
@@ -450,11 +496,7 @@ async fn test_import_upsert_existing_members() {
     assert_eq!(result.updated, 1);
 
     // Verify updated data
-    let response = client
-        .get(server.url("/api/members"))
-        .send()
-        .await
-        .unwrap();
+    let response = client.get(server.url("/api/members")).send().await.unwrap();
     let members: Vec<MemberTO> = response.json().await.unwrap();
     assert_eq!(members.len(), 1);
     assert_eq!(members[0].first_name, "Hans-Peter");
@@ -499,13 +541,43 @@ async fn test_import_with_invalid_data_row() {
         &[
             // Valid row
             vec![
-                "1", "Müller", "Hans", "", "", "", "",
-                "01.01.2020", "3", "3", "100", "0", "", "", "", "", "",
+                "1",
+                "Müller",
+                "Hans",
+                "",
+                "",
+                "",
+                "",
+                "01.01.2020",
+                "3",
+                "3",
+                "100",
+                "0",
+                "",
+                "",
+                "",
+                "",
+                "",
             ],
             // Invalid row - bad date
             vec![
-                "2", "Schmidt", "Anna", "", "", "", "",
-                "not-a-date", "2", "2", "50", "0", "", "", "", "", "",
+                "2",
+                "Schmidt",
+                "Anna",
+                "",
+                "",
+                "",
+                "",
+                "not-a-date",
+                "2",
+                "2",
+                "50",
+                "0",
+                "",
+                "",
+                "",
+                "",
+                "",
             ],
         ],
     );
@@ -547,11 +619,7 @@ async fn test_generate_test_data_creates_members() {
     assert!(body["count"].as_u64().unwrap() >= 5);
 
     // Verify members exist
-    let response = client
-        .get(server.url("/api/members"))
-        .send()
-        .await
-        .unwrap();
+    let response = client.get(server.url("/api/members")).send().await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
     let members: Vec<MemberTO> = response.json().await.unwrap();
@@ -559,12 +627,12 @@ async fn test_generate_test_data_creates_members() {
 
     // Verify at least one has all optional fields set
     let fully_populated = members.iter().any(|m| {
-        m.email.is_some()
-            && m.company.is_some()
-            && m.street.is_some()
-            && m.bank_account.is_some()
+        m.email.is_some() && m.company.is_some() && m.street.is_some() && m.bank_account.is_some()
     });
-    assert!(fully_populated, "At least one member should have all optional fields");
+    assert!(
+        fully_populated,
+        "At least one member should have all optional fields"
+    );
 
     // Verify at least one has exit_date set
     let has_exited = members.iter().any(|m| m.exit_date.is_some());
@@ -585,11 +653,7 @@ async fn test_generate_test_data_is_idempotent() {
     assert_eq!(response.status(), StatusCode::CREATED);
 
     // Get count after first call
-    let response = client
-        .get(server.url("/api/members"))
-        .send()
-        .await
-        .unwrap();
+    let response = client.get(server.url("/api/members")).send().await.unwrap();
     let members_after_first: Vec<MemberTO> = response.json().await.unwrap();
 
     // Second call should not create more data
@@ -601,11 +665,7 @@ async fn test_generate_test_data_is_idempotent() {
     assert_eq!(response.status(), StatusCode::OK);
 
     // Count should be the same
-    let response = client
-        .get(server.url("/api/members"))
-        .send()
-        .await
-        .unwrap();
+    let response = client.get(server.url("/api/members")).send().await.unwrap();
     let members_after_second: Vec<MemberTO> = response.json().await.unwrap();
     assert_eq!(members_after_first.len(), members_after_second.len());
 }
@@ -659,8 +719,12 @@ async fn test_create_and_list_member_actions() {
     assert_eq!(response.status(), StatusCode::OK);
     let actions: Vec<MemberActionTO> = response.json().await.unwrap();
     assert_eq!(actions.len(), 2);
-    assert!(actions.iter().any(|a| matches!(a.action_type, ActionTypeTO::Eintritt)));
-    assert!(actions.iter().any(|a| matches!(a.action_type, ActionTypeTO::Aufstockung)));
+    assert!(actions
+        .iter()
+        .any(|a| matches!(a.action_type, ActionTypeTO::Eintritt)));
+    assert!(actions
+        .iter()
+        .any(|a| matches!(a.action_type, ActionTypeTO::Aufstockung)));
 
     // Create an additional Aufstockung action
     let aufstockung = sample_action(member_id);
@@ -710,10 +774,7 @@ async fn test_update_member_action() {
     updated.comment = Some("Updated purchase".to_string());
 
     let response = client
-        .put(server.url(&format!(
-            "/api/members/{}/actions/{}",
-            member_id, action_id
-        )))
+        .put(server.url(&format!("/api/members/{}/actions/{}", member_id, action_id)))
         .json(&updated)
         .send()
         .await
@@ -743,10 +804,7 @@ async fn test_delete_member_action() {
 
     // Delete
     let response = client
-        .delete(server.url(&format!(
-            "/api/members/{}/actions/{}",
-            member_id, action_id
-        )))
+        .delete(server.url(&format!("/api/members/{}/actions/{}", member_id, action_id)))
         .send()
         .await
         .unwrap();
@@ -1059,8 +1117,23 @@ async fn test_import_auto_migration() {
     let xlsx = create_xlsx(
         &standard_headers(),
         &[vec![
-            "1", "Müller", "Hans", "Hauptstr.", "5", "10115", "Berlin",
-            "01.01.2020", "3", "3", "150", "0", "", "hans@test.de", "", "", "DE123",
+            "1",
+            "Müller",
+            "Hans",
+            "Hauptstr.",
+            "5",
+            "10115",
+            "Berlin",
+            "01.01.2020",
+            "3",
+            "3",
+            "150",
+            "0",
+            "",
+            "hans@test.de",
+            "",
+            "",
+            "DE123",
         ]],
     );
 
@@ -1079,14 +1152,13 @@ async fn test_import_auto_migration() {
     assert_eq!(response.status(), StatusCode::OK);
 
     // Get the member
-    let response = client
-        .get(server.url("/api/members"))
-        .send()
-        .await
-        .unwrap();
+    let response = client.get(server.url("/api/members")).send().await.unwrap();
     let members: Vec<MemberTO> = response.json().await.unwrap();
     assert_eq!(members.len(), 1);
-    assert!(members[0].migrated, "Member should be migrated after auto-migration import");
+    assert!(
+        members[0].migrated,
+        "Member should be migrated after auto-migration import"
+    );
     let member_id = members[0].id.unwrap();
 
     // Verify auto-created actions
@@ -1123,8 +1195,23 @@ async fn test_import_always_creates_eintritt_and_aufstockung() {
     let xlsx = create_xlsx(
         &standard_headers(),
         &[vec![
-            "1", "Müller", "Hans", "Hauptstr.", "5", "10115", "Berlin",
-            "01.01.2020", "3", "5", "150", "1", "", "", "", "", "",
+            "1",
+            "Müller",
+            "Hans",
+            "Hauptstr.",
+            "5",
+            "10115",
+            "Berlin",
+            "01.01.2020",
+            "3",
+            "5",
+            "150",
+            "1",
+            "",
+            "",
+            "",
+            "",
+            "",
         ]],
     );
 
@@ -1141,11 +1228,7 @@ async fn test_import_always_creates_eintritt_and_aufstockung() {
         .await
         .unwrap();
 
-    let response = client
-        .get(server.url("/api/members"))
-        .send()
-        .await
-        .unwrap();
+    let response = client.get(server.url("/api/members")).send().await.unwrap();
     let members: Vec<MemberTO> = response.json().await.unwrap();
     let member_id = members[0].id.unwrap();
 
@@ -1157,8 +1240,12 @@ async fn test_import_always_creates_eintritt_and_aufstockung() {
         .unwrap();
     let actions: Vec<MemberActionTO> = response.json().await.unwrap();
     assert_eq!(actions.len(), 2);
-    assert!(actions.iter().any(|a| matches!(a.action_type, ActionTypeTO::Eintritt)));
-    assert!(actions.iter().any(|a| matches!(a.action_type, ActionTypeTO::Aufstockung) && a.shares_change == 3));
+    assert!(actions
+        .iter()
+        .any(|a| matches!(a.action_type, ActionTypeTO::Eintritt)));
+    assert!(actions
+        .iter()
+        .any(|a| matches!(a.action_type, ActionTypeTO::Aufstockung) && a.shares_change == 3));
 }
 
 #[tokio::test]
@@ -1169,8 +1256,23 @@ async fn test_import_creates_austritt_when_exit_date_set() {
     let xlsx = create_xlsx(
         &standard_headers(),
         &[vec![
-            "1", "Müller", "Hans", "Hauptstr.", "5", "10115", "Berlin",
-            "01.01.2020", "3", "3", "150", "0", "31.12.2024", "", "", "", "",
+            "1",
+            "Müller",
+            "Hans",
+            "Hauptstr.",
+            "5",
+            "10115",
+            "Berlin",
+            "01.01.2020",
+            "3",
+            "3",
+            "150",
+            "0",
+            "31.12.2024",
+            "",
+            "",
+            "",
+            "",
         ]],
     );
 
@@ -1187,11 +1289,7 @@ async fn test_import_creates_austritt_when_exit_date_set() {
         .await
         .unwrap();
 
-    let response = client
-        .get(server.url("/api/members"))
-        .send()
-        .await
-        .unwrap();
+    let response = client.get(server.url("/api/members")).send().await.unwrap();
     let members: Vec<MemberTO> = response.json().await.unwrap();
     let member_id = members[0].id.unwrap();
 
@@ -1203,9 +1301,15 @@ async fn test_import_creates_austritt_when_exit_date_set() {
         .unwrap();
     let actions: Vec<MemberActionTO> = response.json().await.unwrap();
     assert_eq!(actions.len(), 3);
-    assert!(actions.iter().any(|a| matches!(a.action_type, ActionTypeTO::Eintritt)));
-    assert!(actions.iter().any(|a| matches!(a.action_type, ActionTypeTO::Aufstockung)));
-    assert!(actions.iter().any(|a| matches!(a.action_type, ActionTypeTO::Austritt)));
+    assert!(actions
+        .iter()
+        .any(|a| matches!(a.action_type, ActionTypeTO::Eintritt)));
+    assert!(actions
+        .iter()
+        .any(|a| matches!(a.action_type, ActionTypeTO::Aufstockung)));
+    assert!(actions
+        .iter()
+        .any(|a| matches!(a.action_type, ActionTypeTO::Austritt)));
 }
 
 #[tokio::test]
@@ -1216,8 +1320,23 @@ async fn test_import_action_count_stored() {
     let xlsx = create_xlsx(
         &standard_headers(),
         &[vec![
-            "1", "Müller", "Hans", "Hauptstr.", "5", "10115", "Berlin",
-            "01.01.2020", "3", "5", "150", "7", "", "", "", "", "",
+            "1",
+            "Müller",
+            "Hans",
+            "Hauptstr.",
+            "5",
+            "10115",
+            "Berlin",
+            "01.01.2020",
+            "3",
+            "5",
+            "150",
+            "7",
+            "",
+            "",
+            "",
+            "",
+            "",
         ]],
     );
 
@@ -1234,11 +1353,7 @@ async fn test_import_action_count_stored() {
         .await
         .unwrap();
 
-    let response = client
-        .get(server.url("/api/members"))
-        .send()
-        .await
-        .unwrap();
+    let response = client.get(server.url("/api/members")).send().await.unwrap();
     let members: Vec<MemberTO> = response.json().await.unwrap();
     assert_eq!(members[0].action_count, 7);
 }
@@ -1305,10 +1420,7 @@ async fn test_action_update_version_conflict() {
     let mut updated = created.clone();
     updated.shares_change = 5;
     let response = client
-        .put(server.url(&format!(
-            "/api/members/{}/actions/{}",
-            member_id, action_id
-        )))
+        .put(server.url(&format!("/api/members/{}/actions/{}", member_id, action_id)))
         .json(&updated)
         .send()
         .await
@@ -1319,10 +1431,7 @@ async fn test_action_update_version_conflict() {
     let mut stale = created.clone();
     stale.shares_change = 7;
     let response = client
-        .put(server.url(&format!(
-            "/api/members/{}/actions/{}",
-            member_id, action_id
-        )))
+        .put(server.url(&format!("/api/members/{}/actions/{}", member_id, action_id)))
         .json(&stale)
         .send()
         .await
@@ -1361,17 +1470,19 @@ async fn test_migrated_flag_set_after_actions_match() {
         .await
         .unwrap();
     let fetched: MemberTO = response.json().await.unwrap();
-    assert!(fetched.migrated, "Member should be migrated after creation with auto-created actions");
+    assert!(
+        fetched.migrated,
+        "Member should be migrated after creation with auto-created actions"
+    );
 
     // Verify migrated flag is true in member list
-    let response = client
-        .get(server.url("/api/members"))
-        .send()
-        .await
-        .unwrap();
+    let response = client.get(server.url("/api/members")).send().await.unwrap();
     let members: Vec<MemberTO> = response.json().await.unwrap();
     assert_eq!(members.len(), 1);
-    assert!(members[0].migrated, "Member should be migrated after matching actions");
+    assert!(
+        members[0].migrated,
+        "Member should be migrated after matching actions"
+    );
 }
 
 #[tokio::test]
@@ -1420,7 +1531,10 @@ async fn test_migrated_flag_false_when_pending() {
         .await
         .unwrap();
     let fetched: MemberTO = response.json().await.unwrap();
-    assert!(!fetched.migrated, "Member should not be migrated with mismatched actions");
+    assert!(
+        !fetched.migrated,
+        "Member should not be migrated with mismatched actions"
+    );
 }
 
 #[tokio::test]
@@ -1469,7 +1583,10 @@ async fn test_migrated_flag_recalc_on_member_update() {
         .await
         .unwrap();
     let refetched: MemberTO = response.json().await.unwrap();
-    assert!(!refetched.migrated, "Member should not be migrated after shares change");
+    assert!(
+        !refetched.migrated,
+        "Member should not be migrated after shares change"
+    );
 }
 
 // === Confirm Migration E2E Tests ===
@@ -1531,7 +1648,10 @@ async fn test_confirm_migration_resolves_action_count_mismatch() {
         .await
         .unwrap();
     let confirmed: MemberTO = response.json().await.unwrap();
-    assert!(confirmed.migrated, "Member should be migrated after confirmation");
+    assert!(
+        confirmed.migrated,
+        "Member should be migrated after confirmation"
+    );
 }
 
 #[tokio::test]
@@ -1591,7 +1711,10 @@ async fn test_confirm_migration_shares_mismatch_stays_pending() {
         .await
         .unwrap();
     let fetched: MemberTO = response.json().await.unwrap();
-    assert!(!fetched.migrated, "Member should stay pending with shares mismatch");
+    assert!(
+        !fetched.migrated,
+        "Member should stay pending with shares mismatch"
+    );
 }
 
 #[tokio::test]
@@ -1657,10 +1780,7 @@ async fn test_document_upload_list_download_delete() {
 
     // Download document
     let response = client
-        .get(server.url(&format!(
-            "/api/members/{}/documents/{}",
-            member_id, doc_id
-        )))
+        .get(server.url(&format!("/api/members/{}/documents/{}", member_id, doc_id)))
         .send()
         .await
         .unwrap();
@@ -1674,10 +1794,7 @@ async fn test_document_upload_list_download_delete() {
 
     // Delete document
     let response = client
-        .delete(server.url(&format!(
-            "/api/members/{}/documents/{}",
-            member_id, doc_id
-        )))
+        .delete(server.url(&format!("/api/members/{}/documents/{}", member_id, doc_id)))
         .send()
         .await
         .unwrap();
@@ -2082,14 +2199,18 @@ async fn test_create_member_auto_creates_entry_actions() {
     assert_eq!(actions.len(), 2);
 
     // First action should be Eintritt
-    let eintritt = actions.iter().find(|a| a.action_type == ActionTypeTO::Eintritt);
+    let eintritt = actions
+        .iter()
+        .find(|a| a.action_type == ActionTypeTO::Eintritt);
     assert!(eintritt.is_some(), "Eintritt action should exist");
     let eintritt = eintritt.unwrap();
     assert_eq!(eintritt.shares_change, 0);
     assert_eq!(eintritt.date, created.join_date);
 
     // Second action should be Aufstockung
-    let aufstockung = actions.iter().find(|a| a.action_type == ActionTypeTO::Aufstockung);
+    let aufstockung = actions
+        .iter()
+        .find(|a| a.action_type == ActionTypeTO::Aufstockung);
     assert!(aufstockung.is_some(), "Aufstockung action should exist");
     let aufstockung = aufstockung.unwrap();
     assert_eq!(aufstockung.shares_change, 3);
@@ -2117,7 +2238,10 @@ async fn test_create_member_sets_computed_fields() {
     assert_eq!(response.status(), StatusCode::OK);
     let created: MemberTO = response.json().await.unwrap();
 
-    assert_eq!(created.current_shares, 5, "current_shares should equal shares_at_joining");
+    assert_eq!(
+        created.current_shares, 5,
+        "current_shares should equal shares_at_joining"
+    );
     assert_eq!(created.current_balance, 0, "current_balance should be 0");
     assert_eq!(created.action_count, 0, "action_count should be 0");
 }
@@ -2280,7 +2404,10 @@ async fn test_validation_detects_shares_mismatch() {
     assert_eq!(response.status(), StatusCode::OK);
     let result: ValidationResultTO = response.json().await.unwrap();
     assert!(
-        result.shares_mismatches.iter().any(|s| s.member_id == id && s.expected == 10 && s.actual == 3),
+        result
+            .shares_mismatches
+            .iter()
+            .any(|s| s.member_id == id && s.expected == 10 && s.actual == 3),
         "Should detect shares mismatch for member with current_shares=10 but actions sum=3"
     );
 }
@@ -2311,9 +2438,16 @@ async fn test_validation_detects_missing_entry_action() {
     let actions: Vec<MemberActionTO> = resp.json().await.unwrap();
 
     // Delete the Eintritt action
-    let eintritt = actions.iter().find(|a| a.action_type == ActionTypeTO::Eintritt).unwrap();
+    let eintritt = actions
+        .iter()
+        .find(|a| a.action_type == ActionTypeTO::Eintritt)
+        .unwrap();
     let resp = client
-        .delete(server.url(&format!("/api/members/{}/actions/{}", id, eintritt.id.unwrap())))
+        .delete(server.url(&format!(
+            "/api/members/{}/actions/{}",
+            id,
+            eintritt.id.unwrap()
+        )))
         .send()
         .await
         .unwrap();
@@ -2329,7 +2463,10 @@ async fn test_validation_detects_missing_entry_action() {
     assert_eq!(response.status(), StatusCode::OK);
     let result: ValidationResultTO = response.json().await.unwrap();
     assert!(
-        result.missing_entry_actions.iter().any(|m| m.member_id == id && m.actual_count == 0),
+        result
+            .missing_entry_actions
+            .iter()
+            .any(|m| m.member_id == id && m.actual_count == 0),
         "Should detect missing entry action"
     );
 }
@@ -2493,14 +2630,14 @@ async fn test_exit_date_cleared_when_austritt_deleted() {
         .await
         .unwrap();
     let loaded: MemberTO = response.json().await.unwrap();
-    assert!(loaded.exit_date.is_some(), "exit_date should be set after Austritt");
+    assert!(
+        loaded.exit_date.is_some(),
+        "exit_date should be set after Austritt"
+    );
 
     // Delete the Austritt action
     let response = client
-        .delete(server.url(&format!(
-            "/api/members/{}/actions/{}",
-            member_id, action_id
-        )))
+        .delete(server.url(&format!("/api/members/{}/actions/{}", member_id, action_id)))
         .send()
         .await
         .unwrap();
@@ -2683,10 +2820,7 @@ Hello #member.first_name #member.last_name
 
     // Render it
     let response = client
-        .post(server.url(&format!(
-            "/api/templates/render/simple.typ/{}",
-            member_id
-        )))
+        .post(server.url(&format!("/api/templates/render/simple.typ/{}", member_id)))
         .send()
         .await
         .unwrap();
@@ -2726,10 +2860,7 @@ async fn test_template_render_compilation_error() {
 
     // Try to render
     let response = client
-        .post(server.url(&format!(
-            "/api/templates/render/broken.typ/{}",
-            member_id
-        )))
+        .post(server.url(&format!("/api/templates/render/broken.typ/{}", member_id)))
         .send()
         .await
         .unwrap();
@@ -2753,10 +2884,7 @@ async fn test_template_render_nonexistent_member() {
     // Render with non-existent member
     let fake_id = uuid::Uuid::new_v4();
     let response = client
-        .post(server.url(&format!(
-            "/api/templates/render/valid.typ/{}",
-            fake_id
-        )))
+        .post(server.url(&format!("/api/templates/render/valid.typ/{}", fake_id)))
         .send()
         .await
         .unwrap();
@@ -2795,9 +2923,9 @@ async fn test_template_subdirectory() {
         .await
         .unwrap();
     let tree: Vec<FileTreeEntry> = response.json().await.unwrap();
-    let has_vorstand = tree.iter().any(|e| {
-        matches!(e, FileTreeEntry::Directory { name, .. } if name == "vorstand")
-    });
+    let has_vorstand = tree
+        .iter()
+        .any(|e| matches!(e, FileTreeEntry::Directory { name, .. } if name == "vorstand"));
     assert!(has_vorstand, "Should have vorstand directory in tree");
 }
 
@@ -2810,11 +2938,7 @@ async fn test_config_get_all_empty() {
     let server = setup().await;
     let client = reqwest::Client::new();
 
-    let response = client
-        .get(server.url("/api/config"))
-        .send()
-        .await
-        .unwrap();
+    let response = client.get(server.url("/api/config")).send().await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
     let entries: Vec<ConfigEntryTO> = response.json().await.unwrap();
@@ -2849,15 +2973,14 @@ async fn test_config_set_and_get() {
     assert_eq!(entry.value_type, "string");
 
     // Get all and verify
-    let response = client
-        .get(server.url("/api/config"))
-        .send()
-        .await
-        .unwrap();
+    let response = client.get(server.url("/api/config")).send().await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
     let entries: Vec<ConfigEntryTO> = response.json().await.unwrap();
-    let entry = entries.iter().find(|e| e.key == "smtp_host").expect("smtp_host entry not found");
+    let entry = entries
+        .iter()
+        .find(|e| e.key == "smtp_host")
+        .expect("smtp_host entry not found");
     assert_eq!(entry.value, "mail.example.com");
 }
 
@@ -2891,13 +3014,12 @@ async fn test_config_upsert() {
     assert_eq!(response.status(), StatusCode::OK);
 
     // Verify updated
-    let response = client
-        .get(server.url("/api/config"))
-        .send()
-        .await
-        .unwrap();
+    let response = client.get(server.url("/api/config")).send().await.unwrap();
     let entries: Vec<ConfigEntryTO> = response.json().await.unwrap();
-    let entry = entries.iter().find(|e| e.key == "smtp_port").expect("smtp_port entry not found");
+    let entry = entries
+        .iter()
+        .find(|e| e.key == "smtp_port")
+        .expect("smtp_port entry not found");
     assert_eq!(entry.value, "465");
 }
 
@@ -2926,11 +3048,7 @@ async fn test_config_delete() {
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
 
     // Verify gone
-    let response = client
-        .get(server.url("/api/config"))
-        .send()
-        .await
-        .unwrap();
+    let response = client.get(server.url("/api/config")).send().await.unwrap();
     let entries: Vec<ConfigEntryTO> = response.json().await.unwrap();
     assert!(entries.iter().all(|e| e.key != "test_key"));
 }
@@ -2968,13 +3086,12 @@ async fn test_config_secret_masking() {
     assert_eq!(response.status(), StatusCode::OK);
 
     // But GET all should mask it
-    let response = client
-        .get(server.url("/api/config"))
-        .send()
-        .await
-        .unwrap();
+    let response = client.get(server.url("/api/config")).send().await.unwrap();
     let entries: Vec<ConfigEntryTO> = response.json().await.unwrap();
-    let entry = entries.iter().find(|e| e.key == "smtp_pass").expect("smtp_pass entry not found");
+    let entry = entries
+        .iter()
+        .find(|e| e.key == "smtp_pass")
+        .expect("smtp_pass entry not found");
     assert_eq!(entry.value, "***");
     assert_eq!(entry.value_type, "secret");
 }
@@ -3045,7 +3162,12 @@ async fn test_mail_create_bulk_job() {
     m1.member_number = 1;
     m1.first_name = "Alice".to_string();
     m1.email = Some("alice@example.com".to_string());
-    let resp = client.post(server.url("/api/members")).json(&m1).send().await.unwrap();
+    let resp = client
+        .post(server.url("/api/members"))
+        .json(&m1)
+        .send()
+        .await
+        .unwrap();
     let created1: MemberTO = resp.json().await.unwrap();
     let id1 = created1.id.unwrap();
 
@@ -3053,7 +3175,12 @@ async fn test_mail_create_bulk_job() {
     m2.member_number = 2;
     m2.first_name = "Bob".to_string();
     m2.email = Some("bob@example.com".to_string());
-    let resp = client.post(server.url("/api/members")).json(&m2).send().await.unwrap();
+    let resp = client
+        .post(server.url("/api/members"))
+        .json(&m2)
+        .send()
+        .await
+        .unwrap();
     let created2: MemberTO = resp.json().await.unwrap();
     let id2 = created2.id.unwrap();
 
@@ -3061,7 +3188,12 @@ async fn test_mail_create_bulk_job() {
     m3.member_number = 3;
     m3.first_name = "Carol".to_string();
     m3.email = Some("carol@example.com".to_string());
-    let resp = client.post(server.url("/api/members")).json(&m3).send().await.unwrap();
+    let resp = client
+        .post(server.url("/api/members"))
+        .json(&m3)
+        .send()
+        .await
+        .unwrap();
     let created3: MemberTO = resp.json().await.unwrap();
     let id3 = created3.id.unwrap();
 
@@ -3070,9 +3202,18 @@ async fn test_mail_create_bulk_job() {
         .post(server.url("/api/mail/send-bulk"))
         .json(&SendBulkMailRequest {
             to_addresses: vec![
-                BulkRecipient { address: "alice@example.com".to_string(), member_id: Some(id1.to_string()) },
-                BulkRecipient { address: "bob@example.com".to_string(), member_id: Some(id2.to_string()) },
-                BulkRecipient { address: "carol@example.com".to_string(), member_id: Some(id3.to_string()) },
+                BulkRecipient {
+                    address: "alice@example.com".to_string(),
+                    member_id: Some(id1.to_string()),
+                },
+                BulkRecipient {
+                    address: "bob@example.com".to_string(),
+                    member_id: Some(id2.to_string()),
+                },
+                BulkRecipient {
+                    address: "carol@example.com".to_string(),
+                    member_id: Some(id3.to_string()),
+                },
             ],
             subject: "Bulk Test".to_string(),
             body: "Hello everyone".to_string(),
@@ -3169,14 +3310,24 @@ async fn test_mail_retry_job() {
     m1.member_number = 1;
     m1.first_name = "Alice".to_string();
     m1.email = Some("a@example.com".to_string());
-    let resp = client.post(server.url("/api/members")).json(&m1).send().await.unwrap();
+    let resp = client
+        .post(server.url("/api/members"))
+        .json(&m1)
+        .send()
+        .await
+        .unwrap();
     let c1: MemberTO = resp.json().await.unwrap();
 
     let mut m2 = sample_member();
     m2.member_number = 2;
     m2.first_name = "Bob".to_string();
     m2.email = Some("b@example.com".to_string());
-    let resp = client.post(server.url("/api/members")).json(&m2).send().await.unwrap();
+    let resp = client
+        .post(server.url("/api/members"))
+        .json(&m2)
+        .send()
+        .await
+        .unwrap();
     let c2: MemberTO = resp.json().await.unwrap();
 
     // Create a job
@@ -3184,8 +3335,14 @@ async fn test_mail_retry_job() {
         .post(server.url("/api/mail/send-bulk"))
         .json(&SendBulkMailRequest {
             to_addresses: vec![
-                BulkRecipient { address: "a@example.com".to_string(), member_id: Some(c1.id.unwrap().to_string()) },
-                BulkRecipient { address: "b@example.com".to_string(), member_id: Some(c2.id.unwrap().to_string()) },
+                BulkRecipient {
+                    address: "a@example.com".to_string(),
+                    member_id: Some(c1.id.unwrap().to_string()),
+                },
+                BulkRecipient {
+                    address: "b@example.com".to_string(),
+                    member_id: Some(c2.id.unwrap().to_string()),
+                },
             ],
             subject: "Retry Test".to_string(),
             body: "Hello".to_string(),
@@ -3483,9 +3640,7 @@ async fn test_members_not_reached_invalid_job_id() {
     let client = reqwest::Client::new();
 
     let response = client
-        .get(server.url(
-            "/api/members/not-reached-by/00000000-0000-0000-0000-000000000000",
-        ))
+        .get(server.url("/api/members/not-reached-by/00000000-0000-0000-0000-000000000000"))
         .send()
         .await
         .unwrap();
@@ -3578,10 +3733,7 @@ async fn test_upsert_user_preference_update() {
     let updated: UserPreferenceTO = response.json().await.unwrap();
 
     assert_eq!(updated.id, created.id);
-    assert_eq!(
-        updated.value,
-        r#"["member_number","last_name","city"]"#
-    );
+    assert_eq!(updated.value, r#"["member_number","last_name","city"]"#);
     // Version should change on update
     assert_ne!(updated.version, created.version);
 }
@@ -3748,7 +3900,12 @@ async fn test_mail_attachments_rejected_for_multiple_recipients() {
     m2.member_number = 2;
     m2.first_name = "Other".to_string();
     m2.email = Some("other@example.com".to_string());
-    let resp = client.post(server.url("/api/members")).json(&m2).send().await.unwrap();
+    let resp = client
+        .post(server.url("/api/members"))
+        .json(&m2)
+        .send()
+        .await
+        .unwrap();
     let c2: MemberTO = resp.json().await.unwrap();
 
     let response = client
@@ -3787,14 +3944,24 @@ async fn test_mail_without_attachment_unchanged() {
     m1.member_number = 1;
     m1.first_name = "Alice".to_string();
     m1.email = Some("a@example.com".to_string());
-    let resp = client.post(server.url("/api/members")).json(&m1).send().await.unwrap();
+    let resp = client
+        .post(server.url("/api/members"))
+        .json(&m1)
+        .send()
+        .await
+        .unwrap();
     let c1: MemberTO = resp.json().await.unwrap();
 
     let mut m2 = sample_member();
     m2.member_number = 2;
     m2.first_name = "Bob".to_string();
     m2.email = Some("b@example.com".to_string());
-    let resp = client.post(server.url("/api/members")).json(&m2).send().await.unwrap();
+    let resp = client
+        .post(server.url("/api/members"))
+        .json(&m2)
+        .send()
+        .await
+        .unwrap();
     let c2: MemberTO = resp.json().await.unwrap();
 
     // Send mail without attachments (existing behavior)
@@ -3802,8 +3969,14 @@ async fn test_mail_without_attachment_unchanged() {
         .post(server.url("/api/mail/send-bulk"))
         .json(&SendBulkMailRequest {
             to_addresses: vec![
-                BulkRecipient { address: "a@example.com".to_string(), member_id: Some(c1.id.unwrap().to_string()) },
-                BulkRecipient { address: "b@example.com".to_string(), member_id: Some(c2.id.unwrap().to_string()) },
+                BulkRecipient {
+                    address: "a@example.com".to_string(),
+                    member_id: Some(c1.id.unwrap().to_string()),
+                },
+                BulkRecipient {
+                    address: "b@example.com".to_string(),
+                    member_id: Some(c2.id.unwrap().to_string()),
+                },
             ],
             subject: "No Attachments".to_string(),
             body: "Plain mail".to_string(),
@@ -4045,7 +4218,9 @@ async fn test_public_member_count_excludes_exited_and_deleted() {
         date: time::Date::from_calendar_date(2020, time::Month::January, 1).unwrap(),
         shares_change: 0,
         transfer_member_id: None,
-        effective_date: Some(time::Date::from_calendar_date(2020, time::Month::January, 1).unwrap()),
+        effective_date: Some(
+            time::Date::from_calendar_date(2020, time::Month::January, 1).unwrap(),
+        ),
         comment: None,
         created: None,
         deleted: None,
@@ -4086,7 +4261,11 @@ async fn test_public_member_count_excludes_exited_and_deleted() {
     let body: serde_json::Value = response.json().await.unwrap();
     // Only the active member (member1) should be counted
     // member2 has past exit_date, member3 is deleted
-    assert_eq!(body["count"], 1, "Only active members should be counted, got: {}", body);
+    assert_eq!(
+        body["count"], 1,
+        "Only active members should be counted, got: {}",
+        body
+    );
 }
 
 #[tokio::test]
@@ -4735,10 +4914,7 @@ async fn test_communication_timeline_empty() {
 
     // Get communications — should be empty
     let resp = client
-        .get(server.url(&format!(
-            "/api/members/{}/communications",
-            member_id
-        )))
+        .get(server.url(&format!("/api/members/{}/communications", member_id)))
         .send()
         .await
         .unwrap();
@@ -4823,10 +4999,7 @@ async fn test_communication_timeline_with_outbound_and_inbound() {
 
     // Get communications
     let resp = client
-        .get(server.url(&format!(
-            "/api/members/{}/communications",
-            member_id
-        )))
+        .get(server.url(&format!("/api/members/{}/communications", member_id)))
         .send()
         .await
         .unwrap();
@@ -4879,7 +5052,10 @@ async fn test_create_member_with_fehlerhaft_erfasst_status() {
 
     assert_eq!(response.status(), StatusCode::OK);
     let created: MemberTO = response.json().await.unwrap();
-    assert_eq!(created.status, genossi_rest_types::MemberStatusTO::FehlerhaftErfasst);
+    assert_eq!(
+        created.status,
+        genossi_rest_types::MemberStatusTO::FehlerhaftErfasst
+    );
 }
 
 #[tokio::test]
@@ -4938,7 +5114,10 @@ async fn test_update_member_status_to_fehlerhaft_erfasst() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     let updated: MemberTO = response.json().await.unwrap();
-    assert_eq!(updated.status, genossi_rest_types::MemberStatusTO::FehlerhaftErfasst);
+    assert_eq!(
+        updated.status,
+        genossi_rest_types::MemberStatusTO::FehlerhaftErfasst
+    );
 
     // Verify it persisted
     let response = client
@@ -4948,7 +5127,10 @@ async fn test_update_member_status_to_fehlerhaft_erfasst() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     let fetched: MemberTO = response.json().await.unwrap();
-    assert_eq!(fetched.status, genossi_rest_types::MemberStatusTO::FehlerhaftErfasst);
+    assert_eq!(
+        fetched.status,
+        genossi_rest_types::MemberStatusTO::FehlerhaftErfasst
+    );
 }
 
 #[tokio::test]
@@ -4997,7 +5179,10 @@ async fn test_fehlerhaft_erfasst_excluded_from_public_member_count() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     let body: serde_json::Value = response.json().await.unwrap();
-    assert_eq!(body["count"], 1, "FehlerhaftErfasst members should not be counted as active");
+    assert_eq!(
+        body["count"], 1,
+        "FehlerhaftErfasst members should not be counted as active"
+    );
 }
 
 #[tokio::test]
@@ -5032,7 +5217,10 @@ async fn test_create_note_action() {
     let created: MemberActionTO = response.json().await.unwrap();
     assert!(created.id.is_some());
     assert!(matches!(created.action_type, ActionTypeTO::Note));
-    assert_eq!(created.comment.as_deref(), Some("E-Mail Adresse korrigiert"));
+    assert_eq!(
+        created.comment.as_deref(),
+        Some("E-Mail Adresse korrigiert")
+    );
     assert_eq!(created.shares_change, 0);
 
     // Verify it appears in the actions list
@@ -5042,7 +5230,9 @@ async fn test_create_note_action() {
         .await
         .unwrap();
     let actions: Vec<MemberActionTO> = response.json().await.unwrap();
-    assert!(actions.iter().any(|a| matches!(a.action_type, ActionTypeTO::Note)));
+    assert!(actions
+        .iter()
+        .any(|a| matches!(a.action_type, ActionTypeTO::Note)));
 }
 
 #[tokio::test]
@@ -5164,8 +5354,12 @@ async fn test_normal_member_still_gets_auto_actions() {
     assert_eq!(response.status(), StatusCode::OK);
     let actions: Vec<MemberActionTO> = response.json().await.unwrap();
     assert_eq!(actions.len(), 2);
-    assert!(actions.iter().any(|a| matches!(a.action_type, ActionTypeTO::Eintritt)));
-    assert!(actions.iter().any(|a| matches!(a.action_type, ActionTypeTO::Aufstockung)));
+    assert!(actions
+        .iter()
+        .any(|a| matches!(a.action_type, ActionTypeTO::Eintritt)));
+    assert!(actions
+        .iter()
+        .any(|a| matches!(a.action_type, ActionTypeTO::Aufstockung)));
 }
 
 // ─── Document Counts Tests ───
@@ -5296,10 +5490,7 @@ async fn test_document_counts_excludes_deleted() {
 
     // Delete it
     let resp = client
-        .delete(server.url(&format!(
-            "/api/members/{}/documents/{}",
-            member_id, doc_id
-        )))
+        .delete(server.url(&format!("/api/members/{}/documents/{}", member_id, doc_id)))
         .send()
         .await
         .unwrap();
@@ -5356,7 +5547,12 @@ async fn test_backup_members_csv_empty() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let content_type = response.headers().get("content-type").unwrap().to_str().unwrap();
+    let content_type = response
+        .headers()
+        .get("content-type")
+        .unwrap()
+        .to_str()
+        .unwrap();
     assert!(content_type.contains("text/csv"));
     let bytes = response.bytes().await.unwrap();
     // Should start with UTF-8 BOM
@@ -5492,7 +5688,12 @@ async fn test_backup_actions_csv_empty() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let content_type = response.headers().get("content-type").unwrap().to_str().unwrap();
+    let content_type = response
+        .headers()
+        .get("content-type")
+        .unwrap()
+        .to_str()
+        .unwrap();
     assert!(content_type.contains("text/csv"));
     let bytes = response.bytes().await.unwrap();
     assert_eq!(&bytes[..3], b"\xEF\xBB\xBF");
@@ -5537,7 +5738,12 @@ async fn test_backup_documents_zip_empty() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let content_type = response.headers().get("content-type").unwrap().to_str().unwrap();
+    let content_type = response
+        .headers()
+        .get("content-type")
+        .unwrap()
+        .to_str()
+        .unwrap();
     assert!(content_type.contains("application/zip"));
 }
 
@@ -5549,7 +5755,11 @@ async fn test_backup_webdav_config_persists() {
     // Set all WebDAV backup config entries
     let entries = vec![
         ("backup_webdav_enabled", "true", "bool"),
-        ("backup_webdav_url", "https://cloud.example/remote.php/dav/files/user/", "string"),
+        (
+            "backup_webdav_url",
+            "https://cloud.example/remote.php/dav/files/user/",
+            "string",
+        ),
         ("backup_webdav_username", "backup-user", "string"),
         ("backup_webdav_password", "app-token-secret", "secret"),
         ("backup_webdav_directory", "genossi-export", "string"),
@@ -5570,17 +5780,12 @@ async fn test_backup_webdav_config_persists() {
     }
 
     // Verify all entries are stored
-    let response = client
-        .get(server.url("/api/config"))
-        .send()
-        .await
-        .unwrap();
+    let response = client.get(server.url("/api/config")).send().await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     let all_entries: Vec<ConfigEntryTO> = response.json().await.unwrap();
 
-    let find_entry = |key: &str| -> Option<ConfigEntryTO> {
-        all_entries.iter().find(|e| e.key == key).cloned()
-    };
+    let find_entry =
+        |key: &str| -> Option<ConfigEntryTO> { all_entries.iter().find(|e| e.key == key).cloned() };
 
     // Check enabled flag
     let enabled = find_entry("backup_webdav_enabled").expect("backup_webdav_enabled not found");
@@ -5588,7 +5793,10 @@ async fn test_backup_webdav_config_persists() {
 
     // Check URL
     let url = find_entry("backup_webdav_url").expect("backup_webdav_url not found");
-    assert_eq!(url.value, "https://cloud.example/remote.php/dav/files/user/");
+    assert_eq!(
+        url.value,
+        "https://cloud.example/remote.php/dav/files/user/"
+    );
 
     // Check password is masked
     let password = find_entry("backup_webdav_password").expect("backup_webdav_password not found");
@@ -5702,7 +5910,10 @@ async fn test_backup_documents_zip_contains_communications() {
             break;
         }
     }
-    assert!(found_communication, "Expected communication .txt file in ZIP");
+    assert!(
+        found_communication,
+        "Expected communication .txt file in ZIP"
+    );
 }
 
 #[tokio::test]
@@ -5760,7 +5971,10 @@ async fn test_backup_documents_zip_excludes_unassigned_mails() {
 
 // --- Application (public join) E2E Tests ---
 
-async fn setup_api_key(server: &genossi_rest::test_server::test_support::TestServer, client: &reqwest::Client) -> String {
+async fn setup_api_key(
+    server: &genossi_rest::test_server::test_support::TestServer,
+    client: &reqwest::Client,
+) -> String {
     let api_key = "test-api-key-12345";
     let response = client
         .put(server.url("/api/config/public_api_key"))
@@ -6024,11 +6238,7 @@ async fn test_confirm_application_creates_member() {
     assert!(matches!(confirmed.status, ApplicationStatusTO::Bestaetigt));
 
     // Verify member was created
-    let response = client
-        .get(server.url("/api/members"))
-        .send()
-        .await
-        .unwrap();
+    let response = client.get(server.url("/api/members")).send().await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
     let members: Vec<MemberTO> = response.json().await.unwrap();
@@ -6114,11 +6324,7 @@ async fn test_reject_application() {
     assert!(matches!(rejected.status, ApplicationStatusTO::Abgelehnt));
 
     // Verify no member was created
-    let response = client
-        .get(server.url("/api/members"))
-        .send()
-        .await
-        .unwrap();
+    let response = client.get(server.url("/api/members")).send().await.unwrap();
     let members: Vec<MemberTO> = response.json().await.unwrap();
     assert!(members.is_empty());
 }
@@ -6305,11 +6511,7 @@ async fn test_wordpress_config_entries_save_and_load() {
     }
 
     // Load all config entries and verify
-    let response = client
-        .get(server.url("/api/config"))
-        .send()
-        .await
-        .unwrap();
+    let response = client.get(server.url("/api/config")).send().await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
     let config_entries: Vec<serde_json::Value> = response.json().await.unwrap();
@@ -6321,9 +6523,19 @@ async fn test_wordpress_config_entries_save_and_load() {
             .unwrap_or_else(|| panic!("Config entry '{}' not found", key));
         // Secret values are masked, others should match
         if *expected_type != "secret" {
-            assert_eq!(entry["value"].as_str(), Some(*expected_value), "Value mismatch for {}", key);
+            assert_eq!(
+                entry["value"].as_str(),
+                Some(*expected_value),
+                "Value mismatch for {}",
+                key
+            );
         }
-        assert_eq!(entry["value_type"].as_str(), Some(*expected_type), "Type mismatch for {}", key);
+        assert_eq!(
+            entry["value_type"].as_str(),
+            Some(*expected_type),
+            "Type mismatch for {}",
+            key
+        );
     }
 }
 
@@ -6408,7 +6620,11 @@ async fn test_application_full_workflow() {
     }
 
     // List all - should have 2
-    let response = client.get(server.url("/api/applications")).send().await.unwrap();
+    let response = client
+        .get(server.url("/api/applications"))
+        .send()
+        .await
+        .unwrap();
     let apps: Vec<ApplicationTO> = response.json().await.unwrap();
     assert_eq!(apps.len(), 2);
 
@@ -6431,16 +6647,28 @@ async fn test_application_full_workflow() {
     assert_eq!(response.status(), StatusCode::OK);
 
     // Verify: 0 open, 1 confirmed, 1 rejected
-    let response = client.get(server.url("/api/applications?status=Offen")).send().await.unwrap();
+    let response = client
+        .get(server.url("/api/applications?status=Offen"))
+        .send()
+        .await
+        .unwrap();
     let apps: Vec<ApplicationTO> = response.json().await.unwrap();
     assert_eq!(apps.len(), 0);
 
-    let response = client.get(server.url("/api/applications?status=Bestaetigt")).send().await.unwrap();
+    let response = client
+        .get(server.url("/api/applications?status=Bestaetigt"))
+        .send()
+        .await
+        .unwrap();
     let apps: Vec<ApplicationTO> = response.json().await.unwrap();
     assert_eq!(apps.len(), 1);
     assert_eq!(apps[0].first_name, "Anna");
 
-    let response = client.get(server.url("/api/applications?status=Abgelehnt")).send().await.unwrap();
+    let response = client
+        .get(server.url("/api/applications?status=Abgelehnt"))
+        .send()
+        .await
+        .unwrap();
     let apps: Vec<ApplicationTO> = response.json().await.unwrap();
     assert_eq!(apps.len(), 1);
     assert_eq!(apps[0].first_name, "Bob");
@@ -6827,11 +7055,7 @@ async fn test_application_with_title_confirm_transfers_to_member() {
     assert_eq!(response.status(), StatusCode::OK);
 
     // Get all members and find the one created from this application
-    let response = client
-        .get(server.url("/api/members"))
-        .send()
-        .await
-        .unwrap();
+    let response = client.get(server.url("/api/members")).send().await.unwrap();
     let members: Vec<MemberTO> = response.json().await.unwrap();
     let member = members.iter().find(|m| m.first_name == "Erika").unwrap();
 
@@ -7018,10 +7242,7 @@ async fn test_update_application_not_found() {
     };
 
     let response = client
-        .put(server.url(&format!(
-            "/api/applications/{}",
-            uuid::Uuid::new_v4()
-        )))
+        .put(server.url(&format!("/api/applications/{}", uuid::Uuid::new_v4())))
         .json(&update_request)
         .send()
         .await
@@ -7091,11 +7312,7 @@ async fn test_audit_log_empty() {
     let server = setup().await;
     let client = reqwest::Client::new();
 
-    let response = client
-        .get(server.url("/api/audit"))
-        .send()
-        .await
-        .unwrap();
+    let response = client.get(server.url("/api/audit")).send().await.unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
     let page: genossi_rest_types::PagedAuditLogTO = response.json().await.unwrap();
@@ -7120,10 +7337,7 @@ async fn test_audit_log_after_member_create() {
     let member: MemberTO = response.json().await.unwrap();
 
     let response = client
-        .get(server.url(&format!(
-            "/api/audit/member/{}",
-            member.id.unwrap()
-        )))
+        .get(server.url(&format!("/api/audit/member/{}", member.id.unwrap())))
         .send()
         .await
         .unwrap();
@@ -7158,10 +7372,7 @@ async fn test_audit_log_after_member_update() {
     assert_eq!(response.status(), StatusCode::OK);
 
     let response = client
-        .get(server.url(&format!(
-            "/api/audit/member/{}",
-            member.id.unwrap()
-        )))
+        .get(server.url(&format!("/api/audit/member/{}", member.id.unwrap())))
         .send()
         .await
         .unwrap();
@@ -7383,11 +7594,7 @@ async fn test_audit_log_pagination_filter_total_reflects_filter() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    let response_unfiltered = client
-        .get(server.url("/api/audit"))
-        .send()
-        .await
-        .unwrap();
+    let response_unfiltered = client.get(server.url("/api/audit")).send().await.unwrap();
     let page_unfiltered: genossi_rest_types::PagedAuditLogTO =
         response_unfiltered.json().await.unwrap();
 
@@ -7419,8 +7626,7 @@ async fn test_timestamp_list_empty() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let timestamps: Vec<genossi_rest_types::TimestampResponseTO> =
-        response.json().await.unwrap();
+    let timestamps: Vec<genossi_rest_types::TimestampResponseTO> = response.json().await.unwrap();
     assert!(timestamps.is_empty());
 }
 
@@ -7458,8 +7664,7 @@ async fn test_timestamp_manual_trigger_no_audit_entries() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
-    let result: genossi_rest_types::TimestampCreateResponseTO =
-        response.json().await.unwrap();
+    let result: genossi_rest_types::TimestampCreateResponseTO = response.json().await.unwrap();
     assert!(!result.created);
     assert!(result.timestamp.is_none());
 }

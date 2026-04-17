@@ -5,8 +5,8 @@ use axum::{
     routing::{delete, get, post, put},
     Extension, Json, Router,
 };
-use genossi_rest_types::{MemberImportResultTO, MemberTO};
 use genossi_mail::service::MailService;
+use genossi_rest_types::{MemberImportResultTO, MemberTO};
 use genossi_service::member::MemberService;
 use genossi_service::member_import::MemberImportService;
 use std::sync::Arc;
@@ -213,11 +213,7 @@ pub async fn delete_member<RestState: RestStateDef>(
         (async {
             rest_state
                 .member_service()
-                .delete(
-                    member_id,
-                    crate::extract_auth_context(Some(context))?,
-                    None,
-                )
+                .delete(member_id, crate::extract_auth_context(Some(context))?, None)
                 .await?;
             Ok(Response::builder().status(204).body(Body::empty()).unwrap())
         })
@@ -303,8 +299,7 @@ pub async fn get_members_not_reached_by<RestState: RestStateDef>(
 ) -> Response {
     error_handler(
         (async {
-            let job_id = uuid::Uuid::parse_str(&job_id)
-                .map_err(|_| crate::RestError::NotFound)?;
+            let job_id = uuid::Uuid::parse_str(&job_id).map_err(|_| crate::RestError::NotFound)?;
 
             let reached_ids = rest_state
                 .mail_service()

@@ -75,7 +75,10 @@ pub fn generate_route<S: ConfigRestState>() -> Router<S> {
         .route("/", get(get_all::<S>))
         .route("/{key}", put(set_config::<S>))
         .route("/{key}", delete(delete_config::<S>))
-        .route("/generate-api-key", axum::routing::post(generate_api_key::<S>))
+        .route(
+            "/generate-api-key",
+            axum::routing::post(generate_api_key::<S>),
+        )
 }
 
 #[derive(OpenApi)]
@@ -170,9 +173,7 @@ pub struct GenerateApiKeyResponse {
         (status = 500, description = "Internal server error"),
     ),
 )]
-pub async fn generate_api_key<S: ConfigRestState>(
-    state: State<S>,
-) -> Response {
+pub async fn generate_api_key<S: ConfigRestState>(state: State<S>) -> Response {
     error_handler(
         (async {
             let key = uuid::Uuid::new_v4().to_string();
@@ -214,10 +215,7 @@ pub async fn delete_config<S: ConfigRestState>(
     error_handler(
         (async {
             state.config_service().delete(&key).await?;
-            Ok(Response::builder()
-                .status(204)
-                .body(Body::empty())
-                .unwrap())
+            Ok(Response::builder().status(204).body(Body::empty()).unwrap())
         })
         .await,
     )

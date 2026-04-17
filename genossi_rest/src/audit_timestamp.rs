@@ -24,7 +24,10 @@ pub trait TimestampRestState: RestStateDef {
 
 pub fn generate_route<RestState: TimestampRestState>() -> Router<RestState> {
     Router::new()
-        .route("/", get(list_timestamps::<RestState>).post(create_timestamp::<RestState>))
+        .route(
+            "/",
+            get(list_timestamps::<RestState>).post(create_timestamp::<RestState>),
+        )
         .route("/{id}/verify", get(verify_timestamp::<RestState>))
 }
 
@@ -145,9 +148,7 @@ pub async fn create_timestamp<RestState: TimestampRestState>(
                         .unwrap())
                 }
                 Err(TimestampError::NotConfigured) => {
-                    Err(RestError::BadRequest(
-                        "TSA not configured".to_string(),
-                    ))
+                    Err(RestError::BadRequest("TSA not configured".to_string()))
                 }
                 Err(TimestampError::TsaError(e)) => {
                     Err(RestError::InternalError(format!("TSA error: {}", e)))
@@ -187,14 +188,15 @@ pub async fn verify_timestamp<RestState: TimestampRestState>(
                 .check_permission("admin", authentication)
                 .await?;
 
-            let verification = rest_state
-                .timestamp_service()
-                .verify(id)
-                .await
-                .map_err(|e| match e {
-                    TimestampError::NotFound => RestError::NotFound,
-                    _ => RestError::InternalError(format!("{}", e)),
-                })?;
+            let verification =
+                rest_state
+                    .timestamp_service()
+                    .verify(id)
+                    .await
+                    .map_err(|e| match e {
+                        TimestampError::NotFound => RestError::NotFound,
+                        _ => RestError::InternalError(format!("{}", e)),
+                    })?;
 
             let result = TimestampVerifyResponseTO::from(&verification);
 

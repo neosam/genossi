@@ -166,7 +166,10 @@ const SEPARATOR: &str = "──────────────────�
 pub fn generate_communication_txt(row: &CommunicationBackupRow) -> String {
     let mut content = String::new();
 
-    content.push_str(&format!("Richtung: {}\n", capitalize_direction(&row.direction)));
+    content.push_str(&format!(
+        "Richtung: {}\n",
+        capitalize_direction(&row.direction)
+    ));
     content.push_str(&format!("Datum: {}\n", format_date_for_display(&row.date)));
 
     if row.direction.as_ref() == "eingehend" {
@@ -240,11 +243,7 @@ pub fn generate_audit_log_csv(entries: &[AuditLogEntry]) -> Result<Vec<u8>, Stri
     let format = &time::format_description::well_known::Iso8601::DEFAULT;
 
     for e in entries.iter() {
-        let timestamp = e
-            .timestamp
-            .assume_utc()
-            .format(format)
-            .unwrap_or_default();
+        let timestamp = e.timestamp.assume_utc().format(format).unwrap_or_default();
         wtr.write_record([
             e.id.to_string(),
             timestamp,
@@ -339,7 +338,10 @@ mod tests {
 
     #[test]
     fn test_sanitize_filename_umlauts() {
-        assert_eq!(sanitize_filename("Ärger über Öffnung", 50), "Aerger_ueber_Oeffnung");
+        assert_eq!(
+            sanitize_filename("Ärger über Öffnung", 50),
+            "Aerger_ueber_Oeffnung"
+        );
     }
 
     #[test]
@@ -349,7 +351,10 @@ mod tests {
 
     #[test]
     fn test_sanitize_filename_special_chars() {
-        assert_eq!(sanitize_filename("Hello! @World# (2026)", 50), "Hello_World_2026");
+        assert_eq!(
+            sanitize_filename("Hello! @World# (2026)", 50),
+            "Hello_World_2026"
+        );
     }
 
     #[test]
@@ -360,7 +365,10 @@ mod tests {
 
     #[test]
     fn test_sanitize_filename_spaces_to_underscores() {
-        assert_eq!(sanitize_filename("Hello World Test", 50), "Hello_World_Test");
+        assert_eq!(
+            sanitize_filename("Hello World Test", 50),
+            "Hello_World_Test"
+        );
     }
 
     #[test]
@@ -394,12 +402,8 @@ mod tests {
 
     #[test]
     fn test_generate_communication_filename_iso_format() {
-        let result = generate_communication_filename(
-            "2026-03-15T14:30:00.000Z",
-            "ausgehend",
-            "Hallo",
-            None,
-        );
+        let result =
+            generate_communication_filename("2026-03-15T14:30:00.000Z", "ausgehend", "Hallo", None);
         assert_eq!(result, "2026-03-15_1430_ausgehend_Hallo");
     }
 

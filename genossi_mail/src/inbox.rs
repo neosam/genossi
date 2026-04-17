@@ -7,7 +7,9 @@ use mockall::automock;
 use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::dao::{InboundMail, InboundMailDao, MailJob, MailJobDao, MailRecipient, MailRecipientDao};
+use crate::dao::{
+    InboundMail, InboundMailDao, MailJob, MailJobDao, MailRecipient, MailRecipientDao,
+};
 use crate::service::MailServiceError;
 use genossi_config::service::ConfigService;
 
@@ -124,24 +126,13 @@ pub trait InboxImapClient: Send + Sync + 'static {
     ) -> Result<Vec<FetchedMessage>, MailServiceError>;
 
     /// Set the `\Seen` flag on a specific UID in the configured mailbox.
-    async fn mark_seen(
-        &self,
-        config: &ImapConfig,
-        uid: i64,
-    ) -> Result<(), MailServiceError>;
+    async fn mark_seen(&self, config: &ImapConfig, uid: i64) -> Result<(), MailServiceError>;
 
     /// Move a message to the archive mailbox (must be set in `config`).
-    async fn move_to_archive(
-        &self,
-        config: &ImapConfig,
-        uid: i64,
-    ) -> Result<(), MailServiceError>;
+    async fn move_to_archive(&self, config: &ImapConfig, uid: i64) -> Result<(), MailServiceError>;
 
     /// List all mailbox folder names available on the server.
-    async fn list_folders(
-        &self,
-        config: &ImapConfig,
-    ) -> Result<Vec<String>, MailServiceError>;
+    async fn list_folders(&self, config: &ImapConfig) -> Result<Vec<String>, MailServiceError>;
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -177,69 +168,77 @@ pub fn parse_raw_mail(raw: &[u8]) -> ParsedMail {
     let parser = MessageParser::default();
     let parsed = parser.parse(raw);
 
-    let (from_address, subject, received_at, body_text, html, has_attachments, in_reply_to, message_id) =
-        if let Some(msg) = parsed {
-            let from_address = msg
-                .from()
-                .and_then(|addrs| addrs.first())
-                .and_then(|a| a.address())
-                .unwrap_or("")
-                .to_string();
+    let (
+        from_address,
+        subject,
+        received_at,
+        body_text,
+        html,
+        has_attachments,
+        in_reply_to,
+        message_id,
+    ) = if let Some(msg) = parsed {
+        let from_address = msg
+            .from()
+            .and_then(|addrs| addrs.first())
+            .and_then(|a| a.address())
+            .unwrap_or("")
+            .to_string();
 
-            let subject = msg.subject().unwrap_or("").to_string();
+        let subject = msg.subject().unwrap_or("").to_string();
 
-            let received_at = msg
-                .date()
-                .and_then(|d| {
-                    let ts = d.to_timestamp();
-                    time::OffsetDateTime::from_unix_timestamp(ts).ok()
-                })
-                .map(|odt| time::PrimitiveDateTime::new(odt.date(), odt.time()))
-                .unwrap_or_else(now_primitive);
+        let received_at = msg
+            .date()
+            .and_then(|d| {
+                let ts = d.to_timestamp();
+                time::OffsetDateTime::from_unix_timestamp(ts).ok()
+            })
+            .map(|odt| time::PrimitiveDateTime::new(odt.date(), odt.time()))
+            .unwrap_or_else(now_primitive);
 
-            let body_text = (0..msg.text_body_count())
-                .find_map(|i| msg.body_text(i))
-                .map(|s| s.into_owned())
-                .unwrap_or_default();
+        let body_text = (0..msg.text_body_count())
+            .find_map(|i| msg.body_text(i))
+            .map(|s| s.into_owned())
+            .unwrap_or_default();
 
-            let html = (0..msg.html_body_count())
-                .find_map(|i| msg.body_html(i))
-                .map(|s| s.into_owned());
+        let html = (0..msg.html_body_count())
+            .find_map(|i| msg.body_html(i))
+            .map(|s| s.into_owned());
 
-            let has_attachments = msg.attachment_count() > 0;
+        let has_attachments = msg.attachment_count() > 0;
 
-            let in_reply_to = msg
-                .in_reply_to()
-                .as_text()
-                .map(|s| s.to_string())
-                .and_then(|s| crate::dao::normalize_message_id(&s));
+        let in_reply_to = msg
+            .in_reply_to()
+            .as_text()
+            .map(|s| s.to_string())
+            .and_then(|s| crate::dao::normalize_message_id(&s));
 
-            let message_id = msg
-                .message_id()
-                .and_then(|s| crate::dao::normalize_message_id(s));
+        let message_id = msg
+            .message_id()
+            .and_then(|s| crate::dao::normalize_message_id(s));
 
-            (
-                from_address,
-                subject,
-                received_at,
-                body_text,
-                html,
-                has_attachments,
-                in_reply_to,
-                message_id,
-            )
-        } else {
-            (
-                String::new(),
-                String::new(),
-                now_primitive(),
-                String::new(),
-                None,
-                false,
-                None,
-                None,
-            )
-        };
+        (
+            from_address,
+            subject,
+            received_at,
+            body_text,
+            html,
+            has_attachments,
+            in_reply_to,
+            message_id,
+        )
+    } else {
+        (
+            String::new(),
+            String::new(),
+            now_primitive(),
+            String::new(),
+            None,
+            false,
+            None,
+            None,
+        )
+    };
 
     let has_html_body = html.is_some();
     let raw_html_body = html;
@@ -281,12 +280,8 @@ pub trait InboxService: Send + Sync + 'static {
     async fn archive(&self, id: Uuid) -> Result<InboundMail, MailServiceError>;
     async fn mark_done(&self, id: Uuid) -> Result<InboundMail, MailServiceError>;
     async fn list_folders(&self) -> Result<Vec<String>, MailServiceError>;
-    async fn reply(
-        &self,
-        id: Uuid,
-        subject: &str,
-        body: &str,
-    ) -> Result<MailJob, MailServiceError>;
+    async fn reply(&self, id: Uuid, subject: &str, body: &str)
+        -> Result<MailJob, MailServiceError>;
 }
 
 pub struct InboxServiceImpl<C, D, I, J, R>
@@ -463,23 +458,15 @@ where
 // Inbox worker
 // ────────────────────────────────────────────────────────────────────────────
 
-pub async fn start_inbox_worker<C, D, I>(
-    config_service: Arc<C>,
-    dao: Arc<D>,
-    imap_client: Arc<I>,
-) where
+pub async fn start_inbox_worker<C, D, I>(config_service: Arc<C>, dao: Arc<D>, imap_client: Arc<I>)
+where
     C: ConfigService,
     D: InboundMailDao,
     I: InboxImapClient,
 {
     loop {
         let interval = load_poll_interval(config_service.as_ref()).await;
-        if let Err(e) = poll_once(
-            config_service.as_ref(),
-            dao.as_ref(),
-            imap_client.as_ref(),
-        )
-        .await
+        if let Err(e) = poll_once(config_service.as_ref(), dao.as_ref(), imap_client.as_ref()).await
         {
             tracing::warn!("Inbox worker: poll cycle failed: {:?}", e);
         }
@@ -575,7 +562,8 @@ mod tests {
 
     fn mock_config(entries: Vec<ConfigEntry>) -> MockConfigService {
         let mut m = MockConfigService::new();
-        m.expect_get_all().returning(move || Ok(entries.clone().into()));
+        m.expect_get_all()
+            .returning(move || Ok(entries.clone().into()));
         m
     }
 
@@ -717,7 +705,13 @@ mod tests {
 
         let cfg = MockConfigService::new();
         let imap = MockInboxImapClient::new();
-        let svc = InboxServiceImpl::new(Arc::new(cfg), Arc::new(dao), Arc::new(imap), Arc::new(MockMailJobDao::new()), Arc::new(MockMailRecipientDao::new()));
+        let svc = InboxServiceImpl::new(
+            Arc::new(cfg),
+            Arc::new(dao),
+            Arc::new(imap),
+            Arc::new(MockMailJobDao::new()),
+            Arc::new(MockMailRecipientDao::new()),
+        );
         let updated = svc.assign_member(mail_id, member_id).await.unwrap();
         assert_eq!(updated.assigned_member_id, Some(member_id));
     }
@@ -738,7 +732,13 @@ mod tests {
 
         let cfg = MockConfigService::new();
         let imap = MockInboxImapClient::new();
-        let svc = InboxServiceImpl::new(Arc::new(cfg), Arc::new(dao), Arc::new(imap), Arc::new(MockMailJobDao::new()), Arc::new(MockMailRecipientDao::new()));
+        let svc = InboxServiceImpl::new(
+            Arc::new(cfg),
+            Arc::new(dao),
+            Arc::new(imap),
+            Arc::new(MockMailJobDao::new()),
+            Arc::new(MockMailRecipientDao::new()),
+        );
         let updated = svc.mark_done(mail_id).await.unwrap();
         assert!(updated.done);
     }
@@ -760,7 +760,13 @@ mod tests {
             // no archive mailbox
         ]);
         let imap = MockInboxImapClient::new();
-        let svc = InboxServiceImpl::new(Arc::new(cfg), Arc::new(dao), Arc::new(imap), Arc::new(MockMailJobDao::new()), Arc::new(MockMailRecipientDao::new()));
+        let svc = InboxServiceImpl::new(
+            Arc::new(cfg),
+            Arc::new(dao),
+            Arc::new(imap),
+            Arc::new(MockMailJobDao::new()),
+            Arc::new(MockMailRecipientDao::new()),
+        );
         let res = svc.archive(mail_id).await;
         assert!(matches!(res, Err(MailServiceError::ConfigMissing(_))));
     }

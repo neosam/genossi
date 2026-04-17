@@ -118,7 +118,7 @@ pub struct SessionEntity {
     pub user_id: Arc<str>,
     pub expires: i64,
     pub created: i64,
-    pub claims: Option<Arc<str>>,  // JSON string containing session claims
+    pub claims: Option<Arc<str>>, // JSON string containing session claims
 }
 
 // Mock implementation for testing

@@ -114,10 +114,7 @@ mod tests {
         assert_eq!(changes.len(), 1);
         assert_eq!(changes[0].field_name, "email");
         assert!(changes[0].old_value.is_none());
-        assert_eq!(
-            changes[0].new_value,
-            Some("alice@example.com".to_string())
-        );
+        assert_eq!(changes[0].new_value, Some("alice@example.com".to_string()));
     }
 
     #[test]
@@ -136,10 +133,7 @@ mod tests {
         let changes = old.diff(&new);
         assert_eq!(changes.len(), 1);
         assert_eq!(changes[0].field_name, "email");
-        assert_eq!(
-            changes[0].old_value,
-            Some("alice@example.com".to_string())
-        );
+        assert_eq!(changes[0].old_value, Some("alice@example.com".to_string()));
         assert!(changes[0].new_value.is_none());
     }
 }

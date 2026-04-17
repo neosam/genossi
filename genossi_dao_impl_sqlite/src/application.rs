@@ -68,11 +68,7 @@ impl TryFrom<&ApplicationDb> for ApplicationEntity {
             shares: db.shares,
             status: ApplicationStatus::from_str(&db.status)?,
             created: parse_datetime(&db.created)?,
-            deleted: db
-                .deleted
-                .as_ref()
-                .map(|d| parse_datetime(d))
-                .transpose()?,
+            deleted: db.deleted.as_ref().map(|d| parse_datetime(d)).transpose()?,
             version: Uuid::from_slice(&db.version)?,
         })
     }
@@ -92,10 +88,7 @@ impl ApplicationDaoImpl {
 impl ApplicationDao for ApplicationDaoImpl {
     type Transaction = TransactionImpl;
 
-    async fn dump_all(
-        &self,
-        tx: Self::Transaction,
-    ) -> Result<Arc<[ApplicationEntity]>, DaoError> {
+    async fn dump_all(&self, tx: Self::Transaction) -> Result<Arc<[ApplicationEntity]>, DaoError> {
         let rows = sqlx::query_as::<_, ApplicationDb>(
             "SELECT id, first_name, last_name, salutation, title, email, street, house_number, \
              postal_code, city, shares, status, created, deleted, version \

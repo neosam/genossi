@@ -53,11 +53,7 @@ impl TryFrom<&MemberDocumentDb> for MemberDocumentEntity {
             mime_type: Arc::from(db.mime_type.as_str()),
             relative_path: Arc::from(db.relative_path.as_str()),
             created: parse_datetime(&db.created)?,
-            deleted: db
-                .deleted
-                .as_ref()
-                .map(|d| parse_datetime(d))
-                .transpose()?,
+            deleted: db.deleted.as_ref().map(|d| parse_datetime(d)).transpose()?,
             version: Uuid::from_slice(&db.version)?,
         })
     }

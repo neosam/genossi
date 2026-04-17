@@ -1,10 +1,4 @@
-use axum::{
-    body::Body,
-    extract::State,
-    response::Response,
-    routing::get,
-    Extension, Router,
-};
+use axum::{body::Body, extract::State, response::Response, routing::get, Extension, Router};
 use genossi_config::service::ConfigService as _;
 use genossi_service::user_preference::UserPreferenceService as _;
 use serde::{Deserialize, Serialize};

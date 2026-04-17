@@ -66,18 +66,14 @@ impl PackageCache {
         // if called from within an existing Tokio runtime.
         let pkg_clone = pkg.clone();
         let dir_clone = dir.clone();
-        std::thread::spawn(move || {
-            Self::download_package_impl(&pkg_clone, &dir_clone)
-        })
-        .join()
-        .map_err(|_| {
-            typst::diag::FileError::Other(Some(typst::diag::EcoString::from(
-                "Package download thread panicked",
-            )))
-        })?
-        .map_err(|e| {
-            typst::diag::FileError::Other(Some(typst::diag::EcoString::from(e)))
-        })?;
+        std::thread::spawn(move || Self::download_package_impl(&pkg_clone, &dir_clone))
+            .join()
+            .map_err(|_| {
+                typst::diag::FileError::Other(Some(typst::diag::EcoString::from(
+                    "Package download thread panicked",
+                )))
+            })?
+            .map_err(|e| typst::diag::FileError::Other(Some(typst::diag::EcoString::from(e))))?;
 
         self.downloaded.lock().unwrap().insert(key);
         Ok(())
@@ -89,8 +85,13 @@ impl PackageCache {
             pkg.namespace, pkg.name, pkg.version
         );
 
-        let response = reqwest::blocking::get(&url)
-            .map_err(|e| format!("Failed to download package {}: {}", Self::package_key(pkg), e))?;
+        let response = reqwest::blocking::get(&url).map_err(|e| {
+            format!(
+                "Failed to download package {}: {}",
+                Self::package_key(pkg),
+                e
+            )
+        })?;
 
         if response.status() == reqwest::StatusCode::NOT_FOUND {
             return Err(format!("Package {} not found", Self::package_key(pkg)));
@@ -329,22 +330,30 @@ impl PdfGenerator {
             serde_json::Value::String(application.status.as_str().to_string()),
         );
 
-        let format =
-            time::format_description::parse("[day].[month].[year]").expect("valid format");
+        let format = time::format_description::parse("[day].[month].[year]").expect("valid format");
         app_map.insert(
             "created".to_string(),
             serde_json::Value::String(
-                application.created.date().format(&format).unwrap_or_default(),
+                application
+                    .created
+                    .date()
+                    .format(&format)
+                    .unwrap_or_default(),
             ),
         );
 
-        let app_json =
-            serde_json::to_string(&serde_json::Value::Object(app_map)).unwrap();
-        inputs.insert(Str::from("application"), Value::Str(Str::from(app_json.as_str())));
+        let app_json = serde_json::to_string(&serde_json::Value::Object(app_map)).unwrap();
+        inputs.insert(
+            Str::from("application"),
+            Value::Str(Str::from(app_json.as_str())),
+        );
 
         let today = time::OffsetDateTime::now_utc().date();
         let today_str = today.format(&format).unwrap_or_default();
-        inputs.insert(Str::from("today"), Value::Str(Str::from(today_str.as_str())));
+        inputs.insert(
+            Str::from("today"),
+            Value::Str(Str::from(today_str.as_str())),
+        );
 
         inputs
     }
@@ -448,21 +457,16 @@ impl PdfGenerator {
         );
 
         // Format dates
-        let format =
-            time::format_description::parse("[day].[month].[year]").expect("valid format");
+        let format = time::format_description::parse("[day].[month].[year]").expect("valid format");
         member_map.insert(
             "join_date".to_string(),
-            serde_json::Value::String(
-                member.join_date.format(&format).unwrap_or_default(),
-            ),
+            serde_json::Value::String(member.join_date.format(&format).unwrap_or_default()),
         );
         member_map.insert(
             "exit_date".to_string(),
             member
                 .exit_date
-                .map(|d| {
-                    serde_json::Value::String(d.format(&format).unwrap_or_default())
-                })
+                .map(|d| serde_json::Value::String(d.format(&format).unwrap_or_default()))
                 .unwrap_or(serde_json::Value::Null),
         );
 
@@ -483,14 +487,19 @@ impl PdfGenerator {
             serde_json::Value::Bool(member.migrated),
         );
 
-        let member_json =
-            serde_json::to_string(&serde_json::Value::Object(member_map)).unwrap();
-        inputs.insert(Str::from("member"), Value::Str(Str::from(member_json.as_str())));
+        let member_json = serde_json::to_string(&serde_json::Value::Object(member_map)).unwrap();
+        inputs.insert(
+            Str::from("member"),
+            Value::Str(Str::from(member_json.as_str())),
+        );
 
         // Add today's date
         let today = time::OffsetDateTime::now_utc().date();
         let today_str = today.format(&format).unwrap_or_default();
-        inputs.insert(Str::from("today"), Value::Str(Str::from(today_str.as_str())));
+        inputs.insert(
+            Str::from("today"),
+            Value::Str(Str::from(today_str.as_str())),
+        );
 
         inputs
     }
@@ -582,10 +591,7 @@ impl World for TemplateWorld<'_> {
         })?;
 
         let source = Source::new(id, text);
-        self.source_cache
-            .lock()
-            .unwrap()
-            .insert(id, source.clone());
+        self.source_cache.lock().unwrap().insert(id, source.clone());
         Ok(source)
     }
 
@@ -612,11 +618,7 @@ impl World for TemplateWorld<'_> {
 
     fn today(&self, _offset: Option<i64>) -> Option<typst::foundations::Datetime> {
         let now = time::OffsetDateTime::now_utc();
-        typst::foundations::Datetime::from_ymd(
-            now.year(),
-            now.month() as u8,
-            now.day(),
-        )
+        typst::foundations::Datetime::from_ymd(now.year(), now.month() as u8, now.day())
     }
 }
 
@@ -917,7 +919,11 @@ Member number: #member.member_number
         let member = test_member();
         let result = generator.render("join_confirmation.typ", dir.path(), &member);
 
-        assert!(result.is_ok(), "Failed to render default template: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Failed to render default template: {:?}",
+            result.err()
+        );
         let pdf = result.unwrap();
         assert!(pdf.starts_with(b"%PDF"));
     }
@@ -990,7 +996,11 @@ Member number: #member.member_number
         let member = test_member();
         let result = generator.render("main.typ", dir.path(), &member);
 
-        assert!(result.is_ok(), "Local import regression: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Local import regression: {:?}",
+            result.err()
+        );
     }
 
     #[test]

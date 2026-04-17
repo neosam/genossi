@@ -4,11 +4,11 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use genossi_service::{auth_types::AuthContext, permission::PermissionService, ServiceError};
-#[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
-use genossi_service::permission::MockContext;
 #[cfg(feature = "oidc")]
 use genossi_service::auth_types::AuthenticatedContext;
+#[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
+use genossi_service::permission::MockContext;
+use genossi_service::{auth_types::AuthContext, permission::PermissionService, ServiceError};
 
 use crate::RestStateDef;
 
@@ -38,9 +38,11 @@ pub async fn extract_auth_context<S: RestStateDef>(
 pub async fn require_authentication<S: RestStateDef>(request: Request, next: Next) -> Response {
     #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
     let is_authenticated = request.extensions().get::<crate::Context>().is_some();
-    
+
     #[cfg(feature = "oidc")]
-    let is_authenticated = request.extensions().get::<crate::Context>()
+    let is_authenticated = request
+        .extensions()
+        .get::<crate::Context>()
         .map(|ctx| ctx.is_some())
         .unwrap_or(false);
 
@@ -97,9 +99,7 @@ pub async fn require_admin<S: RestStateDef>(
 }
 
 /// Extract authentication context from various header sources
-async fn extract_context_from_headers<
-    SessionService: genossi_service::session::SessionService,
->(
+async fn extract_context_from_headers<SessionService: genossi_service::session::SessionService>(
     headers: &HeaderMap,
     session_service: &SessionService,
 ) -> Result<Option<AuthContext>, ServiceError> {
@@ -160,7 +160,7 @@ fn extract_bearer_token(auth_str: &str) -> Option<String> {
 pub fn mock_auth_context() -> crate::Context {
     #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
     return MockContext;
-    
+
     #[cfg(feature = "oidc")]
     return Some(genossi_service::auth_types::AuthenticatedContext {
         user_id: "DEVUSER".into(),

@@ -73,11 +73,7 @@ impl TryFrom<&MemberActionDb> for MemberActionEntity {
                 .transpose()?,
             comment: db.comment.as_deref().map(Arc::from),
             created: parse_datetime(&db.created)?,
-            deleted: db
-                .deleted
-                .as_ref()
-                .map(|d| parse_datetime(d))
-                .transpose()?,
+            deleted: db.deleted.as_ref().map(|d| parse_datetime(d)).transpose()?,
             version: Uuid::from_slice(&db.version)?,
         })
     }
@@ -97,10 +93,7 @@ impl MemberActionDaoImpl {
 impl MemberActionDao for MemberActionDaoImpl {
     type Transaction = TransactionImpl;
 
-    async fn dump_all(
-        &self,
-        tx: Self::Transaction,
-    ) -> Result<Arc<[MemberActionEntity]>, DaoError> {
+    async fn dump_all(&self, tx: Self::Transaction) -> Result<Arc<[MemberActionEntity]>, DaoError> {
         let rows = sqlx::query_as::<_, MemberActionDb>(
             "SELECT id, member_id, action_type, date, shares_change, transfer_member_id, \
              effective_date, comment, created, deleted, version \
