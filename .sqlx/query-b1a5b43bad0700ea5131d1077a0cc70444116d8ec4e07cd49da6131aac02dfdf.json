@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id, user_id, expires, created, claims FROM session WHERE id = ?",
+  "query": "SELECT id, user_id, expires, created, claims, last_used_at FROM session WHERE id = ?",
   "describe": {
     "columns": [
       {
@@ -27,6 +27,11 @@
         "name": "claims",
         "ordinal": 4,
         "type_info": "Text"
+      },
+      {
+        "name": "last_used_at",
+        "ordinal": 5,
+        "type_info": "Integer"
       }
     ],
     "parameters": {
@@ -37,8 +42,9 @@
       false,
       false,
       false,
-      true
+      true,
+      false
     ]
   },
-  "hash": "774b06164da84c5431ba61c6be0e769e8eaedf90fc4e743d51593955f3364b84"
+  "hash": "b1a5b43bad0700ea5131d1077a0cc70444116d8ec4e07cd49da6131aac02dfdf"
 }

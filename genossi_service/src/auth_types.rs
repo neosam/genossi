@@ -86,6 +86,7 @@ pub struct UserSession {
     pub expires_at: i64,
     pub created_at: i64,
     pub claims: Option<Arc<str>>, // JSON string containing session claims
+    pub last_used_at: i64,
 }
 
 /// Authentication context for different modes

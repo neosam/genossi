@@ -38,6 +38,9 @@ pub trait SessionService: Send + Sync {
     /// Clean up expired sessions
     async fn cleanup_expired_sessions(&self) -> Result<u64, ServiceError>;
 
+    /// Revoke all sessions for a user
+    async fn revoke_all_for_user(&self, user_id: &str) -> Result<u64, ServiceError>;
+
     /// Extract authentication context from session ID  
     async fn extract_auth_context(
         &self,
@@ -88,6 +91,7 @@ impl SessionService for DevSessionService {
             expires_at: now + expires_in_seconds,
             created_at: now,
             claims: None,
+            last_used_at: now,
         })
     }
 
@@ -104,6 +108,7 @@ impl SessionService for DevSessionService {
             expires_at: now + expires_in_seconds,
             created_at: now,
             claims: claims.map(|s| Arc::from(s.as_str())),
+            last_used_at: now,
         })
     }
 
@@ -118,6 +123,7 @@ impl SessionService for DevSessionService {
             expires_at: now + 3600,
             created_at: now,
             claims: None,
+            last_used_at: now,
         }))
     }
 
@@ -126,6 +132,10 @@ impl SessionService for DevSessionService {
     }
 
     async fn cleanup_expired_sessions(&self) -> Result<u64, ServiceError> {
+        Ok(0)
+    }
+
+    async fn revoke_all_for_user(&self, _user_id: &str) -> Result<u64, ServiceError> {
         Ok(0)
     }
 

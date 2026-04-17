@@ -89,6 +89,8 @@ pub trait PermissionDao: Send + Sync {
     async fn get_session(&self, session_id: &str) -> Result<Option<SessionEntity>, DaoError>;
     async fn delete_session(&self, session_id: &str) -> Result<(), DaoError>;
     async fn cleanup_expired_sessions(&self, before_timestamp: i64) -> Result<(), DaoError>;
+    async fn touch_session(&self, session_id: &str, now: i64) -> Result<(), DaoError>;
+    async fn delete_sessions_for_user(&self, user_id: &str) -> Result<u64, DaoError>;
 }
 
 #[derive(Debug, Clone)]
@@ -119,6 +121,7 @@ pub struct SessionEntity {
     pub expires: i64,
     pub created: i64,
     pub claims: Option<Arc<str>>, // JSON string containing session claims
+    pub last_used_at: i64,
 }
 
 // Mock implementation for testing
@@ -273,12 +276,14 @@ impl PermissionDao for MockPermissionDao {
     }
 
     async fn get_session(&self, _session_id: &str) -> Result<Option<SessionEntity>, DaoError> {
+        let now = time::OffsetDateTime::now_utc().unix_timestamp();
         Ok(Some(SessionEntity {
             id: Arc::from("mock-session"),
             user_id: Arc::from("DEVUSER"),
-            expires: time::OffsetDateTime::now_utc().unix_timestamp() + 3600,
-            created: time::OffsetDateTime::now_utc().unix_timestamp(),
+            expires: now + 3600,
+            created: now,
             claims: None,
+            last_used_at: now,
         }))
     }
 
@@ -288,5 +293,13 @@ impl PermissionDao for MockPermissionDao {
 
     async fn cleanup_expired_sessions(&self, _before_timestamp: i64) -> Result<(), DaoError> {
         Ok(())
+    }
+
+    async fn touch_session(&self, _session_id: &str, _now: i64) -> Result<(), DaoError> {
+        Ok(())
+    }
+
+    async fn delete_sessions_for_user(&self, _user_id: &str) -> Result<u64, DaoError> {
+        Ok(0)
     }
 }

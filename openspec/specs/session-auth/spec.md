@@ -2,21 +2,21 @@
 
 ### Requirement: Session Lifetime Caps
 
-Das System SHALL jeder aktiven Server-Session sowohl einen absoluten Lebensdauer-Deckel von 14 Tagen (ab Erstellung) als auch einen Inaktivitäts-Timeout von 24 Stunden (ab letztem authentifiziertem Request) zuweisen. Eine Session SHALL ungültig sein, sobald einer der beiden Werte überschritten ist.
+Das System SHALL jeder aktiven Server-Session sowohl einen absoluten Lebensdauer-Deckel von 365 Tagen (ab Erstellung) als auch einen Inaktivitäts-Timeout von 30 Tagen (ab letztem authentifiziertem Request) zuweisen. Eine Session SHALL ungültig sein, sobald einer der beiden Werte überschritten ist.
 
 #### Scenario: Session ist jünger als beide Timeouts
 
-- **WHEN** ein Request mit einer Session-ID eintrifft, deren `created` weniger als 14 Tage zurückliegt UND deren `last_used_at` weniger als 24 Stunden zurückliegt
+- **WHEN** ein Request mit einer Session-ID eintrifft, deren `created` weniger als 365 Tage zurückliegt UND deren `last_used_at` weniger als 30 Tage zurückliegt
 - **THEN** das System akzeptiert die Session als gültig und aktualisiert `last_used_at` auf den aktuellen Zeitpunkt
 
 #### Scenario: Session hat absolutes Timeout überschritten
 
-- **WHEN** ein Request mit einer Session-ID eintrifft, deren `created` mehr als 14 Tage zurückliegt
+- **WHEN** ein Request mit einer Session-ID eintrifft, deren `created` mehr als 365 Tage zurückliegt
 - **THEN** das System lehnt die Session ab, löscht sie aus der DB und antwortet mit HTTP 401
 
 #### Scenario: Session hat Inaktivitäts-Timeout überschritten
 
-- **WHEN** ein Request mit einer Session-ID eintrifft, deren `last_used_at` mehr als 24 Stunden zurückliegt (auch wenn `created` noch innerhalb der 14 Tage liegt)
+- **WHEN** ein Request mit einer Session-ID eintrifft, deren `last_used_at` mehr als 30 Tage zurückliegt (auch wenn `created` noch innerhalb der 365 Tage liegt)
 - **THEN** das System lehnt die Session ab, löscht sie aus der DB und antwortet mit HTTP 401
 
 ### Requirement: Session-ID darf nicht in Logs erscheinen

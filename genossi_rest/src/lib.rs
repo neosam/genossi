@@ -13,6 +13,7 @@ pub mod member_document;
 pub mod permission;
 pub mod public_stats;
 pub mod session;
+pub mod session_management;
 pub mod static_document;
 pub mod template;
 pub mod test_server;
@@ -230,7 +231,8 @@ pub trait RestStateDef:
         (path = "/api/member-documents", api = member_document::CountsApiDoc),
         (path = "/api/applications", api = application::ApiDoc),
         (path = "/api/audit", api = audit_log::ApiDoc),
-        (path = "/api/audit/timestamps", api = audit_timestamp::ApiDoc)
+        (path = "/api/audit/timestamps", api = audit_timestamp::ApiDoc),
+        (path = "/api/session", api = session_management::ApiDoc)
     )
 )]
 pub struct ApiDoc;
@@ -432,6 +434,10 @@ pub async fn create_app<
         .nest(
             "/api/audit/timestamps",
             audit_timestamp::generate_route::<RestState>(),
+        )
+        .nest(
+            "/api/session",
+            session_management::generate_route::<RestState>(),
         )
         .with_state(rest_state.clone())
         .layer(middleware::from_fn_with_state(

@@ -294,6 +294,7 @@ pub async fn register_session<RestState: RestStateDef>(
 |----------|--------|-------------|
 | `/authenticate` | GET | Login endpoint (redirects to OIDC provider) |
 | `/logout` | GET | Logout endpoint (OIDC RP-initiated logout) |
+| `/api/session/revoke-all` | POST | Revoke all sessions for the current user (requires auth) |
 
 ### Permission Management Endpoints
 
@@ -578,8 +579,10 @@ let app = Router::new()
    - Check CLIENT_ID and CLIENT_SECRET match OIDC provider configuration
 
 3. **Session Expiry**
-   - Sessions expire after 50 minutes of inactivity (OIDC)
-   - App session cookies expire after 365 days
+   - Sessions have a 365-day absolute lifetime and a 30-day inactivity timeout
+   - The stricter of the two applies
+   - `last_used_at` is updated on every authenticated request
+   - Sessions exceeding either timeout are deleted from the database
 
 4. **Permission Denied (403)**
    - Verify user has required role
@@ -600,6 +603,32 @@ let subscriber = tracing_subscriber::FmtSubscriber::builder()
     .finish();
 ```
 
+## Session Lifetime Policy
+
+Sessions use a two-timeout model:
+
+- **Absolute lifetime**: 365 days from creation. After this, the session is invalid regardless of activity.
+- **Inactivity timeout**: 30 days since last use. If no authenticated request is made within 30 days, the session expires.
+
+The stricter of both applies. On every successful session verification, `last_used_at` is updated to the current timestamp.
+
+### Self-Service Session Revocation
+
+Users can revoke all their active sessions via `POST /api/session/revoke-all`. This deletes all sessions for the calling user, including the current one. The response includes:
+
+```json
+{
+  "message": "Alle Sessions beendet.",
+  "revoked_count": 3
+}
+```
+
+After revocation, the next request with any old session will receive HTTP 401.
+
+### Session ID Security
+
+Session IDs are never logged. Log output only contains the user ID at `debug` level. No `{:?}` formatting of cookies, session entities, or session IDs appears in any log output.
+
 ## Security Considerations
 
 1. **HTTPS Required**: OIDC authentication requires HTTPS in production
@@ -607,6 +636,7 @@ let subscriber = tracing_subscriber::FmtSubscriber::builder()
 3. **CSRF Protection**: SameSite cookie attribute provides CSRF protection
 4. **Session Management**: Sessions stored server-side with client receiving only session ID
 5. **Role-Based Access**: Fine-grained permissions through role-privilege system
+6. **No Panics in Auth Path**: Database errors in session creation/verification return HTTP 500 instead of panicking
 
 ## Migration from Mock to OIDC
 

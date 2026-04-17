@@ -1543,9 +1543,26 @@ pub async fn verify_timestamp(
 }
 
 pub async fn get_open_applications_count(config: &Config) -> Option<usize> {
-    get_applications(config, Some("Offen")).await.ok().map(|v| v.len())
+    get_applications(config, Some("Offen"))
+        .await
+        .ok()
+        .map(|v| v.len())
 }
 
 pub async fn get_open_inbox_count(config: &Config) -> Option<usize> {
-    get_inbox(config).await.ok().map(|mails| mails.iter().filter(|m| !m.done).count())
+    get_inbox(config)
+        .await
+        .ok()
+        .map(|mails| mails.iter().filter(|m| !m.done).count())
+}
+
+// Session Management API
+pub async fn revoke_all_sessions(
+    config: &Config,
+) -> Result<rest_types::SessionRevokeResponse, reqwest::Error> {
+    let url = format!("{}/api/session/revoke-all", config.backend_url);
+    let client = reqwest::Client::new();
+    let response = client.post(url).send().await?;
+    response.error_for_status_ref()?;
+    Ok(response.json().await?)
 }

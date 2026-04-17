@@ -13,7 +13,7 @@ async fn main() {
         .expect("Failed to install rustls CryptoProvider");
 
     tracing_subscriber::fmt()
-        .with_env_filter("genossi=debug,tower_http=debug")
+        .with_env_filter("genossi=info,tower_http=debug")
         .init();
 
     let database_url =

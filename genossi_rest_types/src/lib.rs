@@ -1099,3 +1099,9 @@ pub struct TimestampCreateResponseTO {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timestamp: Option<TimestampResponseTO>,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct SessionRevokeResponse {
+    pub message: String,
+    pub revoked_count: u64,
+}

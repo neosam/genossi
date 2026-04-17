@@ -38,22 +38,33 @@ pub async fn register_session<RestState: RestStateDef>(
             .map(|s| s.as_str().to_string())
             .unwrap_or_else(|| "NoUsername".to_string());
 
-        // Use the new method that ensures user exists before creating session
-        let session = rest_state
+        const SESSION_ABSOLUTE_LIFETIME_SECS: i64 = 365 * 24 * 60 * 60;
+
+        match rest_state
             .session_service()
-            .ensure_user_and_create_session(&username, 365 * 24 * 60 * 60) // 365 days in seconds
+            .ensure_user_and_create_session(&username, SESSION_ABSOLUTE_LIFETIME_SECS)
             .await
-            .expect("Failed to create session for OIDC user");
-        let session_id = session.session_id.to_string();
-        let now = OffsetDateTime::now_utc();
-        let expires = now + time::Duration::days(365);
-        let cookie = Cookie::build(Cookie::new("app_session", session_id))
-            .path("/")
-            .expires(expires)
-            .http_only(true)
-            .same_site(tower_cookies::cookie::SameSite::Strict)
-            .secure(true);
-        cookies.add(cookie.into());
+        {
+            Ok(session) => {
+                let session_id = session.session_id.to_string();
+                let now = OffsetDateTime::now_utc();
+                let expires = now + time::Duration::seconds(SESSION_ABSOLUTE_LIFETIME_SECS);
+                let cookie = Cookie::build(Cookie::new("app_session", session_id))
+                    .path("/")
+                    .expires(expires)
+                    .http_only(true)
+                    .same_site(tower_cookies::cookie::SameSite::Strict)
+                    .secure(true);
+                cookies.add(cookie.into());
+            }
+            Err(e) => {
+                tracing::error!(error = %e, user_id = %username, "failed to create session");
+                return Response::builder()
+                    .status(500)
+                    .body("Internal Server Error".into())
+                    .unwrap();
+            }
+        }
     }
     next.run(request).await
 }
@@ -68,34 +79,37 @@ pub async fn context_extractor<RestState: RestStateDef>(
         .extensions()
         .get::<Cookies>()
         .expect("Cookies extension not set");
-    tracing::info!("All cookies: {:?}", cookies.list());
 
-    tracing::info!("Search for app_session cookie");
     if let Some(cookie) = cookies.get("app_session") {
-        tracing::info!("app_session cookie found: {:?}", cookie);
         let session_id = cookie.value();
-        tracing::info!("Session ID: {:?}", session_id);
-        if let Some(session) = rest_state
+        match rest_state
             .session_service()
             .verify_user_session(session_id)
             .await
-            .unwrap()
         {
-            tracing::info!("Session found: {:?}", session);
-            // Insert AuthenticatedContext with claims as the Context
-            let auth_context = genossi_service::auth_types::AuthenticatedContext {
-                user_id: session.user_id,
-                claims: session.claims,
-            };
-            request.extensions_mut().insert(Some(auth_context));
-        } else {
-            tracing::info!("Session not found");
-            request
-                .extensions_mut()
-                .insert(None::<genossi_service::auth_types::AuthenticatedContext>);
+            Ok(Some(session)) => {
+                tracing::debug!(user_id = %session.user_id, "session verified");
+                let auth_context = genossi_service::auth_types::AuthenticatedContext {
+                    user_id: session.user_id,
+                    claims: session.claims,
+                };
+                request.extensions_mut().insert(Some(auth_context));
+            }
+            Ok(None) => {
+                tracing::debug!("session invalid or expired");
+                request
+                    .extensions_mut()
+                    .insert(None::<genossi_service::auth_types::AuthenticatedContext>);
+            }
+            Err(e) => {
+                tracing::error!(error = %e, "session verification failed");
+                request
+                    .extensions_mut()
+                    .insert(None::<genossi_service::auth_types::AuthenticatedContext>);
+            }
         }
     } else {
-        tracing::info!("app_session cookie not found");
+        tracing::debug!("no session cookie");
         request
             .extensions_mut()
             .insert(None::<genossi_service::auth_types::AuthenticatedContext>);

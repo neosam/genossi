@@ -2,7 +2,7 @@
 
 Die aktuelle Session-Architektur ergibt sich aus dem Zusammenspiel mehrerer Komponenten, die jeweils für sich sinnvoll sind, in Summe aber einen unerwünscht langen Hijack-Window öffnen:
 
-- `axum-oidc` validiert OIDC-Claims gegen den WordPress-OIDC-Provider **nur beim Initial-Login**.
+- `axum-oidc` validiert OIDC-Claims gegen den Nextcloud-OIDC-Provider **nur beim Initial-Login**.
 - `register_session` (`genossi_rest/src/session.rs:22-60`) erstellt danach eine Genossi-eigene DB-Session mit hartcodiertem 365-Tage-Timeout und setzt das Cookie `app_session`.
 - `context_extractor` (`genossi_rest/src/session.rs:63-102`) liest bei jedem folgenden Request nur noch das Cookie und verifiziert die Session gegen die lokale DB — **OIDC wird nicht mehr konsultiert**.
 - Zwischen Zeile 72 und 85 stehen vier `tracing::info!`-Aufrufe, die Session-ID, Cookie-Liste und Session-Entity mit allen Feldern ausgeben. Bei hartem `genossi=debug` im `EnvFilter` (`genossi_bin/src/main.rs:16`) landen diese Daten bei jedem authentifizierten Request in den Logs.
@@ -12,7 +12,7 @@ Die Session-Tabelle (`migrations/sqlite/20250129000000_create_auth_tables.sql:48
 `SessionEntity` in `genossi_dao/src/permission.rs:116-122` spiegelt die Tabelle 1:1 wider.
 
 **Constraints:**
-- Backwards-Compatibility zum Login-Flow über WordPress-OIDC ist Pflicht — wir ändern nicht, wie sich User einloggen.
+- Backwards-Compatibility zum Login-Flow über Nextcloud-OIDC ist Pflicht — wir ändern nicht, wie sich User einloggen.
 - Keine neuen Crates (Scope-Kontrolle).
 - Single-Server-Deployment: SQLite, keine verteilte Session-Invalidation nötig.
 - App ist öffentlich im Internet → Defense-in-Depth zählt.
@@ -28,7 +28,7 @@ Die Session-Tabelle (`migrations/sqlite/20250129000000_create_auth_tables.sql:48
 
 **Non-Goals:**
 - Kein Re-Check gegen den OIDC-Provider bei jedem Request (zu viel Komplexität und Last für diesen Change). Wenn später gewünscht, ist das ein eigener Change.
-- Kein WordPress → Genossi Push-Revoke (Account-Deaktivierung bleibt ein Ops-Prozess, der über den Inaktivitäts-Timeout innerhalb von 24h de facto wirksam wird).
+- Kein Nextcloud → Genossi Push-Revoke (Account-Deaktivierung bleibt ein Ops-Prozess, der über den Inaktivitäts-Timeout innerhalb von 24h de facto wirksam wird).
 - Kein Admin-Endpoint "fremde Sessions revoken" (nur Self-Service für diesen Change; Admin-Case später).
 - Kein UI-Reskin des Login-Flows.
 - Keine Rate-Limits (gehört ins separate Bundle `harden-public-perimeter`).
@@ -42,7 +42,7 @@ Die Session-Tabelle (`migrations/sqlite/20250129000000_create_auth_tables.sql:48
 **Alternativen:**
 - *365 Tage behalten, nur Logs fixen:* löst das Log-Problem, aber ein geleaktes Cookie ist weiterhin 1 Jahr nutzbar. Im Public-Internet nicht vertretbar.
 - *Nur Inaktivitäts-Timeout, kein Absolut-Timeout:* User der täglich eingeloggt ist bleibt theoretisch ewig drin. Kein harter Cap auf "worst case Hijack-Dauer".
-- *OIDC-Re-Check bei jedem Request:* löst das Problem fundamentaler (inkl. WordPress-Revoke), erhöht aber Last (OIDC-Call pro Request oder Token-Caching nötig), bringt Komplexität (Refresh-Token-Handling) und hat längere Implementierungszeit. Eigener Change-Kandidat für später.
+- *OIDC-Re-Check bei jedem Request:* löst das Problem fundamentaler (inkl. Nextcloud-Revoke), erhöht aber Last (OIDC-Call pro Request oder Token-Caching nötig), bringt Komplexität (Refresh-Token-Handling) und hat längere Implementierungszeit. Eigener Change-Kandidat für später.
 
 **Rationale für 14d + 24h:** Der Vorstand nutzt die App in der Regel alle paar Tage bis wöchentlich, die 14 Tage absolute Cap sind pragmatisch (Nach-Urlaub-Re-Login akzeptabel). Die 24h-Inaktivität macht das "Laptop-über-Nacht-gestohlen"-Szenario am nächsten Tag harmlos.
 
@@ -54,11 +54,11 @@ Die Session-Tabelle (`migrations/sqlite/20250129000000_create_auth_tables.sql:48
 - *Implizite Inaktivität via `expires` rollierend setzen:* verkompliziert den Unterschied zwischen Inaktivitäts- und Absolut-Timeout. Zwei explizite Felder sind klarer.
 - *Timestamp nur stündlich updaten (Throttle):* weniger Write-Last auf SQLite, aber der Gewinn ist bei unserer Request-Frequenz vernachlässigbar. Bei Performance-Problemen später nachrüstbar.
 
-**Schreib-Last:** Jeder authentifizierte Request triggert ein `UPDATE`. SQLite mit WAL-Modus verträgt das locker für die erwartete Last (Vorstand + WordPress-Public-Endpoint).
+**Schreib-Last:** Jeder authentifizierte Request triggert ein `UPDATE`. SQLite mit WAL-Modus verträgt das locker für die erwartete Last (Vorstand + Nextcloud-Public-Endpoint).
 
 ### Logging: User-ID statt Session-ID, Debug-Level
 
-**Wahl:** Alle `{:?}`-Ausgaben von Cookies und Session-Entities entfernen. Statt dessen auf `debug`-Level knappe Messages wie `tracing::debug!(user_id = %session.user_id, "session verified")`. Die User-ID ist der WordPress-Username — nicht geheim, aber pseudonym genug.
+**Wahl:** Alle `{:?}`-Ausgaben von Cookies und Session-Entities entfernen. Statt dessen auf `debug`-Level knappe Messages wie `tracing::debug!(user_id = %session.user_id, "session verified")`. Die User-ID ist der Nextcloud-Username — nicht geheim, aber pseudonym genug.
 
 **Alternativen:**
 - *Session-ID als Hash loggen:* theoretisch möglich (SHA256 der Session-ID → unleserlich), aber für Debugging hat man dann auch nichts. User-ID ist nützlicher und sicherer.
@@ -85,11 +85,11 @@ Die Session-Tabelle (`migrations/sqlite/20250129000000_create_auth_tables.sql:48
 
 ## Risks / Trade-offs
 
-- [Risk] 14-Tage-Cap ist zu kurz für User, die die App selten nutzen (z.B. reiner Monat-Ende-Login für Finanzen) → Mitigation: Re-Login über OIDC ist schnell (WordPress-SSO), gefühlt wie normales Weitersurfen. Wenn sich das als Problem erweist: Wert ist eine Konstante, leicht zu tunen.
+- [Risk] 14-Tage-Cap ist zu kurz für User, die die App selten nutzen (z.B. reiner Monat-Ende-Login für Finanzen) → Mitigation: Re-Login über OIDC ist schnell (Nextcloud-SSO), gefühlt wie normales Weitersurfen. Wenn sich das als Problem erweist: Wert ist eine Konstante, leicht zu tunen.
 - [Risk] Session-Revoke löscht auch die laufende Session → User bekommt sofort 401, das kann verwirrend wirken → Mitigation: Response des Endpoints enthält klaren Text "Alle Sessions beendet. Sie werden ausgeloggt." Frontend zeigt das vor dem Redirect an.
 - [Risk] Schreib-Last durch `last_used_at`-Update bei jedem Request → Mitigation: Bei Last-Problemen Throttling auf 5-Min-Granularität nachrüsten. Aktuell unproblematisch.
 - [Risk] Logging-Reduktion erschwert Debugging → Mitigation: User-ID bleibt, Request-Path bleibt (tower_http). Session-spezifische Probleme kann man via User-ID und Timestamp nachvollziehen. Falls wirklich nötig, kann pro Bedarf ein temporäres Feature-Flag gesetzt werden.
-- [Risk] Breaking-Change: alle User müssen sich nach Deployment neu einloggen → Mitigation: Ankündigung im Vorstand-Chat vor Release. Login über WordPress ist ein Klick — Schmerz minimal.
+- [Risk] Breaking-Change: alle User müssen sich nach Deployment neu einloggen → Mitigation: Ankündigung im Vorstand-Chat vor Release. Login über Nextcloud ist ein Klick — Schmerz minimal.
 
 ## Migration Plan
 

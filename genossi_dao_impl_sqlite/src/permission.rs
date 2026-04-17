@@ -427,14 +427,16 @@ impl PermissionDao for PermissionDaoImpl {
         let id = session.id.as_ref();
         let user_id = session.user_id.as_ref();
         let claims = session.claims.as_ref().map(|c| c.as_ref());
+        let last_used_at = session.last_used_at;
 
         sqlx::query!(
-            "INSERT INTO session (id, user_id, expires, created, claims) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO session (id, user_id, expires, created, claims, last_used_at) VALUES (?, ?, ?, ?, ?, ?)",
             id,
             user_id,
             session.expires,
             session.created,
-            claims
+            claims,
+            last_used_at
         )
         .execute(self.pool.as_ref())
         .await
@@ -445,7 +447,7 @@ impl PermissionDao for PermissionDaoImpl {
 
     async fn get_session(&self, session_id: &str) -> Result<Option<SessionEntity>, DaoError> {
         let session = sqlx::query!(
-            "SELECT id, user_id, expires, created, claims FROM session WHERE id = ?",
+            "SELECT id, user_id, expires, created, claims, last_used_at FROM session WHERE id = ?",
             session_id
         )
         .fetch_optional(self.pool.as_ref())
@@ -458,6 +460,7 @@ impl PermissionDao for PermissionDaoImpl {
             expires: row.expires,
             created: row.created,
             claims: row.claims.map(|c| Arc::from(c.as_str())),
+            last_used_at: row.last_used_at,
         }))
     }
 
@@ -477,5 +480,27 @@ impl PermissionDao for PermissionDaoImpl {
             .map_err(|e| DaoError::DatabaseError(e.to_string().into()))?;
 
         Ok(())
+    }
+
+    async fn touch_session(&self, session_id: &str, now: i64) -> Result<(), DaoError> {
+        sqlx::query!(
+            "UPDATE session SET last_used_at = ? WHERE id = ?",
+            now,
+            session_id
+        )
+        .execute(self.pool.as_ref())
+        .await
+        .map_err(|e| DaoError::DatabaseError(e.to_string().into()))?;
+
+        Ok(())
+    }
+
+    async fn delete_sessions_for_user(&self, user_id: &str) -> Result<u64, DaoError> {
+        let result = sqlx::query!("DELETE FROM session WHERE user_id = ?", user_id)
+            .execute(self.pool.as_ref())
+            .await
+            .map_err(|e| DaoError::DatabaseError(e.to_string().into()))?;
+
+        Ok(result.rows_affected())
     }
 }

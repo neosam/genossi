@@ -12,8 +12,8 @@ use genossi_rest::test_server::test_support::start_test_server;
 use genossi_rest_types::{
     ActionTypeTO, AdminCreateApplicationRequest, ApplicationStatusTO, ApplicationTO,
     MemberActionTO, MemberDocumentTO, MemberImportResultTO, MemberTO, MigrationStatusTO,
-    PublicJoinRequest, PublicJoinResponse, SalutationTO, UpdateApplicationRequest,
-    UserPreferenceTO, ValidationResultTO,
+    PublicJoinRequest, PublicJoinResponse, SalutationTO, SessionRevokeResponse,
+    UpdateApplicationRequest, UserPreferenceTO, ValidationResultTO,
 };
 use reqwest::StatusCode;
 use sqlx::SqlitePool;
@@ -7853,6 +7853,21 @@ async fn mail_template_version_conflict() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::CONFLICT);
+}
+
+#[tokio::test]
+async fn test_revoke_all_sessions_returns_200() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .post(server.url("/api/session/revoke-all"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: SessionRevokeResponse = response.json().await.unwrap();
+    assert_eq!(body.message, "Alle Sessions beendet.");
 }
 
 #[tokio::test]
