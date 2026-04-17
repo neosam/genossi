@@ -35,9 +35,12 @@ pub mod test_support {
 
         // Spawn the server in a background task
         let handle = tokio::spawn(async move {
-            axum::serve(listener, app)
-                .await
-                .expect("Test server failed");
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+            .expect("Test server failed");
         });
 
         // Give the server a moment to start

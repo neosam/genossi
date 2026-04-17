@@ -9,7 +9,7 @@ use axum::{
 use genossi_dao::application::ApplicationStatus;
 use genossi_rest_types::{
     AdminCreateApplicationRequest, ApplicationStatusTO, ApplicationTO, PublicJoinRequest,
-    PublicJoinResponse, UpdateApplicationRequest,
+    PublicJoinResponse, UpdateApplicationRequest, ValidationErrorResponse, ValidationFailureItem,
 };
 use genossi_service::application::{ApplicationService, ApplicationSubmission, ApplicationUpdate};
 use std::sync::Arc;
@@ -37,18 +37,97 @@ pub struct ApplicationListQuery {
     pub status: Option<String>,
 }
 
+// --- Input validation for public join ---
+
+fn validate_required_field(
+    errors: &mut Vec<ValidationFailureItem>,
+    field: &str,
+    value: &str,
+    max_len: usize,
+) {
+    if value.is_empty() {
+        errors.push(ValidationFailureItem {
+            field: field.to_string(),
+            message: "missing".to_string(),
+        });
+    } else if value.len() > max_len {
+        errors.push(ValidationFailureItem {
+            field: field.to_string(),
+            message: format!("too long (max {})", max_len),
+        });
+    }
+}
+
+pub fn validate_join_request(body: &PublicJoinRequest) -> Result<(), Vec<ValidationFailureItem>> {
+    let mut errors = Vec::new();
+
+    validate_required_field(&mut errors, "first_name", &body.first_name, 128);
+    validate_required_field(&mut errors, "last_name", &body.last_name, 128);
+
+    // Email: required, must contain '@', 3..=320
+    if body.email.is_empty() {
+        errors.push(ValidationFailureItem {
+            field: "email".to_string(),
+            message: "missing".to_string(),
+        });
+    } else if body.email.len() > 320 {
+        errors.push(ValidationFailureItem {
+            field: "email".to_string(),
+            message: "too long (max 320)".to_string(),
+        });
+    } else if !body.email.contains('@') || body.email.len() < 3 {
+        errors.push(ValidationFailureItem {
+            field: "email".to_string(),
+            message: "invalid email format".to_string(),
+        });
+    }
+
+    validate_required_field(&mut errors, "street", &body.street, 128);
+    validate_required_field(&mut errors, "house_number", &body.house_number, 32);
+    validate_required_field(&mut errors, "postal_code", &body.postal_code, 16);
+    validate_required_field(&mut errors, "city", &body.city, 128);
+
+    // Title: optional, max 64
+    if let Some(ref title) = body.title {
+        if title.len() > 64 {
+            errors.push(ValidationFailureItem {
+                field: "title".to_string(),
+                message: "too long (max 64)".to_string(),
+            });
+        }
+    }
+
+    // Shares: >= 1
+    if body.shares < 1 {
+        errors.push(ValidationFailureItem {
+            field: "shares".to_string(),
+            message: "shares must be >= 1".to_string(),
+        });
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
 // --- Public endpoint (no auth, API key required) ---
 
 #[instrument(skip(state, headers))]
 #[utoipa::path(
     post,
     tag = "Public Join",
-    path = "/join",
+    path = "/api/public/join",
     request_body = PublicJoinRequest,
+    params(
+        ("X-Api-Key" = String, Header, description = "API key for public endpoint authentication"),
+    ),
     responses(
         (status = 201, description = "Application submitted", body = PublicJoinResponse),
         (status = 401, description = "Invalid or missing API key"),
-        (status = 422, description = "Validation error"),
+        (status = 422, description = "Validation error", body = ValidationErrorResponse),
+        (status = 429, description = "Rate limit exceeded"),
     ),
 )]
 pub async fn public_join<S: ApplicationRestState>(
@@ -58,7 +137,7 @@ pub async fn public_join<S: ApplicationRestState>(
 ) -> Response {
     error_handler(
         (async {
-            // Validate API key
+            // Validate API key (constant-time comparison to prevent timing side-channel)
             let api_key = headers
                 .get("X-Api-Key")
                 .and_then(|v| v.to_str().ok())
@@ -69,32 +148,20 @@ pub async fn public_join<S: ApplicationRestState>(
                 .await
                 .ok_or(RestError::Unauthorized)?;
 
-            if api_key != stored_key {
+            if !constant_time_eq::constant_time_eq(api_key.as_bytes(), stored_key.as_bytes()) {
                 return Err(RestError::Unauthorized);
             }
 
-            // Public endpoint requires all fields
-            let mut errors = Vec::new();
-            if body.email.is_empty() {
-                errors.push("email");
-            }
-            if body.street.is_empty() {
-                errors.push("street");
-            }
-            if body.house_number.is_empty() {
-                errors.push("house_number");
-            }
-            if body.postal_code.is_empty() {
-                errors.push("postal_code");
-            }
-            if body.city.is_empty() {
-                errors.push("city");
-            }
-            if !errors.is_empty() {
-                return Err(RestError::BadRequest(format!(
-                    "Missing required fields: {}",
-                    errors.join(", ")
-                )));
+            // Validate input fields
+            if let Err(validation_errors) = validate_join_request(&body) {
+                let error_response = ValidationErrorResponse {
+                    errors: validation_errors,
+                };
+                return Ok(Response::builder()
+                    .status(422)
+                    .header("Content-Type", "application/json")
+                    .body(Body::new(serde_json::to_string(&error_response).unwrap()))
+                    .unwrap());
             }
 
             let salutation = body
@@ -449,6 +516,104 @@ pub struct ApiDoc;
 #[derive(OpenApi)]
 #[openapi(
     paths(public_join),
-    components(schemas(PublicJoinRequest, PublicJoinResponse))
+    components(schemas(
+        PublicJoinRequest,
+        PublicJoinResponse,
+        ValidationErrorResponse,
+        ValidationFailureItem
+    ))
 )]
 pub struct PublicApiDoc;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use genossi_rest_types::SalutationTO;
+
+    fn valid_request() -> PublicJoinRequest {
+        PublicJoinRequest {
+            first_name: "Max".to_string(),
+            last_name: "Mustermann".to_string(),
+            salutation: Some(SalutationTO::Herr),
+            title: None,
+            email: "max@example.com".to_string(),
+            street: "Musterstraße".to_string(),
+            house_number: "42".to_string(),
+            postal_code: "12345".to_string(),
+            city: "Berlin".to_string(),
+            shares: 2,
+        }
+    }
+
+    #[test]
+    fn test_validate_valid_request() {
+        assert!(validate_join_request(&valid_request()).is_ok());
+    }
+
+    #[test]
+    fn test_validate_empty_first_name() {
+        let mut req = valid_request();
+        req.first_name = "".to_string();
+        let errors = validate_join_request(&req).unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|e| e.field == "first_name" && e.message == "missing"));
+    }
+
+    #[test]
+    fn test_validate_first_name_too_long() {
+        let mut req = valid_request();
+        req.first_name = "a".repeat(200);
+        let errors = validate_join_request(&req).unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|e| e.field == "first_name" && e.message.contains("too long")));
+    }
+
+    #[test]
+    fn test_validate_email_invalid_format() {
+        let mut req = valid_request();
+        req.email = "foo".to_string();
+        let errors = validate_join_request(&req).unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|e| e.field == "email" && e.message == "invalid email format"));
+    }
+
+    #[test]
+    fn test_validate_shares_zero() {
+        let mut req = valid_request();
+        req.shares = 0;
+        let errors = validate_join_request(&req).unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|e| e.field == "shares" && e.message == "shares must be >= 1"));
+    }
+
+    #[test]
+    fn test_validate_multiple_errors() {
+        let mut req = valid_request();
+        req.email = "".to_string();
+        req.shares = 0;
+        let errors = validate_join_request(&req).unwrap_err();
+        assert!(errors.iter().any(|e| e.field == "email"));
+        assert!(errors.iter().any(|e| e.field == "shares"));
+    }
+
+    #[test]
+    fn test_validate_optional_title_too_long() {
+        let mut req = valid_request();
+        req.title = Some("a".repeat(100));
+        let errors = validate_join_request(&req).unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|e| e.field == "title" && e.message.contains("too long")));
+    }
+
+    #[test]
+    fn test_validate_valid_without_title() {
+        let mut req = valid_request();
+        req.title = None;
+        assert!(validate_join_request(&req).is_ok());
+    }
+}

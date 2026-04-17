@@ -6161,7 +6161,10 @@ async fn test_public_join_missing_fields() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let body: genossi_rest_types::ValidationErrorResponse = response.json().await.unwrap();
+    assert!(body.errors.iter().any(|e| e.field == "email"));
+    assert!(body.errors.iter().any(|e| e.field == "first_name"));
 }
 
 #[tokio::test]
@@ -6181,7 +6184,9 @@ async fn test_public_join_shares_zero() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let body: genossi_rest_types::ValidationErrorResponse = response.json().await.unwrap();
+    assert!(body.errors.iter().any(|e| e.field == "shares"));
 }
 
 #[tokio::test]
@@ -7979,4 +7984,242 @@ async fn mail_template_predefined_present_after_migration() {
         templates.iter().any(|t| t.name == "Informelle Anrede"),
         "Expected 'Informelle Anrede' to be seeded"
     );
+}
+
+// --- Security Headers Tests ---
+
+#[tokio::test]
+async fn test_security_headers_on_success() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let response = client.get(server.url("/api/members")).send().await.unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers().get("strict-transport-security").unwrap(),
+        "max-age=63072000; includeSubDomains"
+    );
+    assert_eq!(
+        response.headers().get("x-content-type-options").unwrap(),
+        "nosniff"
+    );
+    assert_eq!(response.headers().get("x-frame-options").unwrap(), "DENY");
+    assert_eq!(
+        response.headers().get("referrer-policy").unwrap(),
+        "strict-origin-when-cross-origin"
+    );
+    assert_eq!(
+        response.headers().get("permissions-policy").unwrap(),
+        "camera=(), microphone=(), geolocation=(), payment=()"
+    );
+}
+
+#[tokio::test]
+async fn test_security_headers_on_404() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(server.url("/api/nonexistent"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.headers().get("strict-transport-security").unwrap(),
+        "max-age=63072000; includeSubDomains"
+    );
+    assert_eq!(
+        response.headers().get("x-content-type-options").unwrap(),
+        "nosniff"
+    );
+    assert_eq!(response.headers().get("x-frame-options").unwrap(), "DENY");
+    assert_eq!(
+        response.headers().get("referrer-policy").unwrap(),
+        "strict-origin-when-cross-origin"
+    );
+    assert_eq!(
+        response.headers().get("permissions-policy").unwrap(),
+        "camera=(), microphone=(), geolocation=(), payment=()"
+    );
+}
+
+// --- CORS Tests ---
+
+#[tokio::test]
+async fn test_cors_rejects_unknown_origin() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(server.url("/api/members"))
+        .header("Origin", "https://evil.example")
+        .send()
+        .await
+        .unwrap();
+
+    // Should NOT have Access-Control-Allow-Origin for the evil origin
+    let acao = response.headers().get("access-control-allow-origin");
+    assert!(
+        acao.is_none() || acao.unwrap() != "https://evil.example",
+        "CORS should not allow unknown origin"
+    );
+}
+
+// --- Validation Tests ---
+
+#[tokio::test]
+async fn test_public_join_email_invalid_format() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let api_key = setup_api_key(&server, &client).await;
+
+    let mut request = sample_join_request();
+    request.email = "foo".to_string();
+
+    let response = client
+        .post(server.url("/api/public/join"))
+        .header("X-Api-Key", &api_key)
+        .json(&request)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let body: genossi_rest_types::ValidationErrorResponse = response.json().await.unwrap();
+    assert!(body
+        .errors
+        .iter()
+        .any(|e| e.field == "email" && e.message == "invalid email format"));
+}
+
+#[tokio::test]
+async fn test_public_join_first_name_too_long() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let api_key = setup_api_key(&server, &client).await;
+
+    let mut request = sample_join_request();
+    request.first_name = "a".repeat(200);
+
+    let response = client
+        .post(server.url("/api/public/join"))
+        .header("X-Api-Key", &api_key)
+        .json(&request)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let body: genossi_rest_types::ValidationErrorResponse = response.json().await.unwrap();
+    assert!(body
+        .errors
+        .iter()
+        .any(|e| e.field == "first_name" && e.message.contains("too long")));
+}
+
+#[tokio::test]
+async fn test_public_join_multiple_validation_errors() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let api_key = setup_api_key(&server, &client).await;
+
+    let mut request = sample_join_request();
+    request.email = "".to_string();
+    request.shares = 0;
+
+    let response = client
+        .post(server.url("/api/public/join"))
+        .header("X-Api-Key", &api_key)
+        .json(&request)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let body: genossi_rest_types::ValidationErrorResponse = response.json().await.unwrap();
+    assert!(body.errors.iter().any(|e| e.field == "email"));
+    assert!(body.errors.iter().any(|e| e.field == "shares"));
+}
+
+#[tokio::test]
+async fn test_public_join_valid_request_all_fields() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let api_key = setup_api_key(&server, &client).await;
+
+    let response = client
+        .post(server.url("/api/public/join"))
+        .header("X-Api-Key", &api_key)
+        .json(&sample_join_request())
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::CREATED);
+}
+
+// --- Rate Limiting Tests ---
+
+#[tokio::test]
+async fn test_rate_limit_authenticate() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Send 11 requests rapidly - the 11th should be rate limited
+    let mut got_429 = false;
+    for _ in 0..15 {
+        let response = client
+            .get(server.url("/authenticate"))
+            .send()
+            .await
+            .unwrap();
+        if response.status() == StatusCode::TOO_MANY_REQUESTS {
+            got_429 = true;
+            assert!(response.headers().get("retry-after").is_some());
+            break;
+        }
+    }
+    assert!(
+        got_429,
+        "Expected 429 after exceeding rate limit on /authenticate"
+    );
+}
+
+#[tokio::test]
+async fn test_rate_limit_join() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let api_key = setup_api_key(&server, &client).await;
+
+    // Send 6 requests rapidly - the 6th should be rate limited
+    let mut got_429 = false;
+    for _ in 0..8 {
+        let response = client
+            .post(server.url("/api/public/join"))
+            .header("X-Api-Key", &api_key)
+            .json(&sample_join_request())
+            .send()
+            .await
+            .unwrap();
+        if response.status() == StatusCode::TOO_MANY_REQUESTS {
+            got_429 = true;
+            assert!(response.headers().get("retry-after").is_some());
+            break;
+        }
+    }
+    assert!(got_429, "Expected 429 after exceeding rate limit on /join");
+}
+
+#[tokio::test]
+async fn test_rate_limit_api_allows_normal_usage() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // 20 requests within the 60/min limit should all succeed
+    for _ in 0..20 {
+        let response = client.get(server.url("/api/members")).send().await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
 }

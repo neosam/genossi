@@ -30,7 +30,8 @@ use genossi_service::auth_types::AuthenticatedContext;
 use genossi_service::permission::MockContext;
 use std::sync::Arc;
 use tower_cookies::CookieManagerLayer;
-use tower_http::cors::CorsLayer;
+use tower_http::cors::{AllowHeaders, AllowMethods, AllowOrigin, CorsLayer};
+use tower_http::set_header::SetResponseHeaderLayer;
 use tracing::info;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
@@ -331,6 +332,65 @@ async fn context_extractor<RestState: RestStateDef>(
     session::context_extractor(rest_state, request, next).await
 }
 
+fn build_cors_layer(cors_allowed_origins: Option<&str>) -> CorsLayer {
+    let base = std::env::var("BASE_PATH").unwrap_or_else(|_| "http://localhost:3000".into());
+    // Strip trailing slash for origin matching
+    let base_origin = base.trim_end_matches('/').to_string();
+
+    let mut origins: Vec<http::HeaderValue> = Vec::new();
+
+    // Always include BASE_PATH origin
+    match http::HeaderValue::from_str(&base_origin) {
+        Ok(val) => origins.push(val),
+        Err(e) => tracing::warn!("Invalid BASE_PATH origin '{}': {}", base_origin, e),
+    }
+
+    // Add configured additional origins
+    if let Some(extra) = cors_allowed_origins {
+        for origin_str in extra.split(',') {
+            let trimmed = origin_str.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            match http::HeaderValue::from_str(trimmed) {
+                Ok(val) => origins.push(val),
+                Err(e) => tracing::warn!("Invalid CORS origin '{}': {}", trimmed, e),
+            }
+        }
+    }
+
+    tracing::info!("CORS allowed origins: {:?}", origins);
+
+    CorsLayer::new()
+        .allow_origin(AllowOrigin::list(origins))
+        .allow_methods(AllowMethods::any())
+        .allow_headers(AllowHeaders::any())
+}
+
+fn apply_security_headers(router: Router) -> Router {
+    router
+        .layer(SetResponseHeaderLayer::if_not_present(
+            http::header::STRICT_TRANSPORT_SECURITY,
+            http::HeaderValue::from_static("max-age=63072000; includeSubDomains"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            http::header::X_CONTENT_TYPE_OPTIONS,
+            http::HeaderValue::from_static("nosniff"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            http::header::X_FRAME_OPTIONS,
+            http::HeaderValue::from_static("DENY"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            http::header::REFERRER_POLICY,
+            http::HeaderValue::from_static("strict-origin-when-cross-origin"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            http::HeaderName::from_static("permissions-policy"),
+            http::HeaderValue::from_static("camera=(), microphone=(), geolocation=(), payment=()"),
+        ))
+}
+
 pub async fn create_app<
     RestState: RestStateDef
         + public_stats::PublicStatsState
@@ -361,6 +421,50 @@ pub async fn create_app<
 
     let swagger_router = SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", api_doc);
 
+    // Read CORS config at startup
+    let cors_allowed_origins = rest_state.get_config_value("cors_allowed_origins").await;
+    let cors_layer = build_cors_layer(cors_allowed_origins.as_deref());
+
+    // Rate-limiting configs (token bucket)
+    use tower_governor::governor::GovernorConfigBuilder;
+    use tower_governor::GovernorLayer;
+
+    // 10 req/min on /authenticate
+    let auth_rate_config = Arc::new(
+        GovernorConfigBuilder::default()
+            .per_second(6)
+            .burst_size(10)
+            .finish()
+            .unwrap(),
+    );
+    let auth_rate_layer = GovernorLayer {
+        config: auth_rate_config,
+    };
+
+    // 60 req/min on /api/* (global API limit)
+    let api_rate_config = Arc::new(
+        GovernorConfigBuilder::default()
+            .per_second(1)
+            .burst_size(60)
+            .finish()
+            .unwrap(),
+    );
+    let api_rate_layer = GovernorLayer {
+        config: api_rate_config,
+    };
+
+    // 5 req/min on /api/public/join
+    let join_rate_config = Arc::new(
+        GovernorConfigBuilder::default()
+            .per_second(12)
+            .burst_size(5)
+            .finish()
+            .unwrap(),
+    );
+    let join_rate_layer = GovernorLayer {
+        config: join_rate_config,
+    };
+
     let app = Router::new().route("/authenticate", get(login));
 
     #[cfg(feature = "oidc")]
@@ -382,6 +486,9 @@ pub async fn create_app<
             .layer(OidcLoginLayer::<EmptyAdditionalClaims>::new());
         app.layer(oidc_login_service)
     };
+
+    // Rate limit on /authenticate (10/min per IP)
+    let app = app.layer(auth_rate_layer);
 
     #[allow(unused_mut)]
     let mut app = app.merge(swagger_router);
@@ -455,7 +562,8 @@ pub async fn create_app<
             rest_state.clone(),
             context_extractor::<RestState>,
         ))
-        .layer(CorsLayer::permissive());
+        .layer(api_rate_layer)
+        .layer(cors_layer);
 
     #[cfg(feature = "oidc")]
     let app = {
@@ -522,12 +630,10 @@ pub async fn create_app<
     let app = app.layer(CookieManagerLayer::new());
 
     // Public routes (no auth required)
+    let join_router = application::generate_public_route::<RestState>().layer(join_rate_layer);
     let app = app
         .nest("/api/public", public_stats::generate_route::<RestState>())
-        .nest(
-            "/api/public",
-            application::generate_public_route::<RestState>(),
-        )
+        .nest("/api/public", join_router)
         .with_state(rest_state.clone());
 
     // Dev-only routes (no auth required, only compiled in debug builds)
@@ -536,13 +642,17 @@ pub async fn create_app<
         .nest("/api/dev", dev::generate_route::<RestState>())
         .with_state(rest_state.clone());
 
-    app
+    // Security headers on all routes
+    apply_security_headers(app)
 }
 
 pub async fn serve_app(app: Router, listener: tokio::net::TcpListener) {
-    axum::serve(listener, app)
-        .await
-        .expect("Could not start server");
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .await
+    .expect("Could not start server");
 }
 
 pub async fn start_server<

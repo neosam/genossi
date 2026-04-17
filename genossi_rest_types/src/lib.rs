@@ -929,6 +929,17 @@ pub struct PublicJoinResponse {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct ValidationFailureItem {
+    pub field: String,
+    pub message: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct ValidationErrorResponse {
+    pub errors: Vec<ValidationFailureItem>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct AdminCreateApplicationRequest {
     #[schema(example = "Max")]
     pub first_name: String,

@@ -35,7 +35,7 @@ uuid = { version = "1.6", features = ["v4", "serde"] }
 utoipa = { version = "5.0", features = ["axum_extras", "time", "uuid"] }
 utoipa-swagger-ui = { version = "9.0", features = ["axum", "vendored"] }
 tower = "0.5"
-tower-http = { version = "0.6", features = ["cors"] }
+tower-http = { version = "0.6", features = ["cors", "set-header"] }
 dotenv = "0.15"
 tower-cookies = "0.10"
 tower-sessions = "0.14"
