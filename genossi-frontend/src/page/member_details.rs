@@ -1184,6 +1184,7 @@ pub fn MemberDetails(id: String) -> Element {
                                         input {
                                             class: "w-full px-3 py-2 border border-gray-300 rounded-md",
                                             r#type: "file",
+                                            accept: ".pdf,.png,.jpg,.jpeg,.webp,.txt,.doc,.docx,.odt,.xls,.xlsx,.ods",
                                             id: "document-file-input",
                                         }
                                     }

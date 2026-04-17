@@ -9,6 +9,42 @@ use uuid::Uuid;
 use crate::permission::Authentication;
 use crate::ServiceError;
 
+pub const ALLOWED_FILE_TYPES: &[(&str, &str)] = &[
+    ("pdf", "application/pdf"),
+    ("png", "image/png"),
+    ("jpg", "image/jpeg"),
+    ("jpeg", "image/jpeg"),
+    ("webp", "image/webp"),
+    ("txt", "text/plain"),
+    ("doc", "application/msword"),
+    (
+        "docx",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ),
+    ("odt", "application/vnd.oasis.opendocument.text"),
+    ("xls", "application/vnd.ms-excel"),
+    (
+        "xlsx",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ),
+    ("ods", "application/vnd.oasis.opendocument.spreadsheet"),
+];
+
+/// Look up the MIME type for a given extension (case-insensitive).
+/// Returns `None` if the extension is not in the whitelist.
+pub fn lookup_allowed_mime(extension: &str) -> Option<&'static str> {
+    let lower = extension.to_ascii_lowercase();
+    ALLOWED_FILE_TYPES
+        .iter()
+        .find(|(ext, _)| *ext == lower)
+        .map(|(_, mime)| *mime)
+}
+
+/// Returns the list of allowed file extensions.
+pub fn allowed_extensions() -> Vec<&'static str> {
+    ALLOWED_FILE_TYPES.iter().map(|(ext, _)| *ext).collect()
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DocumentType {
     JoinDeclaration,
@@ -156,4 +192,42 @@ pub trait MemberDocumentService {
         context: Authentication<Self::Context>,
         tx: Option<Self::Transaction>,
     ) -> Result<HashMap<Uuid, i64>, ServiceError>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_lookup_allowed_mime_pdf() {
+        assert_eq!(lookup_allowed_mime("pdf"), Some("application/pdf"));
+    }
+
+    #[test]
+    fn test_lookup_allowed_mime_case_insensitive() {
+        assert_eq!(lookup_allowed_mime("PDF"), Some("application/pdf"));
+        assert_eq!(lookup_allowed_mime("Pdf"), Some("application/pdf"));
+        assert_eq!(lookup_allowed_mime("JPG"), Some("image/jpeg"));
+    }
+
+    #[test]
+    fn test_lookup_allowed_mime_not_whitelisted() {
+        assert_eq!(lookup_allowed_mime("exe"), None);
+        assert_eq!(lookup_allowed_mime("html"), None);
+        assert_eq!(lookup_allowed_mime("zip"), None);
+        assert_eq!(lookup_allowed_mime("gz"), None);
+    }
+
+    #[test]
+    fn test_allowed_extensions_contains_all() {
+        let exts = allowed_extensions();
+        assert!(exts.contains(&"pdf"));
+        assert!(exts.contains(&"png"));
+        assert!(exts.contains(&"jpg"));
+        assert!(exts.contains(&"jpeg"));
+        assert!(exts.contains(&"docx"));
+        assert!(exts.contains(&"odt"));
+        assert!(exts.contains(&"ods"));
+        assert_eq!(exts.len(), ALLOWED_FILE_TYPES.len());
+    }
 }

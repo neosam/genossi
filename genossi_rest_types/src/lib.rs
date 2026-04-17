@@ -509,6 +509,12 @@ pub struct MemberDocumentTO {
     pub version: Option<Uuid>,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct UnsupportedFileTypeResponse {
+    pub error: String,
+    pub allowed_extensions: Vec<String>,
+}
+
 impl From<&genossi_service::member_document::MemberDocument> for MemberDocumentTO {
     fn from(d: &genossi_service::member_document::MemberDocument) -> Self {
         Self {

@@ -1560,7 +1560,7 @@ pub async fn get_open_inbox_count(config: &Config) -> Option<usize> {
 pub async fn revoke_all_sessions(
     config: &Config,
 ) -> Result<rest_types::SessionRevokeResponse, reqwest::Error> {
-    let url = format!("{}/api/session/revoke-all", config.backend_url);
+    let url = format!("{}/api/session/revoke-all", config.backend);
     let client = reqwest::Client::new();
     let response = client.post(url).send().await?;
     response.error_for_status_ref()?;

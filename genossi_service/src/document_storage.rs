@@ -6,6 +6,7 @@ use std::sync::Arc;
 pub enum StorageError {
     IoError(Arc<str>),
     NotFound,
+    ValidationError(Arc<str>),
 }
 
 impl std::fmt::Display for StorageError {
@@ -13,6 +14,7 @@ impl std::fmt::Display for StorageError {
         match self {
             StorageError::IoError(msg) => write!(f, "Storage IO error: {}", msg),
             StorageError::NotFound => write!(f, "File not found in storage"),
+            StorageError::ValidationError(msg) => write!(f, "Storage validation error: {}", msg),
         }
     }
 }

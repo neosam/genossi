@@ -30,14 +30,19 @@ gen_service_impl! {
     }
 }
 
-impl<Deps: MemberDocumentServiceDeps> MemberDocumentServiceImpl<Deps> {
-    fn extract_extension(file_name: &str) -> &str {
-        file_name
-            .rsplit('.')
-            .next()
-            .filter(|ext| ext.len() <= 10 && *ext != file_name)
-            .unwrap_or("bin")
+/// Extract and validate the file extension.
+/// Returns `None` if no valid extension found or if it contains non-ASCII-alphanumeric chars.
+fn extract_extension(file_name: &str) -> Option<String> {
+    let ext = file_name.rsplit('.').next()?;
+    // No extension if the split result is the whole filename (no dot present)
+    if ext == file_name {
+        return None;
     }
+    // Only allow ASCII alphanumeric, max 10 chars
+    if ext.is_empty() || ext.len() > 10 || !ext.bytes().all(|b| b.is_ascii_alphanumeric()) {
+        return None;
+    }
+    Some(ext.to_ascii_lowercase())
 }
 
 #[async_trait]
@@ -108,7 +113,7 @@ impl<Deps: MemberDocumentServiceDeps> MemberDocumentService for MemberDocumentSe
         }
 
         let doc_id = self.uuid_service.new_v4().await;
-        let extension = Self::extract_extension(&upload.file_name);
+        let extension = extract_extension(&upload.file_name).unwrap_or("bin".to_string());
         let relative_path = format!("{}.{}", doc_id, extension);
 
         let now = time::OffsetDateTime::now_utc();
@@ -259,21 +264,38 @@ impl<Deps: MemberDocumentServiceDeps> MemberDocumentService for MemberDocumentSe
 mod tests {
     use super::*;
 
-    // extract_extension uses the same logic inline for testability
-    fn extract_extension_logic(file_name: &str) -> &str {
-        file_name
-            .rsplit('.')
-            .next()
-            .filter(|ext| ext.len() <= 10 && *ext != file_name)
-            .unwrap_or("bin")
+    #[test]
+    fn test_extract_extension() {
+        assert_eq!(extract_extension("test.pdf"), Some("pdf".into()));
+        assert_eq!(extract_extension("photo.jpg"), Some("jpg".into()));
+        assert_eq!(extract_extension("archive.tar.gz"), Some("gz".into()));
     }
 
     #[test]
-    fn test_extract_extension() {
-        assert_eq!(extract_extension_logic("test.pdf"), "pdf");
-        assert_eq!(extract_extension_logic("photo.jpg"), "jpg");
-        assert_eq!(extract_extension_logic("noext"), "bin");
-        assert_eq!(extract_extension_logic("archive.tar.gz"), "gz");
+    fn test_extract_extension_uppercase() {
+        assert_eq!(extract_extension("foo.PDF"), Some("pdf".into()));
+        assert_eq!(extract_extension("foo.TXT"), Some("txt".into()));
+    }
+
+    #[test]
+    fn test_extract_extension_no_extension() {
+        assert_eq!(extract_extension("noext"), None);
+    }
+
+    #[test]
+    fn test_extract_extension_invalid_chars() {
+        assert_eq!(extract_extension("foo./bar"), None);
+        assert_eq!(extract_extension("foo.a b"), None);
+    }
+
+    #[test]
+    fn test_extract_extension_empty_ext() {
+        assert_eq!(extract_extension("foo."), None);
+    }
+
+    #[test]
+    fn test_extract_extension_double_dot() {
+        assert_eq!(extract_extension("foo.a..b"), Some("b".into()));
     }
 
     #[test]

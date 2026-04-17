@@ -6,6 +6,7 @@ pub mod auth_middleware;
 pub mod backup;
 #[cfg(debug_assertions)]
 pub mod dev;
+pub mod http_util;
 pub mod mail_footer;
 pub mod member;
 pub mod member_action;
@@ -73,6 +74,7 @@ pub enum RestError {
     BadRequest(String),
     Conflict(String),
     Unauthorized,
+    UnsupportedMediaType(String),
     InternalError(String),
 }
 
@@ -132,6 +134,11 @@ pub fn error_handler(result: Result<Response, RestError>) -> Response {
         Err(RestError::Unauthorized) => Response::builder()
             .status(401)
             .body(Body::from("Unauthorized"))
+            .unwrap(),
+        Err(RestError::UnsupportedMediaType(msg)) => Response::builder()
+            .status(415)
+            .header("Content-Type", "application/json")
+            .body(Body::from(msg))
             .unwrap(),
         Err(RestError::InternalError(msg)) => {
             tracing::error!("Internal error: {}", msg);

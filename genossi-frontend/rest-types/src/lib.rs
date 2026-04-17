@@ -788,6 +788,12 @@ pub struct TimestampVerifyResponseTO {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SessionRevokeResponse {
+    pub message: String,
+    pub revoked_count: u64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TimestampCreateResponseTO {
     pub created: bool,
     pub message: String,

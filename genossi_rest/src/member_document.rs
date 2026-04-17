@@ -8,7 +8,9 @@ use axum::{
 use genossi_rest_types::MemberDocumentTO;
 use genossi_service::document_storage::DocumentStorage;
 use genossi_service::member::MemberService;
-use genossi_service::member_document::{DocumentType, MemberDocumentService, UploadDocument};
+use genossi_service::member_document::{
+    allowed_extensions, lookup_allowed_mime, DocumentType, MemberDocumentService, UploadDocument,
+};
 use genossi_service::template::TemplateError;
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -96,6 +98,7 @@ pub async fn list_documents<RestState: RestStateDef>(
         (status = 400, description = "Validation error"),
         (status = 401, description = "Unauthorized"),
         (status = 404, description = "Member not found"),
+        (status = 415, description = "Unsupported file type", body = genossi_rest_types::UnsupportedFileTypeResponse),
         (status = 500, description = "Internal server error"),
     ),
 )]
@@ -110,7 +113,6 @@ pub async fn upload_document<RestState: RestStateDef>(
             let mut document_type: Option<String> = None;
             let mut description: Option<String> = None;
             let mut file_name: Option<String> = None;
-            let mut mime_type: Option<String> = None;
             let mut file_data: Option<Vec<u8>> = None;
 
             while let Some(field) = multipart
@@ -138,7 +140,7 @@ pub async fn upload_document<RestState: RestStateDef>(
                     }
                     "file" => {
                         file_name = field.file_name().map(|s| s.to_string());
-                        mime_type = field.content_type().map(|s| s.to_string());
+                        // Client MIME type is intentionally ignored; server derives it from extension
                         file_data = Some(
                             field
                                 .bytes()
@@ -161,14 +163,30 @@ pub async fn upload_document<RestState: RestStateDef>(
             let data =
                 file_data.ok_or_else(|| RestError::BadRequest("file is required".to_string()))?;
             let fname = file_name.unwrap_or_else(|| "document".to_string());
-            let mtype = mime_type.unwrap_or_else(|| "application/octet-stream".to_string());
+
+            // Extract extension and validate against whitelist (ignore client MIME)
+            let extension = fname
+                .rsplit('.')
+                .next()
+                .filter(|ext| *ext != fname.as_str())
+                .unwrap_or("");
+            let server_mime = lookup_allowed_mime(extension).ok_or_else(|| {
+                let allowed = allowed_extensions();
+                RestError::UnsupportedMediaType(
+                    serde_json::json!({
+                        "error": format!("File type '{}' is not allowed", extension),
+                        "allowed_extensions": allowed,
+                    })
+                    .to_string(),
+                )
+            })?;
 
             let upload = UploadDocument {
                 member_id,
                 document_type: doc_type,
                 description,
                 file_name: fname,
-                mime_type: mtype,
+                mime_type: server_mime.to_string(),
                 data: data.clone(),
             };
 
@@ -234,12 +252,13 @@ pub async fn download_document<RestState: RestStateDef>(
                 .await
                 .map_err(|e| RestError::InternalError(format!("Failed to load file: {}", e)))?;
 
-            let content_disposition = format!("attachment; filename=\"{}\"", doc.file_name);
+            let content_disposition =
+                crate::http_util::content_disposition_attachment(&doc.file_name);
 
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", doc.mime_type.as_ref())
-                .header("Content-Disposition", content_disposition)
+                .header("Content-Disposition", &content_disposition)
                 .body(Body::from(data))
                 .unwrap())
         })
@@ -348,21 +367,21 @@ pub async fn generate_document<RestState: RestStateDef>(
 
             // Derive filename: e.g. "join_confirmation_1001_mustermann_max.pdf"
             let base_name = template_path.replace(".typ", "");
+            let last = crate::http_util::sanitize_filename_component(&member.last_name);
+            let first = crate::http_util::sanitize_filename_component(&member.first_name);
             let filename = format!(
                 "{}_{}_{}_{}.pdf",
-                base_name,
-                member.member_number,
-                member.last_name.to_lowercase(),
-                member.first_name.to_lowercase(),
+                base_name, member.member_number, last, first
             );
 
             // Upload as MemberDocument (singleton check happens in service)
+            let pdf_mime = lookup_allowed_mime("pdf").unwrap_or("application/pdf");
             let upload = UploadDocument {
                 member_id,
                 document_type: doc_type,
                 description: None,
                 file_name: filename,
-                mime_type: "application/pdf".to_string(),
+                mime_type: pdf_mime.to_string(),
                 data: pdf_bytes.clone(),
             };
 

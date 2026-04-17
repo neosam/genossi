@@ -3798,6 +3798,94 @@ async fn upload_test_document(
 }
 
 #[tokio::test]
+async fn test_upload_document_with_allowed_extension() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let member = create_test_member(&client, &server).await;
+    let member_id = member.id.unwrap();
+
+    let file_part = reqwest::multipart::Part::bytes(b"test png content".to_vec())
+        .file_name("photo.png")
+        .mime_str("image/png")
+        .unwrap();
+    let form = reqwest::multipart::Form::new()
+        .text("document_type", "other")
+        .text("description", "A photo")
+        .part("file", file_part);
+
+    let response = client
+        .post(server.url(&format!("/api/members/{}/documents", member_id)))
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let doc: MemberDocumentTO = response.json().await.unwrap();
+    // Server should derive MIME from extension, not from client
+    assert_eq!(doc.mime_type, "image/png");
+}
+
+#[tokio::test]
+async fn test_upload_document_with_forbidden_extension() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let member = create_test_member(&client, &server).await;
+    let member_id = member.id.unwrap();
+
+    let file_part = reqwest::multipart::Part::bytes(b"evil content".to_vec())
+        .file_name("malware.exe")
+        .mime_str("application/octet-stream")
+        .unwrap();
+    let form = reqwest::multipart::Form::new()
+        .text("document_type", "other")
+        .text("description", "Suspicious file")
+        .part("file", file_part);
+
+    let response = client
+        .post(server.url(&format!("/api/members/{}/documents", member_id)))
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert!(body["error"].as_str().unwrap().contains("exe"));
+    assert!(body["allowed_extensions"].is_array());
+}
+
+#[tokio::test]
+async fn test_upload_document_ignores_client_mime() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let member = create_test_member(&client, &server).await;
+    let member_id = member.id.unwrap();
+
+    // Client lies about MIME type (says text/html for a .pdf)
+    let file_part = reqwest::multipart::Part::bytes(b"fake content".to_vec())
+        .file_name("document.pdf")
+        .mime_str("text/html")
+        .unwrap();
+    let form = reqwest::multipart::Form::new()
+        .text("document_type", "other")
+        .text("description", "Test doc")
+        .part("file", file_part);
+
+    let response = client
+        .post(server.url(&format!("/api/members/{}/documents", member_id)))
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let doc: MemberDocumentTO = response.json().await.unwrap();
+    // Server overrides with correct MIME from extension mapping
+    assert_eq!(doc.mime_type, "application/pdf");
+}
+
+#[tokio::test]
 async fn test_mail_send_with_attachment() {
     let server = setup().await;
     let client = reqwest::Client::new();

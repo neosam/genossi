@@ -860,6 +860,7 @@ pub fn Members() -> Element {
                                                                     }
                                                                     input {
                                                                         r#type: "file",
+                                                                        accept: ".pdf,.png,.jpg,.jpeg,.webp,.txt,.doc,.docx,.odt,.xls,.xlsx,.ods",
                                                                         class: "text-xs",
                                                                         id: "upload-file-{mid}",
                                                                         onchange: move |_| {
@@ -873,6 +874,7 @@ pub fn Members() -> Element {
                                                                 // Ready for upload
                                                                 input {
                                                                     r#type: "file",
+                                                                    accept: ".pdf,.png,.jpg,.jpeg,.webp,.txt,.doc,.docx,.odt,.xls,.xlsx,.ods",
                                                                     class: "text-sm file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:text-sm file:bg-green-50 file:text-green-700 hover:file:bg-green-100",
                                                                     id: "upload-file-{mid}",
                                                                     onchange: move |_| {
