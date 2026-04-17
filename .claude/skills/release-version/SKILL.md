@@ -18,8 +18,8 @@ Release a new genossi version with release notes as tag message.
 Use jj to find the latest tag and list changes since then:
 
 ```bash
-LAST_TAG=$(jj tag list | tail -1 | awk '{print $1}')
-jj log -r "$LAST_TAG..main" --no-graph -T 'description ++ "\n"'
+LAST_TAG=$(jj tag list | tail -1 | awk '{print $1}' | tr -d ':')
+jj log -r "tags(exact:\"$LAST_TAG\")..@" --no-graph -T 'description.first_line() ++ "\n"'
 ```
 
 ### 2. Generate Release Notes

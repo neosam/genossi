@@ -37,6 +37,31 @@ pub struct ValidationFailureItem {
     pub message: Arc<str>,
 }
 
+impl std::fmt::Display for ServiceError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ServiceError::DataAccess(msg) => write!(f, "data access error: {msg}"),
+            ServiceError::EntityNotFound(id) => write!(f, "entity not found: {id}"),
+            ServiceError::ValidationError(items) => {
+                write!(f, "validation error: ")?;
+                for (i, item) in items.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}: {}", item.field, item.message)?;
+                }
+                Ok(())
+            }
+            ServiceError::PermissionDenied => write!(f, "permission denied"),
+            ServiceError::InternalError(msg) => write!(f, "internal error: {msg}"),
+            ServiceError::Conflict(msg) => write!(f, "conflict: {msg}"),
+            ServiceError::Unauthorized => write!(f, "unauthorized"),
+            ServiceError::SessionExpired => write!(f, "session expired"),
+            ServiceError::AuthenticationFailed => write!(f, "authentication failed"),
+        }
+    }
+}
+
 impl From<genossi_dao::DaoError> for ServiceError {
     fn from(e: genossi_dao::DaoError) -> Self {
         match e {
