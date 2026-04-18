@@ -60,7 +60,7 @@
 
 - [x] 7.1 `ValidationErrorResponse` in `utoipa`-Schema aufnehmen
 - [x] 7.2 `/join` OpenAPI-Annotation: 422-Response mit `ValidationErrorResponse` als Body-Type
-- [ ] 7.3 Swagger-UI manuell prüfen: die neuen Error-Codes werden angezeigt
+- [x] 7.3 Swagger-UI manuell prüfen: die neuen Error-Codes werden angezeigt
 
 ## 8. Config-Store-Integration
 
@@ -70,12 +70,12 @@
 
 ## 9. WordPress-Plugin Smoke-Test
 
-- [ ] 9.1 Nach Deploy: Manueller Test durch WordPress-Formular → erfolgreicher Antrag
-- [ ] 9.2 WordPress-Form mit ungültiger Email → Plugin zeigt 422-Fehler sinnvoll an (kein "500", sondern der Field-spezifische Text)
-- [ ] 9.3 Bei schlechter Anzeige: Follow-up-Task auf das WordPress-Plugin, keine Code-Änderung hier
+- [x] 9.1 Nach Deploy: Manueller Test durch WordPress-Formular → erfolgreicher Antrag
+- [x] 9.2 WordPress-Form mit ungültiger Email → Plugin zeigt 422-Fehler sinnvoll an (kein "500", sondern der Field-spezifische Text)
+- [x] 9.3 Bei schlechter Anzeige: Follow-up-Task auf das WordPress-Plugin, keine Code-Änderung hier
 
 ## 10. Dokumentation & Release
 
 - [x] 10.1 `doc/` neuer Abschnitt "HTTP-Perimeter" mit CORS-, Rate-Limit- und Header-Politik
 - [x] 10.2 Release-Notes: "CORS ist jetzt strikt; bei eigener Origin-Konfiguration ggf. `cors_allowed_origins` im Config-Store setzen"
-- [ ] 10.3 Smoke-Test nach Deploy: Browser-DevTools zeigen Security-Header; 429 bei Brute-Force-Simulation
+- [x] 10.3 Smoke-Test nach Deploy: Browser-DevTools zeigen Security-Header; 429 bei Brute-Force-Simulation

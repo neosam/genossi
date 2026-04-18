@@ -4,11 +4,11 @@ Das Security-Review hat mehrere Schwachstellen im Session-Lifecycle aufgedeckt, 
 
 ## What Changes
 
-- **BREAKING** Reduktion der Session-Lebensdauer von 365 Tagen auf 14 Tage (absolut) mit zusätzlichem 24-Stunden-Inaktivitäts-Timeout. Bestehende Sessions werden beim Deployment ungültig — User müssen sich neu einloggen.
+- **BREAKING** Einführung eines 30-Tage-Inaktivitäts-Timeouts bei beibehaltener 365-Tage-Session-Lebensdauer. Bestehende Sessions werden beim Deployment ungültig (da `last_used_at` initialisiert wird und alte Sessions den Inaktivitäts-Check nicht bestehen) — User müssen sich neu einloggen.
 - Entfernen aller Session-ID-Ausgaben aus `tracing`-Aufrufen in `genossi_rest/src/session.rs` (keine `{:?}` auf Cookies, Session-Entities oder Session-IDs mehr). Stattdessen: Logging des User-IDs (pseudonym, unkritisch) auf `debug`-Level.
 - Ersetzen von `.expect("Failed to create session for OIDC user")` in `register_session` durch sauberes Error-Handling (HTTP 500 mit Log statt Panic). Verhindert DoS bei DB-Wackeln im Auth-Path.
 - Neuer Endpunkt `POST /api/session/revoke-all` — erlaubt dem authentifizierten User, alle seine eigenen aktiven Sessions auf dem Server zu beenden. Ermöglicht Reaktion auf "mein Laptop wurde gestohlen" auch ohne Nextcloud-Admin-Zugriff.
-- Inactivity-Update-Mechanismus: Bei jedem authentifizierten Request wird `last_used_at` der Session aktualisiert. Sessions, deren `last_used_at` älter als 24h ist, werden von `verify_user_session` abgelehnt und gelöscht.
+- Inactivity-Update-Mechanismus: Bei jedem authentifizierten Request wird `last_used_at` der Session aktualisiert. Sessions, deren `last_used_at` älter als 30 Tage ist, werden von `verify_user_session` abgelehnt und gelöscht.
 
 ## Capabilities
 
@@ -33,7 +33,7 @@ _(keine bestehenden Specs betroffen — `session-auth` ist die erste formalisier
 - Neue Migration: `last_used_at INTEGER` Spalte auf `sessions` Tabelle hinzufügen, initialisiert mit `created`-Wert für Bestandszeilen
 
 **Benutzer:**
-- **BREAKING**: Bei Deployment werden alle bestehenden 365-Tage-Sessions ungültig (sobald die neue Migration `last_used_at` initialisiert und der Inactivity-Check greift; Sessions älter als 24h ohne Traffic werden abgelehnt). Angekündigter Re-Login über OIDC/Nextcloud ist nötig.
+- **BREAKING**: Bei Deployment werden alle bestehenden Sessions ungültig (sobald die neue Migration `last_used_at` initialisiert und der Inactivity-Check greift; Sessions älter als 30 Tage ohne Traffic werden abgelehnt). Angekündigter Re-Login über OIDC/Nextcloud ist nötig.
 - Kein sichtbarer UI-Change außer dem neuen Revoke-All-Button (optional im Frontend, kann nachgezogen werden).
 
 **Dependencies:**

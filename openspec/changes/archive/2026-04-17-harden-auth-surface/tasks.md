@@ -22,18 +22,18 @@
 - [x] 3.1 `SessionService`-Trait in `genossi_service/src/session.rs` um Methoden `touch_session` und `revoke_all_for_user` erweitern
 - [x] 3.2 `UserSession`-Struct um Feld `last_used_at: i64` erweitern
 - [x] 3.3 In `genossi_service_impl/src/session.rs`: `create_session` setzt `last_used_at = now` in `SessionEntity`
-- [x] 3.4 `verify_user_session` erweitern: nach Expires-Check zusätzlich `now - last_used_at > 24*60*60` prüfen; bei überschrittenem Inaktivitäts-Timeout Session löschen und `Ok(None)` zurückgeben
+- [x] 3.4 `verify_user_session` erweitern: nach Expires-Check zusätzlich `now - last_used_at > 30 * 24 * 60 * 60` prüfen; bei überschrittenem Inaktivitäts-Timeout Session löschen und `Ok(None)` zurückgeben
 - [x] 3.5 `verify_user_session` ruft nach erfolgreicher Verifikation `permission_dao.touch_session(session_id, now)` auf
 - [x] 3.6 Neue Methode `revoke_all_for_user(user_id: &str) -> Result<u64, ServiceError>` implementieren, die auf `delete_sessions_for_user` durchgreift
 - [x] 3.7 Mock-Implementation von `SessionService` (für Tests) entsprechend erweitern
 - [x] 3.8 Unit-Tests: Session verifiziert → `last_used_at` wurde aktualisiert
-- [x] 3.9 Unit-Tests: Session > 24h inaktiv → wird abgelehnt und gelöscht
+- [x] 3.9 Unit-Tests: Session > 30d inaktiv → wird abgelehnt und gelöscht
 - [x] 3.10 Unit-Tests: `revoke_all_for_user` löscht alle Sessions eines Users
 
 ## 4. REST-Schicht: Session-Lifetime-Konstante und Logging-Fix
 
-- [x] 4.1 In `genossi_rest/src/session.rs`: Konstante `SESSION_ABSOLUTE_LIFETIME_SECS: i64 = 14 * 24 * 60 * 60` einführen und die hartkodierte `365 * 24 * 60 * 60` ersetzen (Zeile 45)
-- [x] 4.2 Cookie-`expires` auf denselben 14-Tage-Wert anpassen (Zeile 50)
+- [x] 4.1 In `genossi_rest/src/session.rs`: Konstante `SESSION_ABSOLUTE_LIFETIME_SECS: i64 = 365 * 24 * 60 * 60` einführen (bestehender Wert beibehalten, da vor Implementierung entschieden wurde, die 365-Tage-Lifetime nicht zu reduzieren)
+- [x] 4.2 Cookie-`expires` auf denselben 365-Tage-Wert anpassen
 - [x] 4.3 Alle `tracing::info!("All cookies: ...")` / `"app_session cookie found: ..."` / `"Session ID: ..."` / `"Session found: ..."` in `context_extractor` entfernen
 - [x] 4.4 Stattdessen: `tracing::debug!(user_id = %session.user_id, "session verified")` nach erfolgreicher Verifikation; `tracing::debug!("no session cookie")` / `tracing::debug!("session invalid or expired")` für die anderen Pfade
 - [x] 4.5 Verifizieren: keine weiteren `{:?}`-Ausgaben von Cookie, SessionEntity oder Session-ID in `genossi_rest/src/session.rs` oder angrenzenden Files via grep
@@ -61,8 +61,8 @@
 
 ## 8. Tests gegen Specs
 
-- [x] 8.1 Test: Session-Lifetime — Session bei `created + 14d - 1s` noch gültig, bei `created + 14d + 1s` ungültig
-- [x] 8.2 Test: Inactivity — Session bei `last_used_at + 24h - 1s` noch gültig, bei `last_used_at + 24h + 1s` ungültig
+- [x] 8.1 Test: Session-Lifetime — Session bei `created + 365d - 1s` noch gültig, bei `created + 365d + 1s` ungültig
+- [x] 8.2 Test: Inactivity — Session bei `last_used_at + 30d - 1s` noch gültig, bei `last_used_at + 30d + 1s` ungültig
 - [x] 8.3 Test: `last_used_at` wird bei jedem erfolgreichen Verify aktualisiert
 - [x] 8.4 Test: Log-Output bei Session-Verify enthält weder Session-ID noch Cookie-Struktur (z.B. via `tracing-test` oder Logger-Hook in e2e)
 - [x] 8.5 Test: Revoke-All löscht alle Sessions des aufrufenden Users, nicht die anderer User
@@ -73,4 +73,4 @@
 - [x] 9.1 `doc/AUTHENTICATION.md` aktualisieren: Session-Lifetime-Policy und Revoke-Endpoint dokumentieren
 - [x] 9.2 Changelog-Eintrag / Release-Notes mit Hinweis auf BREAKING (alle User müssen sich neu einloggen)
 - [ ] 9.3 Vorstand in internem Kommunikationskanal informieren: "Nach dem nächsten Deploy einmal neu einloggen"
-- [ ] 9.4 Smoke-Test nach Deploy: Neuer Login, nach 24h ohne Traffic wird Session ungültig, Revoke-Endpoint funktioniert, Logs enthalten keine Session-IDs mehr
+- [ ] 9.4 Smoke-Test nach Deploy: Neuer Login, nach 30d ohne Traffic wird Session ungültig, Revoke-Endpoint funktioniert, Logs enthalten keine Session-IDs mehr
