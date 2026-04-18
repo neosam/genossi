@@ -1,3 +1,7 @@
+## Meta
+- **Priority:** medium
+- **Category:** feature
+
 ## Why
 
 Bei Mitgliederversammlungen muss die Anwesenheit der Mitglieder verifiziert und dokumentiert werden. Diese Aufgabe wird typischerweise von Personen durchgeführt, die keinen regulären Zugang zum System haben. Aktuell gibt es keine Möglichkeit, temporäre, eingeschränkte Zugänge für diesen Zweck bereitzustellen, und keine Check-in-Funktionalität.

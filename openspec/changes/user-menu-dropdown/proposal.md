@@ -1,3 +1,7 @@
+## Meta
+- **Priority:** low
+- **Category:** quality
+
 ## Why
 
 The top-right user area of the navigation bar currently shows the username, a "Sessions beenden" button, and a "Abmelden" link as flat, equally-weighted items. The "Sessions beenden" button visually clutters the menu bar and looks out of place as a top-level navigation item — it's a rarely-used administrative action that shouldn't have the same visual prominence as logout. Users have reported that this layout "looks terrible."
