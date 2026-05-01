@@ -112,7 +112,7 @@ pub async fn get_all<S: ConfigRestState>(state: State<S>) -> Response {
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::to_string(&entries).unwrap()))
+                .body(Body::new(serde_json::to_string(&entries)?))
                 .unwrap())
         })
         .await,
@@ -151,7 +151,7 @@ pub async fn set_config<S: ConfigRestState>(
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::to_string(&to).unwrap()))
+                .body(Body::new(serde_json::to_string(&to)?))
                 .unwrap())
         })
         .await,
@@ -187,7 +187,7 @@ pub async fn generate_api_key<S: ConfigRestState>(state: State<S>) -> Response {
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::to_string(&response).unwrap()))
+                .body(Body::new(serde_json::to_string(&response)?))
                 .unwrap())
         })
         .await,

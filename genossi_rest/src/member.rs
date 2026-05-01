@@ -66,7 +66,7 @@ pub async fn get_all_members<RestState: RestStateDef>(
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::to_string(&members).unwrap()))
+                .body(Body::new(serde_json::to_string(&members)?))
                 .unwrap())
         })
         .await,
@@ -103,7 +103,7 @@ pub async fn get_member<RestState: RestStateDef>(
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::to_string(&member).unwrap()))
+                .body(Body::new(serde_json::to_string(&member)?))
                 .unwrap())
         })
         .await,
@@ -142,7 +142,7 @@ pub async fn create_member<RestState: RestStateDef>(
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::to_string(&member).unwrap()))
+                .body(Body::new(serde_json::to_string(&member)?))
                 .unwrap())
         })
         .await,
@@ -185,7 +185,7 @@ pub async fn update_member<RestState: RestStateDef>(
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::to_string(&member).unwrap()))
+                .body(Body::new(serde_json::to_string(&member)?))
                 .unwrap())
         })
         .await,
@@ -270,7 +270,7 @@ pub async fn import_members<RestState: RestStateDef>(
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::to_string(&result_to).unwrap()))
+                .body(Body::new(serde_json::to_string(&result_to)?))
                 .unwrap())
         })
         .await,
@@ -321,7 +321,7 @@ pub async fn get_members_not_reached_by<RestState: RestStateDef>(
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::to_string(&not_reached).unwrap()))
+                .body(Body::new(serde_json::to_string(&not_reached)?))
                 .unwrap())
         })
         .await,

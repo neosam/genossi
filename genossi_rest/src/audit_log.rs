@@ -147,7 +147,7 @@ pub async fn get_audit_log<RestState: AuditRestState>(
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::to_string(&envelope).unwrap()))
+                .body(Body::new(serde_json::to_string(&envelope)?))
                 .unwrap())
         })
         .await,
@@ -198,7 +198,7 @@ pub async fn get_audit_by_entity<RestState: AuditRestState>(
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::to_string(&result).unwrap()))
+                .body(Body::new(serde_json::to_string(&result)?))
                 .unwrap())
         })
         .await,
@@ -258,7 +258,7 @@ pub async fn verify_chain<RestState: AuditRestState>(
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::to_string(&result).unwrap()))
+                .body(Body::new(serde_json::to_string(&result)?))
                 .unwrap())
         })
         .await,

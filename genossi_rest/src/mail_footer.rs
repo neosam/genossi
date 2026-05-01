@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use tracing::instrument;
 use utoipa::{OpenApi, ToSchema};
 
-use crate::{Context, RestStateDef};
+use crate::{error_handler, Context, RestError, RestStateDef};
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct FooterResponse {
@@ -30,58 +30,46 @@ pub async fn get_footer<RestState: RestStateDef>(
     rest_state: State<RestState>,
     Extension(context): Extension<Context>,
 ) -> Response {
-    let template = match rest_state.config_service().get("mail_footer").await {
-        Ok(entry) => entry.value.to_string(),
-        Err(_) => String::new(),
-    };
+    error_handler(
+        (async {
+            let template = match rest_state.config_service().get("mail_footer").await {
+                Ok(entry) => entry.value.to_string(),
+                Err(_) => String::new(),
+            };
 
-    if template.is_empty() {
-        let response = FooterResponse {
-            footer: String::new(),
-        };
-        return Response::builder()
-            .status(200)
-            .header("Content-Type", "application/json")
-            .body(Body::new(serde_json::to_string(&response).unwrap()))
-            .unwrap();
-    }
+            if template.is_empty() {
+                let response = FooterResponse {
+                    footer: String::new(),
+                };
+                return Ok(Response::builder()
+                    .status(200)
+                    .header("Content-Type", "application/json")
+                    .body(Body::new(serde_json::to_string(&response)?))
+                    .unwrap());
+            }
 
-    let auth = match crate::extract_auth_context(Some(context)) {
-        Ok(auth) => auth,
-        Err(_) => {
-            return Response::builder()
-                .status(401)
-                .body(Body::from("Unauthorized"))
-                .unwrap();
-        }
-    };
+            let auth = crate::extract_auth_context(Some(context))?;
 
-    let sender_name = match rest_state
-        .user_preference_service()
-        .get_by_key("sender_name", auth, None)
-        .await
-    {
-        Ok(pref) => pref.value.to_string(),
-        Err(_) => String::new(),
-    };
+            let sender_name = match rest_state
+                .user_preference_service()
+                .get_by_key("sender_name", auth, None)
+                .await
+            {
+                Ok(pref) => pref.value.to_string(),
+                Err(_) => String::new(),
+            };
 
-    match genossi_mail::template::render_footer(&template, &sender_name) {
-        Ok(footer) => {
+            let footer = genossi_mail::template::render_footer(&template, &sender_name)
+                .map_err(|e| RestError::BadRequest(e.message))?;
             let response = FooterResponse { footer };
-            Response::builder()
+            Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::to_string(&response).unwrap()))
-                .unwrap()
-        }
-        Err(e) => Response::builder()
-            .status(400)
-            .header("Content-Type", "application/json")
-            .body(Body::from(
-                serde_json::json!({"error": e.message}).to_string(),
-            ))
-            .unwrap(),
-    }
+                .body(Body::new(serde_json::to_string(&response)?))
+                .unwrap())
+        })
+        .await,
+    )
 }
 
 #[derive(OpenApi)]

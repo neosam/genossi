@@ -56,7 +56,7 @@ pub async fn get_member_actions<RestState: RestStateDef>(
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::to_string(&actions).unwrap()))
+                .body(Body::new(serde_json::to_string(&actions)?))
                 .unwrap())
         })
         .await,
@@ -94,7 +94,7 @@ pub async fn get_member_action<RestState: RestStateDef>(
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::to_string(&action).unwrap()))
+                .body(Body::new(serde_json::to_string(&action)?))
                 .unwrap())
         })
         .await,
@@ -139,7 +139,7 @@ pub async fn create_member_action<RestState: RestStateDef>(
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::to_string(&action).unwrap()))
+                .body(Body::new(serde_json::to_string(&action)?))
                 .unwrap())
         })
         .await,
@@ -186,7 +186,7 @@ pub async fn update_member_action<RestState: RestStateDef>(
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::to_string(&action).unwrap()))
+                .body(Body::new(serde_json::to_string(&action)?))
                 .unwrap())
         })
         .await,
@@ -255,7 +255,7 @@ pub async fn get_migration_status<RestState: RestStateDef>(
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::to_string(&status).unwrap()))
+                .body(Body::new(serde_json::to_string(&status)?))
                 .unwrap())
         })
         .await,

@@ -28,9 +28,10 @@ use axum::{body::Body, middleware, response::IntoResponse, response::Response, R
 use genossi_service::auth_types::AuthenticatedContext;
 #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
 use genossi_service::permission::MockContext;
+use http::{header, Method};
 use std::sync::Arc;
 use tower_cookies::CookieManagerLayer;
-use tower_http::cors::{AllowHeaders, AllowMethods, AllowOrigin, CorsLayer};
+use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::set_header::SetResponseHeaderLayer;
 use tracing::info;
 use utoipa::OpenApi;
@@ -79,6 +80,12 @@ pub enum RestError {
     InternalError(String),
 }
 
+impl From<serde_json::Error> for RestError {
+    fn from(e: serde_json::Error) -> Self {
+        RestError::InternalError(format!("serialize failed: {}", e))
+    }
+}
+
 impl From<genossi_service::ServiceError> for RestError {
     fn from(e: genossi_service::ServiceError) -> Self {
         match e {
@@ -111,6 +118,9 @@ impl From<genossi_mail::service::MailServiceError> for RestError {
                 RestError::InternalError(msg.to_string())
             }
             genossi_mail::service::MailServiceError::TemplateValidation(msg) => {
+                RestError::BadRequest(msg.to_string())
+            }
+            genossi_mail::service::MailServiceError::BadRequest(msg) => {
                 RestError::BadRequest(msg.to_string())
             }
         }
@@ -363,8 +373,14 @@ fn build_cors_layer(cors_allowed_origins: Option<&str>) -> CorsLayer {
 
     CorsLayer::new()
         .allow_origin(AllowOrigin::list(origins))
-        .allow_methods(AllowMethods::any())
-        .allow_headers(AllowHeaders::any())
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
+        .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION, header::COOKIE])
 }
 
 fn apply_security_headers(router: Router) -> Router {
@@ -673,4 +689,19 @@ pub async fn start_server<
         .expect("Could not bind server");
 
     serve_app(app, listener).await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn from_serde_json_error_maps_to_internal_error() {
+        let err = serde_json::from_str::<u32>("not a number").unwrap_err();
+        let rest_err: RestError = err.into();
+        assert!(
+            matches!(&rest_err, RestError::InternalError(msg) if msg.contains("serialize failed")),
+            "expected RestError::InternalError with 'serialize failed', got something else"
+        );
+    }
 }

@@ -11,6 +11,7 @@ pub enum MailTemplateError {
     NotFound,
     DuplicateName(Arc<str>),
     VersionConflict,
+    BadRequest(Arc<str>),
 }
 
 impl From<MailDaoError> for MailTemplateError {
@@ -19,6 +20,12 @@ impl From<MailDaoError> for MailTemplateError {
             MailDaoError::DatabaseError(msg) => MailTemplateError::DataAccess(msg),
             MailDaoError::NotFound => MailTemplateError::NotFound,
         }
+    }
+}
+
+impl From<serde_json::Error> for MailTemplateError {
+    fn from(e: serde_json::Error) -> Self {
+        MailTemplateError::DataAccess(Arc::from(format!("serialize failed: {}", e)))
     }
 }
 
@@ -241,5 +248,15 @@ mod tests {
         let result = service.list().await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap().len(), 0);
+    }
+
+    #[test]
+    fn from_serde_json_error_maps_to_data_access() {
+        let err = serde_json::from_str::<u32>("not a number").unwrap_err();
+        let svc_err: MailTemplateError = err.into();
+        assert!(
+            matches!(&svc_err, MailTemplateError::DataAccess(msg) if msg.as_ref().contains("serialize failed")),
+            "expected MailTemplateError::DataAccess with 'serialize failed'"
+        );
     }
 }

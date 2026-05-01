@@ -78,7 +78,7 @@ pub async fn list_timestamps<RestState: TimestampRestState>(
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::to_string(&result).unwrap()))
+                .body(Body::new(serde_json::to_string(&result)?))
                 .unwrap())
         })
         .await,
@@ -120,7 +120,7 @@ pub async fn create_timestamp<RestState: TimestampRestState>(
                     Ok(Response::builder()
                         .status(201)
                         .header("Content-Type", "application/json")
-                        .body(Body::new(serde_json::to_string(&response).unwrap()))
+                        .body(Body::new(serde_json::to_string(&response)?))
                         .unwrap())
                 }
                 Err(TimestampError::DuplicateHash) => {
@@ -132,7 +132,7 @@ pub async fn create_timestamp<RestState: TimestampRestState>(
                     Ok(Response::builder()
                         .status(200)
                         .header("Content-Type", "application/json")
-                        .body(Body::new(serde_json::to_string(&response).unwrap()))
+                        .body(Body::new(serde_json::to_string(&response)?))
                         .unwrap())
                 }
                 Err(TimestampError::NothingToTimestamp) => {
@@ -144,7 +144,7 @@ pub async fn create_timestamp<RestState: TimestampRestState>(
                     Ok(Response::builder()
                         .status(200)
                         .header("Content-Type", "application/json")
-                        .body(Body::new(serde_json::to_string(&response).unwrap()))
+                        .body(Body::new(serde_json::to_string(&response)?))
                         .unwrap())
                 }
                 Err(TimestampError::NotConfigured) => {
@@ -203,7 +203,7 @@ pub async fn verify_timestamp<RestState: TimestampRestState>(
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::to_string(&result).unwrap()))
+                .body(Body::new(serde_json::to_string(&result)?))
                 .unwrap())
         })
         .await,

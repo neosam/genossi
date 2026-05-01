@@ -46,7 +46,7 @@ pub async fn get_preference<RestState: RestStateDef>(
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::to_string(&to).unwrap()))
+                .body(Body::new(serde_json::to_string(&to)?))
                 .unwrap())
         })
         .await,
@@ -87,7 +87,7 @@ pub async fn upsert_preference<RestState: RestStateDef>(
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::to_string(&to).unwrap()))
+                .body(Body::new(serde_json::to_string(&to)?))
                 .unwrap())
         })
         .await,

@@ -20,6 +20,12 @@ impl From<crate::dao::ConfigDaoError> for ConfigServiceError {
     }
 }
 
+impl From<serde_json::Error> for ConfigServiceError {
+    fn from(e: serde_json::Error) -> Self {
+        ConfigServiceError::DataAccess(Arc::from(format!("serialize failed: {}", e)))
+    }
+}
+
 #[automock]
 #[async_trait]
 pub trait ConfigService: Send + Sync + 'static {
@@ -235,5 +241,15 @@ mod tests {
         let service = ConfigServiceImpl::new(mock);
         let result = service.get_all().await.unwrap();
         assert_eq!(result.len(), 1);
+    }
+
+    #[test]
+    fn from_serde_json_error_maps_to_data_access() {
+        let err = serde_json::from_str::<u32>("not a number").unwrap_err();
+        let svc_err: ConfigServiceError = err.into();
+        assert!(
+            matches!(&svc_err, ConfigServiceError::DataAccess(msg) if msg.as_ref().contains("serialize failed")),
+            "expected ConfigServiceError::DataAccess with 'serialize failed'"
+        );
     }
 }

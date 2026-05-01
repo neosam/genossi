@@ -79,7 +79,7 @@ async fn list_templates<RestState: RestStateDef>(
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::to_string(&tree).unwrap()))
+                .body(Body::new(serde_json::to_string(&tree)?))
                 .unwrap())
         })
         .await,

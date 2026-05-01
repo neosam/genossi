@@ -212,6 +212,13 @@ fn error_handler(result: Result<Response, MailServiceError>) -> Response {
                 serde_json::json!({"error": msg.to_string()}).to_string(),
             ))
             .unwrap(),
+        Err(MailServiceError::BadRequest(msg)) => Response::builder()
+            .status(400)
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                serde_json::json!({"error": msg.to_string()}).to_string(),
+            ))
+            .unwrap(),
         Err(MailServiceError::DataAccess(msg)) => {
             tracing::error!("Mail data access error: {}", msg);
             Response::builder()
@@ -276,7 +283,7 @@ pub async fn send_mail<S: MailRestState>(
             Ok(Response::builder()
                 .status(202)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::to_string(&to).unwrap()))
+                .body(Body::new(serde_json::to_string(&to)?))
                 .unwrap())
         })
         .await,
@@ -384,7 +391,7 @@ pub async fn send_bulk_mail<S: MailRestState>(
             Ok(Response::builder()
                 .status(202)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::to_string(&to).unwrap()))
+                .body(Body::new(serde_json::to_string(&to)?))
                 .unwrap())
         })
         .await,
@@ -407,62 +414,49 @@ pub async fn preview_mail<S: MailRestState>(
     state: State<S>,
     axum::Json(body): axum::Json<PreviewRequest>,
 ) -> Response {
-    let member_id = match uuid::Uuid::parse_str(&body.member_id) {
-        Ok(id) => id,
-        Err(_) => {
-            return Response::builder()
-                .status(400)
+    error_handler(
+        (async {
+            let member_id = uuid::Uuid::parse_str(&body.member_id)
+                .map_err(|_| MailServiceError::BadRequest(Arc::from("Invalid member_id")))?;
+
+            let member = state
+                .resolve_member(member_id)
+                .await
+                .ok_or(MailServiceError::NotFound)?;
+
+            let ctx = member_to_template_context(&member);
+            let mut errors = Vec::new();
+
+            let rendered_subject = match render_template(&body.subject, &ctx) {
+                Ok(s) => s,
+                Err(e) => {
+                    errors.push(format!("Subject: {}", e.message));
+                    String::new()
+                }
+            };
+
+            let rendered_body = match render_template(&body.body, &ctx) {
+                Ok(s) => s,
+                Err(e) => {
+                    errors.push(format!("Body: {}", e.message));
+                    String::new()
+                }
+            };
+
+            let response = PreviewResponse {
+                subject: rendered_subject,
+                body: rendered_body,
+                errors,
+            };
+
+            Ok(Response::builder()
+                .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::from(
-                    serde_json::json!({"error": "Invalid member_id"}).to_string(),
-                ))
-                .unwrap();
-        }
-    };
-
-    let member = match state.resolve_member(member_id).await {
-        Some(m) => m,
-        None => {
-            return Response::builder()
-                .status(404)
-                .header("Content-Type", "application/json")
-                .body(Body::from(
-                    serde_json::json!({"error": "Member not found"}).to_string(),
-                ))
-                .unwrap();
-        }
-    };
-
-    let ctx = member_to_template_context(&member);
-    let mut errors = Vec::new();
-
-    let rendered_subject = match render_template(&body.subject, &ctx) {
-        Ok(s) => s,
-        Err(e) => {
-            errors.push(format!("Subject: {}", e.message));
-            String::new()
-        }
-    };
-
-    let rendered_body = match render_template(&body.body, &ctx) {
-        Ok(s) => s,
-        Err(e) => {
-            errors.push(format!("Body: {}", e.message));
-            String::new()
-        }
-    };
-
-    let response = PreviewResponse {
-        subject: rendered_subject,
-        body: rendered_body,
-        errors,
-    };
-
-    Response::builder()
-        .status(200)
-        .header("Content-Type", "application/json")
-        .body(Body::new(serde_json::to_string(&response).unwrap()))
-        .unwrap()
+                .body(Body::new(serde_json::to_string(&response)?))
+                .unwrap())
+        })
+        .await,
+    )
 }
 
 #[instrument(skip(state))]
@@ -521,7 +515,7 @@ pub async fn get_jobs<S: MailRestState>(state: State<S>) -> Response {
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::to_string(&jobs).unwrap()))
+                .body(Body::new(serde_json::to_string(&jobs)?))
                 .unwrap())
         })
         .await,
@@ -560,7 +554,7 @@ pub async fn get_job_detail<S: MailRestState>(state: State<S>, Path(id): Path<St
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::to_string(&detail).unwrap()))
+                .body(Body::new(serde_json::to_string(&detail)?))
                 .unwrap())
         })
         .await,
@@ -591,7 +585,7 @@ pub async fn retry_job<S: MailRestState>(state: State<S>, Path(id): Path<String>
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::to_string(&to).unwrap()))
+                .body(Body::new(serde_json::to_string(&to)?))
                 .unwrap())
         })
         .await,

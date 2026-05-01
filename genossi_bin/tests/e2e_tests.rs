@@ -8082,6 +8082,111 @@ async fn test_cors_rejects_unknown_origin() {
     );
 }
 
+#[tokio::test]
+async fn test_cors_preflight_allowed_method_post() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let base = std::env::var("BASE_PATH").unwrap_or_else(|_| "http://localhost:3000".into());
+
+    let response = client
+        .request(reqwest::Method::OPTIONS, server.url("/api/members"))
+        .header("Origin", &base)
+        .header("Access-Control-Request-Method", "POST")
+        .send()
+        .await
+        .unwrap();
+
+    let allow_methods = response
+        .headers()
+        .get("access-control-allow-methods")
+        .expect("Access-Control-Allow-Methods header should be present")
+        .to_str()
+        .unwrap()
+        .to_string();
+
+    assert!(
+        !allow_methods.contains('*'),
+        "Allow-Methods should be an explicit whitelist, not '*'; got: {}",
+        allow_methods
+    );
+    for method in ["GET", "POST", "PUT", "DELETE", "OPTIONS"] {
+        assert!(
+            allow_methods.contains(method),
+            "Allow-Methods should contain {}; got: {}",
+            method,
+            allow_methods
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_cors_preflight_disallowed_method_patch() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let base = std::env::var("BASE_PATH").unwrap_or_else(|_| "http://localhost:3000".into());
+
+    let response = client
+        .request(reqwest::Method::OPTIONS, server.url("/api/members"))
+        .header("Origin", &base)
+        .header("Access-Control-Request-Method", "PATCH")
+        .send()
+        .await
+        .unwrap();
+
+    let allow_methods = response
+        .headers()
+        .get("access-control-allow-methods")
+        .map(|v| v.to_str().unwrap().to_string())
+        .unwrap_or_default();
+
+    assert!(
+        !allow_methods.to_uppercase().contains("PATCH"),
+        "Allow-Methods must NOT contain PATCH; got: {}",
+        allow_methods
+    );
+}
+
+#[tokio::test]
+async fn test_cors_preflight_allowed_headers() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let base = std::env::var("BASE_PATH").unwrap_or_else(|_| "http://localhost:3000".into());
+
+    let response = client
+        .request(reqwest::Method::OPTIONS, server.url("/api/members"))
+        .header("Origin", &base)
+        .header("Access-Control-Request-Method", "POST")
+        .header(
+            "Access-Control-Request-Headers",
+            "content-type, authorization",
+        )
+        .send()
+        .await
+        .unwrap();
+
+    let allow_headers = response
+        .headers()
+        .get("access-control-allow-headers")
+        .expect("Access-Control-Allow-Headers header should be present")
+        .to_str()
+        .unwrap()
+        .to_lowercase();
+
+    assert!(
+        !allow_headers.contains('*'),
+        "Allow-Headers should be an explicit whitelist, not '*'; got: {}",
+        allow_headers
+    );
+    for header in ["content-type", "authorization", "cookie"] {
+        assert!(
+            allow_headers.contains(header),
+            "Allow-Headers should contain {}; got: {}",
+            header,
+            allow_headers
+        );
+    }
+}
+
 // --- Validation Tests ---
 
 #[tokio::test]

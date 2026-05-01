@@ -17,6 +17,13 @@ pub enum MailServiceError {
     DataAccess(Arc<str>),
     NotFound,
     TemplateValidation(Arc<str>),
+    BadRequest(Arc<str>),
+}
+
+impl From<serde_json::Error> for MailServiceError {
+    fn from(e: serde_json::Error) -> Self {
+        MailServiceError::DataAccess(Arc::from(format!("serialize failed: {}", e)))
+    }
 }
 
 impl From<crate::dao::MailDaoError> for MailServiceError {
@@ -887,5 +894,15 @@ mod tests {
             .await;
 
         assert!(matches!(result, Err(MailServiceError::DataAccess(_))));
+    }
+
+    #[test]
+    fn from_serde_json_error_maps_to_data_access() {
+        let err = serde_json::from_str::<u32>("not a number").unwrap_err();
+        let svc_err: MailServiceError = err.into();
+        assert!(
+            matches!(&svc_err, MailServiceError::DataAccess(msg) if msg.as_ref().contains("serialize failed")),
+            "expected MailServiceError::DataAccess with 'serialize failed'"
+        );
     }
 }

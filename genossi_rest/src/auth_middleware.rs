@@ -23,7 +23,7 @@ pub async fn extract_auth_context<S: RestStateDef>(
         match extract_context_from_headers(&headers, state.session_service().as_ref()).await {
             Ok(ctx) => ctx,
             Err(err) => {
-                eprintln!("Auth context extraction error: {:?}", err);
+                tracing::warn!(error = ?err, "auth context extraction failed");
                 None
             }
         };

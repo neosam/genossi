@@ -58,16 +58,17 @@ impl From<&MailTemplate> for MailTemplateTO {
     }
 }
 
-fn error_response(err: MailTemplateError) -> Response {
-    match err {
-        MailTemplateError::NotFound => Response::builder()
+fn error_handler(result: Result<Response, MailTemplateError>) -> Response {
+    match result {
+        Ok(response) => response,
+        Err(MailTemplateError::NotFound) => Response::builder()
             .status(404)
             .header("Content-Type", "application/json")
             .body(Body::from(
                 serde_json::json!({"error": "Not found"}).to_string(),
             ))
             .unwrap(),
-        MailTemplateError::DuplicateName(name) => Response::builder()
+        Err(MailTemplateError::DuplicateName(name)) => Response::builder()
             .status(409)
             .header("Content-Type", "application/json")
             .body(Body::from(
@@ -75,7 +76,7 @@ fn error_response(err: MailTemplateError) -> Response {
                     .to_string(),
             ))
             .unwrap(),
-        MailTemplateError::VersionConflict => Response::builder()
+        Err(MailTemplateError::VersionConflict) => Response::builder()
             .status(409)
             .header("Content-Type", "application/json")
             .body(Body::from(
@@ -83,7 +84,14 @@ fn error_response(err: MailTemplateError) -> Response {
                     .to_string(),
             ))
             .unwrap(),
-        MailTemplateError::DataAccess(msg) => {
+        Err(MailTemplateError::BadRequest(msg)) => Response::builder()
+            .status(400)
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                serde_json::json!({"error": msg.to_string()}).to_string(),
+            ))
+            .unwrap(),
+        Err(MailTemplateError::DataAccess(msg)) => {
             tracing::error!("Mail template data access error: {}", msg);
             Response::builder()
                 .status(500)
@@ -122,17 +130,18 @@ pub struct ApiDoc;
     ),
 )]
 async fn list_templates<S: MailTemplateRestState>(state: State<S>) -> Response {
-    match state.mail_template_service().list().await {
-        Ok(templates) => {
+    error_handler(
+        (async {
+            let templates = state.mail_template_service().list().await?;
             let tos: Vec<MailTemplateTO> = templates.iter().map(MailTemplateTO::from).collect();
-            Response::builder()
+            Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::from(serde_json::to_string(&tos).unwrap()))
-                .unwrap()
-        }
-        Err(e) => error_response(e),
-    }
+                .body(Body::from(serde_json::to_string(&tos)?))
+                .unwrap())
+        })
+        .await,
+    )
 }
 
 #[instrument(skip(state))]
@@ -150,21 +159,21 @@ async fn create_template<S: MailTemplateRestState>(
     state: State<S>,
     axum::Json(body): axum::Json<CreateMailTemplateRequest>,
 ) -> Response {
-    match state
-        .mail_template_service()
-        .create(&body.name, &body.subject, &body.body)
-        .await
-    {
-        Ok(tpl) => {
+    error_handler(
+        (async {
+            let tpl = state
+                .mail_template_service()
+                .create(&body.name, &body.subject, &body.body)
+                .await?;
             let to = MailTemplateTO::from(&tpl);
-            Response::builder()
+            Ok(Response::builder()
                 .status(201)
                 .header("Content-Type", "application/json")
-                .body(Body::from(serde_json::to_string(&to).unwrap()))
-                .unwrap()
-        }
-        Err(e) => error_response(e),
-    }
+                .body(Body::from(serde_json::to_string(&to)?))
+                .unwrap())
+        })
+        .await,
+    )
 }
 
 #[instrument(skip(state))]
@@ -182,30 +191,20 @@ async fn get_template<S: MailTemplateRestState>(
     state: State<S>,
     Path(id): Path<String>,
 ) -> Response {
-    let uuid = match uuid::Uuid::parse_str(&id) {
-        Ok(u) => u,
-        Err(_) => {
-            return Response::builder()
-                .status(400)
-                .header("Content-Type", "application/json")
-                .body(Body::from(
-                    serde_json::json!({"error": "Invalid UUID"}).to_string(),
-                ))
-                .unwrap()
-        }
-    };
-
-    match state.mail_template_service().get(uuid).await {
-        Ok(tpl) => {
+    error_handler(
+        (async {
+            let uuid = uuid::Uuid::parse_str(&id)
+                .map_err(|_| MailTemplateError::BadRequest(Arc::from("Invalid UUID")))?;
+            let tpl = state.mail_template_service().get(uuid).await?;
             let to = MailTemplateTO::from(&tpl);
-            Response::builder()
+            Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::from(serde_json::to_string(&to).unwrap()))
-                .unwrap()
-        }
-        Err(e) => error_response(e),
-    }
+                .body(Body::from(serde_json::to_string(&to)?))
+                .unwrap())
+        })
+        .await,
+    )
 }
 
 #[instrument(skip(state))]
@@ -226,47 +225,25 @@ async fn update_template<S: MailTemplateRestState>(
     Path(id): Path<String>,
     axum::Json(body): axum::Json<UpdateMailTemplateRequest>,
 ) -> Response {
-    let uuid = match uuid::Uuid::parse_str(&id) {
-        Ok(u) => u,
-        Err(_) => {
-            return Response::builder()
-                .status(400)
-                .header("Content-Type", "application/json")
-                .body(Body::from(
-                    serde_json::json!({"error": "Invalid UUID"}).to_string(),
-                ))
-                .unwrap()
-        }
-    };
-
-    let version = match uuid::Uuid::parse_str(&body.version) {
-        Ok(v) => v,
-        Err(_) => {
-            return Response::builder()
-                .status(400)
-                .header("Content-Type", "application/json")
-                .body(Body::from(
-                    serde_json::json!({"error": "Invalid version UUID"}).to_string(),
-                ))
-                .unwrap()
-        }
-    };
-
-    match state
-        .mail_template_service()
-        .update(uuid, &body.name, &body.subject, &body.body, version)
-        .await
-    {
-        Ok(tpl) => {
+    error_handler(
+        (async {
+            let uuid = uuid::Uuid::parse_str(&id)
+                .map_err(|_| MailTemplateError::BadRequest(Arc::from("Invalid UUID")))?;
+            let version = uuid::Uuid::parse_str(&body.version)
+                .map_err(|_| MailTemplateError::BadRequest(Arc::from("Invalid version UUID")))?;
+            let tpl = state
+                .mail_template_service()
+                .update(uuid, &body.name, &body.subject, &body.body, version)
+                .await?;
             let to = MailTemplateTO::from(&tpl);
-            Response::builder()
+            Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::from(serde_json::to_string(&to).unwrap()))
-                .unwrap()
-        }
-        Err(e) => error_response(e),
-    }
+                .body(Body::from(serde_json::to_string(&to)?))
+                .unwrap())
+        })
+        .await,
+    )
 }
 
 #[instrument(skip(state))]
@@ -284,21 +261,13 @@ async fn delete_template<S: MailTemplateRestState>(
     state: State<S>,
     Path(id): Path<String>,
 ) -> Response {
-    let uuid = match uuid::Uuid::parse_str(&id) {
-        Ok(u) => u,
-        Err(_) => {
-            return Response::builder()
-                .status(400)
-                .header("Content-Type", "application/json")
-                .body(Body::from(
-                    serde_json::json!({"error": "Invalid UUID"}).to_string(),
-                ))
-                .unwrap()
-        }
-    };
-
-    match state.mail_template_service().delete(uuid).await {
-        Ok(()) => Response::builder().status(204).body(Body::empty()).unwrap(),
-        Err(e) => error_response(e),
-    }
+    error_handler(
+        (async {
+            let uuid = uuid::Uuid::parse_str(&id)
+                .map_err(|_| MailTemplateError::BadRequest(Arc::from("Invalid UUID")))?;
+            state.mail_template_service().delete(uuid).await?;
+            Ok(Response::builder().status(204).body(Body::empty()).unwrap())
+        })
+        .await,
+    )
 }

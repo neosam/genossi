@@ -77,7 +77,7 @@ pub async fn list_documents<RestState: RestStateDef>(
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::to_string(&docs).unwrap()))
+                .body(Body::new(serde_json::to_string(&docs)?))
                 .unwrap())
         })
         .await,
@@ -206,7 +206,7 @@ pub async fn upload_document<RestState: RestStateDef>(
             Ok(Response::builder()
                 .status(201)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::to_string(&to).unwrap()))
+                .body(Body::new(serde_json::to_string(&to)?))
                 .unwrap())
         })
         .await,
@@ -401,7 +401,7 @@ pub async fn generate_document<RestState: RestStateDef>(
             Ok(Response::builder()
                 .status(201)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::to_string(&to).unwrap()))
+                .body(Body::new(serde_json::to_string(&to)?))
                 .unwrap())
         })
         .await,
@@ -459,7 +459,7 @@ pub async fn document_counts<RestState: RestStateDef>(
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::to_string(&string_counts).unwrap()))
+                .body(Body::new(serde_json::to_string(&string_counts)?))
                 .unwrap())
         })
         .await,

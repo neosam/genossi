@@ -27,6 +27,28 @@ Bei Requests von nicht erlaubten Origins SHALL der Server keine `Access-Control-
 - **WHEN** ein Request mit `Origin: https://evil.example.com` eintrifft, die weder in `BASE_PATH` noch in `cors_allowed_origins` steht
 - **THEN** die Response enthält keinen `Access-Control-Allow-Origin`-Header für diese Origin
 
+### Requirement: CORS Method- und Header-Whitelist
+
+Das System SHALL für CORS-Preflight-Responses nur eine explizite Whitelist an HTTP-Methoden und Request-Headern erlauben, nicht `Access-Control-Allow-Methods: *` oder `Access-Control-Allow-Headers: *`.
+
+- Erlaubte Methoden: `GET`, `POST`, `PUT`, `DELETE`, `OPTIONS`
+- Erlaubte Request-Header: `Content-Type`, `Authorization`, `Cookie`
+
+#### Scenario: Preflight für erlaubte Methode
+
+- **WHEN** ein Browser einen CORS-Preflight-`OPTIONS`-Request für einen `POST` mit `Access-Control-Request-Method: POST` sendet
+- **THEN** die Response enthält `Access-Control-Allow-Methods` mit den fünf erlaubten Methoden und keinen `*`-Wildcard
+
+#### Scenario: Preflight für erlaubten Request-Header
+
+- **WHEN** ein Preflight-Request `Access-Control-Request-Headers: Content-Type, Authorization` ankündigt
+- **THEN** die Response enthält `Access-Control-Allow-Headers` mit `Content-Type, Authorization, Cookie` und keinen `*`-Wildcard
+
+#### Scenario: Preflight für nicht erlaubte Methode
+
+- **WHEN** ein Preflight-Request eine Methode außerhalb der Whitelist anfordert (z.B. `PATCH`)
+- **THEN** die Response enthält diese Methode nicht in `Access-Control-Allow-Methods`, der Browser blockiert den nachfolgenden Request
+
 ### Requirement: Security-Response-Header
 
 Das System SHALL auf jede HTTP-Response die folgenden Header setzen (sofern nicht bereits vorhanden):

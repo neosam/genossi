@@ -160,7 +160,7 @@ pub async fn public_join<S: ApplicationRestState>(
                 return Ok(Response::builder()
                     .status(422)
                     .header("Content-Type", "application/json")
-                    .body(Body::new(serde_json::to_string(&error_response).unwrap()))
+                    .body(Body::new(serde_json::to_string(&error_response)?))
                     .unwrap());
             }
 
@@ -190,12 +190,9 @@ pub async fn public_join<S: ApplicationRestState>(
             Ok(Response::builder()
                 .status(201)
                 .header("Content-Type", "application/json")
-                .body(Body::new(
-                    serde_json::to_string(&PublicJoinResponse {
-                        message: "Beitrittserklärung eingegangen".to_string(),
-                    })
-                    .unwrap(),
-                ))
+                .body(Body::new(serde_json::to_string(&PublicJoinResponse {
+                    message: "Beitrittserklärung eingegangen".to_string(),
+                })?))
                 .unwrap())
         })
         .await,
@@ -250,7 +247,7 @@ pub async fn list_applications<RestState: RestStateDef + ApplicationRestState>(
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::to_string(&apps).unwrap()))
+                .body(Body::new(serde_json::to_string(&apps)?))
                 .unwrap())
         })
         .await,
@@ -305,9 +302,9 @@ pub async fn create_application<RestState: RestStateDef + ApplicationRestState>(
             Ok(Response::builder()
                 .status(201)
                 .header("Content-Type", "application/json")
-                .body(Body::new(
-                    serde_json::to_string(&ApplicationTO::from(&app)).unwrap(),
-                ))
+                .body(Body::new(serde_json::to_string(&ApplicationTO::from(
+                    &app,
+                ))?))
                 .unwrap())
         })
         .await,
@@ -340,9 +337,9 @@ pub async fn get_application<RestState: RestStateDef + ApplicationRestState>(
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(
-                    serde_json::to_string(&ApplicationTO::from(&app)).unwrap(),
-                ))
+                .body(Body::new(serde_json::to_string(&ApplicationTO::from(
+                    &app,
+                ))?))
                 .unwrap())
         })
         .await,
@@ -376,9 +373,9 @@ pub async fn confirm_application<RestState: RestStateDef + ApplicationRestState>
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(
-                    serde_json::to_string(&ApplicationTO::from(&app)).unwrap(),
-                ))
+                .body(Body::new(serde_json::to_string(&ApplicationTO::from(
+                    &app,
+                ))?))
                 .unwrap())
         })
         .await,
@@ -412,9 +409,9 @@ pub async fn reject_application<RestState: RestStateDef + ApplicationRestState>(
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(
-                    serde_json::to_string(&ApplicationTO::from(&app)).unwrap(),
-                ))
+                .body(Body::new(serde_json::to_string(&ApplicationTO::from(
+                    &app,
+                ))?))
                 .unwrap())
         })
         .await,
@@ -470,9 +467,9 @@ pub async fn update_application<RestState: RestStateDef + ApplicationRestState>(
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(
-                    serde_json::to_string(&ApplicationTO::from(&app)).unwrap(),
-                ))
+                .body(Body::new(serde_json::to_string(&ApplicationTO::from(
+                    &app,
+                ))?))
                 .unwrap())
         })
         .await,

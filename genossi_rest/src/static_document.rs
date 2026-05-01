@@ -123,7 +123,7 @@ pub async fn list_documents<RestState: RestStateDef>(
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::to_string(&to).unwrap()))
+                .body(Body::new(serde_json::to_string(&to)?))
                 .unwrap())
         })
         .await,
@@ -213,7 +213,7 @@ pub async fn upload_document<RestState: RestStateDef>(
             Ok(Response::builder()
                 .status(201)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::to_string(&to).unwrap()))
+                .body(Body::new(serde_json::to_string(&to)?))
                 .unwrap())
         })
         .await,

@@ -133,6 +133,7 @@ fn map_error(e: MailServiceError) -> Response {
         MailServiceError::SmtpError(m) => (StatusCode::BAD_GATEWAY, m.to_string()),
         MailServiceError::DataAccess(m) => (StatusCode::INTERNAL_SERVER_ERROR, m.to_string()),
         MailServiceError::TemplateValidation(m) => (StatusCode::BAD_REQUEST, m.to_string()),
+        MailServiceError::BadRequest(m) => (StatusCode::BAD_REQUEST, m.to_string()),
     };
     (code, msg).into_response()
 }
