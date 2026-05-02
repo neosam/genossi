@@ -19,6 +19,7 @@ pub mod test_support {
         RestState: RestStateDef
             + crate::public_stats::PublicStatsState
             + crate::application::ApplicationRestState
+            + crate::assembly::AssemblyRestState
             + crate::audit_log::AuditRestState
             + crate::audit_timestamp::TimestampRestState,
     >(

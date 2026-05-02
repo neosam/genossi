@@ -249,6 +249,7 @@ pub trait RestStateDef:
         (path = "/api/mail/footer", api = mail_footer::ApiDoc),
         (path = "/api/member-documents", api = member_document::CountsApiDoc),
         (path = "/api/applications", api = application::ApiDoc),
+        (path = "/api/assembly", api = assembly::ApiDoc),
         (path = "/api/audit", api = audit_log::ApiDoc),
         (path = "/api/audit/timestamps", api = audit_timestamp::ApiDoc),
         (path = "/api/session", api = session_management::ApiDoc)
@@ -412,6 +413,7 @@ pub async fn create_app<
     RestState: RestStateDef
         + public_stats::PublicStatsState
         + application::ApplicationRestState
+        + assembly::AssemblyRestState
         + audit_log::AuditRestState
         + audit_timestamp::TimestampRestState,
 >(
@@ -561,6 +563,7 @@ pub async fn create_app<
             "/api/applications",
             application::generate_route::<RestState>(),
         )
+        .nest("/api/assembly", assembly::generate_route::<RestState>())
         .nest("/api/audit", audit_log::generate_route::<RestState>())
         .nest(
             "/api/audit/timestamps",
@@ -676,6 +679,7 @@ pub async fn start_server<
     RestState: RestStateDef
         + public_stats::PublicStatsState
         + application::ApplicationRestState
+        + assembly::AssemblyRestState
         + audit_log::AuditRestState
         + audit_timestamp::TimestampRestState,
 >(
