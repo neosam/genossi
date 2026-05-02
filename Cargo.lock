@@ -1801,6 +1801,7 @@ dependencies = [
  "genossi_mail",
  "genossi_service",
  "hex-literal",
+ "mockall",
  "path-clean",
  "reqwest 0.12.24",
  "serde",

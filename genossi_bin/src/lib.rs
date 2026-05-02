@@ -120,6 +120,9 @@ impl MemberServiceDeps for MemberServiceDependencies {
 type MemberService = genossi_service_impl::member::MemberServiceImpl<MemberServiceDependencies>;
 
 type ApplicationDao = genossi_dao_impl_sqlite::application::ApplicationDaoImpl;
+type AssemblyDao = genossi_dao_impl_sqlite::assembly::AssemblyDaoImpl;
+type AssemblyMemberSnapshotDao =
+    genossi_dao_impl_sqlite::assembly_member_snapshot::AssemblyMemberSnapshotDaoImpl;
 
 pub struct ApplicationServiceDependencies;
 
@@ -142,6 +145,26 @@ impl ApplicationServiceDeps for ApplicationServiceDependencies {
 
 type ApplicationService =
     genossi_service_impl::application::ApplicationServiceImpl<ApplicationServiceDependencies>;
+
+pub struct AssemblyServiceDependencies;
+
+unsafe impl Send for AssemblyServiceDependencies {}
+unsafe impl Sync for AssemblyServiceDependencies {}
+
+impl genossi_service_impl::assembly::AssemblyServiceDeps for AssemblyServiceDependencies {
+    type Context = Context;
+    type Transaction = Transaction;
+    type AssemblyDao = AssemblyDao;
+    type AssemblyMemberSnapshotDao = AssemblyMemberSnapshotDao;
+    type MemberDao = MemberDao;
+    type AuditLogDao = AuditLogDao;
+    type PermissionService = PermissionService;
+    type UuidService = UuidService;
+    type TransactionDao = TransactionDao;
+}
+
+type AssemblyService =
+    genossi_service_impl::assembly::AssemblyServiceImpl<AssemblyServiceDependencies>;
 
 pub struct MemberImportServiceDependencies;
 
@@ -306,6 +329,7 @@ pub struct RestStateImpl {
     inbox_service: Arc<InboxServiceType>,
     static_document_service: Arc<StaticDocumentServiceType>,
     application_service: Arc<ApplicationService>,
+    assembly_service: Arc<AssemblyService>,
     audit_log_dao: Arc<AuditLogDao>,
     timestamp_service: Arc<TimestampServiceType>,
     backup_dao: Arc<BackupDao>,
@@ -465,6 +489,18 @@ impl RestStateImpl {
                 mail_service: mail_service.clone(),
             });
 
+        let assembly_dao = Arc::new(AssemblyDao::new(pool.clone()));
+        let assembly_member_snapshot_dao = Arc::new(AssemblyMemberSnapshotDao::new(pool.clone()));
+        let assembly_service = Arc::new(genossi_service_impl::assembly::AssemblyServiceImpl {
+            assembly_dao,
+            assembly_member_snapshot_dao,
+            member_dao: member_dao.clone(),
+            audit_log_dao: audit_log_dao.clone(),
+            permission_service: permission_service.clone(),
+            uuid_service: uuid_service.clone(),
+            transaction_dao: transaction_dao.clone(),
+        });
+
         let mail_template_dao = Arc::new(MailTemplateDaoType::new(pool.clone()));
         let mail_template_service = Arc::new(MailTemplateServiceType::new(mail_template_dao));
 
@@ -531,6 +567,7 @@ impl RestStateImpl {
             member_action_service,
             member_document_service,
             application_service,
+            assembly_service,
             audit_log_dao,
             timestamp_service,
             permission_service,
@@ -993,6 +1030,14 @@ impl genossi_rest::application::ApplicationRestState for RestStateImpl {
                 Err(_) => None,
             }
         })
+    }
+}
+
+impl genossi_rest::assembly::AssemblyRestState for RestStateImpl {
+    type AssemblyService = AssemblyService;
+
+    fn assembly_service(&self) -> Arc<Self::AssemblyService> {
+        self.assembly_service.clone()
     }
 }
 
