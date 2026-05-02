@@ -112,6 +112,15 @@ impl<Deps: AssemblyServiceDeps> AssemblyService for AssemblyServiceImpl<Deps> {
             .check_permission(ADMIN_PRIVILEGE, context)
             .await?;
 
+        // WR-04: this find_by_id duplicates the load that `audited_update!`
+        // performs internally to compute the OLD entity for the audit diff.
+        // We accept the duplicate read here on purpose: the service-level
+        // load is required to enforce the state-transition guard (D-07) and
+        // optimistic-locking version check BEFORE we mutate `entity`. Both
+        // reads run inside the same transaction (`tx.clone()`), so they see
+        // the same committed snapshot. Do NOT collapse this into a single
+        // load that bypasses `audited_update!` -- that would break the
+        // audit trail.
         let mut entity = self
             .assembly_dao
             .find_by_id(id, tx.clone())
@@ -165,6 +174,8 @@ impl<Deps: AssemblyServiceDeps> AssemblyService for AssemblyServiceImpl<Deps> {
             .check_permission(ADMIN_PRIVILEGE, context)
             .await?;
 
+        // WR-04: see update_assembly comment above. The duplicate read against
+        // `audited_update!` is intentional and required for the state-guard.
         let mut entity = self
             .assembly_dao
             .find_by_id(id, tx.clone())
@@ -242,6 +253,8 @@ impl<Deps: AssemblyServiceDeps> AssemblyService for AssemblyServiceImpl<Deps> {
             .check_permission(ADMIN_PRIVILEGE, context)
             .await?;
 
+        // WR-04: see update_assembly comment above. The duplicate read against
+        // `audited_update!` is intentional and required for the state-guard.
         let mut entity = self
             .assembly_dao
             .find_by_id(id, tx.clone())
