@@ -1428,7 +1428,11 @@ async fn test_action_update_version_conflict() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    // Second update with OLD version should fail (version conflict)
+    // Second update with OLD version should fail (version conflict).
+    // Before CR-01 (Phase 01) the DAO-level ConflictError was degraded to
+    // ServiceError::DataAccess and surfaced as HTTP 500. After the mapper
+    // fix in genossi_service/src/lib.rs the proper 409 Conflict is returned,
+    // honoring the documented status-code contract.
     let mut stale = created.clone();
     stale.shares_change = 7;
     let response = client
@@ -1437,7 +1441,7 @@ async fn test_action_update_version_conflict() {
         .send()
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(response.status(), StatusCode::CONFLICT);
 }
 
 // === Migrated Flag E2E Tests ===
