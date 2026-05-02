@@ -1002,6 +1002,144 @@ pub struct UpdateApplicationRequest {
     pub version: Uuid,
 }
 
+// Assembly (Generalversammlung) types
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub enum AssemblyStatusTO {
+    Preparation,
+    Open,
+    Closed,
+}
+
+impl From<&genossi_dao::assembly::AssemblyStatus> for AssemblyStatusTO {
+    fn from(s: &genossi_dao::assembly::AssemblyStatus) -> Self {
+        use genossi_dao::assembly::AssemblyStatus;
+        match s {
+            AssemblyStatus::Preparation => AssemblyStatusTO::Preparation,
+            AssemblyStatus::Open => AssemblyStatusTO::Open,
+            AssemblyStatus::Closed => AssemblyStatusTO::Closed,
+        }
+    }
+}
+
+impl From<&AssemblyStatusTO> for genossi_dao::assembly::AssemblyStatus {
+    fn from(s: &AssemblyStatusTO) -> Self {
+        use genossi_dao::assembly::AssemblyStatus;
+        match s {
+            AssemblyStatusTO::Preparation => AssemblyStatus::Preparation,
+            AssemblyStatusTO::Open => AssemblyStatus::Open,
+            AssemblyStatusTO::Closed => AssemblyStatus::Closed,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct AssemblyTO {
+    #[schema(example = "123e4567-e89b-12d3-a456-426614174000")]
+    pub id: Uuid,
+    #[schema(example = "GV 2026")]
+    pub name: String,
+    #[serde(
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    pub date: Option<time::PrimitiveDateTime>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[schema(example = "Vereinsheim")]
+    pub location: Option<String>,
+    pub status: AssemblyStatusTO,
+    #[serde(
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    pub opened_at: Option<time::PrimitiveDateTime>,
+    #[serde(
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    pub closed_at: Option<time::PrimitiveDateTime>,
+    #[serde(
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    pub created: Option<time::PrimitiveDateTime>,
+    #[serde(
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    pub deleted: Option<time::PrimitiveDateTime>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub version: Option<Uuid>,
+}
+
+impl From<&genossi_service::assembly::Assembly> for AssemblyTO {
+    fn from(a: &genossi_service::assembly::Assembly) -> Self {
+        Self {
+            id: a.id,
+            name: a.name.to_string(),
+            date: Some(a.date),
+            location: a.location.as_ref().map(|s| s.to_string()),
+            status: AssemblyStatusTO::from(&a.status),
+            opened_at: a.opened_at,
+            closed_at: a.closed_at,
+            created: Some(a.created),
+            deleted: a.deleted,
+            version: Some(a.version),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct AssemblyDetailTO {
+    pub assembly: AssemblyTO,
+    pub snapshot_member_count: u64,
+}
+
+impl From<&genossi_service::assembly::AssemblyDetail> for AssemblyDetailTO {
+    fn from(d: &genossi_service::assembly::AssemblyDetail) -> Self {
+        Self {
+            assembly: AssemblyTO::from(&d.assembly),
+            snapshot_member_count: d.snapshot_member_count,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct CreateAssemblyRequest {
+    #[schema(example = "GV 2026")]
+    pub name: String,
+    #[serde(
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    pub date: Option<time::PrimitiveDateTime>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[schema(example = "Vereinsheim")]
+    pub location: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct UpdateAssemblyRequest {
+    #[schema(example = "GV 2026")]
+    pub name: String,
+    #[serde(
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    pub date: Option<time::PrimitiveDateTime>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[schema(example = "Vereinsheim")]
+    pub location: Option<String>,
+    pub version: Uuid,
+}
+
 // Audit Log types
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
@@ -1162,7 +1300,8 @@ mod assembly_tests {
 
     #[test]
     fn test_assembly_to_optional_dates_default() {
-        let json = r#"{"id":"123e4567-e89b-12d3-a456-426614174000","name":"GV","status":"Preparation"}"#;
+        let json =
+            r#"{"id":"123e4567-e89b-12d3-a456-426614174000","name":"GV","status":"Preparation"}"#;
         let parsed: AssemblyTO = serde_json::from_str(json).unwrap();
         assert_eq!(parsed.name, "GV");
         assert!(parsed.date.is_none());
@@ -1182,12 +1321,10 @@ mod assembly_tests {
             (&AssemblyStatusTO::from(&AssemblyStatus::Preparation)).into();
         assert_eq!(preparation_back, AssemblyStatus::Preparation);
 
-        let open_back: AssemblyStatus =
-            (&AssemblyStatusTO::from(&AssemblyStatus::Open)).into();
+        let open_back: AssemblyStatus = (&AssemblyStatusTO::from(&AssemblyStatus::Open)).into();
         assert_eq!(open_back, AssemblyStatus::Open);
 
-        let closed_back: AssemblyStatus =
-            (&AssemblyStatusTO::from(&AssemblyStatus::Closed)).into();
+        let closed_back: AssemblyStatus = (&AssemblyStatusTO::from(&AssemblyStatus::Closed)).into();
         assert_eq!(closed_back, AssemblyStatus::Closed);
     }
 
@@ -1228,7 +1365,8 @@ mod assembly_request_tests {
 
     #[test]
     fn test_create_assembly_request_full_json() {
-        let json = r#"{"name":"GV","date":"2026-06-15T18:00:00.000000000Z","location":"Vereinsheim"}"#;
+        let json =
+            r#"{"name":"GV","date":"2026-06-15T18:00:00.000000000Z","location":"Vereinsheim"}"#;
         let parsed: CreateAssemblyRequest = serde_json::from_str(json).unwrap();
         assert_eq!(parsed.name, "GV");
         assert!(parsed.date.is_some());
