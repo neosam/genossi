@@ -65,10 +65,22 @@ impl crate::auditable::Auditable for AssemblyEntity {
     }
 
     fn audit_fields(&self) -> Vec<(&'static str, Option<String>)> {
+        // WR-08: do NOT use `unwrap_or_default()` here -- a silent empty
+        // string in the audit log is forensically useless. The hash chain
+        // would still be intact, but auditors would see "" instead of the
+        // intended timestamp. Log the failure and substitute a sentinel
+        // string so the breakage is at least visible.
         let format_dt = |dt: &time::PrimitiveDateTime| {
             dt.assume_utc()
                 .format(&Iso8601::DEFAULT)
-                .unwrap_or_default()
+                .unwrap_or_else(|err| {
+                    tracing::error!(
+                        error = ?err,
+                        entity = "assembly",
+                        "Failed to format datetime for audit field"
+                    );
+                    "<invalid datetime>".to_string()
+                })
         };
         vec![
             ("name", Some(self.name.to_string())),
