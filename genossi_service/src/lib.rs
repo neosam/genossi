@@ -67,7 +67,44 @@ impl From<genossi_dao::DaoError> for ServiceError {
     fn from(e: genossi_dao::DaoError) -> Self {
         match e {
             genossi_dao::DaoError::NotFound => ServiceError::EntityNotFound(uuid::Uuid::nil()),
+            genossi_dao::DaoError::ConflictError(msg) => ServiceError::Conflict(msg),
             _ => ServiceError::DataAccess(Arc::from(format!("{:?}", e))),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use genossi_dao::DaoError;
+
+    #[test]
+    fn dao_conflict_error_maps_to_service_conflict() {
+        let dao_err = DaoError::ConflictError(Arc::from("Version mismatch"));
+        let svc_err: ServiceError = dao_err.into();
+        match svc_err {
+            ServiceError::Conflict(msg) => assert_eq!(msg.as_ref(), "Version mismatch"),
+            other => panic!("expected ServiceError::Conflict, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn dao_not_found_maps_to_service_entity_not_found() {
+        let dao_err = DaoError::NotFound;
+        let svc_err: ServiceError = dao_err.into();
+        match svc_err {
+            ServiceError::EntityNotFound(id) => assert_eq!(id, uuid::Uuid::nil()),
+            other => panic!("expected ServiceError::EntityNotFound, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn dao_database_error_maps_to_service_data_access() {
+        let dao_err = DaoError::DatabaseError(Arc::from("connection refused"));
+        let svc_err: ServiceError = dao_err.into();
+        match svc_err {
+            ServiceError::DataAccess(_) => {}
+            other => panic!("expected ServiceError::DataAccess, got {:?}", other),
         }
     }
 }
