@@ -5,6 +5,7 @@
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
     openspec.url = "github:Fission-AI/OpenSpec";
+    gsd.url = "github:neosam/gsd-flake";
 
     # Frontend als Sub-Flake
     genossi-frontend = {
@@ -13,7 +14,7 @@
     };
   };
 
-  outputs = { self, nixpkgs, flake-utils, genossi-frontend, openspec }:
+  outputs = { self, nixpkgs, flake-utils, genossi-frontend, openspec, gsd }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
@@ -54,6 +55,7 @@
             nodejs
             pkg-config
             openspec.packages.${system}.default
+            gsd.packages.${system}.default
             # Weitere Tools die du brauchst
           ];
         };
