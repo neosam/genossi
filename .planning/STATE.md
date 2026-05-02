@@ -1,3 +1,16 @@
+---
+gsd_state_version: 1.0
+milestone: v1.0
+milestone_name: milestone
+status: Roadmap finalisiert, bereit für `/gsd-plan-phase 1`
+last_updated: "2026-05-02T09:44:53.772Z"
+progress:
+  total_phases: 5
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+---
+
 # State: Genossi — GV-Anwesenheits-Erfassung
 
 **Initialized:** 2026-05-02
@@ -81,6 +94,7 @@ Keine.
 **Next action:** `/gsd-plan-phase 1` — Decompose Phase 1 (Assembly-Aggregat + Audit-Hardening) in 1–3 ausführbare Plans.
 
 **Files written this session:**
+
 - `.planning/ROADMAP.md` (5 Phasen, Phase Details, Coverage, Hard Constraints)
 - `.planning/STATE.md` (dieses Dokument)
 - `.planning/REQUIREMENTS.md` (Traceability-Tabelle aktualisiert)
