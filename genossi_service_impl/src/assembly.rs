@@ -195,12 +195,19 @@ impl<Deps: AssemblyServiceDeps> AssemblyService for AssemblyServiceImpl<Deps> {
             tx
         );
 
-        // D-02: count_active filter — identical logic to genossi_dao/src/member.rs:172-185.
+        // D-02: count_active filter — identical logic to genossi_dao/src/member.rs:172-185,
+        // *plus* an additional `join_date <= opened_date` guard. The member_dao.count_active
+        // helper does not filter on join_date, but for assembly snapshots the GV-protocol
+        // semantics demand that members whose membership starts in the future (e.g. newly
+        // captured with a join_date 6 months ahead) are excluded from the attendance
+        // baseline -- they have no voting rights at the time the assembly opens
+        // (Verbandskonformitaet, Phase 1 constraint).
         // member_dao.all() already filters deleted IS NULL.
         let all_members = self.member_dao.all(tx.clone()).await?;
         let snapshot_entities: Vec<AssemblyMemberSnapshotEntity> = all_members
             .iter()
             .filter(|m| m.status.is_normal())
+            .filter(|m| m.join_date <= opened_date)
             .filter(|m| m.exit_date.map_or(true, |d| d > opened_date))
             .map(|m| AssemblyMemberSnapshotEntity {
                 assembly_id: id,
@@ -898,6 +905,59 @@ mod tests {
 
         let mut member_dao = MockTestMemberDao::new();
         let members = vec![active_normal, inactive_status, exited_member];
+        member_dao
+            .expect_all()
+            .returning(move |_| Ok(Arc::from(members.clone())));
+
+        let mut snapshot_dao = MockTestSnapshotDao::new();
+        snapshot_dao
+            .expect_create_batch()
+            .times(1)
+            .withf(|entities: &[AssemblyMemberSnapshotEntity], _process, _tx| entities.len() == 1)
+            .returning(|_, _, _| Ok(()));
+
+        let service = build_service(assembly_dao, snapshot_dao, member_dao);
+
+        let result = service
+            .open_assembly(entity_id, Authentication::Full)
+            .await
+            .expect("open_assembly should succeed");
+
+        assert_eq!(result.status, AssemblyStatus::Open);
+    }
+
+    #[tokio::test]
+    async fn test_open_assembly_excludes_future_joiner_from_snapshot() {
+        // WR-02: snapshot must NOT include members whose join_date is in the future
+        // (e.g. newly captured members scheduled to join after the GV opens). They
+        // have no voting rights at the moment of opening, so they must be excluded
+        // from the attendance baseline used for the GV-Protokoll.
+        let entity = assembly_in_status(AssemblyStatus::Preparation);
+        let entity_id = entity.id;
+        let entity_for_find = entity.clone();
+
+        let mut assembly_dao = MockTestAssemblyDao::new();
+        assembly_dao
+            .expect_find_by_id()
+            .returning(move |_, _| Ok(Some(entity_for_find.clone())));
+        assembly_dao.expect_update().returning(|_, _, _| Ok(()));
+
+        // a) Past join_date → INCLUDED
+        let active_normal = make_member(MemberStatus::Normal, true);
+        // b) Future join_date → EXCLUDED (would otherwise pass status + exit_date filters)
+        let now = time::OffsetDateTime::now_utc().date();
+        let future_join = now
+            .checked_add(time::Duration::days(180))
+            .expect("future date should be representable");
+        let future_joiner = MemberEntity {
+            id: Uuid::new_v4(),
+            member_number: 60,
+            join_date: future_join,
+            ..make_member(MemberStatus::Normal, true)
+        };
+
+        let mut member_dao = MockTestMemberDao::new();
+        let members = vec![active_normal, future_joiner];
         member_dao
             .expect_all()
             .returning(move |_| Ok(Arc::from(members.clone())));
