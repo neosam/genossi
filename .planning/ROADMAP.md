@@ -30,7 +30,7 @@
 - [x] 01-02-PLAN.md — REST-Types (AssemblyTO, AssemblyStatusTO, AssemblyDetailTO, CreateAssemblyRequest, UpdateAssemblyRequest)
 - [x] 01-03-PLAN.md — AssemblyService Trait + AssemblyServiceImpl mit Lifecycle-Guards, atomarer Open-Tx, Audit-Macros
 - [x] 01-04-PLAN.md — Axum-Handler + Router-Registration + DI-Wiring in genossi_bin
-- [ ] 01-05-PLAN.md — E2E-Test fuer Lifecycle + Audit-Hashchain-Verifikation (D-12, ASSY-07)
+- [x] 01-05-PLAN.md — E2E-Test fuer Lifecycle + Audit-Hashchain-Verifikation (D-12, ASSY-07)
 
 ### Phase 2: Helfer-Token + Session + AuthContext::Helper
 **Goal**: Vorstand kann pro Helfer einen einmalig nutzbaren QR-Token mit Memo-Namen erzeugen und vor GV-Beginn revoken; Helfer kann den Token atomar einlösen und erhält eine zeitlich an die GV gebundene Session — mit dafür typsicherer `AuthContext::Helper`-Variante, die Phase 3 für Permission-Checks braucht.
