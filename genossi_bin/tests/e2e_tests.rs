@@ -8517,7 +8517,7 @@ async fn test_close_assembly_from_preparation_returns_conflict() {
     // Create (status=Preparation)
     let create_body = serde_json::json!({
         "name": "GV 2026",
-        "date": "2026-06-15T18:00:00.000000000",
+        "date": "2026-06-15T18:00:00.000000000Z",
         "location": null,
     });
     let response = client
@@ -8551,7 +8551,7 @@ async fn test_open_assembly_from_closed_returns_conflict() {
     // Create -> Open -> Close
     let create_body = serde_json::json!({
         "name": "GV 2026",
-        "date": "2026-06-15T18:00:00.000000000",
+        "date": "2026-06-15T18:00:00.000000000Z",
         "location": null,
     });
     let response = client
