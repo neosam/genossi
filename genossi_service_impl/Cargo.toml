@@ -38,3 +38,4 @@ spki = "0.7"
 [dev-dependencies]
 tempfile = "3"
 hex-literal = "0.4"
+mockall = { workspace = true }

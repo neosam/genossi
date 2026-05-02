@@ -1,4 +1,5 @@
 pub mod application;
+pub mod assembly;
 pub mod audit_log;
 pub mod audit_macros;
 pub mod document_storage;
