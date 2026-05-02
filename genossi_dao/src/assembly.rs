@@ -66,7 +66,9 @@ impl crate::auditable::Auditable for AssemblyEntity {
 
     fn audit_fields(&self) -> Vec<(&'static str, Option<String>)> {
         let format_dt = |dt: &time::PrimitiveDateTime| {
-            dt.assume_utc().format(&Iso8601::DEFAULT).unwrap_or_default()
+            dt.assume_utc()
+                .format(&Iso8601::DEFAULT)
+                .unwrap_or_default()
         };
         vec![
             ("name", Some(self.name.to_string())),
@@ -195,12 +197,23 @@ mod tests {
     fn test_auditable_fields_count_and_excludes() {
         let entity = make_assembly();
         let fields = entity.audit_fields();
-        assert_eq!(fields.len(), 6, "audit_fields must contain exactly 6 entries (D-10)");
+        assert_eq!(
+            fields.len(),
+            6,
+            "audit_fields must contain exactly 6 entries (D-10)"
+        );
 
         let field_names: Vec<&str> = fields.iter().map(|(name, _)| *name).collect();
         assert_eq!(
             field_names,
-            vec!["name", "date", "location", "status", "opened_at", "closed_at"]
+            vec![
+                "name",
+                "date",
+                "location",
+                "status",
+                "opened_at",
+                "closed_at"
+            ]
         );
 
         // Lifecycle fields MUST NOT be in audit_fields:
