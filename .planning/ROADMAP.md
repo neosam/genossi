@@ -26,8 +26,8 @@
   4. GV-Daten (Member-Universe-Snapshot, Snapshot-Anzahl) bleiben nach Schluss persistent für Protokoll-Export und Statistik (ASSY-05)
   5. `GET /api/audit/verify` zeigt nach Lifecycle-Vorgängen (create, open, close) eine intakte Hash-Chain mit den entsprechenden Einträgen; CI-E2E-Test gegen den Verify-Endpoint ist grün (ASSY-07)
 **Plans**: 5 plans
-- [ ] 01-01-PLAN.md — Migrationen + DAO-Traits + SQLite-DAO-Impls (assembly + assembly_member_snapshot)
-- [ ] 01-02-PLAN.md — REST-Types (AssemblyTO, AssemblyStatusTO, AssemblyDetailTO, CreateAssemblyRequest, UpdateAssemblyRequest)
+- [x] 01-01-PLAN.md — Migrationen + DAO-Traits + SQLite-DAO-Impls (assembly + assembly_member_snapshot)
+- [x] 01-02-PLAN.md — REST-Types (AssemblyTO, AssemblyStatusTO, AssemblyDetailTO, CreateAssemblyRequest, UpdateAssemblyRequest)
 - [ ] 01-03-PLAN.md — AssemblyService Trait + AssemblyServiceImpl mit Lifecycle-Guards, atomarer Open-Tx, Audit-Macros
 - [ ] 01-04-PLAN.md — Axum-Handler + Router-Registration + DI-Wiring in genossi_bin
 - [ ] 01-05-PLAN.md — E2E-Test fuer Lifecycle + Audit-Hashchain-Verifikation (D-12, ASSY-07)
