@@ -28,7 +28,7 @@
 **Plans**: 5 plans
 - [x] 01-01-PLAN.md — Migrationen + DAO-Traits + SQLite-DAO-Impls (assembly + assembly_member_snapshot)
 - [x] 01-02-PLAN.md — REST-Types (AssemblyTO, AssemblyStatusTO, AssemblyDetailTO, CreateAssemblyRequest, UpdateAssemblyRequest)
-- [ ] 01-03-PLAN.md — AssemblyService Trait + AssemblyServiceImpl mit Lifecycle-Guards, atomarer Open-Tx, Audit-Macros
+- [x] 01-03-PLAN.md — AssemblyService Trait + AssemblyServiceImpl mit Lifecycle-Guards, atomarer Open-Tx, Audit-Macros
 - [ ] 01-04-PLAN.md — Axum-Handler + Router-Registration + DI-Wiring in genossi_bin
 - [ ] 01-05-PLAN.md — E2E-Test fuer Lifecycle + Audit-Hashchain-Verifikation (D-12, ASSY-07)
 
