@@ -25,7 +25,12 @@
   3. Vorstand kann eine GV schließen; Status wechselt final auf `Geschlossen` und kann nicht zurückgesetzt werden (ASSY-03)
   4. GV-Daten (Member-Universe-Snapshot, Snapshot-Anzahl) bleiben nach Schluss persistent für Protokoll-Export und Statistik (ASSY-05)
   5. `GET /api/audit/verify` zeigt nach Lifecycle-Vorgängen (create, open, close) eine intakte Hash-Chain mit den entsprechenden Einträgen; CI-E2E-Test gegen den Verify-Endpoint ist grün (ASSY-07)
-**Plans**: TBD
+**Plans**: 5 plans
+- [ ] 01-01-PLAN.md — Migrationen + DAO-Traits + SQLite-DAO-Impls (assembly + assembly_member_snapshot)
+- [ ] 01-02-PLAN.md — REST-Types (AssemblyTO, AssemblyStatusTO, AssemblyDetailTO, CreateAssemblyRequest, UpdateAssemblyRequest)
+- [ ] 01-03-PLAN.md — AssemblyService Trait + AssemblyServiceImpl mit Lifecycle-Guards, atomarer Open-Tx, Audit-Macros
+- [ ] 01-04-PLAN.md — Axum-Handler + Router-Registration + DI-Wiring in genossi_bin
+- [ ] 01-05-PLAN.md — E2E-Test fuer Lifecycle + Audit-Hashchain-Verifikation (D-12, ASSY-07)
 
 ### Phase 2: Helfer-Token + Session + AuthContext::Helper
 **Goal**: Vorstand kann pro Helfer einen einmalig nutzbaren QR-Token mit Memo-Namen erzeugen und vor GV-Beginn revoken; Helfer kann den Token atomar einlösen und erhält eine zeitlich an die GV gebundene Session — mit dafür typsicherer `AuthContext::Helper`-Variante, die Phase 3 für Permission-Checks braucht.
@@ -87,7 +92,7 @@
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Assembly-Aggregat + Audit-Hardening | 0/0 | Not started | - |
+| 1. Assembly-Aggregat + Audit-Hardening | 0/5 | Not started | - |
 | 2. Helfer-Token + Session + AuthContext::Helper | 0/0 | Not started | - |
 | 3. Attendance-Aggregat + Cascade-Invalidation | 0/0 | Not started | - |
 | 4. Frontend (Component-First) | 0/0 | Not started | - |
