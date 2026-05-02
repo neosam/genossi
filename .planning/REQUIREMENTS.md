@@ -79,38 +79,40 @@ Explizit ausgeschlossen — nicht in v1, nicht in v2 dieses Milestones (separate
 
 ## Traceability
 
-Wird vom Roadmapper in Phase 8 ausgefüllt.
+Phase-Mapping aus Roadmap (2026-05-02). Coverage: 22/22 v1 Requirements gemappt, 0 Orphans.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| ASSY-01 | TBD | Pending |
-| ASSY-02 | TBD | Pending |
-| ASSY-03 | TBD | Pending |
-| ASSY-04 | TBD | Pending |
-| ASSY-05 | TBD | Pending |
-| ASSY-06 | TBD | Pending |
-| ASSY-07 | TBD | Pending |
-| HLPR-01 | TBD | Pending |
-| HLPR-02 | TBD | Pending |
-| HLPR-03 | TBD | Pending |
-| HLPR-04 | TBD | Pending |
-| HLPR-05 | TBD | Pending |
-| HLPR-06 | TBD | Pending |
-| HLPR-07 | TBD | Pending |
-| ATTN-01 | TBD | Pending |
-| ATTN-02 | TBD | Pending |
-| ATTN-03 | TBD | Pending |
-| ATTN-04 | TBD | Pending |
-| ATTN-05 | TBD | Pending |
-| ATTN-06 | TBD | Pending |
-| SYNC-01 | TBD | Pending |
-| SYNC-02 | TBD | Pending |
+| ASSY-01 | Phase 1 | Pending |
+| ASSY-02 | Phase 1 | Pending |
+| ASSY-03 | Phase 1 | Pending |
+| ASSY-04 | Phase 3 | Pending |
+| ASSY-05 | Phase 1 | Pending |
+| ASSY-06 | Phase 1 | Pending |
+| ASSY-07 | Phase 1 | Pending |
+| HLPR-01 | Phase 2 | Pending |
+| HLPR-02 | Phase 2 | Pending |
+| HLPR-03 | Phase 4 | Pending |
+| HLPR-04 | Phase 2 | Pending |
+| HLPR-05 | Phase 2 | Pending |
+| HLPR-06 | Phase 2 | Pending |
+| HLPR-07 | Phase 2 | Pending |
+| ATTN-01 | Phase 3 | Pending |
+| ATTN-02 | Phase 3 | Pending |
+| ATTN-03 | Phase 3 | Pending |
+| ATTN-04 | Phase 3 | Pending |
+| ATTN-05 | Phase 3 | Pending |
+| ATTN-06 | Phase 3 | Pending |
+| SYNC-01 | Phase 4 | Pending |
+| SYNC-02 | Phase 3 | Pending |
 
 **Coverage:**
 - v1 requirements: 22 total
-- Mapped to phases: 0 (wird durch Roadmapper gefüllt)
-- Unmapped: 22 ⚠️ (vor Roadmapper-Lauf erwartet)
+- Mapped to phases: 22 (Phase 1: 6, Phase 2: 6, Phase 3: 8, Phase 4: 2, Phase 5: operativ)
+- Unmapped: 0
+
+**Phase 5 (Pre-GV-Generalprobe)** mappt keine direkten Requirements, sondern verifiziert die in Phasen 1–4 gelieferten Requirements unter realen Live-Event-Bedingungen.
 
 ---
 *Requirements defined: 2026-05-02*
-*Last updated: 2026-05-02 after initial definition*
+*Last updated: 2026-05-02 after roadmap creation (traceability filled)*
