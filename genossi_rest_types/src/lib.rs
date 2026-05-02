@@ -1122,3 +1122,138 @@ pub struct SessionRevokeResponse {
     pub message: String,
     pub revoked_count: u64,
 }
+
+#[cfg(test)]
+mod assembly_tests {
+    use super::*;
+    use genossi_dao::assembly::AssemblyStatus;
+
+    #[test]
+    fn test_assembly_status_to_serialize() {
+        assert_eq!(
+            serde_json::to_string(&AssemblyStatusTO::Preparation).unwrap(),
+            "\"Preparation\""
+        );
+        assert_eq!(
+            serde_json::to_string(&AssemblyStatusTO::Open).unwrap(),
+            "\"Open\""
+        );
+        assert_eq!(
+            serde_json::to_string(&AssemblyStatusTO::Closed).unwrap(),
+            "\"Closed\""
+        );
+    }
+
+    #[test]
+    fn test_assembly_status_to_deserialize() {
+        assert_eq!(
+            serde_json::from_str::<AssemblyStatusTO>("\"Open\"").unwrap(),
+            AssemblyStatusTO::Open
+        );
+        assert_eq!(
+            serde_json::from_str::<AssemblyStatusTO>("\"Preparation\"").unwrap(),
+            AssemblyStatusTO::Preparation
+        );
+        assert_eq!(
+            serde_json::from_str::<AssemblyStatusTO>("\"Closed\"").unwrap(),
+            AssemblyStatusTO::Closed
+        );
+    }
+
+    #[test]
+    fn test_assembly_to_optional_dates_default() {
+        let json = r#"{"id":"123e4567-e89b-12d3-a456-426614174000","name":"GV","status":"Preparation"}"#;
+        let parsed: AssemblyTO = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.name, "GV");
+        assert!(parsed.date.is_none());
+        assert!(parsed.opened_at.is_none());
+        assert!(parsed.closed_at.is_none());
+        assert!(parsed.created.is_none());
+        assert!(parsed.deleted.is_none());
+        assert!(parsed.location.is_none());
+        assert!(parsed.version.is_none());
+        assert_eq!(parsed.status, AssemblyStatusTO::Preparation);
+    }
+
+    #[test]
+    fn test_status_bidirectional_mapping() {
+        // DAO -> TO -> DAO roundtrip for all three variants
+        let preparation_back: AssemblyStatus =
+            (&AssemblyStatusTO::from(&AssemblyStatus::Preparation)).into();
+        assert_eq!(preparation_back, AssemblyStatus::Preparation);
+
+        let open_back: AssemblyStatus =
+            (&AssemblyStatusTO::from(&AssemblyStatus::Open)).into();
+        assert_eq!(open_back, AssemblyStatus::Open);
+
+        let closed_back: AssemblyStatus =
+            (&AssemblyStatusTO::from(&AssemblyStatus::Closed)).into();
+        assert_eq!(closed_back, AssemblyStatus::Closed);
+    }
+
+    #[test]
+    fn test_assembly_detail_to_contains_count() {
+        let assembly = AssemblyTO {
+            id: Uuid::new_v4(),
+            name: "GV 2026".to_string(),
+            date: None,
+            location: None,
+            status: AssemblyStatusTO::Open,
+            opened_at: None,
+            closed_at: None,
+            created: None,
+            deleted: None,
+            version: None,
+        };
+        let detail = AssemblyDetailTO {
+            assembly,
+            snapshot_member_count: 42,
+        };
+        assert_eq!(detail.snapshot_member_count, 42);
+    }
+}
+
+#[cfg(test)]
+mod assembly_request_tests {
+    use super::*;
+
+    #[test]
+    fn test_create_assembly_request_minimal_json() {
+        let json = r#"{"name":"GV 2026"}"#;
+        let parsed: CreateAssemblyRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.name, "GV 2026");
+        assert!(parsed.date.is_none());
+        assert!(parsed.location.is_none());
+    }
+
+    #[test]
+    fn test_create_assembly_request_full_json() {
+        let json = r#"{"name":"GV","date":"2026-06-15T18:00:00.000000000Z","location":"Vereinsheim"}"#;
+        let parsed: CreateAssemblyRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.name, "GV");
+        assert!(parsed.date.is_some());
+        assert_eq!(parsed.location.as_deref(), Some("Vereinsheim"));
+    }
+
+    #[test]
+    fn test_update_assembly_request_requires_version() {
+        let json = r#"{"name":"GV 2026","date":null,"location":null}"#;
+        let result: Result<UpdateAssemblyRequest, _> = serde_json::from_str(json);
+        assert!(
+            result.is_err(),
+            "UpdateAssemblyRequest must require version field"
+        );
+    }
+
+    #[test]
+    fn test_update_assembly_request_with_version() {
+        let version = Uuid::new_v4();
+        let json = format!(
+            r#"{{"name":"GV","date":null,"location":null,"version":"{}"}}"#,
+            version
+        );
+        let parsed: UpdateAssemblyRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.name, "GV");
+        assert_eq!(parsed.version, version);
+    }
+}

@@ -5,7 +5,7 @@ edition.workspace = true
 
 [dependencies]
 genossi_dao = { path = "../genossi_dao" }
-genossi_service = { path = "../genossi_service" }
+genossi_service = { path = "../genossi_service", features = ["utoipa"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 time = { workspace = true }
