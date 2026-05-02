@@ -11,8 +11,8 @@ use genossi_rest::mail_footer::FooterResponse;
 use genossi_rest::test_server::test_support::start_test_server;
 use genossi_rest_types::{
     ActionTypeTO, AdminCreateApplicationRequest, ApplicationStatusTO, ApplicationTO,
-    MemberActionTO, MemberDocumentTO, MemberImportResultTO, MemberTO, MigrationStatusTO,
-    PublicJoinRequest, PublicJoinResponse, SalutationTO, SessionRevokeResponse,
+    AssemblyStatusTO, AssemblyTO, MemberActionTO, MemberDocumentTO, MemberImportResultTO, MemberTO,
+    MigrationStatusTO, PublicJoinRequest, PublicJoinResponse, SalutationTO, SessionRevokeResponse,
     UpdateApplicationRequest, UserPreferenceTO, ValidationResultTO,
 };
 use reqwest::StatusCode;
@@ -8342,4 +8342,200 @@ async fn test_rate_limit_api_allows_normal_usage() {
         let response = client.get(server.url("/api/members")).send().await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
     }
+}
+
+// =====================================================================
+// Phase 01 Plan 05: Assembly lifecycle + audit hash chain (ASSY-07, D-12)
+// =====================================================================
+
+/// Hauptest: full Preparation -> Open -> Closed lifecycle, then verify the
+/// audit hash chain stays intact and contains all three lifecycle process
+/// identifiers ("assembly.create", "assembly.open", "assembly.close").
+/// Covers ASSY-07 and D-12 (CI E2E test against /api/audit/verify).
+#[tokio::test]
+async fn test_assembly_lifecycle_audit_chain_intact() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // 1) Create assembly (status=Preparation)
+    let create_body = serde_json::json!({
+        "name": "GV 2026",
+        "date": "2026-06-15T18:00:00.000000000",
+        "location": "Vereinsheim",
+    });
+    let response = client
+        .post(server.url("/api/assembly"))
+        .json(&create_body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::CREATED,
+        "create should return 201"
+    );
+    let created: AssemblyTO = response.json().await.unwrap();
+    let assembly_id = created.id;
+    assert_eq!(created.status, AssemblyStatusTO::Preparation);
+    assert!(created.opened_at.is_none());
+    assert!(created.closed_at.is_none());
+
+    // 2) Open assembly (status=Preparation -> Open + snapshot population)
+    let response = client
+        .post(server.url(&format!("/api/assembly/{}/open", assembly_id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "open should return 200");
+    let opened: AssemblyTO = response.json().await.unwrap();
+    assert_eq!(opened.status, AssemblyStatusTO::Open);
+    assert!(
+        opened.opened_at.is_some(),
+        "opened_at must be set after open"
+    );
+
+    // 3) Close assembly (status=Open -> Closed)
+    let response = client
+        .post(server.url(&format!("/api/assembly/{}/close", assembly_id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "close should return 200");
+    let closed: AssemblyTO = response.json().await.unwrap();
+    assert_eq!(closed.status, AssemblyStatusTO::Closed);
+    assert!(
+        closed.closed_at.is_some(),
+        "closed_at must be set after close"
+    );
+
+    // 4) Verify audit hash chain intact
+    let response = client
+        .get(server.url("/api/audit/verify"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let verify: genossi_rest_types::VerifyResponseTO = response.json().await.unwrap();
+    assert!(
+        verify.valid,
+        "Audit hash chain must be valid after lifecycle"
+    );
+    assert!(
+        verify.broken_links.is_empty(),
+        "broken_links must be empty, got {:?}",
+        verify.broken_links
+    );
+    assert!(
+        verify.total_entries >= 3,
+        "expected >=3 audit entries (create+open+close), got {}",
+        verify.total_entries
+    );
+
+    // 5) Verify each lifecycle process appears in the audit log for this assembly
+    let response = client
+        .get(server.url(&format!("/api/audit/assembly/{}", assembly_id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let entries: Vec<genossi_rest_types::AuditLogEntryTO> = response.json().await.unwrap();
+    let processes: std::collections::HashSet<&str> =
+        entries.iter().map(|e| e.process.as_str()).collect();
+    assert!(
+        processes.contains("assembly.create"),
+        "missing assembly.create process; got {:?}",
+        processes
+    );
+    assert!(
+        processes.contains("assembly.open"),
+        "missing assembly.open process; got {:?}",
+        processes
+    );
+    assert!(
+        processes.contains("assembly.close"),
+        "missing assembly.close process; got {:?}",
+        processes
+    );
+}
+
+/// Negativ-Test 1 (Pitfall 3): close from Preparation must return 409.
+#[tokio::test]
+async fn test_close_assembly_from_preparation_returns_conflict() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Create (status=Preparation)
+    let create_body = serde_json::json!({
+        "name": "GV 2026",
+        "date": "2026-06-15T18:00:00.000000000",
+        "location": null,
+    });
+    let response = client
+        .post(server.url("/api/assembly"))
+        .json(&create_body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let created: AssemblyTO = response.json().await.unwrap();
+
+    // Direct close without open should return 409
+    let response = client
+        .post(server.url(&format!("/api/assembly/{}/close", created.id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::CONFLICT,
+        "close from Preparation must be 409"
+    );
+}
+
+/// Negativ-Test 2 (Pitfall 3): open from Closed must return 409.
+#[tokio::test]
+async fn test_open_assembly_from_closed_returns_conflict() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Create -> Open -> Close
+    let create_body = serde_json::json!({
+        "name": "GV 2026",
+        "date": "2026-06-15T18:00:00.000000000",
+        "location": null,
+    });
+    let response = client
+        .post(server.url("/api/assembly"))
+        .json(&create_body)
+        .send()
+        .await
+        .unwrap();
+    let created: AssemblyTO = response.json().await.unwrap();
+    let id = created.id;
+
+    let response = client
+        .post(server.url(&format!("/api/assembly/{}/open", id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let response = client
+        .post(server.url(&format!("/api/assembly/{}/close", id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Re-open after close -> 409
+    let response = client
+        .post(server.url(&format!("/api/assembly/{}/open", id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::CONFLICT,
+        "open from Closed must be 409"
+    );
 }
