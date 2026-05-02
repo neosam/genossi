@@ -11,9 +11,10 @@ use genossi_rest::mail_footer::FooterResponse;
 use genossi_rest::test_server::test_support::start_test_server;
 use genossi_rest_types::{
     ActionTypeTO, AdminCreateApplicationRequest, ApplicationStatusTO, ApplicationTO,
-    AssemblyStatusTO, AssemblyTO, MemberActionTO, MemberDocumentTO, MemberImportResultTO, MemberTO,
-    MigrationStatusTO, PublicJoinRequest, PublicJoinResponse, SalutationTO, SessionRevokeResponse,
-    UpdateApplicationRequest, UserPreferenceTO, ValidationResultTO,
+    AssemblyDetailTO, AssemblyStatusTO, AssemblyTO, MemberActionTO, MemberDocumentTO,
+    MemberImportResultTO, MemberTO, MigrationStatusTO, PublicJoinRequest, PublicJoinResponse,
+    SalutationTO, SessionRevokeResponse, UpdateApplicationRequest, UserPreferenceTO,
+    ValidationResultTO,
 };
 use reqwest::StatusCode;
 use sqlx::SqlitePool;
@@ -8360,7 +8361,7 @@ async fn test_assembly_lifecycle_audit_chain_intact() {
     // 1) Create assembly (status=Preparation)
     let create_body = serde_json::json!({
         "name": "GV 2026",
-        "date": "2026-06-15T18:00:00.000000000",
+        "date": "2026-06-15T18:00:00.000000000Z",
         "location": "Vereinsheim",
     });
     let response = client
@@ -8380,6 +8381,33 @@ async fn test_assembly_lifecycle_audit_chain_intact() {
     assert!(created.opened_at.is_none());
     assert!(created.closed_at.is_none());
 
+    // WR-06: create two active members BEFORE open. Their join_date is in the
+    // past and they have no exit_date, so both must end up in the snapshot.
+    // The GV-Protokoll attendance baseline depends on this count.
+    let mut member1 = sample_member();
+    member1.member_number = 101;
+    member1.first_name = "Anna".to_string();
+    member1.email = Some("anna@example.com".to_string());
+    let response = client
+        .post(server.url("/api/members"))
+        .json(&member1)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let mut member2 = sample_member();
+    member2.member_number = 102;
+    member2.first_name = "Bert".to_string();
+    member2.email = Some("bert@example.com".to_string());
+    let response = client
+        .post(server.url("/api/members"))
+        .json(&member2)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
     // 2) Open assembly (status=Preparation -> Open + snapshot population)
     let response = client
         .post(server.url(&format!("/api/assembly/{}/open", assembly_id)))
@@ -8393,6 +8421,28 @@ async fn test_assembly_lifecycle_audit_chain_intact() {
         opened.opened_at.is_some(),
         "opened_at must be set after open"
     );
+
+    // WR-06: GET detail must report snapshot_member_count == 2 (the two
+    // active members created above). This is the data point the GV-Protokoll
+    // export relies on; if it ever regresses to 0 the protocol is unusable.
+    let response = client
+        .get(server.url(&format!("/api/assembly/{}", assembly_id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "get_assembly should return 200"
+    );
+    let detail: AssemblyDetailTO = response.json().await.unwrap();
+    assert_eq!(
+        detail.snapshot_member_count, 2,
+        "snapshot must contain exactly the two active members created before open; got {}",
+        detail.snapshot_member_count
+    );
+    assert_eq!(detail.assembly.id, assembly_id);
+    assert_eq!(detail.assembly.status, AssemblyStatusTO::Open);
 
     // 3) Close assembly (status=Open -> Closed)
     let response = client

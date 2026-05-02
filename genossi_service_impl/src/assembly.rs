@@ -940,6 +940,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_get_assembly_returns_snapshot_member_count() {
+        // WR-06: get_assembly must surface the snapshot count from
+        // count_by_assembly_id verbatim. The number is what downstream
+        // consumers (Frontend, GV-Protokoll export) will trust as the
+        // attendance baseline -- a quietly-zero return here would silently
+        // break the protocol.
+        let entity = assembly_in_status(AssemblyStatus::Open);
+        let entity_id = entity.id;
+
+        let mut assembly_dao = MockTestAssemblyDao::new();
+        assembly_dao
+            .expect_find_by_id()
+            .returning(move |_, _| Ok(Some(entity.clone())));
+
+        let mut snapshot_dao = MockTestSnapshotDao::new();
+        snapshot_dao
+            .expect_count_by_assembly_id()
+            .times(1)
+            .returning(|_, _| Ok(7));
+
+        let member_dao = MockTestMemberDao::new();
+        let service = build_service(assembly_dao, snapshot_dao, member_dao);
+
+        let detail = service
+            .get_assembly(entity_id, Authentication::Full)
+            .await
+            .expect("get_assembly should succeed");
+
+        assert_eq!(detail.snapshot_member_count, 7);
+        assert_eq!(detail.assembly.id, entity_id);
+    }
+
+    #[tokio::test]
     async fn test_open_assembly_excludes_future_joiner_from_snapshot() {
         // WR-02: snapshot must NOT include members whose join_date is in the future
         // (e.g. newly captured members scheduled to join after the GV opens). They
