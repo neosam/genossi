@@ -36,7 +36,11 @@ fn validate_required_field(
             field: field.to_string(),
             message: "missing".to_string(),
         });
-    } else if value.len() > max_len {
+    } else if value.chars().count() > max_len {
+        // WR-05: count Unicode scalar values, not bytes. `value.len()` would
+        // penalize multi-byte characters (Umlauts = 2 bytes, emoji = 4) and
+        // make `max_len` semantically dependent on the user's encoding,
+        // producing surprising 400s for plain German strings near the limit.
         errors.push(ValidationFailureItem {
             field: field.to_string(),
             message: format!("too long (max {})", max_len),
@@ -51,7 +55,8 @@ fn validate_optional_max_len(
     max_len: usize,
 ) {
     if let Some(v) = value {
-        if v.len() > max_len {
+        if v.chars().count() > max_len {
+            // WR-05: see validate_required_field -- character-based limit.
             errors.push(ValidationFailureItem {
                 field: field.to_string(),
                 message: format!("too long (max {})", max_len),
@@ -452,6 +457,32 @@ mod tests {
     fn test_validate_create_assembly_request_optional_location_none_ok() {
         let mut req = valid_create_request();
         req.location = None;
+        assert!(validate_create_assembly_request(&req).is_ok());
+    }
+
+    #[test]
+    fn test_validate_create_assembly_request_unicode_counts_chars_not_bytes() {
+        // WR-05: 256 deutsche Umlaute (each 2 bytes UTF-8) must validate.
+        // With the old byte-based limit they would have produced 512 bytes,
+        // exceeding 256 -- a spurious 400 for a perfectly reasonable name.
+        let mut req = valid_create_request();
+        req.name = "ä".repeat(256);
+        assert!(validate_create_assembly_request(&req).is_ok());
+
+        // 257 chars must still fail -- the limit applies in characters.
+        let mut req_too_long = valid_create_request();
+        req_too_long.name = "ä".repeat(257);
+        let errors = validate_create_assembly_request(&req_too_long).unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|e| e.field == "name" && e.message.contains("too long")));
+    }
+
+    #[test]
+    fn test_validate_create_assembly_request_unicode_optional_location_chars() {
+        // Same property for optional fields routed through validate_optional_max_len.
+        let mut req = valid_create_request();
+        req.location = Some("ü".repeat(256));
         assert!(validate_create_assembly_request(&req).is_ok());
     }
 
