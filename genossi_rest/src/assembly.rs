@@ -459,8 +459,12 @@ mod tests {
     fn test_validate_update_assembly_request_valid() {
         let req = valid_update_request();
         assert!(validate_update_assembly_request(&req).is_ok());
-        // version is mandatory by type — present here.
-        assert!(req.version != Uuid::nil() || req.version == Uuid::nil());
+        // version is mandatory by type — verify the fixture supplies a real (non-nil) UUID.
+        assert_ne!(
+            req.version,
+            Uuid::nil(),
+            "version must be a real UUID, not nil"
+        );
     }
 
     #[test]
