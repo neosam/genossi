@@ -34,24 +34,27 @@ Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachv
 <!-- Aktueller Milestone: GV-Anwesenheits-Erfassung. Hypothesen bis ausgeliefert. -->
 
 - [ ] Vorstand kann eine Generalversammlung als eigene Entität anlegen (Datum, Titel, Status)
-- [ ] Vorstand kann pro Helfer einen einmalig nutzbaren QR-Code erzeugen — mit einem freien Text-Namen als Memo (z. B. „Anna", „Bernd"); beim ersten Scan wird der QR-Code verbraucht und eine Helfer-Session daran gebunden
-- [ ] Helfer kann sich per QR-Code-Scan in eine zeitlich begrenzte Helfer-Session einloggen, gültig bis zum Schließen der GV
+- [ ] Vorstand kann pro Helfer einen einmalig nutzbaren QR-Code erzeugen — mit einem freien Text-Namen als Memo (z. B. „Anna", „Bernd"); beim ersten Scan wird der QR-Code atomar verbraucht und eine Helfer-Session daran gebunden
+- [ ] Helfer kann sich per QR-Code-Scan ODER manueller Code-Eingabe (8–12 Zeichen, alphanumerisch) in eine zeitlich begrenzte Helfer-Session einloggen, gültig bis zum Schließen der GV
 - [ ] Helfer-Ansicht zeigt eine reduzierte Mitgliederliste (nur Mitgliedsnummer, Name, Titel, Anrede)
-- [ ] Helfer kann in der Liste suchen und Mitglieder als anwesend markieren oder austragen
+- [ ] Helfer kann in der Liste suchen und Mitglieder als anwesend markieren oder austragen — Markierung idempotent (Doppel-Klick erzeugt keinen Fehler)
 - [ ] Vorstand kann die Helfer-Ansicht ohne QR-Code direkt aus seiner regulären Anmeldung heraus öffnen, um zu unterstützen
-- [ ] Vorstand sieht einen Live-Counter „X von Y anwesend" während der GV
+- [ ] Vorstand sieht einen Live-Counter „X von Y anwesend" während der GV (Y = Member-Universe-Snapshot zum Zeitpunkt des GV-Öffnens, nicht volatil)
 - [ ] GV-Ergebnis (Anzahl Anwesender + Anwesenheits-Liste) bleibt nach GV-Schluss persistent für Protokoll und Statistik
 - [ ] Helfer-Sessions werden beim Schließen der GV automatisch ungültig
+- [ ] Vorstand kann auch nach GV-Schluss noch Anwesenheits-Einträge korrigieren (z. B. nachgemeldete Anwesenheiten); GV selbst bleibt geschlossen
 
 ### Out of Scope
 
 <!-- Bewusste Grenzen für diesen Milestone. -->
 
 - Stimmrechte, Vollmachten, Beschlussfähigkeits-Berechnung — eigenständiges Feature mit deutlich höherer Komplexität (Vollmachts-Daten, Stimmgewichte, Quorum-Regeln); rein anwesend/nicht-anwesend reicht für Protokoll
-- Audit-Hashchain-Eintrag pro Anwesenheits-Markierung — vom User explizit ausgeschlossen, weil das Anhakeln nicht verbandskonform protokolliert werden muss
+- Audit-Hashchain-Eintrag pro Anwesenheits-Markierung — vom User explizit ausgeschlossen, weil das Anhakeln nicht verbandskonform protokolliert werden muss (Assembly-Lifecycle und QR-Token-Erzeugung BLEIBEN auditiert)
 - Offline-Modus — Helfer brauchen Netzwerk; Synchronisation/Conflict-Resolution würde den Scope sprengen
 - Live-Push zwischen Helfern (SSE/WebSocket) — Synchronisation nur bei Refresh/Suche; kein Doppel-Abhaken-Schutz erforderlich
+- Re-Open einer geschlossenen GV — Lifecycle ist final; Korrekturen erfolgen via Vorstands-Edit auf der geschlossenen GV, ohne Status-Wechsel
 - Stimmgewichts-Anzeige oder Anteils-Daten in der Helfer-Ansicht — Helfer-View bleibt bewusst minimal
+- Identitäts-Verifikation per QR-Code für Mitglieder (Self-Check-in) — verbandsrechtlich heikel, Helfer-Sichtkontakt zum Mitglied weiterhin erforderlich
 - Native Mobile-App — Web-First, Helfer nutzen Browser auf Tablet/Laptop/Handy
 
 ## Context
@@ -95,6 +98,10 @@ Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachv
 | Anwesenheit als Join-Tabelle (`AssemblyAttendance`) statt Member-Flag | Saubere Mehrfach-GV-Historie, kein Datenverlust bei nächster GV | — Pending |
 | One-Time-Use-QR-Codes pro Helfer | Verhindert Weitergabe des Zugangs an Unbefugte, ohne Helfer-Identität fest zu binden | — Pending |
 | Helfer-Name als Freitext-Memo am QR-Code | Vorstand kann beim Anlegen sehen „QR für Anna" / „QR für Bernd"; rein UI-Hilfe, kein Identitäts-Anker, kein Audit-Bezug | — Pending |
+| GV-Status final nach Schluss; Vorstand-Korrekturen ohne Re-Open | Vermeidet Status-Pingpong-Komplexität (Helfer-Sessions, Counter-Refresh) und hält die Audit-Story einfach; Korrekturen sind seltene Edge-Cases und brauchen kein Re-Open-Feature | — Pending |
+| Manual-Code-Fallback (8–12 alphanumerische Zeichen) zusätzlich zu QR-Scan | iOS-Safari Camera-Permission-Quirks und PWA-Edge-Cases bekannt — ein arbeitsunfähiger Helfer auf der echten GV ist Worst-Case; Fallback-Aufwand klein | — Pending |
+| Atomarer One-Time-Token-Redeem via SQL `UPDATE ... WHERE used_at IS NULL RETURNING` | Verhindert Race-Condition zwischen zwei parallelen Scans; SELECT-then-UPDATE wäre lückenhaft | — Pending |
+| Member-Universe-Snapshot beim GV-Öffnen | Y im Live-Counter „X von Y" muss stabil sein; Late-Joins/Austritte während GV dürfen das Protokoll nicht verfälschen | — Pending |
 | Sync zwischen Helfern nur bei Refresh, kein Live-Push | Doppel-Abhaken ist akzeptables Risiko (idempotente Anwesend-Markierung); keine SSE/WebSocket-Komplexität nötig | — Pending |
 | Anwesenheit ohne Audit-Hashchain | Genossenschaftsverband fordert nur Anwesenheits-Anzahl im Protokoll, nicht den Vorgang des Abhakens | — Pending |
 | Helfer-View auch für Vorstand zugänglich (ohne QR) | Vorstand will im Notfall am gleichen UI mithelfen können; vermeidet UI-Duplikat | — Pending |
