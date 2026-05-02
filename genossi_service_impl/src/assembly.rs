@@ -7,6 +7,20 @@
 //! population (Pitfall 2). Snapshot inserts deliberately bypass the
 //! audit macros (Pitfall 1) — the snapshot is data, not a lifecycle
 //! event.
+//!
+//! WR-07: `AssemblyEntity` carries a `deleted: Option<PrimitiveDateTime>`
+//! field per project convention, and `AssemblyDao::all` filters
+//! `deleted IS NULL`. Phase 1 deliberately implements **no delete path**:
+//! there is no REST endpoint, no service method, and no `audited_delete!`
+//! call that ever sets the field. The schema column is reserved for a
+//! future Phase 2/3 soft-delete that must:
+//!   1. add an `audited_delete!` invocation here so the deletion is
+//!      recorded in the audit hash chain, and
+//!   2. expose a DELETE handler in `genossi_rest/src/assembly.rs` that
+//!      enforces lifecycle constraints (e.g. only delete from
+//!      Preparation, never from Closed).
+//! Do NOT remove the `deleted` field "because it is unused" — that would
+//! force a fresh migration in Phase 2/3.
 
 use async_trait::async_trait;
 use genossi_dao::assembly::{AssemblyDao, AssemblyEntity, AssemblyStatus};
