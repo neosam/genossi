@@ -29,6 +29,19 @@ impl TryFrom<&AssemblyMemberSnapshotDb> for AssemblyMemberSnapshotEntity {
     }
 }
 
+/// SQLite implementation of the snapshot DAO.
+///
+/// WR-03 caveat: the migration declares
+/// `FOREIGN KEY (assembly_id) REFERENCES assembly(id)` and
+/// `FOREIGN KEY (member_id) REFERENCES member(id)`, but the SqlitePool used
+/// by genossi_bin does not run `PRAGMA foreign_keys=ON`. As a result those
+/// FK declarations are NOT enforced at the database layer. Referential
+/// integrity for snapshots is upheld by the service layer in
+/// `genossi_service_impl::assembly::open_assembly`, which only ever writes
+/// rows whose `assembly_id` was just created in the same transaction and
+/// whose `member_id`s come from `member_dao.all()` (filtered by status).
+/// Phase 2/3 may flip the PRAGMA on globally; until then, do not rely on
+/// the DB rejecting orphan snapshot rows.
 pub struct AssemblyMemberSnapshotDaoImpl {
     pub pool: Arc<SqlitePool>,
 }
