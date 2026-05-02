@@ -16,16 +16,15 @@
 ## Phase Details
 
 ### Phase 1: Assembly-Aggregat + Audit-Hardening
-**Goal**: Vorstand kann Generalversammlungen über die API verwalten — anlegen, öffnen mit Member-Universe-Snapshot, schließen, nachträglich Anwesenheits-Einträge korrigieren — und jede Lifecycle-Aktion ist über die bestehende Audit-Hashchain belegbar.
+**Goal**: Vorstand kann Generalversammlungen über die API verwalten — anlegen, öffnen mit Member-Universe-Snapshot, schließen — und jede Lifecycle-Aktion ist über die bestehende Audit-Hashchain belegbar.
 **Depends on**: Nothing (erste Phase)
-**Requirements**: ASSY-01, ASSY-02, ASSY-03, ASSY-05, ASSY-06, ASSY-07
+**Requirements**: ASSY-01, ASSY-02, ASSY-03, ASSY-05, ASSY-07
 **Success Criteria** (was muss WAHR sein):
   1. Vorstand kann eine GV mit Datum und Titel anlegen; sie startet im Status `Vorbereitung` (ASSY-01)
   2. Vorstand kann eine GV öffnen — beim Öffnen wird ein Member-Universe-Snapshot persistiert, der das stabile „Y" für den späteren Counter definiert (ASSY-02)
   3. Vorstand kann eine GV schließen; Status wechselt final auf `Geschlossen` und kann nicht zurückgesetzt werden (ASSY-03)
-  4. GV-Daten (Snapshot, Anwesenheits-Liste-Slot, Anzahl) bleiben nach Schluss persistent für Protokoll-Export und Statistik (ASSY-05)
-  5. Vorstand kann nach GV-Schluss Anwesenheits-Einträge ergänzen oder entfernen, ohne dass sich der GV-Status ändert (ASSY-06)
-  6. `GET /api/audit/verify` zeigt nach Lifecycle-Vorgängen (create, open, close, post-close-edit) eine intakte Hash-Chain mit den entsprechenden Einträgen; CI-E2E-Test gegen den Verify-Endpoint ist grün (ASSY-07)
+  4. GV-Daten (Member-Universe-Snapshot, Snapshot-Anzahl) bleiben nach Schluss persistent für Protokoll-Export und Statistik (ASSY-05)
+  5. `GET /api/audit/verify` zeigt nach Lifecycle-Vorgängen (create, open, close) eine intakte Hash-Chain mit den entsprechenden Einträgen; CI-E2E-Test gegen den Verify-Endpoint ist grün (ASSY-07)
 **Plans**: TBD
 
 ### Phase 2: Helfer-Token + Session + AuthContext::Helper
@@ -43,9 +42,9 @@
 **Plans**: TBD
 
 ### Phase 3: Attendance-Aggregat + Cascade-Invalidation
-**Goal**: Backend stellt reduzierte (DSGVO-konforme) Helfer-Mitgliederliste, idempotente Anwesenheits-Toggles und einen Live-Stats-Endpunkt bereit; das Schließen einer GV invalidiert kaskadierend alle zugehörigen Helfer-Sessions.
+**Goal**: Backend stellt reduzierte (DSGVO-konforme) Helfer-Mitgliederliste, idempotente Anwesenheits-Toggles, einen Live-Stats-Endpunkt und einen Vorstand-Post-Close-Edit-Endpoint bereit; das Schließen einer GV invalidiert kaskadierend alle zugehörigen Helfer-Sessions.
 **Depends on**: Phase 2 (`AuthContext::Helper`-Variante; Helfer-Session-Mechanik)
-**Requirements**: ASSY-04, ATTN-01, ATTN-02, ATTN-03, ATTN-04, ATTN-05, ATTN-06, SYNC-02
+**Requirements**: ASSY-04, ASSY-06, ATTN-01, ATTN-02, ATTN-03, ATTN-04, ATTN-05, ATTN-06, SYNC-02
 **Success Criteria** (was muss WAHR sein):
   1. Helfer-API `GET /api/attendance/:assembly_id/members` liefert ausschließlich Mitgliedsnummer, Name, Titel und Anrede — Test verifiziert, dass das Response-JSON keine PII-Felder wie IBAN, Adresse, Geburtsdatum, Email enthält (ATTN-01)
   2. Helfer-API unterstützt Substring-Suche auf Name oder Mitgliedsnummer; ein Helfer findet ein Mitglied per Suchparameter (ATTN-02)
@@ -55,6 +54,7 @@
   6. Vorstand mit OIDC-Session ruft denselben Helfer-View ohne QR-Token erfolgreich auf; Permission-Check akzeptiert sowohl `AuthContext::Helper { assembly_id == X }` als auch admin-Permission (ATTN-06)
   7. `GET /api/assembly/:id/stats` liefert `{present, total}` für den Live-Counter (X von Y); concurrent-Doppel-Markierungs-Test durch zwei simulierte Helfer erzeugt keinen Fehler und keinen Duplikat-Eintrag (ASSY-04, SYNC-02)
   8. `close_assembly` invalidiert kaskadierend alle Helfer-Sessions dieser GV; nach Schließen schlägt jeder Helfer-Request mit 401 fehl
+  9. Vorstand kann nach GV-Schluss Anwesenheits-Einträge ergänzen oder entfernen (Post-Close-Edit-Endpoint), ohne dass sich der GV-Status ändert; die Aktionen erscheinen weiterhin in der Audit-Hashchain (ASSY-06)
 **Plans**: TBD
 
 ### Phase 4: Frontend (Component-First) mit QR-Scanner und Manual-Code-Fallback
@@ -97,7 +97,7 @@
 
 | Category | Requirements | Phase Mapping |
 |----------|--------------|---------------|
-| ASSY (Assembly-Lifecycle) | 7 | 6 in Phase 1, 1 (ASSY-04 Stats-Endpoint) in Phase 3 |
+| ASSY (Assembly-Lifecycle) | 7 | 5 in Phase 1, 2 in Phase 3 (ASSY-04 Stats-Endpoint, ASSY-06 Post-Close-Edit) |
 | HLPR (Helfer-Token & Session) | 7 | 6 in Phase 2, 1 (HLPR-03 Manual-Code-UI) in Phase 4 |
 | ATTN (Anwesenheit) | 6 | 6 in Phase 3 |
 | SYNC (Multi-Helfer-Sync) | 2 | SYNC-02 in Phase 3 (Backend-Idempotenz), SYNC-01 in Phase 4 (Refresh-UX) |

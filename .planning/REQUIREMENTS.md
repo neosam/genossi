@@ -88,7 +88,7 @@ Phase-Mapping aus Roadmap (2026-05-02). Coverage: 22/22 v1 Requirements gemappt,
 | ASSY-03 | Phase 1 | Pending |
 | ASSY-04 | Phase 3 | Pending |
 | ASSY-05 | Phase 1 | Pending |
-| ASSY-06 | Phase 1 | Pending |
+| ASSY-06 | Phase 3 | Pending |
 | ASSY-07 | Phase 1 | Pending |
 | HLPR-01 | Phase 2 | Pending |
 | HLPR-02 | Phase 2 | Pending |
