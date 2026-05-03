@@ -1395,3 +1395,112 @@ mod assembly_request_tests {
         assert_eq!(parsed.version, version);
     }
 }
+
+#[cfg(test)]
+mod helper_token_to_tests {
+    use super::*;
+    use std::sync::Arc;
+    use time::PrimitiveDateTime;
+
+    fn dummy_entity_open() -> genossi_dao::helper_token::HelperTokenEntity {
+        let now = time::OffsetDateTime::now_utc();
+        let now_pdt = PrimitiveDateTime::new(now.date(), now.time());
+        genossi_dao::helper_token::HelperTokenEntity {
+            id: Uuid::nil(),
+            assembly_id: Uuid::nil(),
+            memo: Arc::from("Anna"),
+            token_hash: Arc::from("dummy-hash-not-leaked"),
+            created: now_pdt,
+            used_at: None,
+            session_id: None,
+            revoked_at: None,
+            deleted: None,
+            version: Uuid::nil(),
+        }
+    }
+
+    #[test]
+    fn test_status_open_when_neither_used_nor_revoked() {
+        let entity = dummy_entity_open();
+        let to = HelperTokenTO::from(&entity);
+        assert_eq!(to.status, HelperTokenStatusTO::Open);
+    }
+
+    #[test]
+    fn test_status_used_when_used_at_some() {
+        let mut entity = dummy_entity_open();
+        let now = time::OffsetDateTime::now_utc();
+        entity.used_at = Some(PrimitiveDateTime::new(now.date(), now.time()));
+        let to = HelperTokenTO::from(&entity);
+        assert_eq!(to.status, HelperTokenStatusTO::Used);
+    }
+
+    #[test]
+    fn test_status_revoked_dominates_used() {
+        // D-02 priority: revoked_at.is_some() => Revoked, even if used_at.is_some()
+        // (Real-world: never both, but defensive — revoked always wins.)
+        let mut entity = dummy_entity_open();
+        let now = time::OffsetDateTime::now_utc();
+        entity.used_at = Some(PrimitiveDateTime::new(now.date(), now.time()));
+        entity.revoked_at = Some(PrimitiveDateTime::new(now.date(), now.time()));
+        let to = HelperTokenTO::from(&entity);
+        assert_eq!(to.status, HelperTokenStatusTO::Revoked);
+    }
+
+    #[test]
+    fn test_to_does_not_expose_token_hash() {
+        // Defensive serialization-test: D-06 parallel — TO must NOT contain a
+        // `token_hash` field (no leak path through OpenAPI / JSON-response).
+        let entity = dummy_entity_open();
+        let to = HelperTokenTO::from(&entity);
+        let json = serde_json::to_string(&to).unwrap();
+        assert!(
+            !json.contains("token_hash"),
+            "JSON must not contain token_hash; got: {}",
+            json
+        );
+        assert!(
+            !json.contains("dummy-hash-not-leaked"),
+            "JSON must not leak the hash payload"
+        );
+    }
+
+    #[test]
+    fn test_create_response_has_one_time_secrets() {
+        // HelperTokenCreateResponseTO carries `code` and `qr_svg` once (D-21).
+        let entity = dummy_entity_open();
+        let token_to = HelperTokenTO::from(&entity);
+        let resp = HelperTokenCreateResponseTO {
+            token: token_to,
+            code: "ABC1234567".to_string(),
+            qr_svg: "<svg/>".to_string(),
+        };
+        assert_eq!(resp.code.len(), 10);
+        assert!(resp.qr_svg.starts_with("<svg"));
+    }
+
+    #[test]
+    fn test_redeem_request_minimal_json() {
+        let json = r#"{"code":"ABC1234567"}"#;
+        let parsed: RedeemRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.code, "ABC1234567");
+    }
+
+    #[test]
+    fn test_redeem_response_carries_assembly_and_expiry() {
+        let assembly_id = Uuid::new_v4();
+        let resp = RedeemResponse {
+            assembly_id,
+            expires_at: "2026-05-04T10:00:00.000000000Z".to_string(),
+        };
+        assert_eq!(resp.assembly_id, assembly_id);
+        assert!(resp.expires_at.contains("2026"));
+    }
+
+    #[test]
+    fn test_create_helper_token_request_json() {
+        let json = r#"{"memo":"Anna"}"#;
+        let parsed: CreateHelperTokenRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.memo, "Anna");
+    }
+}
