@@ -14,7 +14,7 @@ updated: 2026-05-03T16:50:00Z
 
 ### 1. BLOCKER-04: validate_code_format Unicode-Lookalike-Bug
 expected: Code mit Unicode-Lookalikes (z.B. `Ā=U+0100`, low-byte `0x00 = '0'`) sollte mit `400 ValidationError` abgewiesen werden, nicht mit `404 NotFound`. Aktuelle Implementierung in `genossi_service_impl/src/helper_token.rs:113` macht `(c as u8).contains(...)` — das truncated U+0100 zu 0x00 und akzeptiert es als gültiges Crockford-Zeichen.
-result: [pending]
+result: passed (commit a64ebd1 — `c.is_ascii() && (c as u8) ...` Guard + `test_validate_code_format_rejects_unicode_lookalikes`)
 
 ### 2. BLOCKER-01: AuthContext::Helper im Request-Lifecycle nie konstruiert
 expected: Helper-Cookie löst beim Request-Roundtrip `AuthContext::Helper`-Konstruktion aus.
@@ -34,9 +34,9 @@ result: [pending]
 ## Summary
 
 total: 4
-passed: 0
+passed: 1
 issues: 0
-pending: 4
+pending: 3
 skipped: 0
 blocked: 0
 
