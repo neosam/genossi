@@ -170,6 +170,65 @@ impl genossi_service_impl::assembly::AssemblyServiceDeps for AssemblyServiceDepe
 type AssemblyService =
     genossi_service_impl::assembly::AssemblyServiceImpl<AssemblyServiceDependencies>;
 
+type HelperTokenDao = genossi_dao_impl_sqlite::helper_token::HelperTokenDaoImpl;
+
+pub struct HelperTokenServiceDependencies;
+
+unsafe impl Send for HelperTokenServiceDependencies {}
+unsafe impl Sync for HelperTokenServiceDependencies {}
+
+impl genossi_service_impl::helper_token::HelperTokenServiceDeps for HelperTokenServiceDependencies {
+    type Context = Context;
+    type Transaction = Transaction;
+    type HelperTokenDao = HelperTokenDao;
+    type AssemblyDao = AssemblyDao;
+    type AuditLogDao = AuditLogDao;
+    type PermissionService = PermissionService;
+    type PermissionDao = PermissionDao;
+    type SessionService = SessionService;
+    type UuidService = UuidService;
+    type TransactionDao = TransactionDao;
+}
+
+type HelperTokenService =
+    genossi_service_impl::helper_token::HelperTokenServiceImpl<HelperTokenServiceDependencies>;
+
+// Plan 02-07 Task 3: DbAssemblyStatusProbe is the production adapter that
+// answers `MockSessionServiceImpl::with_probe(...)`'s `is_open(...)` query
+// against the real DB. Only compiled in the mock_auth-build because the
+// oidc-build uses `SessionServiceImpl` which embeds the assembly_dao directly.
+//
+// The probe is best-effort: any DB error (failed transaction, lookup error)
+// is treated as "not open" — D-18 cascade-safe (better to reject helper
+// cookies than to leak access if the assembly state is unknown).
+#[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
+struct DbAssemblyStatusProbe {
+    assembly_dao: Arc<AssemblyDao>,
+    transaction_dao: Arc<TransactionDao>,
+}
+
+#[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
+#[async_trait::async_trait]
+impl genossi_service_impl::session::AssemblyStatusProbe for DbAssemblyStatusProbe {
+    async fn is_open(&self, assembly_id: uuid::Uuid) -> bool {
+        use genossi_dao::assembly::AssemblyDao as _;
+        use genossi_dao::TransactionDao as _;
+        let Ok(tx) = self.transaction_dao.use_transaction(None).await else {
+            return false;
+        };
+        let result = self.assembly_dao.find_by_id(assembly_id, tx).await;
+        // We acquired our own transaction; commit it (read-only operation,
+        // no side-effect to roll back).
+        // The transaction was moved into find_by_id; we need a fresh one for
+        // the commit, but TransactionDao::commit takes owned tx — so we have
+        // to re-acquire. In practice, find_by_id consumes the transaction.
+        matches!(
+            result,
+            Ok(Some(a)) if a.status == genossi_dao::assembly::AssemblyStatus::Open
+        )
+    }
+}
+
 pub struct MemberImportServiceDependencies;
 
 unsafe impl Send for MemberImportServiceDependencies {}
@@ -334,6 +393,7 @@ pub struct RestStateImpl {
     static_document_service: Arc<StaticDocumentServiceType>,
     application_service: Arc<ApplicationService>,
     assembly_service: Arc<AssemblyService>,
+    helper_token_service: Arc<HelperTokenService>,
     audit_log_dao: Arc<AuditLogDao>,
     timestamp_service: Arc<TimestampServiceType>,
     backup_dao: Arc<BackupDao>,
@@ -446,25 +506,37 @@ impl RestStateImpl {
             },
         );
 
+        // Plan 02-06 + 02-07: assembly_dao is needed BEFORE session_service is
+        // constructed because:
+        //   - oidc-build: SessionServiceImpl carries AssemblyDao for the D-18
+        //     helper-cascade.
+        //   - mock_auth-build: DbAssemblyStatusProbe (Plan 02-07) holds the same
+        //     DAO and is wired via MockSessionServiceImpl::with_probe so HLPR-05
+        //     cascade works end-to-end in E2E tests (Plan 02-08).
+        // The same Arc<AssemblyDao> is later cloned into AssemblyServiceImpl
+        // and HelperTokenServiceImpl below — DAOs are stateless wrappers over
+        // the SqlitePool, so cloning the Arc is fine.
+        let assembly_dao = Arc::new(AssemblyDao::new(pool.clone()));
+
         // Plan 02-06 Task 2: MockSessionServiceImpl is now a struct with an
-        // optional assembly-status-probe (defaults to None). Plan 07 wires the
+        // optional assembly-status-probe. Plan 02-07 wires the production
         // probe via `with_probe(...)` so HLPR-05 cascade behaviour is observable
-        // in mock_auth E2E tests; Phase-1 default keeps backward-compat.
+        // in mock_auth E2E tests (Plan 02-08 Task 2).
         #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
-        let session_service =
-            Arc::new(genossi_service_impl::session::MockSessionServiceImpl::default());
+        let session_service = {
+            let probe = Arc::new(DbAssemblyStatusProbe {
+                assembly_dao: assembly_dao.clone(),
+                transaction_dao: transaction_dao.clone(),
+            }) as Arc<dyn genossi_service_impl::session::AssemblyStatusProbe>;
+            Arc::new(genossi_service_impl::session::MockSessionServiceImpl::with_probe(probe))
+        };
 
         // Plan 02-06: SessionServiceImpl now needs AssemblyDao + TransactionDao
-        // for the helper-claims discriminator + D-18 status-check. We construct
-        // the DAO here (before AssemblyServiceImpl below) and reuse the same
-        // instance — DAOs are stateless wrappers over the SqlitePool.
-        #[cfg(feature = "oidc")]
-        let session_assembly_dao = Arc::new(AssemblyDao::new(pool.clone()));
-
+        // for the helper-claims discriminator + D-18 status-check.
         #[cfg(feature = "oidc")]
         let session_service = Arc::new(genossi_service_impl::session::SessionServiceImpl {
             permission_dao: permission_dao.clone(),
-            assembly_dao: session_assembly_dao,
+            assembly_dao: assembly_dao.clone(),
             transaction_dao: transaction_dao.clone(),
         });
 
@@ -507,10 +579,10 @@ impl RestStateImpl {
                 mail_service: mail_service.clone(),
             });
 
-        let assembly_dao = Arc::new(AssemblyDao::new(pool.clone()));
+        // assembly_dao was already constructed above (before session_service).
         let assembly_member_snapshot_dao = Arc::new(AssemblyMemberSnapshotDao::new(pool.clone()));
         let assembly_service = Arc::new(genossi_service_impl::assembly::AssemblyServiceImpl {
-            assembly_dao,
+            assembly_dao: assembly_dao.clone(),
             assembly_member_snapshot_dao,
             member_dao: member_dao.clone(),
             audit_log_dao: audit_log_dao.clone(),
@@ -518,6 +590,23 @@ impl RestStateImpl {
             uuid_service: uuid_service.clone(),
             transaction_dao: transaction_dao.clone(),
         });
+
+        // Plan 02-07: HelperTokenServiceImpl with 8 deps (HelperTokenDao,
+        // AssemblyDao, AuditLogDao, PermissionService, PermissionDao,
+        // SessionService, UuidService, TransactionDao). assembly_dao is cloned
+        // here from the same Arc that backs assembly_service above.
+        let helper_token_dao = Arc::new(HelperTokenDao::new(pool.clone()));
+        let helper_token_service =
+            Arc::new(genossi_service_impl::helper_token::HelperTokenServiceImpl {
+                helper_token_dao,
+                assembly_dao: assembly_dao.clone(),
+                audit_log_dao: audit_log_dao.clone(),
+                permission_service: permission_service.clone(),
+                permission_dao: permission_dao.clone(),
+                session_service: session_service.clone(),
+                uuid_service: uuid_service.clone(),
+                transaction_dao: transaction_dao.clone(),
+            });
 
         let mail_template_dao = Arc::new(MailTemplateDaoType::new(pool.clone()));
         let mail_template_service = Arc::new(MailTemplateServiceType::new(mail_template_dao));
@@ -586,6 +675,7 @@ impl RestStateImpl {
             member_document_service,
             application_service,
             assembly_service,
+            helper_token_service,
             audit_log_dao,
             timestamp_service,
             permission_service,
@@ -1056,6 +1146,14 @@ impl genossi_rest::assembly::AssemblyRestState for RestStateImpl {
 
     fn assembly_service(&self) -> Arc<Self::AssemblyService> {
         self.assembly_service.clone()
+    }
+}
+
+impl genossi_rest::helper_token::HelperTokenRestState for RestStateImpl {
+    type HelperTokenService = HelperTokenService;
+
+    fn helper_token_service(&self) -> Arc<Self::HelperTokenService> {
+        self.helper_token_service.clone()
     }
 }
 
