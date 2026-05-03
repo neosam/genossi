@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: ready_to_plan
-last_updated: "2026-05-03T10:49:38.793Z"
+status: planning
+last_updated: "2026-05-03T19:27:25.460Z"
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 13
-  completed_plans: 5
-  percent: 40
+  completed_plans: 13
+  percent: 100
 ---
 
 # State: Genossi — GV-Anwesenheits-Erfassung
