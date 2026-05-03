@@ -140,3 +140,30 @@ pub mod dev_users {
     pub const DEVUSER: &str = "DEVUSER";
     pub const ADMIN: &str = "admin";
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    #[test]
+    fn test_auth_context_helper_variant_constructible() {
+        let ctx = AuthContext::Helper {
+            session_id: Arc::from("session-abc"),
+            assembly_id: uuid::Uuid::nil(),
+        };
+        // Variant must be Debug + Clone + PartialEq + Eq (the existing derives)
+        let cloned = ctx.clone();
+        assert_eq!(ctx, cloned);
+    }
+
+    #[test]
+    fn test_auth_context_helper_distinct_from_mock() {
+        let helper = AuthContext::Helper {
+            session_id: Arc::from("s1"),
+            assembly_id: uuid::Uuid::nil(),
+        };
+        let mock = AuthContext::Mock(MockContext::default());
+        assert_ne!(helper, mock);
+    }
+}
