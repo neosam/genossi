@@ -446,8 +446,13 @@ impl RestStateImpl {
             },
         );
 
+        // Plan 02-06 Task 2: MockSessionServiceImpl is now a struct with an
+        // optional assembly-status-probe (defaults to None). Plan 07 wires the
+        // probe via `with_probe(...)` so HLPR-05 cascade behaviour is observable
+        // in mock_auth E2E tests; Phase-1 default keeps backward-compat.
         #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
-        let session_service = Arc::new(genossi_service_impl::session::MockSessionServiceImpl);
+        let session_service =
+            Arc::new(genossi_service_impl::session::MockSessionServiceImpl::default());
 
         // Plan 02-06: SessionServiceImpl now needs AssemblyDao + TransactionDao
         // for the helper-claims discriminator + D-18 status-check. We construct

@@ -857,8 +857,52 @@ mod tests {
     }
 }
 
-// Mock implementation for development/testing
-pub struct MockSessionServiceImpl;
+/// Probe used by `MockSessionServiceImpl` to perform the D-18 status-check
+/// in the `mock_auth` build (Plan 02-06 Task 2 + Plan 02-08 Task 2). Plan 07
+/// wires an adapter that holds an `AssemblyDao` + `TransactionDao` internally
+/// and answers `is_open` via a real DB lookup. Default tests can pass `None`
+/// to keep backward-compat (helper-cookies are accepted unconditionally).
+#[async_trait]
+pub trait AssemblyStatusProbe: Send + Sync {
+    async fn is_open(&self, assembly_id: uuid::Uuid) -> bool;
+}
+
+/// Mock implementation of `SessionService` for development/testing.
+///
+/// **Backward-compat:** `MockSessionServiceImpl::default()` (or
+/// `::new()`) constructs an instance without a probe — all existing
+/// Phase-1 tests, Phase-2-Plan-01-tests etc. pass through unchanged.
+/// Helper-cookies are still recognised and return `AuthContext::Helper`,
+/// but the D-18 cascade is **not** exercised (no assembly lookup).
+///
+/// **Plan 02-08 Task 2 (HLPR-05 cascade) usage:**
+/// `MockSessionServiceImpl::with_probe(probe)` wires an adapter that
+/// asks the probe whether the bound assembly is still open. When the
+/// probe answers `false`, the helper-cookie is rejected — exactly the
+/// D-18 behaviour that the real `SessionServiceImpl` implements.
+///
+/// Plan 07 wires the production `mock_auth`-build constructor in
+/// `genossi_bin/src/lib.rs` so the cascade is observable end-to-end.
+#[derive(Default, Clone)]
+pub struct MockSessionServiceImpl {
+    assembly_status_probe: Option<Arc<dyn AssemblyStatusProbe>>,
+}
+
+impl MockSessionServiceImpl {
+    /// Backward-compat constructor — equivalent to `Default::default()`.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Construct a `MockSessionServiceImpl` with the given assembly-status
+    /// probe. Plan 02-08 Task 2 (HLPR-05 cascade) and Plan 07 (DI-Wiring)
+    /// use this variant.
+    pub fn with_probe(probe: Arc<dyn AssemblyStatusProbe>) -> Self {
+        Self {
+            assembly_status_probe: Some(probe),
+        }
+    }
+}
 
 #[async_trait]
 impl SessionService for MockSessionServiceImpl {
@@ -926,10 +970,140 @@ impl SessionService for MockSessionServiceImpl {
         &self,
         session_id: Option<String>,
     ) -> Result<Option<AuthContext>, ServiceError> {
-        if session_id.is_some() {
-            Ok(Some(AuthContext::Mock(MockContext::default())))
-        } else {
-            Ok(None)
+        let Some(sid) = session_id else {
+            return Ok(None);
+        };
+
+        // Plan 02-06 Task 2 (RESEARCH-A3 + Pitfall 5): E2E-tests in Plan 02-08
+        // exercise the helper-pfad only if the mock recognises helper-cookies.
+        // Convention from RESEARCH Open Q1 / 02-PATTERNS.md: helper-cookies
+        // use the format `helper:<assembly_uuid>:<token_id>`. Other cookie
+        // shapes (regular UUID, anything without the `helper:` prefix, or a
+        // `helper:` prefix with malformed UUID) fall through to the existing
+        // mock behaviour (AuthContext::Mock). This preserves backward compat
+        // for every Phase-1 test that uses arbitrary session-id strings.
+        if let Some(rest) = sid.strip_prefix("helper:") {
+            if let Some((assembly_id_str, _token_id_str)) = rest.split_once(':') {
+                if let Ok(assembly_id) = uuid::Uuid::parse_str(assembly_id_str) {
+                    // D-18 cascade in mock_auth: if a probe is wired, ask it
+                    // whether the bound assembly is still Open. The probe
+                    // returning `false` short-circuits the helper-pfad — Plan
+                    // 02-08 Task 2 uses this to assert HLPR-05 end-to-end.
+                    if let Some(probe) = &self.assembly_status_probe {
+                        if !probe.is_open(assembly_id).await {
+                            return Ok(None);
+                        }
+                    }
+                    return Ok(Some(AuthContext::Helper {
+                        session_id: Arc::from(sid.as_str()),
+                        assembly_id,
+                    }));
+                }
+            }
+            // helper:-Prefix but format invalid → fall through to MockContext.
         }
+        // Existing mock behaviour for non-helper cookies.
+        Ok(Some(AuthContext::Mock(MockContext::default())))
+    }
+}
+
+#[cfg(test)]
+mod mock_session_helper_tests {
+    //! Tests for `MockSessionServiceImpl` helper-cookie-format recognition
+    //! (Plan 02-06 Task 2, RESEARCH-A3 + Pitfall 5). Cookie format convention:
+    //! `helper:<assembly_uuid>:<token_id>`. The probe-based variant
+    //! exercises the D-18 cascade in `mock_auth` builds (Plan 02-08 Task 2).
+
+    use super::*;
+
+    struct AlwaysOpenProbe;
+    #[async_trait]
+    impl AssemblyStatusProbe for AlwaysOpenProbe {
+        async fn is_open(&self, _: uuid::Uuid) -> bool {
+            true
+        }
+    }
+
+    struct AlwaysClosedProbe;
+    #[async_trait]
+    impl AssemblyStatusProbe for AlwaysClosedProbe {
+        async fn is_open(&self, _: uuid::Uuid) -> bool {
+            false
+        }
+    }
+
+    #[tokio::test]
+    async fn test_mock_helper_cookie_format_returns_helper_context() {
+        let svc = MockSessionServiceImpl::default();
+        let assembly_id = "550e8400-e29b-41d4-a716-446655440000";
+        let cookie = format!("helper:{}:tok-abc", assembly_id);
+        let result = svc
+            .extract_auth_context(Some(cookie.clone()))
+            .await
+            .unwrap();
+        match result {
+            Some(AuthContext::Helper {
+                session_id,
+                assembly_id: parsed,
+            }) => {
+                assert_eq!(session_id.as_ref(), cookie.as_str());
+                assert_eq!(parsed.to_string(), assembly_id);
+            }
+            other => panic!("expected AuthContext::Helper, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_mock_normal_cookie_returns_mock_context() {
+        let svc = MockSessionServiceImpl::default();
+        let result = svc
+            .extract_auth_context(Some("regular-session-uuid".to_string()))
+            .await
+            .unwrap();
+        match result {
+            Some(AuthContext::Mock(_)) => {}
+            other => panic!("expected AuthContext::Mock, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_mock_helper_cookie_with_invalid_uuid_falls_back_to_mock() {
+        let svc = MockSessionServiceImpl::default();
+        let result = svc
+            .extract_auth_context(Some("helper:not-a-uuid:tok".to_string()))
+            .await
+            .unwrap();
+        match result {
+            Some(AuthContext::Mock(_)) => {}
+            other => panic!("expected fall-back to Mock, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_mock_no_cookie_returns_none() {
+        let svc = MockSessionServiceImpl::default();
+        let result = svc.extract_auth_context(None).await.unwrap();
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_mock_helper_cookie_with_open_probe_returns_helper() {
+        let svc = MockSessionServiceImpl::with_probe(Arc::new(AlwaysOpenProbe));
+        let aid = "550e8400-e29b-41d4-a716-446655440000";
+        let cookie = format!("helper:{}:tok-x", aid);
+        let result = svc.extract_auth_context(Some(cookie)).await.unwrap();
+        assert!(matches!(result, Some(AuthContext::Helper { .. })));
+    }
+
+    #[tokio::test]
+    async fn test_mock_helper_cookie_with_closed_probe_returns_none() {
+        // HLPR-05 cascade in mock_auth: probe says assembly is closed →
+        // helper cookie is rejected. Plan 02-08 Task 2 uses this exact
+        // wiring to assert the end-to-end cascade behaviour.
+        let svc = MockSessionServiceImpl::with_probe(Arc::new(AlwaysClosedProbe));
+        let aid = "550e8400-e29b-41d4-a716-446655440000";
+        let cookie = format!("helper:{}:tok-x", aid);
+        let result = svc.extract_auth_context(Some(cookie)).await.unwrap();
+        assert!(result.is_none(), "closed probe must invalidate helper cookie");
     }
 }
