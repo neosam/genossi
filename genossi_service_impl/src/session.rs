@@ -162,20 +162,71 @@ impl<Deps: SessionServiceDeps> SessionService for SessionServiceImpl<Deps> {
         &self,
         session_id: Option<String>,
     ) -> Result<Option<AuthContext>, ServiceError> {
-        match session_id {
-            Some(sid) => {
-                if let Some(session) = self.verify_user_session(&sid).await? {
-                    // For now, return Mock context with the user ID
-                    // In a real implementation, this would determine the context type based on config
-                    Ok(Some(AuthContext::Mock(MockContext {
-                        user_id: session.user_id,
-                    })))
-                } else {
-                    Ok(None)
+        // Plan 02-06 (D-15/D-16/D-18/D-19): the wire-point for the Assembly-
+        // status-check is here in the Service layer (not in the REST auth-
+        // middleware). Three reasons:
+        //  1. Schicht-Trennung: lifecycle/permission logic belongs in the
+        //     Service layer, not in the REST middleware.
+        //  2. Mockability: SessionServiceDeps already has AssemblyDao +
+        //     TransactionDao injected — tests can mock them directly.
+        //  3. Minimal-invasiv: auth_middleware.rs already delegates to
+        //     extract_auth_context; no changes needed there.
+        let Some(sid) = session_id else {
+            return Ok(None);
+        };
+        let Some(session) = self.verify_user_session(&sid).await? else {
+            return Ok(None);
+        };
+
+        // Pitfall 2: early-return when the session has no claims so regular
+        // OIDC/User sessions don't pay an extra DB roundtrip on the hot path.
+        if let Some(claims_str) = session.claims.as_deref() {
+            // Try to parse the helper-claims discriminator (D-16). If the JSON
+            // matches the helper schema AND `kind == "helper"`, take the helper
+            // branch with D-18 status-check. Anything else (parse error,
+            // missing kind, kind != helper) falls through to the user-session
+            // path — backward compatibility for legacy sessions.
+            if let Ok(parsed) = serde_json::from_str::<HelperClaims>(claims_str) {
+                if parsed.kind == "helper" {
+                    // D-18: helper-session is only valid while the bound
+                    // assembly is Open. Any other state (Preparation, Closed,
+                    // missing) means the session must be invalidated.
+                    let tx = self.transaction_dao.use_transaction(None).await?;
+                    let assembly =
+                        self.assembly_dao.find_by_id(parsed.assembly_id, tx.clone()).await?;
+                    self.transaction_dao.commit(tx).await?;
+                    return match assembly {
+                        Some(a) if a.status == AssemblyStatus::Open => {
+                            Ok(Some(AuthContext::Helper {
+                                session_id: session.session_id,
+                                assembly_id: parsed.assembly_id,
+                            }))
+                        }
+                        _ => {
+                            // HLPR-05 SC#4: kill the session server-side so
+                            // the cookie is useless even if the browser still
+                            // has it. We swallow delete errors because the
+                            // primary outcome (reject the request) is already
+                            // happening — logging would be appropriate in a
+                            // production hardening pass.
+                            self.permission_dao.delete_session(&sid).await.ok();
+                            Ok(None)
+                        }
+                    };
                 }
             }
-            None => Ok(None),
+            // Fall-through (claims existed but did not match helper schema):
+            // treat as user-session. Future claim discriminators (e.g.
+            // "vorstand-impersonation") would extend the if-let above.
         }
+
+        // Default: user-session path (mock_auth-build always returns Mock;
+        // OIDC-build keeps the same shape because Phase-1 already returned
+        // Mock here — extending to AuthContext::Oidc(...) is a separate
+        // refactor outside Plan 02-06's scope).
+        Ok(Some(AuthContext::Mock(MockContext {
+            user_id: session.user_id,
+        })))
     }
 
     async fn ensure_user_and_create_session(
