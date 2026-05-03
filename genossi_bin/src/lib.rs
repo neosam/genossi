@@ -529,7 +529,18 @@ impl RestStateImpl {
                 transaction_dao: transaction_dao.clone(),
             })
                 as Arc<dyn genossi_service_impl::session::AssemblyStatusProbe>;
-            Arc::new(genossi_service_impl::session::MockSessionServiceImpl::with_probe(probe))
+            // Plan 02-08: wire a SessionPersister that writes real
+            // session rows; required by the helper-token redeem flow
+            // because `helper_token.session_id` has a FK to `session(id)`.
+            let persister = Arc::new(genossi_service_impl::session::DaoSessionPersister {
+                dao: permission_dao.clone(),
+            })
+                as Arc<dyn genossi_service_impl::session::SessionPersister>;
+            Arc::new(
+                genossi_service_impl::session::MockSessionServiceImpl::with_probe_and_persister(
+                    probe, persister,
+                ),
+            )
         };
 
         // Plan 02-06: SessionServiceImpl now needs AssemblyDao + TransactionDao

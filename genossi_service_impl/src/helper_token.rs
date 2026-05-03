@@ -286,10 +286,16 @@ impl<Deps: HelperTokenServiceDeps> HelperTokenService for HelperTokenServiceImpl
             return Err(ServiceError::Conflict(Arc::from("already_revoked")));
         }
 
-        // Mutation.
+        // Mutation. Note: do NOT bump `token.version` here -- the SQLite
+        // DAO `update` reads `entity.version` as the WHERE-clause guard
+        // (optimistic-lock against the DB row's existing version) and
+        // generates a fresh `new_version` internally. Setting
+        // `token.version = new_v4()` would cause the WHERE to match the
+        // *new* version against the DB's *old* version -> 0 rows
+        // affected -> ConflictError("Version mismatch") on the very
+        // first revoke. Plan 02-08 Task 2 e2e listing-test caught this.
         let now = time::OffsetDateTime::now_utc();
         token.revoked_at = Some(time::PrimitiveDateTime::new(now.date(), now.time()));
-        token.version = self.uuid_service.new_v4().await;
 
         // D-08: revoke wird NICHT auditiert. Direct DAO-Update.
         self.helper_token_dao
@@ -307,6 +313,16 @@ impl<Deps: HelperTokenServiceDeps> HelperTokenService for HelperTokenServiceImpl
         // 2. Hash.
         let token_hash = sha256_hex(code);
 
+        // ----------------------------------------------------------------
+        // PHASE 1: Atomic redeem + assembly-status-check inside a TX.
+        //   The TX is committed BEFORE we touch any DAO that uses its own
+        //   pool connection (permission_dao.create_session,
+        //   permission_dao.ensure_user_exists). If the redeem-TX is still
+        //   open while a parallel pool-acquire is requested in the same
+        //   async task, sqlx-sqlite serialises pool acquires and the task
+        //   deadlocks (an open BEGIN holds its connection; the next
+        //   acquire waits indefinitely).
+        // ----------------------------------------------------------------
         let tx = self.transaction_dao.use_transaction(None).await?;
         let now = time::OffsetDateTime::now_utc();
         let now_pdt = time::PrimitiveDateTime::new(now.date(), now.time());
@@ -354,6 +370,23 @@ impl<Deps: HelperTokenServiceDeps> HelperTokenService for HelperTokenServiceImpl
             return Err(ServiceError::Conflict(Arc::from("assembly_not_open")));
         }
 
+        // Commit the redeem-TX — assembly-Open is confirmed. We split the
+        // session-creation and set_session_id into a follow-up step (see
+        // PHASE 2 below). RESEARCH Pitfall 3 warned about a 2-step
+        // commit-window; the inconsistency mode is a "burned" token whose
+        // session_id remains NULL on a crash between step 6 and step 9.
+        // That is functionally identical to a token whose session was
+        // immediately invalidated by D-18 (Pitfall 6) and is acceptable.
+        self.transaction_dao.commit(tx).await?;
+
+        // ----------------------------------------------------------------
+        // PHASE 2: register synthetic user + create session + persist
+        //   session_id. Each of these uses an independent pool connection
+        //   (permission_dao + session_service own a SqlitePool, no shared
+        //   tx with the redeem-TX). After they finish, we open a fresh
+        //   short-lived TX for the set_session_id update.
+        // ----------------------------------------------------------------
+
         // 6. Synthetischer User pro Token (D-17).
         let helper_user_id = format!("helper:{}", token_id);
 
@@ -382,12 +415,12 @@ impl<Deps: HelperTokenServiceDeps> HelperTokenService for HelperTokenServiceImpl
             )
             .await?;
 
-        // 9. set_session_id im SELBEN TX (Pitfall 3).
+        // 9. set_session_id in einer fresh short-lived TX (Pitfall 3 split).
+        let set_tx = self.transaction_dao.use_transaction(None).await?;
         self.helper_token_dao
-            .set_session_id(token_id, &session.session_id, tx.clone())
+            .set_session_id(token_id, &session.session_id, set_tx.clone())
             .await?;
-
-        self.transaction_dao.commit(tx).await?;
+        self.transaction_dao.commit(set_tx).await?;
 
         Ok(HelperRedeemSuccess {
             session_id: session.session_id.clone(),

@@ -883,9 +883,45 @@ pub trait AssemblyStatusProbe: Send + Sync {
 ///
 /// Plan 07 wires the production `mock_auth`-build constructor in
 /// `genossi_bin/src/lib.rs` so the cascade is observable end-to-end.
+/// Plan 02-08: tiny dyn-friendly trait that lets `MockSessionServiceImpl`
+/// persist sessions without needing to bind the `PermissionDao::Transaction`
+/// associated type. The default impl works for any DAO.
+#[async_trait]
+pub trait SessionPersister: Send + Sync {
+    async fn persist_session(
+        &self,
+        session: &genossi_dao::permission::SessionEntity,
+    ) -> Result<(), ServiceError>;
+}
+
+/// Adapter that delegates to a real `PermissionDao::create_session`. The
+/// generic erases the associated `Transaction` type so callers only need
+/// `Arc<dyn SessionPersister>`.
+pub struct DaoSessionPersister<D: genossi_dao::permission::PermissionDao + 'static> {
+    pub dao: Arc<D>,
+}
+
+#[async_trait]
+impl<D: genossi_dao::permission::PermissionDao + 'static> SessionPersister
+    for DaoSessionPersister<D>
+{
+    async fn persist_session(
+        &self,
+        session: &genossi_dao::permission::SessionEntity,
+    ) -> Result<(), ServiceError> {
+        self.dao.create_session(session).await?;
+        Ok(())
+    }
+}
+
 #[derive(Default, Clone)]
 pub struct MockSessionServiceImpl {
     assembly_status_probe: Option<Arc<dyn AssemblyStatusProbe>>,
+    /// Plan 02-08: optional persister so the mock can write real
+    /// session rows for E2E tests where downstream FK-constraints
+    /// (e.g. `helper_token.session_id REFERENCES session(id)`) require
+    /// the session to exist on disk.
+    persister: Option<Arc<dyn SessionPersister>>,
 }
 
 impl MockSessionServiceImpl {
@@ -900,6 +936,21 @@ impl MockSessionServiceImpl {
     pub fn with_probe(probe: Arc<dyn AssemblyStatusProbe>) -> Self {
         Self {
             assembly_status_probe: Some(probe),
+            persister: None,
+        }
+    }
+
+    /// Plan 02-08: Construct a `MockSessionServiceImpl` with both the
+    /// status probe and a session persister. Required by the helper-token
+    /// redeem-flow in E2E tests so that the `helper_token.session_id` FK
+    /// has a corresponding row in `session`.
+    pub fn with_probe_and_persister(
+        probe: Arc<dyn AssemblyStatusProbe>,
+        persister: Arc<dyn SessionPersister>,
+    ) -> Self {
+        Self {
+            assembly_status_probe: Some(probe),
+            persister: Some(persister),
         }
     }
 }
@@ -912,6 +963,28 @@ impl SessionService for MockSessionServiceImpl {
         expires_in_seconds: i64,
     ) -> Result<UserSession, ServiceError> {
         let now = time::OffsetDateTime::now_utc().unix_timestamp();
+        // Plan 02-08: when wired with a persister, write a real session row
+        // (UUID id) so downstream FK-constraints can succeed.
+        if let Some(persister) = &self.persister {
+            let session_id: Arc<str> = Arc::from(Uuid::new_v4().to_string().as_str());
+            let session_entity = genossi_dao::permission::SessionEntity {
+                id: session_id.clone(),
+                user_id: user_id.into(),
+                expires: now + expires_in_seconds,
+                created: now,
+                claims: None,
+                last_used_at: now,
+            };
+            persister.persist_session(&session_entity).await?;
+            return Ok(UserSession {
+                session_id,
+                user_id: user_id.into(),
+                expires_at: now + expires_in_seconds,
+                created_at: now,
+                claims: None,
+                last_used_at: now,
+            });
+        }
         Ok(UserSession {
             session_id: "mock-session".into(),
             user_id: user_id.into(),
@@ -929,12 +1002,36 @@ impl SessionService for MockSessionServiceImpl {
         claims: Option<String>,
     ) -> Result<UserSession, ServiceError> {
         let now = time::OffsetDateTime::now_utc().unix_timestamp();
+        let claims_arc: Option<Arc<str>> = claims.as_deref().map(Arc::from);
+        // Plan 02-08: when wired with a persister, write a real session row
+        // so downstream FK-constraints can succeed
+        // (helper_token.session_id REFERENCES session(id)).
+        if let Some(persister) = &self.persister {
+            let session_id: Arc<str> = Arc::from(Uuid::new_v4().to_string().as_str());
+            let session_entity = genossi_dao::permission::SessionEntity {
+                id: session_id.clone(),
+                user_id: user_id.into(),
+                expires: now + expires_in_seconds,
+                created: now,
+                claims: claims_arc.clone(),
+                last_used_at: now,
+            };
+            persister.persist_session(&session_entity).await?;
+            return Ok(UserSession {
+                session_id,
+                user_id: user_id.into(),
+                expires_at: now + expires_in_seconds,
+                created_at: now,
+                claims: claims_arc,
+                last_used_at: now,
+            });
+        }
         Ok(UserSession {
             session_id: "mock-session".into(),
             user_id: user_id.into(),
             expires_at: now + expires_in_seconds,
             created_at: now,
-            claims: claims.map(|s| Arc::from(s.as_str())),
+            claims: claims_arc,
             last_used_at: now,
         })
     }
