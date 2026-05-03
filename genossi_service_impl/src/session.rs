@@ -192,8 +192,10 @@ impl<Deps: SessionServiceDeps> SessionService for SessionServiceImpl<Deps> {
                     // assembly is Open. Any other state (Preparation, Closed,
                     // missing) means the session must be invalidated.
                     let tx = self.transaction_dao.use_transaction(None).await?;
-                    let assembly =
-                        self.assembly_dao.find_by_id(parsed.assembly_id, tx.clone()).await?;
+                    let assembly = self
+                        .assembly_dao
+                        .find_by_id(parsed.assembly_id, tx.clone())
+                        .await?;
                     self.transaction_dao.commit(tx).await?;
                     return match assembly {
                         Some(a) if a.status == AssemblyStatus::Open => {
@@ -467,7 +469,9 @@ mod tests {
             let guard = self.assembly.lock().unwrap();
             match guard.as_ref() {
                 Some(entity) => Ok(Arc::from(vec![entity.clone()])),
-                None => Ok(Arc::from(Vec::<genossi_dao::assembly::AssemblyEntity>::new())),
+                None => Ok(Arc::from(
+                    Vec::<genossi_dao::assembly::AssemblyEntity>::new(),
+                )),
             }
         }
 
@@ -490,10 +494,7 @@ mod tests {
         }
     }
 
-    fn make_assembly(
-        id: Uuid,
-        status: AssemblyStatus,
-    ) -> genossi_dao::assembly::AssemblyEntity {
+    fn make_assembly(id: Uuid, status: AssemblyStatus) -> genossi_dao::assembly::AssemblyEntity {
         let date = time::Date::from_calendar_date(2026, time::Month::May, 15).unwrap();
         let datetime = time::PrimitiveDateTime::new(date, time::Time::MIDNIGHT);
         genossi_dao::assembly::AssemblyEntity {
@@ -730,8 +731,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_extract_auth_context_helper_claims_returns_helper_context_when_assembly_open()
-    {
+    async fn test_extract_auth_context_helper_claims_returns_helper_context_when_assembly_open() {
         let dao = TestPermissionDao::new();
         let assembly_id = Uuid::new_v4();
         insert_helper_session(&dao, "helper-sid", assembly_id);
@@ -1104,6 +1104,9 @@ mod mock_session_helper_tests {
         let aid = "550e8400-e29b-41d4-a716-446655440000";
         let cookie = format!("helper:{}:tok-x", aid);
         let result = svc.extract_auth_context(Some(cookie)).await.unwrap();
-        assert!(result.is_none(), "closed probe must invalidate helper cookie");
+        assert!(
+            result.is_none(),
+            "closed probe must invalidate helper cookie"
+        );
     }
 }
