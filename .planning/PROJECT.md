@@ -28,12 +28,12 @@ Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachv
 - ✓ Nextcloud-Export für Vorstands-Zugänglichkeit (kein Backup; Backup läuft separat über Restic) — existing
 - ✓ OpenAPI/Swagger-UI für API-Dokumentation — existing
 - ✓ Sicherheits-Quick-Fixes: panik-freies serde_json, restriktives CORS, strukturierte Auth-Logs — existing (commit `7600e3c`)
+- ✓ Vorstand kann eine Generalversammlung als eigene Entität anlegen (Datum, Titel, Status, Lifecycle Preparation→Open→Closed) inkl. atomarem Member-Universe-Snapshot beim Open — validated in Phase 1: assembly-aggregat-audit-hardening (ASSY-01, ASSY-02, ASSY-03, ASSY-05, ASSY-07)
 
 ### Active
 
 <!-- Aktueller Milestone: GV-Anwesenheits-Erfassung. Hypothesen bis ausgeliefert. -->
 
-- [ ] Vorstand kann eine Generalversammlung als eigene Entität anlegen (Datum, Titel, Status)
 - [ ] Vorstand kann pro Helfer einen einmalig nutzbaren QR-Code erzeugen — mit einem freien Text-Namen als Memo (z. B. „Anna", „Bernd"); beim ersten Scan wird der QR-Code atomar verbraucht und eine Helfer-Session daran gebunden
 - [ ] Helfer kann sich per QR-Code-Scan ODER manueller Code-Eingabe (8–12 Zeichen, alphanumerisch) in eine zeitlich begrenzte Helfer-Session einloggen, gültig bis zum Schließen der GV
 - [ ] Helfer-Ansicht zeigt eine reduzierte Mitgliederliste (nur Mitgliedsnummer, Name, Titel, Anrede)
@@ -124,4 +124,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-02 after initialization*
+*Last updated: 2026-05-03 after Phase 1 (assembly-aggregat-audit-hardening) completion*
