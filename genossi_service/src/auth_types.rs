@@ -97,6 +97,18 @@ pub enum AuthContext {
     /// OIDC context with user ID
     #[cfg(feature = "oidc")]
     Oidc(Arc<str>),
+    /// Helper-token session — used by /api/helper/redeem flow.
+    /// Carries the issuing session's id and the bound assembly_id.
+    /// In Phase 2, this variant short-circuits permission checks to
+    /// `PermissionDenied` (D-20). Phase 3 introduces the positive branch
+    /// where helpers may call attendance endpoints if `assembly_id` matches.
+    /// NO `#[cfg(...)]` gate — the variant must exist in BOTH mock_auth and
+    /// oidc builds (D-14) so REST handlers and SessionService can construct
+    /// it identically across feature configurations.
+    Helper {
+        session_id: Arc<str>,
+        assembly_id: uuid::Uuid,
+    },
 }
 
 /// Mock authentication context
