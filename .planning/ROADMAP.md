@@ -45,9 +45,9 @@
   6. Token-Erzeugung erscheint in der Audit-Hashchain mit Memo-Name, Erzeuger, Timestamp und GV-Bezug (HLPR-07)
   7. `AuthContext::Helper { session_id, assembly_id }` ist als typsichere Enum-Variante verfügbar und wird vom Session-Extract-Pfad korrekt aus den Session-Claims rekonstruiert
 **Plans**: 8 plans
-- [ ] 02-01-PLAN.md — Migration + DAO-Layer (helper_token Entity + Auditable + DAO-Trait + SQLite-Impl mit atomic_redeem RETURNING)
-- [ ] 02-02-PLAN.md — AuthContext::Helper-Variante in auth_types.rs + Compiler-Cascade-Fixes (D-14, D-20-Stub)
-- [ ] 02-03-PLAN.md — Workspace-Dependencies (qrcode 0.14, rand 0.8 mit getrandom-Feature)
+- [x] 02-01-PLAN.md — Migration + DAO-Layer (helper_token Entity + Auditable + DAO-Trait + SQLite-Impl mit atomic_redeem RETURNING)
+- [x] 02-02-PLAN.md — AuthContext::Helper-Variante in auth_types.rs + Compiler-Cascade-Fixes (D-14, D-20-Stub)
+- [x] 02-03-PLAN.md — Workspace-Dependencies (qrcode 0.14, rand 0.8 mit getrandom-Feature)
 - [ ] 02-04-PLAN.md — REST-Types (HelperTokenTO, HelperTokenStatusTO, HelperTokenCreateResponseTO, RedeemRequest, RedeemResponse) + HelperTokenService Trait + Domain-Types
 - [ ] 02-05-PLAN.md — HelperTokenServiceImpl: Crockford-Codegen + SHA256 + QR-Render + Atomic-Redeem-Orchestrierung + Audit (HLPR-01, HLPR-02, HLPR-06, HLPR-07)
 - [ ] 02-06-PLAN.md — SessionServiceImpl-Erweiterung: Helper-Claims-Discriminator + D-18 Status-Check + MockSessionServiceImpl-Helper-Cookie-Format (D-15..D-19, HLPR-05)
