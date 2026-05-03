@@ -110,7 +110,7 @@ pub fn validate_code_format(code: &str) -> Result<(), ServiceError> {
         });
     } else if !code
         .chars()
-        .all(|c| (CROCKFORD_ALPHABET as &[u8]).contains(&(c as u8)))
+        .all(|c| c.is_ascii() && (CROCKFORD_ALPHABET as &[u8]).contains(&(c as u8)))
     {
         errors.push(ValidationFailureItem {
             field: Arc::from("code"),
@@ -527,6 +527,38 @@ mod helper_fn_tests {
         ));
         assert!(matches!(
             validate_code_format("ABCU234567"),
+            Err(ServiceError::ValidationError(_))
+        ));
+    }
+
+    #[test]
+    fn test_validate_code_format_rejects_unicode_lookalikes() {
+        // BLOCKER-04 (02-REVIEW.md): Unicode codepoints whose low byte coincides
+        // with a Crockford alphabet byte must not pass. The `is_ascii` guard
+        // forces the byte-level check to operate only on real ASCII characters.
+        // Ā = U+0100 has low-byte 0x00 = '0' in ASCII; before the fix this
+        // truncated and was accepted as a valid '0'.
+        assert!(
+            matches!(
+                validate_code_format("Ā123456789"),
+                Err(ServiceError::ValidationError(_))
+            ),
+            "U+0100 must not pass via low-byte truncation"
+        );
+        // Cyrillic 'А' (U+0410) has low-byte 0x10 — not in Crockford, but
+        // a similar codepoint Ġ (U+0120, low-byte 0x20=' ') would also hit a
+        // gap. Use the standard Latin char overlap case as primary regression.
+        assert!(matches!(
+            validate_code_format("0Ā23456789"),
+            Err(ServiceError::ValidationError(_))
+        ));
+        // Unicode digit U+FF10 ('０' fullwidth zero) low-byte 0x10 — not in
+        // Crockford either, but the chars().count() != 10 guard catches multi-
+        // byte codepoints that change the length anyway. This case asserts the
+        // alphabet-check, not the length-check.
+        let code: String = "Ā".repeat(10);
+        assert!(matches!(
+            validate_code_format(&code),
             Err(ServiceError::ValidationError(_))
         ));
     }
