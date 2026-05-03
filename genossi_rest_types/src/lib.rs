@@ -1140,6 +1140,113 @@ pub struct UpdateAssemblyRequest {
     pub version: Uuid,
 }
 
+// ============================================================================
+// Phase 2: Helper Token TOs (HLPR-01..HLPR-07)
+// ============================================================================
+
+/// Derived status from helper_token columns (D-02): no own status column.
+/// Priority: revoked_at.is_some() => Revoked; else used_at.is_some() => Used; else Open.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub enum HelperTokenStatusTO {
+    Open,
+    Used,
+    Revoked,
+}
+
+/// REST representation of a helper_token row.
+/// Excludes `token_hash` (hash leakage prevention, D-06 audit-fields parallel).
+/// `code` and `qr_svg` are NEVER returned in this TO — only in the create-response
+/// (HelperTokenCreateResponseTO).
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct HelperTokenTO {
+    #[schema(example = "123e4567-e89b-12d3-a456-426614174000")]
+    pub id: Uuid,
+    #[schema(example = "123e4567-e89b-12d3-a456-426614174000")]
+    pub assembly_id: Uuid,
+    #[schema(example = "Anna")]
+    pub memo: String,
+    pub status: HelperTokenStatusTO,
+    #[serde(
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    pub used_at: Option<time::PrimitiveDateTime>,
+    #[serde(
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    pub revoked_at: Option<time::PrimitiveDateTime>,
+    #[serde(
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    pub created: Option<time::PrimitiveDateTime>,
+    pub version: Uuid,
+}
+
+impl From<&genossi_dao::helper_token::HelperTokenEntity> for HelperTokenTO {
+    fn from(entity: &genossi_dao::helper_token::HelperTokenEntity) -> Self {
+        // D-02 status derivation: revoked dominates used.
+        let status = if entity.revoked_at.is_some() {
+            HelperTokenStatusTO::Revoked
+        } else if entity.used_at.is_some() {
+            HelperTokenStatusTO::Used
+        } else {
+            HelperTokenStatusTO::Open
+        };
+        HelperTokenTO {
+            id: entity.id,
+            assembly_id: entity.assembly_id,
+            memo: entity.memo.to_string(),
+            status,
+            used_at: entity.used_at,
+            revoked_at: entity.revoked_at,
+            created: Some(entity.created),
+            version: entity.version,
+        }
+    }
+}
+
+/// Response from POST /api/assembly/{assembly_id}/helper-tokens (D-21).
+/// `code` (10 char Crockford) and `qr_svg` are returned ONCE — never persisted (D-11).
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct HelperTokenCreateResponseTO {
+    pub token: HelperTokenTO,
+    #[schema(example = "ABC1234567")]
+    pub code: String,
+    #[schema(example = "<svg xmlns=\"http://www.w3.org/2000/svg\">...</svg>")]
+    pub qr_svg: String,
+}
+
+/// Request body for POST /api/assembly/{assembly_id}/helper-tokens (D-21).
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct CreateHelperTokenRequest {
+    #[schema(example = "Anna")]
+    pub memo: String,
+}
+
+/// Request body for POST /api/helper/redeem (D-22, public).
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct RedeemRequest {
+    #[schema(example = "ABC1234567")]
+    pub code: String,
+}
+
+/// Response body for successful POST /api/helper/redeem (D-22).
+/// Cookie `app_session=<session_id>` is set in the Set-Cookie header; the body
+/// only carries metadata for the helper-frontend state.
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct RedeemResponse {
+    #[schema(example = "123e4567-e89b-12d3-a456-426614174000")]
+    pub assembly_id: Uuid,
+    /// ISO8601 timestamp when the session expires (24h after redeem; D-18).
+    #[schema(example = "2026-05-04T10:00:00.000000000Z")]
+    pub expires_at: String,
+}
+
 // Audit Log types
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
