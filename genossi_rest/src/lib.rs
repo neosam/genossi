@@ -709,4 +709,18 @@ mod tests {
             "expected RestError::InternalError with 'serialize failed', got something else"
         );
     }
+
+    #[test]
+    fn test_helper_variant_compiles_in_both_features() {
+        // Smoke test: AuthContext::Helper kann in diesem Crate konstruiert werden,
+        // ohne cfg-Annotation. Wenn Cargo die Variante hinter einem Feature-Flag
+        // versteckt, bricht dieser Test in dem Build, der das Feature nicht hat.
+        // Schützt den D-14-Vertrag (keine cfg-Gate auf Helper-Variante).
+        use genossi_service::auth_types::AuthContext;
+        use std::sync::Arc;
+        let _ = AuthContext::Helper {
+            session_id: Arc::from("test"),
+            assembly_id: uuid::Uuid::nil(),
+        };
+    }
 }
