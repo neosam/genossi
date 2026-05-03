@@ -527,7 +527,8 @@ impl RestStateImpl {
             let probe = Arc::new(DbAssemblyStatusProbe {
                 assembly_dao: assembly_dao.clone(),
                 transaction_dao: transaction_dao.clone(),
-            }) as Arc<dyn genossi_service_impl::session::AssemblyStatusProbe>;
+            })
+                as Arc<dyn genossi_service_impl::session::AssemblyStatusProbe>;
             Arc::new(genossi_service_impl::session::MockSessionServiceImpl::with_probe(probe))
         };
 

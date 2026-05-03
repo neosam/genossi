@@ -357,10 +357,7 @@ pub fn generate_route<RestState: RestStateDef + HelperTokenRestState>() -> Route
             "/",
             get(list_helper_tokens::<RestState>).post(create_helper_token::<RestState>),
         )
-        .route(
-            "/{token_id}/revoke",
-            post(revoke_helper_token::<RestState>),
-        )
+        .route("/{token_id}/revoke", post(revoke_helper_token::<RestState>))
 }
 
 pub fn generate_public_route<RestState: RestStateDef + HelperTokenRestState>() -> Router<RestState>
