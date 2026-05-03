@@ -1,8 +1,11 @@
 use async_trait::async_trait;
+use serde::Deserialize;
 use std::sync::Arc;
 use uuid::Uuid;
 
+use genossi_dao::assembly::{AssemblyDao, AssemblyStatus};
 use genossi_dao::permission::{PermissionDao, SessionEntity};
+use genossi_dao::TransactionDao;
 use genossi_service::{
     auth_types::{AuthContext, MockContext, UserSession},
     session::SessionService,
@@ -11,9 +14,26 @@ use genossi_service::{
 
 use crate::gen_service_impl;
 
+/// JSON shape of `session.claims` for helper-token sessions (D-16).
+///
+/// Concrete schema: `{"kind":"helper","assembly_id":"<uuid-string>"}`.
+///
+/// Used by `SessionServiceImpl::extract_auth_context` (Plan 02-06 Task 1,
+/// RESEARCH §Pattern 2) to discriminate Helper-Sessions from regular
+/// User-Sessions. Other claim shapes (no `kind` field, or `kind != "helper"`,
+/// or invalid JSON) fall through to the user-session branch — backward
+/// compatibility for any legacy sessions that lack the discriminator.
+#[derive(Deserialize)]
+struct HelperClaims {
+    kind: String,
+    assembly_id: Uuid,
+}
+
 gen_service_impl! {
     struct SessionServiceImpl: SessionService = SessionServiceDeps {
         PermissionDao: PermissionDao = permission_dao,
+        AssemblyDao: AssemblyDao<Transaction = Self::Transaction> = assembly_dao,
+        TransactionDao: TransactionDao<Transaction = Self::Transaction> = transaction_dao,
     }
 }
 
@@ -341,16 +361,131 @@ mod tests {
         }
     }
 
+    /// Test double for `TransactionDao` — returns a fresh `TestTransaction`
+    /// without touching any DB. Used by `extract_auth_context` for the
+    /// D-18 status-check transaction (`use_transaction(None)`).
+    #[derive(Clone, Debug)]
+    struct TestTransactionDao;
+
+    #[async_trait]
+    impl genossi_dao::TransactionDao for TestTransactionDao {
+        type Transaction = TestTransaction;
+        async fn transaction(&self) -> Result<Self::Transaction, DaoError> {
+            Ok(TestTransaction)
+        }
+        async fn use_transaction(
+            &self,
+            tx: Option<Self::Transaction>,
+        ) -> Result<Self::Transaction, DaoError> {
+            Ok(tx.unwrap_or(TestTransaction))
+        }
+        async fn commit(&self, _tx: Self::Transaction) -> Result<(), DaoError> {
+            Ok(())
+        }
+    }
+
+    /// Test double for `AssemblyDao` — programmable to return a specific
+    /// assembly (or `None`) from `find_by_id`. Other DAO methods are stubbed
+    /// since `extract_auth_context` only calls `find_by_id`.
+    struct TestAssemblyDao {
+        assembly: Mutex<Option<genossi_dao::assembly::AssemblyEntity>>,
+    }
+
+    impl TestAssemblyDao {
+        fn empty() -> Self {
+            Self {
+                assembly: Mutex::new(None),
+            }
+        }
+
+        fn with_assembly(entity: genossi_dao::assembly::AssemblyEntity) -> Self {
+            Self {
+                assembly: Mutex::new(Some(entity)),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl genossi_dao::assembly::AssemblyDao for TestAssemblyDao {
+        type Transaction = TestTransaction;
+
+        async fn dump_all(
+            &self,
+            _tx: Self::Transaction,
+        ) -> Result<Arc<[genossi_dao::assembly::AssemblyEntity]>, DaoError> {
+            let guard = self.assembly.lock().unwrap();
+            match guard.as_ref() {
+                Some(entity) => Ok(Arc::from(vec![entity.clone()])),
+                None => Ok(Arc::from(Vec::<genossi_dao::assembly::AssemblyEntity>::new())),
+            }
+        }
+
+        async fn create(
+            &self,
+            _entity: &genossi_dao::assembly::AssemblyEntity,
+            _process: &str,
+            _tx: Self::Transaction,
+        ) -> Result<(), DaoError> {
+            Ok(())
+        }
+
+        async fn update(
+            &self,
+            _entity: &genossi_dao::assembly::AssemblyEntity,
+            _process: &str,
+            _tx: Self::Transaction,
+        ) -> Result<(), DaoError> {
+            Ok(())
+        }
+    }
+
+    fn make_assembly(
+        id: Uuid,
+        status: AssemblyStatus,
+    ) -> genossi_dao::assembly::AssemblyEntity {
+        let date = time::Date::from_calendar_date(2026, time::Month::May, 15).unwrap();
+        let datetime = time::PrimitiveDateTime::new(date, time::Time::MIDNIGHT);
+        genossi_dao::assembly::AssemblyEntity {
+            id,
+            name: Arc::from("Test-GV"),
+            date: datetime,
+            location: None,
+            status,
+            opened_at: None,
+            closed_at: None,
+            created: datetime,
+            deleted: None,
+            version: Uuid::new_v4(),
+        }
+    }
+
     struct TestDeps;
     impl SessionServiceDeps for TestDeps {
         type Context = genossi_service::permission::MockContext;
         type Transaction = TestTransaction;
         type PermissionDao = TestPermissionDao;
+        type AssemblyDao = TestAssemblyDao;
+        type TransactionDao = TestTransactionDao;
     }
 
     fn make_service(dao: TestPermissionDao) -> SessionServiceImpl<TestDeps> {
         SessionServiceImpl {
             permission_dao: Arc::new(dao),
+            assembly_dao: Arc::new(TestAssemblyDao::empty()),
+            transaction_dao: Arc::new(TestTransactionDao),
+        }
+    }
+
+    /// Builder variant for tests that need a programmable assembly
+    /// (Helper-Claims-Discriminator tests).
+    fn make_service_with_assembly(
+        dao: TestPermissionDao,
+        assembly_dao: TestAssemblyDao,
+    ) -> SessionServiceImpl<TestDeps> {
+        SessionServiceImpl {
+            permission_dao: Arc::new(dao),
+            assembly_dao: Arc::new(assembly_dao),
+            transaction_dao: Arc::new(TestTransactionDao),
         }
     }
 
@@ -511,6 +646,163 @@ mod tests {
         service.revoke_all_for_user("alice").await.unwrap();
         let result = service.verify_user_session(&sid).await.unwrap();
         assert!(result.is_none());
+    }
+
+    // ========================================================================
+    // Helper-Claims-Discriminator Tests (Plan 02-06 Task 1, D-15/D-16/D-18)
+    //
+    // These verify that `extract_auth_context` correctly discriminates between
+    // user-sessions (no claims, or non-helper claims) and helper-sessions
+    // (claims = `{"kind":"helper","assembly_id":"..."}`), and that helper-
+    // sessions are gated by the assembly-status check (D-18).
+    // ========================================================================
+
+    fn make_helper_claims(assembly_id: Uuid) -> String {
+        format!(r#"{{"kind":"helper","assembly_id":"{}"}}"#, assembly_id)
+    }
+
+    /// Insert a helper-claims-bearing session directly into the test DAO.
+    /// Bypasses the public API because we want a stable session id for
+    /// the discriminator tests, and we don't need to exercise create_session
+    /// in this test scope.
+    fn insert_helper_session(dao: &TestPermissionDao, sid: &str, assembly_id: Uuid) {
+        let now = time::OffsetDateTime::now_utc().unix_timestamp();
+        let entity = SessionEntity {
+            id: sid.into(),
+            user_id: "helper-user".into(),
+            expires: now + 24 * 60 * 60,
+            created: now,
+            claims: Some(Arc::from(make_helper_claims(assembly_id).as_str())),
+            last_used_at: now,
+        };
+        dao.sessions.lock().unwrap().push(entity);
+    }
+
+    #[tokio::test]
+    async fn test_extract_auth_context_helper_claims_returns_helper_context_when_assembly_open()
+    {
+        let dao = TestPermissionDao::new();
+        let assembly_id = Uuid::new_v4();
+        insert_helper_session(&dao, "helper-sid", assembly_id);
+        let assembly_dao =
+            TestAssemblyDao::with_assembly(make_assembly(assembly_id, AssemblyStatus::Open));
+        let service = make_service_with_assembly(dao, assembly_dao);
+
+        let result = service
+            .extract_auth_context(Some("helper-sid".to_string()))
+            .await
+            .unwrap();
+
+        match result {
+            Some(AuthContext::Helper {
+                session_id,
+                assembly_id: parsed,
+            }) => {
+                assert_eq!(session_id.as_ref(), "helper-sid");
+                assert_eq!(parsed, assembly_id);
+            }
+            other => panic!("expected AuthContext::Helper, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_extract_auth_context_helper_claims_invalidates_when_assembly_closed() {
+        let dao = TestPermissionDao::new();
+        let assembly_id = Uuid::new_v4();
+        insert_helper_session(&dao, "helper-sid", assembly_id);
+        let assembly_dao =
+            TestAssemblyDao::with_assembly(make_assembly(assembly_id, AssemblyStatus::Closed));
+        let service = make_service_with_assembly(dao, assembly_dao);
+
+        let result = service
+            .extract_auth_context(Some("helper-sid".to_string()))
+            .await
+            .unwrap();
+
+        assert!(
+            result.is_none(),
+            "expected None for closed assembly, got {:?}",
+            result
+        );
+        // HLPR-05 SC#4: session is invalidated server-side so the cookie
+        // becomes useless even if the browser still presents it.
+        assert_eq!(service.permission_dao.session_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_extract_auth_context_helper_claims_invalidates_when_assembly_missing() {
+        let dao = TestPermissionDao::new();
+        let assembly_id = Uuid::new_v4();
+        insert_helper_session(&dao, "helper-sid", assembly_id);
+        // No assembly registered → find_by_id returns None.
+        let service = make_service_with_assembly(dao, TestAssemblyDao::empty());
+
+        let result = service
+            .extract_auth_context(Some("helper-sid".to_string()))
+            .await
+            .unwrap();
+
+        assert!(result.is_none());
+        assert_eq!(
+            service.permission_dao.session_count(),
+            0,
+            "missing assembly must invalidate the helper session"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_extract_auth_context_no_claims_returns_mock_context_backward_compat() {
+        let dao = TestPermissionDao::new();
+        let service = make_service(dao);
+
+        // Standard user-session via create_session (claims = None).
+        let session = service.create_session("alice", 3600).await.unwrap();
+        let sid = session.session_id.to_string();
+
+        let result = service.extract_auth_context(Some(sid)).await.unwrap();
+
+        match result {
+            Some(AuthContext::Mock(ctx)) => {
+                assert_eq!(ctx.user_id.as_ref(), "alice");
+            }
+            other => panic!(
+                "expected AuthContext::Mock for backward-compat, got {:?}",
+                other
+            ),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_extract_auth_context_invalid_json_claims_falls_through_to_mock() {
+        let dao = TestPermissionDao::new();
+        let now = time::OffsetDateTime::now_utc().unix_timestamp();
+        // Session with claims that do NOT match the helper-claims schema.
+        let entity = SessionEntity {
+            id: "weird-sid".into(),
+            user_id: "alice".into(),
+            expires: now + 3600,
+            created: now,
+            claims: Some(Arc::from("not-valid-json")),
+            last_used_at: now,
+        };
+        dao.sessions.lock().unwrap().push(entity);
+        let service = make_service(dao);
+
+        let result = service
+            .extract_auth_context(Some("weird-sid".to_string()))
+            .await
+            .unwrap();
+
+        // Backward-compat: parse failure → fall through to user-session path.
+        match result {
+            Some(AuthContext::Mock(ctx)) => {
+                assert_eq!(ctx.user_id.as_ref(), "alice");
+            }
+            other => panic!(
+                "expected fall-through to AuthContext::Mock, got {:?}",
+                other
+            ),
+        }
     }
 }
 

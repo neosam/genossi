@@ -99,6 +99,10 @@ impl genossi_service_impl::session::SessionServiceDeps for SessionServiceDepende
     type Context = Context;
     type Transaction = Transaction;
     type PermissionDao = PermissionDao;
+    // Plan 02-06: Helper-Session-Discriminator + D-18 status-check needs
+    // AssemblyDao + TransactionDao injected into SessionServiceImpl.
+    type AssemblyDao = AssemblyDao;
+    type TransactionDao = TransactionDao;
 }
 
 pub struct MemberServiceDependencies;
@@ -445,9 +449,18 @@ impl RestStateImpl {
         #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
         let session_service = Arc::new(genossi_service_impl::session::MockSessionServiceImpl);
 
+        // Plan 02-06: SessionServiceImpl now needs AssemblyDao + TransactionDao
+        // for the helper-claims discriminator + D-18 status-check. We construct
+        // the DAO here (before AssemblyServiceImpl below) and reuse the same
+        // instance — DAOs are stateless wrappers over the SqlitePool.
+        #[cfg(feature = "oidc")]
+        let session_assembly_dao = Arc::new(AssemblyDao::new(pool.clone()));
+
         #[cfg(feature = "oidc")]
         let session_service = Arc::new(genossi_service_impl::session::SessionServiceImpl {
             permission_dao: permission_dao.clone(),
+            assembly_dao: session_assembly_dao,
+            transaction_dao: transaction_dao.clone(),
         });
 
         let template_storage =
