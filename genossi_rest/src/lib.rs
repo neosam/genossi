@@ -7,6 +7,7 @@ pub mod auth_middleware;
 pub mod backup;
 #[cfg(debug_assertions)]
 pub mod dev;
+pub mod helper_token;
 pub mod http_util;
 pub mod mail_footer;
 pub mod member;
@@ -79,6 +80,10 @@ pub enum RestError {
     Unauthorized,
     UnsupportedMediaType(String),
     InternalError(String),
+    /// 403 Forbidden — used by helper-redeem when token is revoked or assembly not Open (D-24).
+    Forbidden(String),
+    /// 410 Gone — used by helper-redeem when token has already been used (D-24).
+    Gone(String),
 }
 
 impl From<serde_json::Error> for RestError {
@@ -150,6 +155,15 @@ pub fn error_handler(result: Result<Response, RestError>) -> Response {
         Err(RestError::UnsupportedMediaType(msg)) => Response::builder()
             .status(415)
             .header("Content-Type", "application/json")
+            .body(Body::from(msg))
+            .unwrap(),
+        // D-24: 403 Forbidden + 410 Gone for helper-redeem differential mapping.
+        Err(RestError::Forbidden(msg)) => Response::builder()
+            .status(403)
+            .body(Body::from(msg))
+            .unwrap(),
+        Err(RestError::Gone(msg)) => Response::builder()
+            .status(410)
             .body(Body::from(msg))
             .unwrap(),
         Err(RestError::InternalError(msg)) => {
@@ -250,6 +264,7 @@ pub trait RestStateDef:
         (path = "/api/member-documents", api = member_document::CountsApiDoc),
         (path = "/api/applications", api = application::ApiDoc),
         (path = "/api/assembly", api = assembly::ApiDoc),
+        (path = "/api/assembly/{assembly_id}/helper-tokens", api = helper_token::ApiDoc),
         (path = "/api/audit", api = audit_log::ApiDoc),
         (path = "/api/audit/timestamps", api = audit_timestamp::ApiDoc),
         (path = "/api/session", api = session_management::ApiDoc)
@@ -414,6 +429,7 @@ pub async fn create_app<
         + public_stats::PublicStatsState
         + application::ApplicationRestState
         + assembly::AssemblyRestState
+        + helper_token::HelperTokenRestState
         + audit_log::AuditRestState
         + audit_timestamp::TimestampRestState,
 >(
@@ -437,6 +453,10 @@ pub async fn create_app<
 
     let public_join_doc = application::PublicApiDoc::openapi();
     api_doc.merge(public_join_doc);
+
+    // Plan 02-07: Helper-Redeem PublicApiDoc (D-22 public flow).
+    let helper_redeem_doc = helper_token::PublicApiDoc::openapi();
+    api_doc.merge(helper_redeem_doc);
 
     let swagger_router = SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", api_doc);
 
@@ -482,6 +502,19 @@ pub async fn create_app<
     );
     let join_rate_layer = GovernorLayer {
         config: join_rate_config,
+    };
+
+    // ~10 req/min on /api/helper/redeem (Plan 02-07, RESEARCH Pitfall 7).
+    // Brute-force protection on the public helper-redeem endpoint.
+    let redeem_rate_config = Arc::new(
+        GovernorConfigBuilder::default()
+            .per_second(6) // 60s window / 6s per request = 10/min steady-state
+            .burst_size(10) // allow short bursts for re-tries
+            .finish()
+            .unwrap(),
+    );
+    let redeem_rate_layer = GovernorLayer {
+        config: redeem_rate_config,
     };
 
     let app = Router::new().route("/authenticate", get(login));
@@ -564,6 +597,10 @@ pub async fn create_app<
             application::generate_route::<RestState>(),
         )
         .nest("/api/assembly", assembly::generate_route::<RestState>())
+        .nest(
+            "/api/assembly/{assembly_id}/helper-tokens",
+            helper_token::generate_route::<RestState>(),
+        )
         .nest("/api/audit", audit_log::generate_route::<RestState>())
         .nest(
             "/api/audit/timestamps",
@@ -651,9 +688,12 @@ pub async fn create_app<
 
     // Public routes (no auth required)
     let join_router = application::generate_public_route::<RestState>().layer(join_rate_layer);
+    let helper_redeem_router =
+        helper_token::generate_public_route::<RestState>().layer(redeem_rate_layer);
     let app = app
         .nest("/api/public", public_stats::generate_route::<RestState>())
         .nest("/api/public", join_router)
+        .nest("/api/helper", helper_redeem_router)
         .with_state(rest_state.clone());
 
     // Dev-only routes (no auth required, only compiled in debug builds)
@@ -680,6 +720,7 @@ pub async fn start_server<
         + public_stats::PublicStatsState
         + application::ApplicationRestState
         + assembly::AssemblyRestState
+        + helper_token::HelperTokenRestState
         + audit_log::AuditRestState
         + audit_timestamp::TimestampRestState,
 >(

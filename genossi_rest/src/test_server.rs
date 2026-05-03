@@ -20,6 +20,7 @@ pub mod test_support {
             + crate::public_stats::PublicStatsState
             + crate::application::ApplicationRestState
             + crate::assembly::AssemblyRestState
+            + crate::helper_token::HelperTokenRestState
             + crate::audit_log::AuditRestState
             + crate::audit_timestamp::TimestampRestState,
     >(
