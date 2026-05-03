@@ -48,9 +48,9 @@
 - [x] 02-01-PLAN.md — Migration + DAO-Layer (helper_token Entity + Auditable + DAO-Trait + SQLite-Impl mit atomic_redeem RETURNING)
 - [x] 02-02-PLAN.md — AuthContext::Helper-Variante in auth_types.rs + Compiler-Cascade-Fixes (D-14, D-20-Stub)
 - [x] 02-03-PLAN.md — Workspace-Dependencies (qrcode 0.14, rand 0.8 mit getrandom-Feature)
-- [ ] 02-04-PLAN.md — REST-Types (HelperTokenTO, HelperTokenStatusTO, HelperTokenCreateResponseTO, RedeemRequest, RedeemResponse) + HelperTokenService Trait + Domain-Types
-- [ ] 02-05-PLAN.md — HelperTokenServiceImpl: Crockford-Codegen + SHA256 + QR-Render + Atomic-Redeem-Orchestrierung + Audit (HLPR-01, HLPR-02, HLPR-06, HLPR-07)
-- [ ] 02-06-PLAN.md — SessionServiceImpl-Erweiterung: Helper-Claims-Discriminator + D-18 Status-Check + MockSessionServiceImpl-Helper-Cookie-Format (D-15..D-19, HLPR-05)
+- [x] 02-04-PLAN.md — REST-Types (HelperTokenTO, HelperTokenStatusTO, HelperTokenCreateResponseTO, RedeemRequest, RedeemResponse) + HelperTokenService Trait + Domain-Types
+- [x] 02-05-PLAN.md — HelperTokenServiceImpl: Crockford-Codegen + SHA256 + QR-Render + Atomic-Redeem-Orchestrierung + Audit (HLPR-01, HLPR-02, HLPR-06, HLPR-07)
+- [x] 02-06-PLAN.md — SessionServiceImpl-Erweiterung: Helper-Claims-Discriminator + D-18 Status-Check + MockSessionServiceImpl-Helper-Cookie-Format (D-15..D-19, HLPR-05)
 - [ ] 02-07-PLAN.md — REST-Handler (4 Endpoints) + Router-Nest + redeem_rate_layer + DI-Wiring in genossi_bin (D-21..D-24)
 - [ ] 02-08-PLAN.md — E2E-Tests (HLPR-04 Race via tokio::join, HLPR-05 Cascade-pragma, HLPR-06 Listing+Revoke+Conflicts, HLPR-07 Audit-Chain)
 
