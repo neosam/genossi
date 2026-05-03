@@ -701,22 +701,25 @@ impl crate::auditable::Auditable for HelperTokenEntity {
 
 **Falls die Assumption-Tabelle nicht leer ist:** Plan-Phase und Discuss-Phase sollten die A2/A3/A4-Annahmen explizit bestätigen. A1 und A5 sind triviale Verification-Schritte beim Implementieren.
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **`MockSessionServiceImpl` Erweiterung — eigener Sub-Task oder einfach als ServiceImpl-Switch im e2e-Test-Setup?**
    - What we know: Bestehender `MockSessionServiceImpl` ignoriert Cookie-Inhalte komplett.
    - What's unclear: Sauberer wäre, `e2e_tests.rs` auf `SessionServiceImpl<RealDeps>` umzuschalten — aber das könnte bestehende Member/Application-E2E-Tests brechen.
    - Recommendation: Plan baut **kleine zusätzliche Routine** in `MockSessionServiceImpl::extract_auth_context`, die das `claims`-Feld aus einem custom Test-Cookie-Format liest (z.B. `app_session=helper:<assembly_uuid>`). Pragmatisch und änderungsarm.
+   - **RESOLVED:** Plan 02-06 Task 2 implementiert die Helper-Cookie-Format-Erkennung `helper:<assembly_uuid>:<token_id>` in `MockSessionServiceImpl::extract_auth_context` und ergänzt einen optionalen `assembly_status_probe`, damit Plan 02-08 Task 2 die D-18-Cascade nach `close_assembly` exerzieren kann.
 
 2. **Welche Reihenfolge für die zwei UPDATEs auf `helper_token` beim Redeem?**
    - What we know: Atomarer UPDATE setzt `used_at` (für Race-Sicherheit). Session existiert danach noch nicht.
    - What's unclear: Soll der zweite UPDATE (`session_id`) im selben Service-Method-Aufruf oder als separater DAO-Call stehen?
    - Recommendation: Einzelner Service-Method-Aufruf, beide UPDATEs in derselben TX. DAO bietet `atomic_redeem(...) -> (Uuid, Uuid)` und `set_session_id(token_id, session_id)` als separate Methoden — Service orchestriert.
+   - **RESOLVED:** Plan 02-05 Task 2 orchestriert beide UPDATEs in derselben TX (`tx.clone()` von `atomic_redeem` zu `set_session_id`); Pitfall 3 ist im Threat-Register T-02-05-02 dokumentiert.
 
 3. **Cookie-Lifetime beim Set-Cookie aus `/api/helper/redeem`-Response?**
    - What we know: D-18 sagt 24h `expires` in der Custom-Tabelle.
    - What's unclear: Sollte das `Max-Age=86400` auf dem Set-Cookie auch gesetzt werden, oder ein Session-Cookie ohne Expiry?
    - Recommendation: `Max-Age=86400` setzen, damit der Browser das Cookie nach Logout-Zeit verwirft. Für die Authoritative-Wahrheit zählt aber `session.expires` in der DB — D-18 wirkt früher (Assembly-Close-Zeit).
+   - **RESOLVED:** Plan 02-07 setzt `Max-Age=86400` auf dem Set-Cookie (acceptance_criterion `grep -c "Max-Age=86400"`); D-18 bleibt Source-of-Truth, Cookie-Expiry ist Browser-Hint.
 
 ## Environment Availability
 

@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: planning
-last_updated: "2026-05-03T07:08:25.667Z"
+status: executing
+last_updated: "2026-05-03T08:56:15.250Z"
 progress:
   total_phases: 5
   completed_phases: 1
-  total_plans: 5
+  total_plans: 13
   completed_plans: 5
-  percent: 100
+  percent: 38
 ---
 
 # State: Genossi — GV-Anwesenheits-Erfassung
@@ -31,7 +31,7 @@ Phase: 01 (assembly-aggregat-audit-hardening) — EXECUTING
 Plan: 1 of 5
 **Phase:** 2
 **Plan:** Not started
-**Status:** Ready to plan
+**Status:** Ready to execute
 **Progress:** 0/22 v1 Requirements geliefert
 
 ```
