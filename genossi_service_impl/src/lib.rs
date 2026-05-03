@@ -3,6 +3,7 @@ pub mod assembly;
 pub mod audit_log;
 pub mod audit_macros;
 pub mod document_storage;
+pub mod helper_token;
 pub mod macros;
 pub mod member;
 pub mod member_action;
