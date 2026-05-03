@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-05-03T08:56:15.250Z"
+last_updated: "2026-05-03T10:49:38.793Z"
 progress:
   total_phases: 5
   completed_phases: 1
@@ -21,17 +21,17 @@ progress:
 
 **Core Value:** Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachvollziehbar (Audit-Hashchain), mit weniger manueller Arbeit. Dieser Milestone bringt papierlose Anwesenheits-Erfassung auf der Generalversammlung.
 
-**Current Focus:** Phase 01 — assembly-aggregat-audit-hardening
+**Current Focus:** Phase 02 — helfer-token-session-authcontext-helper
 
 **Granularity:** coarse (5 Phasen, 1–3 Plans pro Phase)
 
 ## Current Position
 
-Phase: 01 (assembly-aggregat-audit-hardening) — EXECUTING
-Plan: 1 of 5
+Phase: 02 (helfer-token-session-authcontext-helper) — EXECUTING
+Plan: 1 of 8
 **Phase:** 2
 **Plan:** Not started
-**Status:** Ready to execute
+**Status:** Executing Phase 02
 **Progress:** 0/22 v1 Requirements geliefert
 
 ```
