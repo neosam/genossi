@@ -44,7 +44,15 @@
   5. Vorstand sieht in der GV-Detail-API die Liste aller Token mit Memo-Name und Status (offen/eingelöst); offene Token können vor GV-Beginn revoked werden (HLPR-06)
   6. Token-Erzeugung erscheint in der Audit-Hashchain mit Memo-Name, Erzeuger, Timestamp und GV-Bezug (HLPR-07)
   7. `AuthContext::Helper { session_id, assembly_id }` ist als typsichere Enum-Variante verfügbar und wird vom Session-Extract-Pfad korrekt aus den Session-Claims rekonstruiert
-**Plans**: TBD
+**Plans**: 8 plans
+- [ ] 02-01-PLAN.md — Migration + DAO-Layer (helper_token Entity + Auditable + DAO-Trait + SQLite-Impl mit atomic_redeem RETURNING)
+- [ ] 02-02-PLAN.md — AuthContext::Helper-Variante in auth_types.rs + Compiler-Cascade-Fixes (D-14, D-20-Stub)
+- [ ] 02-03-PLAN.md — Workspace-Dependencies (qrcode 0.14, rand 0.8 mit getrandom-Feature)
+- [ ] 02-04-PLAN.md — REST-Types (HelperTokenTO, HelperTokenStatusTO, HelperTokenCreateResponseTO, RedeemRequest, RedeemResponse) + HelperTokenService Trait + Domain-Types
+- [ ] 02-05-PLAN.md — HelperTokenServiceImpl: Crockford-Codegen + SHA256 + QR-Render + Atomic-Redeem-Orchestrierung + Audit (HLPR-01, HLPR-02, HLPR-06, HLPR-07)
+- [ ] 02-06-PLAN.md — SessionServiceImpl-Erweiterung: Helper-Claims-Discriminator + D-18 Status-Check + MockSessionServiceImpl-Helper-Cookie-Format (D-15..D-19, HLPR-05)
+- [ ] 02-07-PLAN.md — REST-Handler (4 Endpoints) + Router-Nest + redeem_rate_layer + DI-Wiring in genossi_bin (D-21..D-24)
+- [ ] 02-08-PLAN.md — E2E-Tests (HLPR-04 Race via tokio::join, HLPR-05 Cascade-pragma, HLPR-06 Listing+Revoke+Conflicts, HLPR-07 Audit-Chain)
 
 ### Phase 3: Attendance-Aggregat + Cascade-Invalidation
 **Goal**: Backend stellt reduzierte (DSGVO-konforme) Helfer-Mitgliederliste, idempotente Anwesenheits-Toggles, einen Live-Stats-Endpunkt und einen Vorstand-Post-Close-Edit-Endpoint bereit; das Schließen einer GV invalidiert kaskadierend alle zugehörigen Helfer-Sessions.
@@ -93,7 +101,7 @@
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Assembly-Aggregat + Audit-Hardening | 0/5 | Not started | - |
-| 2. Helfer-Token + Session + AuthContext::Helper | 0/0 | Not started | - |
+| 2. Helfer-Token + Session + AuthContext::Helper | 0/8 | Not started | - |
 | 3. Attendance-Aggregat + Cascade-Invalidation | 0/0 | Not started | - |
 | 4. Frontend (Component-First) | 0/0 | Not started | - |
 | 5. Pre-GV-Generalprobe und Operations-Plan | 0/0 | Not started | - |
@@ -128,4 +136,4 @@ Diese Punkte sind nicht verhandelbar und müssen in den jeweiligen Phasen-Plans 
 
 ---
 *Roadmap created: 2026-05-02*
-*Last updated: 2026-05-02 after initial roadmap*
+*Last updated: 2026-05-03 after Phase 2 plan creation*
