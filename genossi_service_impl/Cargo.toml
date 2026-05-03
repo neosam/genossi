@@ -24,6 +24,8 @@ typst-pdf = { workspace = true }
 serde_json = { workspace = true }
 serde = { workspace = true }
 sha2 = "0.10"
+qrcode = { workspace = true }
+rand = { workspace = true }
 path-clean = "1"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
 flate2 = "1"
