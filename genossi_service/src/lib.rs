@@ -4,6 +4,7 @@ pub mod auth_types;
 pub mod claim_context;
 pub mod claim_utils;
 pub mod document_storage;
+pub mod helper_token;
 pub mod member;
 pub mod member_action;
 pub mod member_document;

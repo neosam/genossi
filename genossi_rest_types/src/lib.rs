@@ -1140,6 +1140,113 @@ pub struct UpdateAssemblyRequest {
     pub version: Uuid,
 }
 
+// ============================================================================
+// Phase 2: Helper Token TOs (HLPR-01..HLPR-07)
+// ============================================================================
+
+/// Derived status from helper_token columns (D-02): no own status column.
+/// Priority: revoked_at.is_some() => Revoked; else used_at.is_some() => Used; else Open.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub enum HelperTokenStatusTO {
+    Open,
+    Used,
+    Revoked,
+}
+
+/// REST representation of a helper_token row.
+/// Excludes `token_hash` (hash leakage prevention, D-06 audit-fields parallel).
+/// `code` and `qr_svg` are NEVER returned in this TO — only in the create-response
+/// (HelperTokenCreateResponseTO).
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct HelperTokenTO {
+    #[schema(example = "123e4567-e89b-12d3-a456-426614174000")]
+    pub id: Uuid,
+    #[schema(example = "123e4567-e89b-12d3-a456-426614174000")]
+    pub assembly_id: Uuid,
+    #[schema(example = "Anna")]
+    pub memo: String,
+    pub status: HelperTokenStatusTO,
+    #[serde(
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    pub used_at: Option<time::PrimitiveDateTime>,
+    #[serde(
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    pub revoked_at: Option<time::PrimitiveDateTime>,
+    #[serde(
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    pub created: Option<time::PrimitiveDateTime>,
+    pub version: Uuid,
+}
+
+impl From<&genossi_dao::helper_token::HelperTokenEntity> for HelperTokenTO {
+    fn from(entity: &genossi_dao::helper_token::HelperTokenEntity) -> Self {
+        // D-02 status derivation: revoked dominates used.
+        let status = if entity.revoked_at.is_some() {
+            HelperTokenStatusTO::Revoked
+        } else if entity.used_at.is_some() {
+            HelperTokenStatusTO::Used
+        } else {
+            HelperTokenStatusTO::Open
+        };
+        HelperTokenTO {
+            id: entity.id,
+            assembly_id: entity.assembly_id,
+            memo: entity.memo.to_string(),
+            status,
+            used_at: entity.used_at,
+            revoked_at: entity.revoked_at,
+            created: Some(entity.created),
+            version: entity.version,
+        }
+    }
+}
+
+/// Response from POST /api/assembly/{assembly_id}/helper-tokens (D-21).
+/// `code` (10 char Crockford) and `qr_svg` are returned ONCE — never persisted (D-11).
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct HelperTokenCreateResponseTO {
+    pub token: HelperTokenTO,
+    #[schema(example = "ABC1234567")]
+    pub code: String,
+    #[schema(example = "<svg xmlns=\"http://www.w3.org/2000/svg\">...</svg>")]
+    pub qr_svg: String,
+}
+
+/// Request body for POST /api/assembly/{assembly_id}/helper-tokens (D-21).
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct CreateHelperTokenRequest {
+    #[schema(example = "Anna")]
+    pub memo: String,
+}
+
+/// Request body for POST /api/helper/redeem (D-22, public).
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct RedeemRequest {
+    #[schema(example = "ABC1234567")]
+    pub code: String,
+}
+
+/// Response body for successful POST /api/helper/redeem (D-22).
+/// Cookie `app_session=<session_id>` is set in the Set-Cookie header; the body
+/// only carries metadata for the helper-frontend state.
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct RedeemResponse {
+    #[schema(example = "123e4567-e89b-12d3-a456-426614174000")]
+    pub assembly_id: Uuid,
+    /// ISO8601 timestamp when the session expires (24h after redeem; D-18).
+    #[schema(example = "2026-05-04T10:00:00.000000000Z")]
+    pub expires_at: String,
+}
+
 // Audit Log types
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
@@ -1393,5 +1500,114 @@ mod assembly_request_tests {
         let parsed: UpdateAssemblyRequest = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.name, "GV");
         assert_eq!(parsed.version, version);
+    }
+}
+
+#[cfg(test)]
+mod helper_token_to_tests {
+    use super::*;
+    use std::sync::Arc;
+    use time::PrimitiveDateTime;
+
+    fn dummy_entity_open() -> genossi_dao::helper_token::HelperTokenEntity {
+        let now = time::OffsetDateTime::now_utc();
+        let now_pdt = PrimitiveDateTime::new(now.date(), now.time());
+        genossi_dao::helper_token::HelperTokenEntity {
+            id: Uuid::nil(),
+            assembly_id: Uuid::nil(),
+            memo: Arc::from("Anna"),
+            token_hash: Arc::from("dummy-hash-not-leaked"),
+            created: now_pdt,
+            used_at: None,
+            session_id: None,
+            revoked_at: None,
+            deleted: None,
+            version: Uuid::nil(),
+        }
+    }
+
+    #[test]
+    fn test_status_open_when_neither_used_nor_revoked() {
+        let entity = dummy_entity_open();
+        let to = HelperTokenTO::from(&entity);
+        assert_eq!(to.status, HelperTokenStatusTO::Open);
+    }
+
+    #[test]
+    fn test_status_used_when_used_at_some() {
+        let mut entity = dummy_entity_open();
+        let now = time::OffsetDateTime::now_utc();
+        entity.used_at = Some(PrimitiveDateTime::new(now.date(), now.time()));
+        let to = HelperTokenTO::from(&entity);
+        assert_eq!(to.status, HelperTokenStatusTO::Used);
+    }
+
+    #[test]
+    fn test_status_revoked_dominates_used() {
+        // D-02 priority: revoked_at.is_some() => Revoked, even if used_at.is_some()
+        // (Real-world: never both, but defensive — revoked always wins.)
+        let mut entity = dummy_entity_open();
+        let now = time::OffsetDateTime::now_utc();
+        entity.used_at = Some(PrimitiveDateTime::new(now.date(), now.time()));
+        entity.revoked_at = Some(PrimitiveDateTime::new(now.date(), now.time()));
+        let to = HelperTokenTO::from(&entity);
+        assert_eq!(to.status, HelperTokenStatusTO::Revoked);
+    }
+
+    #[test]
+    fn test_to_does_not_expose_token_hash() {
+        // Defensive serialization-test: D-06 parallel — TO must NOT contain a
+        // `token_hash` field (no leak path through OpenAPI / JSON-response).
+        let entity = dummy_entity_open();
+        let to = HelperTokenTO::from(&entity);
+        let json = serde_json::to_string(&to).unwrap();
+        assert!(
+            !json.contains("token_hash"),
+            "JSON must not contain token_hash; got: {}",
+            json
+        );
+        assert!(
+            !json.contains("dummy-hash-not-leaked"),
+            "JSON must not leak the hash payload"
+        );
+    }
+
+    #[test]
+    fn test_create_response_has_one_time_secrets() {
+        // HelperTokenCreateResponseTO carries `code` and `qr_svg` once (D-21).
+        let entity = dummy_entity_open();
+        let token_to = HelperTokenTO::from(&entity);
+        let resp = HelperTokenCreateResponseTO {
+            token: token_to,
+            code: "ABC1234567".to_string(),
+            qr_svg: "<svg/>".to_string(),
+        };
+        assert_eq!(resp.code.len(), 10);
+        assert!(resp.qr_svg.starts_with("<svg"));
+    }
+
+    #[test]
+    fn test_redeem_request_minimal_json() {
+        let json = r#"{"code":"ABC1234567"}"#;
+        let parsed: RedeemRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.code, "ABC1234567");
+    }
+
+    #[test]
+    fn test_redeem_response_carries_assembly_and_expiry() {
+        let assembly_id = Uuid::new_v4();
+        let resp = RedeemResponse {
+            assembly_id,
+            expires_at: "2026-05-04T10:00:00.000000000Z".to_string(),
+        };
+        assert_eq!(resp.assembly_id, assembly_id);
+        assert!(resp.expires_at.contains("2026"));
+    }
+
+    #[test]
+    fn test_create_helper_token_request_json() {
+        let json = r#"{"memo":"Anna"}"#;
+        let parsed: CreateHelperTokenRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.memo, "Anna");
     }
 }
