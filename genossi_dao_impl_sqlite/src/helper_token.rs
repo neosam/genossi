@@ -308,6 +308,29 @@ impl HelperTokenDao for HelperTokenDaoImpl {
             .collect::<Result<Vec<_>, _>>()
             .map(|v| v.into())
     }
+
+    async fn list_session_ids_for_assembly(
+        &self,
+        assembly_id: Uuid,
+        tx: Self::Transaction,
+    ) -> Result<Vec<Arc<str>>, DaoError> {
+        // D-12 (Phase 3): Cascade-Discovery via session_id-FK.
+        // Caller (AssemblyServiceImpl::close_assembly, Plan 05) iterates the
+        // result and calls PermissionDao::delete_session for each id.
+        // Filters: assembly_id parameterized via bind (T-03-02-02 mitigation),
+        // session_id IS NOT NULL excludes revoked/never-redeemed tokens,
+        // deleted IS NULL excludes soft-deleted token rows.
+        let aid = assembly_id.as_bytes().to_vec();
+        let rows: Vec<String> = sqlx::query_scalar(
+            "SELECT session_id FROM helper_token \
+             WHERE assembly_id = ? AND session_id IS NOT NULL AND deleted IS NULL",
+        )
+        .bind(aid)
+        .fetch_all(tx.tx.lock().await.as_mut())
+        .await
+        .map_err(|e| DaoError::DatabaseError(Arc::from(e.to_string())))?;
+        Ok(rows.into_iter().map(|s| Arc::from(s.as_str())).collect())
+    }
 }
 
 #[cfg(test)]

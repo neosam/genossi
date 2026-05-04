@@ -651,6 +651,12 @@ mod service_tests {
                 assembly_id: Uuid,
                 tx: TestTransaction,
             ) -> Result<Arc<[HelperTokenEntity]>, DaoError>;
+            // Phase 3 Plan 02 (D-12): Cascade-Discovery for close_assembly.
+            async fn list_session_ids_for_assembly(
+                &self,
+                assembly_id: Uuid,
+                tx: TestTransaction,
+            ) -> Result<Vec<Arc<str>>, DaoError>;
         }
     }
 

@@ -171,6 +171,17 @@ pub trait HelperTokenDao {
         assembly_id: Uuid,
         tx: Self::Transaction,
     ) -> Result<Arc<[HelperTokenEntity]>, DaoError>;
+
+    /// D-12: Cascade-Discovery for AssemblyServiceImpl::close_assembly (Phase 3).
+    /// Returns all currently-bound helper-session ids for the given assembly.
+    /// Filters out null session_ids (revoked or never-redeemed tokens) and
+    /// soft-deleted token rows. Order is implementation-defined but stable
+    /// within a single SQLite snapshot.
+    async fn list_session_ids_for_assembly(
+        &self,
+        assembly_id: Uuid,
+        tx: Self::Transaction,
+    ) -> Result<Vec<Arc<str>>, DaoError>;
 }
 
 #[cfg(test)]
