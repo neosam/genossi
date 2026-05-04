@@ -165,6 +165,9 @@ impl genossi_service_impl::assembly::AssemblyServiceDeps for AssemblyServiceDepe
     type PermissionService = PermissionService;
     type UuidService = UuidService;
     type TransactionDao = TransactionDao;
+    // Phase 3 Plan 05 cascade additions:
+    type HelperTokenDao = HelperTokenDao;
+    type PermissionDao = PermissionDao;
 }
 
 type AssemblyService =
@@ -593,6 +596,11 @@ impl RestStateImpl {
 
         // assembly_dao was already constructed above (before session_service).
         let assembly_member_snapshot_dao = Arc::new(AssemblyMemberSnapshotDao::new(pool.clone()));
+        // Phase 3 Plan 05: helper_token_dao needs to be constructed BEFORE
+        // AssemblyServiceImpl so the cascade-discovery dependency can be
+        // wired. (HelperTokenServiceImpl below clones the same Arc — there
+        // is exactly one HelperTokenDaoImpl instance per process.)
+        let helper_token_dao = Arc::new(HelperTokenDao::new(pool.clone()));
         let assembly_service = Arc::new(genossi_service_impl::assembly::AssemblyServiceImpl {
             assembly_dao: assembly_dao.clone(),
             assembly_member_snapshot_dao,
@@ -601,13 +609,15 @@ impl RestStateImpl {
             permission_service: permission_service.clone(),
             uuid_service: uuid_service.clone(),
             transaction_dao: transaction_dao.clone(),
+            // Phase 3 Plan 05 cascade additions:
+            helper_token_dao: helper_token_dao.clone(),
+            permission_dao: permission_dao.clone(),
         });
 
         // Plan 02-07: HelperTokenServiceImpl with 8 deps (HelperTokenDao,
         // AssemblyDao, AuditLogDao, PermissionService, PermissionDao,
         // SessionService, UuidService, TransactionDao). assembly_dao is cloned
         // here from the same Arc that backs assembly_service above.
-        let helper_token_dao = Arc::new(HelperTokenDao::new(pool.clone()));
         let helper_token_service =
             Arc::new(genossi_service_impl::helper_token::HelperTokenServiceImpl {
                 helper_token_dao,

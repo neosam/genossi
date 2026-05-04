@@ -28,7 +28,9 @@ use genossi_dao::assembly_member_snapshot::{
     AssemblyMemberSnapshotDao, AssemblyMemberSnapshotEntity,
 };
 use genossi_dao::audit_log::AuditLogDao;
+use genossi_dao::helper_token::HelperTokenDao;
 use genossi_dao::member::MemberDao;
+use genossi_dao::permission::PermissionDao;
 use genossi_dao::TransactionDao;
 use genossi_service::assembly::{
     Assembly, AssemblyDetail, AssemblyService, AssemblySubmission, AssemblyUpdate,
@@ -56,6 +58,11 @@ gen_service_impl! {
         PermissionService: PermissionService<Context = Self::Context> = permission_service,
         UuidService: UuidService = uuid_service,
         TransactionDao: TransactionDao<Transaction = Self::Transaction> = transaction_dao,
+        // Phase 3 Plan 05 (D-12, D-16): cascade-discovery for close_assembly.
+        HelperTokenDao: HelperTokenDao<Transaction = Self::Transaction> = helper_token_dao,
+        // Phase 3 Plan 05: cascade calls delete_session on PermissionDao
+        // (pool-based, NO tx — Conflict-2 resolution: commit BEFORE loop).
+        PermissionDao: PermissionDao<Transaction = Self::Transaction> = permission_dao,
     }
 }
 
@@ -297,9 +304,39 @@ impl<Deps: AssemblyServiceDeps> AssemblyService for AssemblyServiceImpl<Deps> {
             tx
         );
 
-        // D-09: NO HelperSession cascade in Phase 1. Phase 3 will extend.
+        // Phase 3 Plan 05 cascade extension (D-11, D-12, D-13, D-15).
+        //
+        // 1) Discover all bound helper-session ids INSIDE the still-open tx
+        //    so we read the same snapshot as the audited_update! above.
+        let session_ids = self
+            .helper_token_dao
+            .list_session_ids_for_assembly(id, tx.clone())
+            .await?;
 
+        // 2) RESEARCH §DECISION CONFLICT 2 — commit BEFORE the pool-based
+        //    PermissionDao::delete_session calls. delete_session takes no
+        //    `tx` argument (genossi_dao/src/permission.rs:90) and acquires
+        //    its own pool connection; keeping an open BEGIN while a parallel
+        //    pool acquire is requested deadlocks the sqlite pool. The same
+        //    caveat is documented in helper_token.rs:316-325.
         self.transaction_dao.commit(tx).await?;
+
+        // 3) D-13/D-14: Continue-on-Error. The status=Closed audit-entry is
+        //    already committed; failed session-DELETEs are caught by the
+        //    Phase-2-D-18 verify_user_session status-check (defense-in-depth
+        //    — closed assemblies reject helper requests downstream). Each
+        //    failure logs a WARN line for operator visibility.
+        for sid in session_ids.iter() {
+            if let Err(e) = self.permission_dao.delete_session(sid.as_ref()).await {
+                tracing::warn!(
+                    error = ?e,
+                    session_id = %sid.as_ref(),
+                    assembly_id = %id,
+                    "cascade delete_session failed; defense-in-depth via verify_user_session-Status-Check active"
+                );
+            }
+        }
+
         Ok(Assembly::from(&entity))
     }
 
@@ -466,6 +503,101 @@ mod tests {
     }
 
     mock! {
+        pub TestHelperTokenDao {}
+        #[async_trait]
+        impl HelperTokenDao for TestHelperTokenDao {
+            type Transaction = TestTransaction;
+            async fn dump_all(&self, tx: TestTransaction) -> Result<Arc<[genossi_dao::helper_token::HelperTokenEntity]>, DaoError>;
+            async fn create(
+                &self,
+                entity: &genossi_dao::helper_token::HelperTokenEntity,
+                process: &str,
+                tx: TestTransaction,
+            ) -> Result<(), DaoError>;
+            async fn update(
+                &self,
+                entity: &genossi_dao::helper_token::HelperTokenEntity,
+                process: &str,
+                tx: TestTransaction,
+            ) -> Result<(), DaoError>;
+            async fn all(
+                &self,
+                tx: TestTransaction,
+            ) -> Result<Arc<[genossi_dao::helper_token::HelperTokenEntity]>, DaoError>;
+            async fn find_by_id(
+                &self,
+                id: Uuid,
+                tx: TestTransaction,
+            ) -> Result<Option<genossi_dao::helper_token::HelperTokenEntity>, DaoError>;
+            async fn atomic_redeem(
+                &self,
+                token_hash: &str,
+                used_at: time::PrimitiveDateTime,
+                tx: TestTransaction,
+            ) -> Result<Option<(Uuid, Uuid)>, DaoError>;
+            async fn set_session_id(
+                &self,
+                token_id: Uuid,
+                session_id: &str,
+                tx: TestTransaction,
+            ) -> Result<(), DaoError>;
+            async fn lookup_status(
+                &self,
+                token_hash: &str,
+                tx: TestTransaction,
+            ) -> Result<
+                Option<(Option<time::PrimitiveDateTime>, Option<time::PrimitiveDateTime>)>,
+                DaoError,
+            >;
+            async fn all_for_assembly(
+                &self,
+                assembly_id: Uuid,
+                tx: TestTransaction,
+            ) -> Result<Arc<[genossi_dao::helper_token::HelperTokenEntity]>, DaoError>;
+            async fn list_session_ids_for_assembly(
+                &self,
+                assembly_id: Uuid,
+                tx: TestTransaction,
+            ) -> Result<Vec<Arc<str>>, DaoError>;
+        }
+    }
+
+    mock! {
+        pub TestPermissionDao {}
+        #[async_trait]
+        impl PermissionDao for TestPermissionDao {
+            type Transaction = TestTransaction;
+            async fn has_privilege(&self, user: &str, privilege: &str) -> Result<bool, DaoError>;
+            async fn all_users(&self) -> Result<Arc<[genossi_dao::permission::UserEntity]>, DaoError>;
+            async fn get_user(&self, name: &str) -> Result<Option<genossi_dao::permission::UserEntity>, DaoError>;
+            async fn create_user(&self, user: &genossi_dao::permission::UserEntity, process: &str) -> Result<(), DaoError>;
+            async fn delete_user(&self, username: &str) -> Result<(), DaoError>;
+            async fn ensure_user_exists(&self, username: &str, process: &str) -> Result<bool, DaoError>;
+            async fn all_roles(&self) -> Result<Arc<[genossi_dao::permission::RoleEntity]>, DaoError>;
+            async fn get_role(&self, name: &str) -> Result<Option<genossi_dao::permission::RoleEntity>, DaoError>;
+            async fn create_role(&self, role: &genossi_dao::permission::RoleEntity, process: &str) -> Result<(), DaoError>;
+            async fn delete_role(&self, role_name: &str) -> Result<(), DaoError>;
+            async fn all_privileges(&self) -> Result<Arc<[genossi_dao::permission::PrivilegeEntity]>, DaoError>;
+            async fn get_privilege(&self, name: &str) -> Result<Option<genossi_dao::permission::PrivilegeEntity>, DaoError>;
+            async fn create_privilege(&self, privilege: &genossi_dao::permission::PrivilegeEntity, process: &str) -> Result<(), DaoError>;
+            async fn delete_privilege(&self, privilege_name: &str) -> Result<(), DaoError>;
+            async fn add_user_role(&self, username: &str, role: &str, process: &str) -> Result<(), DaoError>;
+            async fn remove_user_role(&self, username: &str, role: &str) -> Result<(), DaoError>;
+            async fn get_user_roles(&self, username: &str) -> Result<Arc<[genossi_dao::permission::RoleEntity]>, DaoError>;
+            async fn add_role_privilege(&self, role_name: &str, privilege_name: &str, process: &str) -> Result<(), DaoError>;
+            async fn remove_role_privilege(&self, role_name: &str, privilege_name: &str) -> Result<(), DaoError>;
+            async fn get_role_privileges(&self, role_name: &str) -> Result<Arc<[genossi_dao::permission::PrivilegeEntity]>, DaoError>;
+            async fn get_user_privileges(&self, username: &str) -> Result<Arc<[genossi_dao::permission::PrivilegeEntity]>, DaoError>;
+            async fn create_session(&self, session: &genossi_dao::permission::SessionEntity) -> Result<(), DaoError>;
+            async fn get_session(&self, session_id: &str) -> Result<Option<genossi_dao::permission::SessionEntity>, DaoError>;
+            async fn delete_session(&self, session_id: &str) -> Result<(), DaoError>;
+            async fn cleanup_expired_sessions(&self, before_timestamp: i64) -> Result<(), DaoError>;
+            async fn touch_session(&self, session_id: &str, now: i64) -> Result<(), DaoError>;
+            async fn delete_sessions_for_user(&self, user_id: &str) -> Result<u64, DaoError>;
+        }
+    }
+
+    mock! {
         pub TestAuditLogDao {}
         #[async_trait]
         impl AuditLogDao for TestAuditLogDao {
@@ -617,6 +749,9 @@ mod tests {
         type PermissionService = MockTestPermissionService;
         type UuidService = StaticUuidService;
         type TransactionDao = MockTestTxDao;
+        // Phase 3 Plan 05 cascade additions:
+        type HelperTokenDao = MockTestHelperTokenDao;
+        type PermissionDao = MockTestPermissionDao;
     }
 
     fn setup_mock_tx_dao() -> MockTestTxDao {
@@ -709,6 +844,11 @@ mod tests {
         snapshot_dao: MockTestSnapshotDao,
         member_dao: MockTestMemberDao,
     ) -> AssemblyServiceImpl<TestDeps> {
+        // Phase 3 Plan 05: cascade Mocks default to no-op — existing
+        // Phase-1 tests do not exercise close_assembly's cascade path
+        // (they hit Conflict short-circuit before list_session_ids_for_assembly
+        // is reached). Tests that DO exercise the cascade use
+        // `build_service_with_cascade` below.
         AssemblyServiceImpl {
             assembly_dao: Arc::new(assembly_dao),
             assembly_member_snapshot_dao: Arc::new(snapshot_dao),
@@ -717,6 +857,33 @@ mod tests {
             permission_service: Arc::new(make_permission_service_admin_ok()),
             uuid_service: Arc::new(StaticUuidService),
             transaction_dao: Arc::new(setup_mock_tx_dao()),
+            helper_token_dao: Arc::new(MockTestHelperTokenDao::new()),
+            permission_dao: Arc::new(MockTestPermissionDao::new()),
+        }
+    }
+
+    /// Cascade-aware service builder for close_assembly tests (Phase 3
+    /// Plan 05). Lets the caller wire HelperTokenDao and PermissionDao
+    /// expectations explicitly while keeping all other deps at the
+    /// build_service defaults.
+    #[allow(clippy::too_many_arguments)]
+    fn build_service_with_cascade(
+        assembly_dao: MockTestAssemblyDao,
+        snapshot_dao: MockTestSnapshotDao,
+        member_dao: MockTestMemberDao,
+        helper_token_dao: MockTestHelperTokenDao,
+        permission_dao: MockTestPermissionDao,
+    ) -> AssemblyServiceImpl<TestDeps> {
+        AssemblyServiceImpl {
+            assembly_dao: Arc::new(assembly_dao),
+            assembly_member_snapshot_dao: Arc::new(snapshot_dao),
+            member_dao: Arc::new(member_dao),
+            audit_log_dao: Arc::new(make_audit_log_dao_quiet()),
+            permission_service: Arc::new(make_permission_service_admin_ok()),
+            uuid_service: Arc::new(StaticUuidService),
+            transaction_dao: Arc::new(setup_mock_tx_dao()),
+            helper_token_dao: Arc::new(helper_token_dao),
+            permission_dao: Arc::new(permission_dao),
         }
     }
 
@@ -1038,4 +1205,227 @@ mod tests {
 
         assert_eq!(result.status, AssemblyStatus::Open);
     }
+
+    // ------------------------------------------------------------------
+    // Phase 3 Plan 05 — close_assembly cascade tests (D-11..D-15).
+    // ------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_close_assembly_cascades_to_all_helper_sessions() {
+        // D-11/D-12: cascade must call delete_session for every session id
+        // returned by list_session_ids_for_assembly. The audited_update
+        // (status=Closed) must still happen, and the assembly is returned
+        // with status==Closed.
+        let entity = assembly_in_status(AssemblyStatus::Open);
+        let entity_id = entity.id;
+        let entity_for_find = entity.clone();
+
+        let mut assembly_dao = MockTestAssemblyDao::new();
+        assembly_dao
+            .expect_find_by_id()
+            .returning(move |_, _| Ok(Some(entity_for_find.clone())));
+        assembly_dao
+            .expect_update()
+            .times(1)
+            .returning(|_, _, _| Ok(()));
+
+        let mut helper_token_dao = MockTestHelperTokenDao::new();
+        helper_token_dao
+            .expect_list_session_ids_for_assembly()
+            .with(mockall::predicate::eq(entity_id), mockall::predicate::always())
+            .times(1)
+            .returning(|_, _| {
+                Ok(vec![
+                    Arc::from("s1"),
+                    Arc::from("s2"),
+                    Arc::from("s3"),
+                ])
+            });
+
+        let mut permission_dao = MockTestPermissionDao::new();
+        permission_dao
+            .expect_delete_session()
+            .with(mockall::predicate::eq("s1"))
+            .times(1)
+            .returning(|_| Ok(()));
+        permission_dao
+            .expect_delete_session()
+            .with(mockall::predicate::eq("s2"))
+            .times(1)
+            .returning(|_| Ok(()));
+        permission_dao
+            .expect_delete_session()
+            .with(mockall::predicate::eq("s3"))
+            .times(1)
+            .returning(|_| Ok(()));
+
+        let service = build_service_with_cascade(
+            assembly_dao,
+            MockTestSnapshotDao::new(),
+            MockTestMemberDao::new(),
+            helper_token_dao,
+            permission_dao,
+        );
+
+        let result = service
+            .close_assembly(entity_id, Authentication::Full)
+            .await
+            .expect("close_assembly should succeed");
+        assert_eq!(result.status, AssemblyStatus::Closed);
+    }
+
+    #[tokio::test]
+    async fn test_close_assembly_continues_on_delete_session_error() {
+        // Conflict-2 Resolution: cascade-loop is continue-on-error. A failure
+        // on s1 must NOT short-circuit; s2 must still be invoked, and the
+        // method must return Ok(_) (the close_assembly audit-entry is
+        // already committed before the loop).
+        let entity = assembly_in_status(AssemblyStatus::Open);
+        let entity_id = entity.id;
+        let entity_for_find = entity.clone();
+
+        let mut assembly_dao = MockTestAssemblyDao::new();
+        assembly_dao
+            .expect_find_by_id()
+            .returning(move |_, _| Ok(Some(entity_for_find.clone())));
+        assembly_dao
+            .expect_update()
+            .times(1)
+            .returning(|_, _, _| Ok(()));
+
+        let mut helper_token_dao = MockTestHelperTokenDao::new();
+        helper_token_dao
+            .expect_list_session_ids_for_assembly()
+            .times(1)
+            .returning(|_, _| Ok(vec![Arc::from("s1"), Arc::from("s2")]));
+
+        let mut permission_dao = MockTestPermissionDao::new();
+        permission_dao
+            .expect_delete_session()
+            .with(mockall::predicate::eq("s1"))
+            .times(1)
+            .returning(|_| Err(DaoError::DatabaseError(Arc::from("simulated"))));
+        permission_dao
+            .expect_delete_session()
+            .with(mockall::predicate::eq("s2"))
+            .times(1)
+            .returning(|_| Ok(()));
+
+        let service = build_service_with_cascade(
+            assembly_dao,
+            MockTestSnapshotDao::new(),
+            MockTestMemberDao::new(),
+            helper_token_dao,
+            permission_dao,
+        );
+
+        let result = service
+            .close_assembly(entity_id, Authentication::Full)
+            .await;
+        assert!(
+            result.is_ok(),
+            "cascade must continue on per-session error, got {:?}",
+            result
+        );
+        assert_eq!(result.unwrap().status, AssemblyStatus::Closed);
+    }
+
+    #[tokio::test]
+    async fn test_close_assembly_empty_session_list_succeeds() {
+        // Empty session list → delete_session is never called; close_assembly
+        // returns Ok(_) (no helpers attached to this assembly).
+        let entity = assembly_in_status(AssemblyStatus::Open);
+        let entity_id = entity.id;
+        let entity_for_find = entity.clone();
+
+        let mut assembly_dao = MockTestAssemblyDao::new();
+        assembly_dao
+            .expect_find_by_id()
+            .returning(move |_, _| Ok(Some(entity_for_find.clone())));
+        assembly_dao
+            .expect_update()
+            .times(1)
+            .returning(|_, _, _| Ok(()));
+
+        let mut helper_token_dao = MockTestHelperTokenDao::new();
+        helper_token_dao
+            .expect_list_session_ids_for_assembly()
+            .times(1)
+            .returning(|_, _| Ok(Vec::new()));
+
+        // No expect_delete_session — mockall panics on unexpected calls,
+        // verifying the empty-list short-circuit.
+        let permission_dao = MockTestPermissionDao::new();
+
+        let service = build_service_with_cascade(
+            assembly_dao,
+            MockTestSnapshotDao::new(),
+            MockTestMemberDao::new(),
+            helper_token_dao,
+            permission_dao,
+        );
+
+        let result = service
+            .close_assembly(entity_id, Authentication::Full)
+            .await
+            .expect("close_assembly should succeed with no sessions");
+        assert_eq!(result.status, AssemblyStatus::Closed);
+    }
+
+    #[tokio::test]
+    async fn test_close_assembly_audited_update_runs_before_cascade_discovery() {
+        // Sequencing guarantee (D-15): audited_update -> list_session_ids
+        // -> delete_session. We assert this with a mockall::Sequence so
+        // a future refactor that reverses the order fails the test.
+        let entity = assembly_in_status(AssemblyStatus::Open);
+        let entity_id = entity.id;
+        let entity_for_find = entity.clone();
+
+        let mut seq = mockall::Sequence::new();
+
+        let mut assembly_dao = MockTestAssemblyDao::new();
+        assembly_dao
+            .expect_find_by_id()
+            .returning(move |_, _| Ok(Some(entity_for_find.clone())));
+        assembly_dao
+            .expect_update()
+            .times(1)
+            .in_sequence(&mut seq)
+            .returning(|_, _, _| Ok(()));
+
+        let mut helper_token_dao = MockTestHelperTokenDao::new();
+        helper_token_dao
+            .expect_list_session_ids_for_assembly()
+            .times(1)
+            .in_sequence(&mut seq)
+            .returning(|_, _| Ok(vec![Arc::from("s1")]));
+
+        let mut permission_dao = MockTestPermissionDao::new();
+        permission_dao
+            .expect_delete_session()
+            .times(1)
+            .in_sequence(&mut seq)
+            .returning(|_| Ok(()));
+
+        let service = build_service_with_cascade(
+            assembly_dao,
+            MockTestSnapshotDao::new(),
+            MockTestMemberDao::new(),
+            helper_token_dao,
+            permission_dao,
+        );
+
+        let result = service
+            .close_assembly(entity_id, Authentication::Full)
+            .await
+            .expect("close_assembly should succeed");
+        assert_eq!(result.status, AssemblyStatus::Closed);
+    }
+
+    // Note: the existing `test_close_assembly_from_preparation_returns_conflict`
+    // test (above) is the Phase-1 regression guard (Test 4 of <behavior>).
+    // It uses `build_service` (cascade Mocks default to no-op) and short-
+    // circuits before list_session_ids_for_assembly is reached — therefore
+    // those Mocks are never exercised. Leaving the test untouched validates
+    // the no-regression promise of Plan 05.
 }
