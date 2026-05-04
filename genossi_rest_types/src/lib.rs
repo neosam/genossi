@@ -1611,3 +1611,210 @@ mod helper_token_to_tests {
         assert_eq!(parsed.memo, "Anna");
     }
 }
+
+// ============================================================================
+// Attendance TOs (Phase 3 Plan 04 -- D-24, D-26, D-28, ATTN-01, ATTN-02, ASSY-04)
+// ============================================================================
+
+/// **Reduced helper-view of a member (D-24, ATTN-01)** -- DSGVO-compliant projection.
+///
+/// **PII-Leak-Guard (Pitfall 6 in 03-RESEARCH.md):** This struct has EXACTLY
+/// 7 fields (member_number, first_name, last_name, salutation, title,
+/// is_present, member_id).
+///
+/// **VERBOTEN:** Inserting an `impl From<&MemberTO> for AttendanceMemberTO`
+/// would silently propagate new MemberTO fields (e.g. future `iban` /
+/// `email` / `bank_account`) and violate ATTN-01. Conversion runs
+/// EXCLUSIVELY through `From<&genossi_dao::attendance::AttendanceMemberRow>`
+/// -- an explicit 7-field DTO from the DAO layer with the same whitelist.
+///
+/// Plan 06 (REST E2E tests) verifies the guard with a whitelist+blacklist
+/// iteration on the JSON response.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct AttendanceMemberTO {
+    /// Mitgliedsnummer (ATTN-01).
+    pub member_number: i64,
+    /// Vorname (ATTN-01).
+    pub first_name: String,
+    /// Nachname (ATTN-01).
+    pub last_name: String,
+    /// Anrede ("Herr"/"Frau"/"Firma" or null).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub salutation: Option<String>,
+    /// Akademischer Titel.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub title: Option<String>,
+    /// Aktueller Anwesenheits-Status (ATTN-03/04).
+    pub is_present: bool,
+    /// Member-ID -- frontend needs this for PUT/DELETE requests on
+    /// `/api/attendance/{aid}/{mid}`. Kein PII (UUID).
+    pub member_id: Uuid,
+}
+
+impl From<&genossi_dao::attendance::AttendanceMemberRow> for AttendanceMemberTO {
+    fn from(r: &genossi_dao::attendance::AttendanceMemberRow) -> Self {
+        Self {
+            member_number: r.member_number,
+            first_name: r.first_name.to_string(),
+            last_name: r.last_name.to_string(),
+            salutation: r.salutation.as_deref().map(String::from),
+            title: r.title.as_deref().map(String::from),
+            is_present: r.is_present,
+            member_id: r.member_id,
+        }
+    }
+}
+
+/// Live counter (ASSY-04). `{present, total}` for the
+/// `X von Y aktiven Mitgliedern` display.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct AttendanceStatsTO {
+    pub present: u64,
+    pub total: u64,
+}
+
+impl From<&genossi_service::attendance::AttendanceStats> for AttendanceStatsTO {
+    fn from(s: &genossi_service::attendance::AttendanceStats) -> Self {
+        Self {
+            present: s.present,
+            total: s.total,
+        }
+    }
+}
+
+#[cfg(test)]
+mod attendance_to_tests {
+    use super::*;
+
+    #[test]
+    fn test_attendance_member_to_serializes_exactly_seven_keys() {
+        let to = AttendanceMemberTO {
+            member_number: 42,
+            first_name: "Max".to_string(),
+            last_name: "Mueller".to_string(),
+            salutation: Some("Herr".to_string()),
+            title: Some("Dr.".to_string()),
+            is_present: true,
+            member_id: uuid::Uuid::new_v4(),
+        };
+        let json = serde_json::to_value(&to).unwrap();
+        let keys: std::collections::HashSet<&str> = json
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(|k| k.as_str())
+            .collect();
+        let allowed: std::collections::HashSet<&str> = [
+            "member_number",
+            "first_name",
+            "last_name",
+            "salutation",
+            "title",
+            "is_present",
+            "member_id",
+        ]
+        .iter()
+        .copied()
+        .collect();
+        assert_eq!(
+            keys, allowed,
+            "AttendanceMemberTO must serialize exactly 7 fields, got: {:?}",
+            keys
+        );
+    }
+
+    #[test]
+    fn test_attendance_member_to_with_none_optionals_skips_them() {
+        let to = AttendanceMemberTO {
+            member_number: 42,
+            first_name: "Max".to_string(),
+            last_name: "Mueller".to_string(),
+            salutation: None,
+            title: None,
+            is_present: false,
+            member_id: uuid::Uuid::new_v4(),
+        };
+        let json = serde_json::to_value(&to).unwrap();
+        let obj = json.as_object().unwrap();
+        assert!(!obj.contains_key("salutation"));
+        assert!(!obj.contains_key("title"));
+    }
+
+    #[test]
+    fn test_attendance_member_to_does_not_contain_pii_keys() {
+        let to = AttendanceMemberTO {
+            member_number: 42,
+            first_name: "Max".to_string(),
+            last_name: "Mueller".to_string(),
+            salutation: Some("Herr".to_string()),
+            title: Some("Dr.".to_string()),
+            is_present: true,
+            member_id: uuid::Uuid::new_v4(),
+        };
+        let json = serde_json::to_value(&to).unwrap();
+        for forbidden in [
+            "email",
+            "iban",
+            "bank_account",
+            "street",
+            "house_number",
+            "postal_code",
+            "city",
+            "comment",
+            "join_date",
+            "exit_date",
+            "birth_date",
+            "phone",
+        ] {
+            assert!(
+                json.get(forbidden).is_none(),
+                "PII-Leak: AttendanceMemberTO serialized forbidden field '{}'",
+                forbidden
+            );
+        }
+    }
+
+    #[test]
+    fn test_attendance_member_to_from_attendance_member_row() {
+        use std::sync::Arc;
+        let row = genossi_dao::attendance::AttendanceMemberRow {
+            member_id: uuid::Uuid::new_v4(),
+            member_number: 100,
+            first_name: Arc::from("Maxi"),
+            last_name: Arc::from("Mueller"),
+            salutation: Some(Arc::from("Frau")),
+            title: None,
+            is_present: true,
+        };
+        let to = AttendanceMemberTO::from(&row);
+        assert_eq!(to.member_number, 100);
+        assert_eq!(to.first_name, "Maxi");
+        assert_eq!(to.last_name, "Mueller");
+        assert_eq!(to.salutation, Some("Frau".to_string()));
+        assert_eq!(to.title, None);
+        assert!(to.is_present);
+        assert_eq!(to.member_id, row.member_id);
+    }
+
+    #[test]
+    fn test_attendance_stats_to_serializes_present_total() {
+        let stats = AttendanceStatsTO {
+            present: 3,
+            total: 10,
+        };
+        let json = serde_json::to_value(&stats).unwrap();
+        assert_eq!(json["present"], 3);
+        assert_eq!(json["total"], 10);
+    }
+
+    #[test]
+    fn test_attendance_stats_to_from_service_stats() {
+        let stats = genossi_service::attendance::AttendanceStats {
+            present: 7,
+            total: 25,
+        };
+        let to = AttendanceStatsTO::from(&stats);
+        assert_eq!(to.present, 7);
+        assert_eq!(to.total, 25);
+    }
+}
