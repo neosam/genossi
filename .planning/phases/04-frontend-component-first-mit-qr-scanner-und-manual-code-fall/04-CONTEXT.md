@@ -2,6 +2,7 @@
 
 **Gathered:** 2026-05-04
 **Status:** Ready for planning
+**Amended:** 2026-05-04 — D-19 + locale references corrected to reflect actual codebase state (2 locales: de, en — `cs.rs` does NOT exist; the original "drei Locales" claim came from a stale `genossi-frontend/CLAUDE.md` §i18n which has also been corrected).
 
 <domain>
 ## Phase Boundary
@@ -68,17 +69,17 @@ Dioxus-WASM-Frontend für die GV-Anwesenheits-Erfassung. Phase 4 liefert (a) Hel
 - **D-15:** **Refresh-Trigger für AttendanceList:** Refresh nach jedem Toggle-Klick (auf 200-OK), nach jedem Such-Vorgang (Debounce-getriggert), und alle ~5s parallel zum Counter (gleicher Tick — Plan entscheidet ob ein gemeinsamer Polling-Hook für Counter+Liste oder zwei separate). SYNC-01 erfüllt: Helfer sieht aktualisierte Markierungen anderer Helfer beim nächsten Refresh oder Such-Vorgang.
 
 ### Connection-Banner & 200-OK-Feedback
-- **D-16:** **Connection-Banner-Trigger:** Banner erscheint, wenn der Live-Counter zwei Polls in Folge fehlschlägt (network-error oder 5xx). Banner verschwindet, sobald ein Poll wieder Erfolg liefert. Toleriert kurze 4G-Wackler ohne Alarm, zeigt aber zuverlässig echte Verbindungsverluste nach ~10s. Pattern-Vorlage: bestehender `status_bar.rs`. Kann später (Phase 5) auf einen dedizierten `online_indicator.rs` (Status-Dot) umgestellt werden, wenn Banner zu aufdringlich wirkt — Plan/Discretion.
+- **D-16:** **Connection-Banner-Trigger:** Banner erscheint, wenn der Live-Counter zwei Polls in Folge fehlschlägt (network-error oder 5xx). Banner verschwindet, sobald ein Poll wieder Erfolg liefert. Toleriert kurze 4G-Wackler ohne Alarm, zeigt aber zuverlässig echte Verbindungsverluste nach ~10s. **Kein direkter Pattern-Vorlage in der Codebase** — `error_alert.rs` ist die nächstgelegene Konvention für Farben/Typografie (red-50 / red-700 inline-Box), aber nicht für sticky-top warning-Banner. ConnectionBanner ist ein neues Component-Pattern; UI-SPEC §"Connection-Banner colors" definiert die exakten Klassen. Kann später (Phase 5) auf einen dedizierten `online_indicator.rs` (Status-Dot) umgestellt werden, wenn Banner zu aufdringlich wirkt — Plan/Discretion.
 - **D-17:** **Toggle-Feedback-Pattern:** Klick auf Anwesend-Toggle setzt den Button **sofort** in einen Loading-State (Spinner-Icon, `disabled=true`); KEIN visuelles Anwesend-Häkchen. Erst nach 200-OK wird der Toggle in den neuen State geflippt (Häkchen erscheint). Bei 4xx/5xx: Toast-Notification mit Error-Message (deutsch via bestehendem `status_to_message`-Pattern in `api.rs:53`); Button kehrt in den Vor-Klick-State zurück. Vermeidet Phantom-Häkchen wenn der Request scheitert (ROADMAP Phase 4 SC#6).
 - **D-18:** **Doppel-Klick-Schutz:** Während ein Toggle-Request läuft (`disabled=true`), sind alle Folge-Klicks auf demselben Button ignoriert. Nach Antwort (Erfolg oder Fehler): Button reaktiviert sich. Wenn der User in dieser Zeit bewusst mehrfach klickt, hat das keinen Effekt. Backend-Idempotenz (ATTN-03/04, SYNC-02) macht Race trotzdem sicher.
 
 ### i18n & Sprache
-- **D-19:** **Bestehendes i18n-System nutzen** (`genossi-frontend/src/i18n/`). Neue Keys für Phase 4: GV-Status-Labels (`Preparation` → „Vorbereitung", `Open` → „Offen", `Closed` → „Geschlossen"), Helfer-Login-Strings, Counter-Beschriftung („X von Y anwesend"), Error-Messages für Redeem-Fehler. Alle drei Locales (de, en, cs) müssen die neuen Keys haben — bestehende Konvention (`genossi-frontend/CLAUDE.md` §i18n). **Helfer-View standardmäßig deutsch** (Genossenschafts-Mitglieder DACH); andere Locales bleiben verfügbar für Vorstand-UI, sind aber nicht auto-detected — Plan finalisiert ob Helfer-Page locale-Switch hat oder fix de.
+- **D-19 (amended 2026-05-04):** **Bestehendes i18n-System nutzen** (`genossi-frontend/src/i18n/`). Neue Keys für Phase 4: GV-Status-Labels (`Preparation` → „Vorbereitung", `Open` → „Offen", `Closed` → „Geschlossen"), Helfer-Login-Strings, Counter-Beschriftung („X von Y anwesend"), Error-Messages für Redeem-Fehler. **Beide Locales (de, en) müssen die neuen Keys haben** — der `Locale`-Enum in `genossi-frontend/src/i18n/mod.rs` hat ausschließlich die Varianten `En` und `De`, und es existieren nur die Dateien `de.rs` und `en.rs` (kein `cs.rs`). Die ältere Behauptung „drei Locales (de, en, cs)" stammte aus einer veralteten Version von `genossi-frontend/CLAUDE.md` §i18n und wurde am 2026-05-04 zusammen mit dieser D-19 korrigiert. **Helfer-View standardmäßig deutsch** (Genossenschafts-Mitglieder DACH); andere Locales bleiben verfügbar für Vorstand-UI, sind aber nicht auto-detected — Plan finalisiert ob Helfer-Page locale-Switch hat oder fix de.
 
 ### Frontend-Build & Dependencies
 - **D-20:** Neue NPM-/Cargo-Deps für Phase 4:
-  - **Cargo (`genossi-frontend/Cargo.toml`):** `web-sys` Features-Erweiterung um `BarcodeDetector`, `MediaDevices`, `MediaStream`, `MediaStreamTrack`, `MediaStreamConstraints`, `HtmlVideoElement`, `Navigator` (falls noch nicht aktiv). KEIN neuer Rust-Crate für QR — alles über web-sys + JS-Polyfill.
-  - **JS-Polyfill ZXing-JS:** wird als Static Asset (z.B. `assets/zxing.js`) ausgeliefert oder via CDN-`<script>`-Tag dynamisch nachgeladen — Plan entscheidet (CDN ist einfacher, lokal ist offline-tauglich; für Phase 5 Generalprobe mit Mobile-Hotspot ggf. lokal besser).
+  - **Cargo (`genossi-frontend/Cargo.toml`):** `web-sys` Features-Erweiterung um `BarcodeDetector`, `BarcodeDetectorOptions`, `DetectedBarcode`, `BarcodeFormat`, `MediaDevices`, `MediaStream`, `MediaStreamTrack`, `MediaStreamConstraints`, `MediaTrackConstraints`, `HtmlVideoElement`. **`Navigator` und `Window` sind bereits aktiv** (`Cargo.toml` Zeile 42–43, verifiziert 2026-05-04). KEIN neuer Rust-Crate für QR — alles über web-sys + JS-Polyfill.
+  - **JS-Polyfill ZXing-JS:** wird als Static Asset (z.B. `assets/zxing.umd.min.js`) ausgeliefert. **Vetting abgeschlossen 2026-05-04**: pinned auf Version 0.21.3, Apache-2.0 Lizenz (kompatibel), 2.9k+ GitHub-Stars, Maintenance-Mode-Projekt mit stabiler API. SHA256 wird als Executor-Task berechnet und als `assets/zxing.umd.min.js.sha256` gepinnt. Lokale Vendoring statt CDN — offline-tauglich für Vereinsheim-WiFi-Probleme bei Phase-5-Generalprobe. Details in 04-UI-SPEC.md §"ZXing-JS Vendoring Procedure".
   - **Tailwind:** keine neuen Klassen-Tools nötig, Standard-Utility-Setup reicht für Helfer-UI.
 - **D-21:** **Print-Styling:** `@media print` CSS in `input.css` ergänzen — versteckt TopBar/Footer/Sidebar, druckt nur die zu druckende QrCard formatfüllend (z.B. zentriert auf A4-Seite). Plan entscheidet exakte CSS-Definitionen.
 
@@ -101,11 +102,11 @@ Dioxus-WASM-Frontend für die GV-Anwesenheits-Erfassung. Phase 4 liefert (a) Hel
 - **Toggle-Feedback-Pattern** (D-17/D-18): Loading-Spinner + 200-OK-Verifizierung wurde von Claude als pragmatischer Default gewählt. Plan kann zusätzlich subtle visual feedback (z.B. zarte Hintergrund-Animation während Loading) ergänzen.
 - **Polling-Hook-Sharing** (D-15): ein gemeinsamer Hook für Counter+Liste vs zwei separate. Performance-Argument für gemeinsamen Hook (ein Tick, zwei Endpoints parallel via `futures::join!`); Architektur-Argument für separate (Component-Isolation, einzeln testbar). Plan/Researcher entscheidet.
 - **Debounce-Wert für AttendanceSearch** (D-11): 500ms Default; Plan kann mit echter Test-Last validieren.
-- **JS-Polyfill-Bezug** (D-20): CDN vs lokal. Plan/Phase-5-Operations entscheidet — lokal ist offline-tauglich für Vereinsheim-WiFi-Probleme.
+- **JS-Polyfill-Bezug** (D-20): UI-SPEC empfiehlt vendoring (Option B) — offline-tauglich für Vereinsheim-WiFi. CDN (Option A) bleibt als Override-Möglichkeit, wird aber von der Vetting-Entscheidung 2026-05-04 nicht bevorzugt.
 - **i18n-Helfer-Page-Locale-Switch** (D-19): fix de oder mit User-Locale-Detection. Plan entscheidet — fix de ist defensiv, Locale-Detection wäre konsistenter mit bestehender App.
-- **Tab-Implementation** (D-13): bestehende `CollapsibleSection` reusen vs neuer `tab_strip.rs`. Plan/Researcher schaut existing Pattern in `member_details.rs`.
+- **Tab-Implementation** (D-13): bestehende `CollapsibleSection` reusen vs neuer `tab_strip.rs`. UI-SPEC empfiehlt neuen `tab_strip.rs` (CollapsibleSection ist kein Tab-Pattern).
 - **Helfer-Auto-Redirect-Endpoint** (D-06): Welcher Endpoint signalisiert „gültige Helfer-Session vorhanden"? Vermutlich ein neuer `GET /api/helper/session`-Endpoint oder ein bestehender wie `/api/auth/whoami` mit Helper-Context-Branch. Plan finalisiert Backend-Vertrag oder ergänzt mit minimalem Additional-Endpoint (Phase 4 darf Backend nicht groß ändern, aber ein READ-only-helper-Endpoint ist akzeptable Erweiterung).
-- **Print-CSS-Layout-Details** (D-21): exakte `@media print`-Regeln für QR-Card-Zentrierung, Page-Break-Verhalten. Plan finalisiert.
+- **Print-CSS-Layout-Details** (D-21): exakte `@media print`-Regeln für QR-Card-Zentrierung, Page-Break-Verhalten. UI-SPEC liefert konkreten CSS-Block — Plan kann finalisieren.
 - **Test-Strategie für Phase 4:** WASM-Tests sind in der Codebase nicht etabliert (Genossi hat keine `wasm-bindgen-test`-Setup). Plan entscheidet: (a) reine Cargo-Tests für reine Logik (Validation, Error-Mapping), (b) manuelle E2E auf Generalprobe (Phase 5), oder (c) Playwright/Cypress-Setup neu (out-of-scope-Risiko). Phase-5-Generalprobe ist die finale Verifikation — Phase 4 darf sich darauf verlassen.
 
 </decisions>
@@ -130,22 +131,21 @@ Dioxus-WASM-Frontend für die GV-Anwesenheits-Erfassung. Phase 4 liefert (a) Hel
 - `.planning/codebase/CONVENTIONS.md` — snake_case-Files, Component-Service-State-Pattern.
 
 ### Bestehende Frontend-Patterns als Vorlage
-- `genossi-frontend/CLAUDE.md` §Component-First-Principle (autoritativ); §i18n-System (Locale-Konvention); §Backend-Configuration (proxy auf localhost:3000).
+- `genossi-frontend/CLAUDE.md` §Component-First-Principle (autoritativ); §i18n-System (Locale-Konvention; **§i18n wurde am 2026-05-04 korrigiert** — die ursprüngliche Behauptung „all three locales (En, De, Cs)" war falsch und wurde auf „both locales (En, De)" gefixt); §Backend-Configuration (proxy auf localhost:3000).
 - `genossi-frontend/src/api.rs:53` — `status_to_message` für deutsche Error-Messages (D-04, D-22).
 - `genossi-frontend/src/api.rs:14-50` — `AppError`-Pattern für REST-Calls.
 - `genossi-frontend/src/component/member_search.rs` — Pattern-Vorlage für `attendance_search.rs` (Debounced Substring-Search).
 - `genossi-frontend/src/component/top_bar.rs` — wird **NICHT** in Helfer-Page verwendet (D-07); für Vorstand-Pages (Phase 4 D-08) reused.
-- `genossi-frontend/src/component/status_bar.rs` — Pattern-Vorlage für Connection-Banner (D-16).
-- `genossi-frontend/src/component/error_alert.rs` — Toast-Notification-Pattern für Toggle-Fehler (D-17).
+- `genossi-frontend/src/component/error_alert.rs` — Pattern-Vorlage für Toast-Notification-Pattern für Toggle-Fehler (D-17), und nächstgelegene Farb-Konvention für ConnectionBanner (D-16) — der Banner selbst ist allerdings ein neues Component-Pattern.
 - `genossi-frontend/src/component/modal.rs` — Modal für Token-Erzeugen, Assembly-Anlegen (D-08).
-- `genossi-frontend/src/component/collapsible_section.rs` — Möglicher Tab-Pattern-Vorlage (D-13).
+- `genossi-frontend/src/component/collapsible_section.rs` — KEIN Tab-Pattern (toggles open/close), nur Inspirationsquelle.
 - `genossi-frontend/src/component/pagination_controls.rs` — falls Mitgliederliste in Phase 5 als Stress-Issue auftaucht; Phase 4 nutzt sie zunächst NICHT (REQUIREMENTS-Hard-Constraint: keine Pagination, Substring-Search reicht).
 - `genossi-frontend/src/auth.rs:25-50` — `RequirePrivilege` für Vorstand-Pages („admin"-Privilege, D-05).
 - `genossi-frontend/src/router.rs` — Route-Enum, neue Routes hier hinzufügen (D-05, D-23).
 - `genossi-frontend/src/app.rs:36-54` — App-Layout mit `Auth`-Wrapper; Helfer-Routes brauchen separate Branch (kein TopBar/Footer für `/helper*`-Routes — D-07).
 - `genossi-frontend/src/state/auth_info.rs` — `AuthInfo` mit Privileges; Helfer-Auth-Context muss erkennbar sein (Backend liefert `is_helper`/`assembly_id`).
-- `genossi-frontend/src/i18n/mod.rs` + `de.rs`/`en.rs`/`cs.rs` — neue Keys für Phase 4 (D-19); alle drei Locales pflegen.
-- `genossi-frontend/src/page/member_details.rs` — Pattern-Vorlage für Tabs (falls verwendet) und Detail-Page-Aufbau (D-08).
+- `genossi-frontend/src/i18n/mod.rs` + `de.rs`/`en.rs` — neue Keys für Phase 4 (D-19); **beide Locales pflegen (es gibt nur diese zwei — kein `cs.rs`)**.
+- `genossi-frontend/src/page/member_details.rs` — Pattern-Vorlage für Detail-Page-Aufbau (D-08); nutzt KEINE Tabs (scrollt).
 - `genossi-frontend/src/page/members.rs` — Pattern-Vorlage für Liste-Page mit Modal (Anlegen).
 - `genossi-frontend/src/service/auth.rs` — Auth-Service-Pattern (Coroutine-Service-Pattern).
 - `genossi-frontend/Dioxus.toml` — Backend-Proxy-Konfiguration für `localhost:3000`.
@@ -157,7 +157,7 @@ Dioxus-WASM-Frontend für die GV-Anwesenheits-Erfassung. Phase 4 liefert (a) Hel
 
 ### Web-APIs / External Docs (Phase-4-Researcher liest)
 - **BarcodeDetector** — MDN: https://developer.mozilla.org/en-US/docs/Web/API/Barcode_Detection_API
-- **ZXing-JS** — Repo: https://github.com/zxing-js/library, npm: `@zxing/library`
+- **ZXing-JS** — Repo: https://github.com/zxing-js/library, npm: `@zxing/library@0.21.3` (Apache-2.0, vetted 2026-05-04)
 - **Dioxus** — https://dioxuslabs.com/learn/0.6/ (Router, use_resource, EventHandler-Patterns)
 - **web-sys MediaDevices** — docs.rs/web-sys für getUserMedia, MediaStreamConstraints, etc.
 
@@ -170,11 +170,10 @@ Dioxus-WASM-Frontend für die GV-Anwesenheits-Erfassung. Phase 4 liefert (a) Hel
 - **`AppError`-Pattern** (`api.rs:14-50`) mit `status_to_message` (deutsche Messages) — alle neuen API-Calls in D-22 nutzen das.
 - **`MemberSearch`-Component** (`component/member_search.rs`) — direkte Vorlage für `attendance_search.rs` (Debounced Substring-Search, ähnliche UX).
 - **`Modal`-Component** — für Token-Erzeugen + Assembly-Anlegen (D-08).
-- **`status_bar.rs`** — Pattern-Vorlage für Connection-Banner-Stil (D-16).
-- **`error_alert.rs`** — Pattern-Vorlage für Toast-Errors (D-17).
+- **`error_alert.rs`** — Pattern-Vorlage für Toast-Errors (D-17) und Farbkonvention für ConnectionBanner (D-16; ConnectionBanner ist aber ein NEUES Component-Pattern).
 - **`gloo-timers` 0.3** (Cargo.toml) — `TimeoutFuture` für Polling-Tick und Search-Debounce (D-14).
-- **`web-sys` + `wasm-bindgen`** (Cargo.toml) — bereits eingebunden; Phase 4 erweitert nur die `web-sys`-Features um Camera-/MediaDevices-/BarcodeDetector-spezifische Items (D-20).
-- **i18n-System** mit `Locale::De` (`src/i18n/`) — alle UI-Strings landen dort, deutsche UI-Labels (D-19).
+- **`web-sys` + `wasm-bindgen`** (Cargo.toml) — bereits eingebunden; Phase 4 erweitert nur die `web-sys`-Features um Camera-/MediaDevices-/BarcodeDetector-spezifische Items (D-20). `Navigator` und `Window` sind bereits aktiv.
+- **i18n-System** mit `Locale::De` und `Locale::En` (`src/i18n/`) — **nur zwei Locales** (`de.rs`, `en.rs`); deutsche UI-Labels per D-19 für Helfer-View.
 - **`Auth`/`RequirePrivilege`** (`auth.rs`) — Vorstand-Routen wrappen mit `RequirePrivilege { privilege: "admin" }`.
 - **`use_coroutine`-Service-Pattern** (`service/auth.rs`) — für Helper-Session-Service falls nötig.
 - **`Dioxus.toml` Proxy** — `/api/*` proxied auf `localhost:3000`; keine Konfiguration nötig.
@@ -184,7 +183,7 @@ Dioxus-WASM-Frontend für die GV-Anwesenheits-Erfassung. Phase 4 liefert (a) Hel
 - **Coroutine-Services** (`service/`) — globale State-Stores via `GlobalSignal`, fetched via Async-Coroutine.
 - **API-Calls** sind alle `async fn` in `api.rs`, geben `Result<T, AppError>` zurück.
 - **Routing** via `dioxus-router` mit `Route`-Enum (`router.rs`); neue Routes als zusätzliche Varianten.
-- **i18n-Locale-Pflicht** — neue Keys MÜSSEN in allen drei Locales (de/en/cs) ergänzt werden, sonst broken UI.
+- **i18n-Locale-Pflicht** — neue Keys MÜSSEN in **beiden Locales (de/en)** ergänzt werden, sonst broken UI. Kein `cs.rs` in dieser Codebase.
 - **Tailwind-Utility-Klassen** im RSX-Inline (kein BEM, kein CSS-Modules) — bei Phase-4-Components fortsetzen.
 
 ### Integration Points
@@ -194,7 +193,7 @@ Dioxus-WASM-Frontend für die GV-Anwesenheits-Erfassung. Phase 4 liefert (a) Hel
 - `genossi-frontend/src/state/` — neuer State-Store für Helfer-Session-Info (assembly_id + expires_at) und ggf. Assembly-State-Cache.
 - `genossi-frontend/src/component/mod.rs` — neue Components-Re-Exports.
 - `genossi-frontend/src/page/mod.rs` — neue Pages-Re-Exports.
-- `genossi-frontend/Cargo.toml` — `web-sys` Features erweitern (D-20); ggf. ZXing-JS als CDN-Script-Tag in `index.html` oder lazy-loaded JS-Modul.
+- `genossi-frontend/Cargo.toml` — `web-sys` Features erweitern (D-20); ZXing-JS als lokal vendor-tes Asset (`assets/zxing.umd.min.js`, vetting abgeschlossen 2026-05-04).
 - `genossi-frontend/input.css` — `@media print`-Regeln für QrCard-Druck (D-21).
 
 </code_context>
@@ -205,8 +204,8 @@ Dioxus-WASM-Frontend für die GV-Anwesenheits-Erfassung. Phase 4 liefert (a) Hel
 - **`HelperShell`-Layout-Pattern:** App-Layout in `app.rs` prüft beim Render `if route.starts_with("/helper")` → `HelperShell { children: Router::<Route> {} }` ohne TopBar/Footer; sonst Standard-Layout mit TopBar/Footer/Auth-Wrapper. Helfer-Pages bekommen einen schmalen Header mit GV-Name (nach Redeem) und LogOut-Button (löscht Cookie via `/api/auth/logout` oder dedizierten `/api/helper/logout`-Endpoint).
 - **`QrScanner`-Component-Internals:** Ruft `getUserMedia({video: {facingMode: 'environment'}})` für Rückkamera; Stream wird in `<video>`-Element gepiped; bei jedem `requestVideoFrameCallback` wird das aktuelle Frame an BarcodeDetector (oder ZXing-JS-Polyfill) gegeben; bei Match: `on_scan(code)` und Stream stoppen. Permission-Verweigerung: `on_error("Kamera-Zugriff verweigert. Bitte Code manuell eingeben.")`.
 - **Code-Format-Frontend-Validation:** Vor POST auf `/api/helper/redeem`: prüfen `len() == 10 && chars.all(|c| Crockford-Base32-Alphabet.contains(c))`. Falls invalid: kein Round-Trip zum Backend, sondern direkt deutsche Error-Message anzeigen. Backend-400 ist Backstop für unerwartete Fälle (z.B. URL-Parameter-Tampering).
-- **Counter-„X von Y"-Beschriftung exakt** (ROADMAP-Hard-Constraint Phase 4 SC#3): Component-Output nicht „X/Y" oder „X anwesend", sondern exakt deutsch „X von Y anwesend". Bei Polling-Fehler: „— von Y anwesend" (Y bleibt wenn schon mal geladen, X wird Dash).
-- **i18n-Helfer-Page-Strategie:** Helfer-View ist standardmäßig deutsch (assembly hat sowieso deutsches Datum). Bei späterer Mehrsprachigkeit (Genossenschaft mit nicht-deutschen Mitgliedern): Locale-Switch in HelperShell-Header. Phase 4 baut die Strings als i18n-Keys, aber das Frontend-Default ist Locale::De.
+- **Counter-„X von Y"-Beschriftung exakt** (ROADMAP-Hard-Constraint Phase 4 SC#3): Component-Output nicht „X/Y" oder „X anwesend", sondern exakt deutsch „X von Y anwesend". Bei Polling-Fehler: „— von Y anwesend" (Y bleibt wenn schon mal geladen, X wird Dash). Y ist per Definition (Phase-1 D-12 Member-Universe-Snapshot) die aktive-Mitglieder-Zahl, daher ist die Kurzform unmissverständlich.
+- **i18n-Helfer-Page-Strategie:** Helfer-View ist standardmäßig deutsch (assembly hat sowieso deutsches Datum). Bei späterer Mehrsprachigkeit (Genossenschaft mit nicht-deutschen Mitgliedern): Locale-Switch in HelperShell-Header. Phase 4 baut die Strings als i18n-Keys, aber das Frontend-Default ist Locale::De. Beide Locales (de, en) müssen die Keys haben.
 - **Polling-Stop-bei-Closed-Assembly:** Wenn `LiveCounter`/`AttendanceList` bemerkt dass Assembly-Status `Closed` ist (via Stats-Response oder via separatem Assembly-Fetch), Polling-Intervall erhöhen oder stoppen — kein Sinn alle 5s zu pollen wenn Daten eingefroren sind. Plan entscheidet (Polling kann auch einfach weiterlaufen — minimaler Server-Last).
 - **Token-Card-Print-CSS-Sequenz:** Klick auf „Drucken" in QrCard → `window.print()`; CSS `@media print` versteckt `body > .app` und zeigt nur die druckende Card; nach Print-Dialog: zurück zum Normal-View. Pattern in vielen Apps etabliert.
 - **Vorstand-Tab-Visibility-Logic:** Token-Tab ist immer sichtbar; Anwesenheits-Tab nur wenn Status `Open` oder `Closed`. Stamm-Tab ist immer sichtbar, aber Edit-Felder nur in `Preparation` enabled.
@@ -232,6 +231,7 @@ Dioxus-WASM-Frontend für die GV-Anwesenheits-Erfassung. Phase 4 liefert (a) Hel
 - **Vollmacht-/Stimmrechts-UI** (VOTE-01..04 v2): komplett separater Workflow.
 - **Self-Check-in für Mitglieder per persönlichem QR-Code** (Out of Scope): verbandsrechtlich heikel.
 - **WASM-Test-Setup** (`wasm-bindgen-test` oder Playwright): nicht in Genossi etabliert; Phase 4 verlässt sich auf Phase-5-Generalprobe und Cargo-Tests für reine Logik.
+- **Dritte Locale (cs)**: Falls je gewünscht, müsste `Locale::Cs` zum Enum, eine `cs.rs` angelegt und sämtliche bestehenden Keys übersetzt werden — derzeit explizit out-of-scope.
 
 ### Reviewed Todos (not folded)
 None — keine TODOs für Phase 4 in `.planning/todos/`.
@@ -242,3 +242,4 @@ None — keine TODOs für Phase 4 in `.planning/todos/`.
 
 *Phase: 4-Frontend (Component-First) mit QR-Scanner und Manual-Code-Fallback*
 *Context gathered: 2026-05-04*
+*Amended: 2026-05-04 — locale stale-doc fix (D-19), web-sys Navigator pre-existing-clarification (D-20), ZXing-JS vetting documented (D-20)*

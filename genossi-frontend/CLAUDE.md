@@ -43,7 +43,7 @@ cargo test
 ### Frontend Stack
 - **Dioxus**: React-like framework for Rust
 - **Tailwind CSS**: Utility-first CSS with custom zoom classes (scale-down-50, scale-down-75, scale-down-100)
-- **Multi-language i18n**: Located in `src/i18n/` with keys in `mod.rs` and translations in `en.rs`, `de.rs`, `cs.rs`
+- **Multi-language i18n**: Located in `src/i18n/` with keys in `mod.rs` and translations in `en.rs` and `de.rs` (corrected 2026-05-04 — only two locales exist; the previous mention of `cs.rs` was stale documentation, the file does not exist in this codebase)
 
 ### Key Architectural Patterns
 
@@ -75,9 +75,10 @@ cargo test
 - Implements horizontal scrolling for weekdays while keeping time column fixed
 
 **i18n System**:
-- All translations must be added to all three locales (En, De, Cs)
+- All translations must be added to **both locales (En, De)** — these are the only two locales defined in `src/i18n/mod.rs` (the `Locale` enum has only `En` and `De` variants, and the only translation files are `de.rs` and `en.rs`).
 - German translations previously had a bug where they used `Locale::En` instead of `Locale::De` (now fixed)
 - Translation keys are defined in `src/i18n/mod.rs` enum `Key`
+- **Note (corrected 2026-05-04):** older versions of this section claimed three locales `(En, De, Cs)` and instructed contributors to add keys to a `cs.rs`. That was stale documentation — `cs.rs` does not exist in this codebase and the `Locale` enum has no `Cs` variant. If a Czech locale is ever needed, it must first be added to the enum and a `cs.rs` file created with all existing keys translated.
 
 **Billing Period** (`src/page/billing_period_details.rs`):
 - Displays sales person values with translations for BALANCE, EXPECTED_HOURS, OVERALL
