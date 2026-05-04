@@ -174,6 +174,28 @@ type AssemblyService =
     genossi_service_impl::assembly::AssemblyServiceImpl<AssemblyServiceDependencies>;
 
 type HelperTokenDao = genossi_dao_impl_sqlite::helper_token::HelperTokenDaoImpl;
+type AttendanceDao = genossi_dao_impl_sqlite::attendance::AttendanceDaoImpl;
+
+// Phase 3 Plan 06: AttendanceServiceImpl wiring (D-23). Six deps —
+// deliberately NO UuidService and NO AuditLogDao (D-08, ATTN-05).
+pub struct AttendanceServiceDependencies;
+
+unsafe impl Send for AttendanceServiceDependencies {}
+unsafe impl Sync for AttendanceServiceDependencies {}
+
+impl genossi_service_impl::attendance::AttendanceServiceDeps for AttendanceServiceDependencies {
+    type Context = Context;
+    type Transaction = Transaction;
+    type AttendanceDao = AttendanceDao;
+    type AssemblyDao = AssemblyDao;
+    type MemberDao = MemberDao;
+    type AssemblyMemberSnapshotDao = AssemblyMemberSnapshotDao;
+    type PermissionService = PermissionService;
+    type TransactionDao = TransactionDao;
+}
+
+type AttendanceService =
+    genossi_service_impl::attendance::AttendanceServiceImpl<AttendanceServiceDependencies>;
 
 pub struct HelperTokenServiceDependencies;
 
@@ -397,6 +419,9 @@ pub struct RestStateImpl {
     application_service: Arc<ApplicationService>,
     assembly_service: Arc<AssemblyService>,
     helper_token_service: Arc<HelperTokenService>,
+    // Phase 3 Plan 06: AttendanceServiceImpl exposed to REST handlers via
+    // AttendanceRestState (D-23 wiring).
+    attendance_service: Arc<AttendanceService>,
     audit_log_dao: Arc<AuditLogDao>,
     timestamp_service: Arc<TimestampServiceType>,
     backup_dao: Arc<BackupDao>,
@@ -603,7 +628,9 @@ impl RestStateImpl {
         let helper_token_dao = Arc::new(HelperTokenDao::new(pool.clone()));
         let assembly_service = Arc::new(genossi_service_impl::assembly::AssemblyServiceImpl {
             assembly_dao: assembly_dao.clone(),
-            assembly_member_snapshot_dao,
+            // Phase 3 Plan 06: cloned (not moved) so AttendanceServiceImpl
+            // below can share the same Arc.
+            assembly_member_snapshot_dao: assembly_member_snapshot_dao.clone(),
             member_dao: member_dao.clone(),
             audit_log_dao: audit_log_dao.clone(),
             permission_service: permission_service.clone(),
@@ -612,6 +639,20 @@ impl RestStateImpl {
             // Phase 3 Plan 05 cascade additions:
             helper_token_dao: helper_token_dao.clone(),
             permission_dao: permission_dao.clone(),
+        });
+
+        // Phase 3 Plan 06 (D-23): AttendanceServiceImpl with 6 deps —
+        // AttendanceDao, AssemblyDao, MemberDao, AssemblyMemberSnapshotDao,
+        // PermissionService, TransactionDao. No UuidService, no AuditLogDao
+        // (D-08, ATTN-05 — attendance is not audited).
+        let attendance_dao = Arc::new(AttendanceDao::new(pool.clone()));
+        let attendance_service = Arc::new(genossi_service_impl::attendance::AttendanceServiceImpl {
+            attendance_dao,
+            assembly_dao: assembly_dao.clone(),
+            member_dao: member_dao.clone(),
+            assembly_member_snapshot_dao,
+            permission_service: permission_service.clone(),
+            transaction_dao: transaction_dao.clone(),
         });
 
         // Plan 02-07: HelperTokenServiceImpl with 8 deps (HelperTokenDao,
@@ -698,6 +739,7 @@ impl RestStateImpl {
             application_service,
             assembly_service,
             helper_token_service,
+            attendance_service,
             audit_log_dao,
             timestamp_service,
             permission_service,
@@ -1176,6 +1218,14 @@ impl genossi_rest::helper_token::HelperTokenRestState for RestStateImpl {
 
     fn helper_token_service(&self) -> Arc<Self::HelperTokenService> {
         self.helper_token_service.clone()
+    }
+}
+
+impl genossi_rest::attendance::AttendanceRestState for RestStateImpl {
+    type AttendanceService = AttendanceService;
+
+    fn attendance_service(&self) -> Arc<Self::AttendanceService> {
+        self.attendance_service.clone()
     }
 }
 
