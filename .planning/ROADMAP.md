@@ -68,7 +68,13 @@
   7. `GET /api/assembly/:id/stats` liefert `{present, total}` für den Live-Counter (X von Y); concurrent-Doppel-Markierungs-Test durch zwei simulierte Helfer erzeugt keinen Fehler und keinen Duplikat-Eintrag (ASSY-04, SYNC-02)
   8. `close_assembly` invalidiert kaskadierend alle Helfer-Sessions dieser GV; nach Schließen schlägt jeder Helfer-Request mit 401 fehl
   9. Vorstand kann nach GV-Schluss Anwesenheits-Einträge ergänzen oder entfernen (Post-Close-Edit-Endpoint), ohne dass sich der GV-Status ändert; die Aktionen erscheinen weiterhin in der Audit-Hashchain (ASSY-06)
-**Plans**: TBD
+**Plans**: 6 plans
+- [ ] 03-01-PLAN.md — Migration + AttendanceDao Trait + SQLite-Impl (UPSERT, Soft-Delete, LEFT-JOIN-Liste, Snapshot-Check)
+- [ ] 03-02-PLAN.md — HelperTokenDao::list_session_ids_for_assembly Erweiterung (Cascade-Discovery-Anker)
+- [ ] 03-03-PLAN.md — ClaimContext::as_helper Trait-Default + AuthenticatedContext-Override (Helper-Discrimination)
+- [ ] 03-04-PLAN.md — AttendanceService Trait + Domain-Types + AttendanceMemberTO/AttendanceStatsTO (PII-Whitelist)
+- [ ] 03-05-PLAN.md — AttendanceServiceImpl mit check_assembly_access + 4 Methods + AssemblyServiceImpl Cascade-Erweiterung
+- [ ] 03-06-PLAN.md — REST-Handler + Router + DI-Wiring + 5 E2E-Tests (Race, Cascade, PII-Leak, Hash-Chain, Post-Close-Edit)
 
 ### Phase 4: Frontend (Component-First) mit QR-Scanner und Manual-Code-Fallback
 **Goal**: Vorstand und Helfer bedienen das vollständige GV-Feature über das Dioxus-WASM-Frontend — GV anlegen/öffnen/schließen, QR-Codes erzeugen und drucken, Helfer-Login per QR-Scan ODER manuellem Code, reduzierte Mitgliederliste mit Suche, idempotenter Anwesenheits-Toggle, Live-Counter mit expliziter Y-Beschriftung. Components sind wiederverwendbar in `genossi-frontend/src/component/`, keine inline-RSX-Duplikate.
@@ -102,7 +108,7 @@
 |-------|----------------|--------|-----------|
 | 1. Assembly-Aggregat + Audit-Hardening | 0/5 | Not started | - |
 | 2. Helfer-Token + Session + AuthContext::Helper | 0/8 | Not started | - |
-| 3. Attendance-Aggregat + Cascade-Invalidation | 0/0 | Not started | - |
+| 3. Attendance-Aggregat + Cascade-Invalidation | 0/6 | Not started | - |
 | 4. Frontend (Component-First) | 0/0 | Not started | - |
 | 5. Pre-GV-Generalprobe und Operations-Plan | 0/0 | Not started | - |
 
