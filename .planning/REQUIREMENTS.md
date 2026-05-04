@@ -31,15 +31,15 @@ Anforderungen für den GV-Anwesenheits-Milestone. Jede Anforderung wird im Roadm
 
 - [ ] **ATTN-01**: Helfer-Ansicht zeigt eine Mitgliederliste mit ausschließlich diesen Spalten: Mitgliedsnummer, Name, Titel, Anrede — keine weiteren Felder werden vom Backend ausgeliefert
 - [ ] **ATTN-02**: Helfer kann in der Liste suchen (Substring-Match auf Name oder Mitgliedsnummer)
-- [ ] **ATTN-03**: Helfer kann ein Mitglied als anwesend markieren; API ist idempotent (PUT, Doppel-Klick erzeugt keinen Fehler, kein duplizierter Eintrag)
-- [ ] **ATTN-04**: Helfer kann ein Mitglied wieder austragen (anwesend → nicht-anwesend); ebenfalls idempotent
+- [x] **ATTN-03**: Helfer kann ein Mitglied als anwesend markieren; API ist idempotent (PUT, Doppel-Klick erzeugt keinen Fehler, kein duplizierter Eintrag)
+- [x] **ATTN-04**: Helfer kann ein Mitglied wieder austragen (anwesend → nicht-anwesend); ebenfalls idempotent
 - [ ] **ATTN-05**: Anwesenheits-Markierungen werden bewusst **nicht** in der Audit-Hashchain protokolliert (vom User explizit ausgeschlossen)
 - [ ] **ATTN-06**: Helfer-View ist auch für eingeloggte Vorstands-User direkt aufrufbar — ohne QR-Token, mit derselben UI; Permission-Check auf Service-Layer akzeptiert beide Auth-Pfade
 
 ### Sync zwischen mehreren Helfern
 
 - [ ] **SYNC-01**: Helfer sehen aktualisierte Anwesenheits-Status beim nächsten Refresh oder beim nächsten Such-Vorgang; kein Live-Push (SSE/WebSocket) erforderlich
-- [ ] **SYNC-02**: Doppel-Markierung durch zwei Helfer gleichzeitig erzeugt keinen Fehlertext und keinen doppelten Anwesenheits-Eintrag (Konsequenz aus ATTN-03 Idempotenz)
+- [x] **SYNC-02**: Doppel-Markierung durch zwei Helfer gleichzeitig erzeugt keinen Fehlertext und keinen doppelten Anwesenheits-Eintrag (Konsequenz aus ATTN-03 Idempotenz)
 
 ## v2 Requirements
 
@@ -99,12 +99,12 @@ Phase-Mapping aus Roadmap (2026-05-02). Coverage: 22/22 v1 Requirements gemappt,
 | HLPR-07 | Phase 2 | Pending |
 | ATTN-01 | Phase 3 | Pending |
 | ATTN-02 | Phase 3 | Pending |
-| ATTN-03 | Phase 3 | Pending |
-| ATTN-04 | Phase 3 | Pending |
+| ATTN-03 | Phase 3 | Complete |
+| ATTN-04 | Phase 3 | Complete |
 | ATTN-05 | Phase 3 | Pending |
 | ATTN-06 | Phase 3 | Pending |
 | SYNC-01 | Phase 4 | Pending |
-| SYNC-02 | Phase 3 | Pending |
+| SYNC-02 | Phase 3 | Complete |
 
 **Coverage:**
 - v1 requirements: 22 total

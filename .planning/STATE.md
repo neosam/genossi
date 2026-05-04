@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-05-04T05:51:43.627Z"
+last_updated: "2026-05-04T07:36:33.355Z"
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 19
-  completed_plans: 13
-  percent: 68
+  completed_plans: 14
+  percent: 74
 ---
 
 # State: Genossi — GV-Anwesenheits-Erfassung
@@ -21,18 +21,18 @@ progress:
 
 **Core Value:** Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachvollziehbar (Audit-Hashchain), mit weniger manueller Arbeit. Dieser Milestone bringt papierlose Anwesenheits-Erfassung auf der Generalversammlung.
 
-**Current Focus:** Phase 02 — helfer-token-session-authcontext-helper
+**Current Focus:** Phase 03 — attendance-aggregat-cascade-invalidation
 
 **Granularity:** coarse (5 Phasen, 1–3 Plans pro Phase)
 
 ## Current Position
 
-Phase: 02 (helfer-token-session-authcontext-helper) — EXECUTING
-Plan: 1 of 8
+Phase: 03 (attendance-aggregat-cascade-invalidation) — EXECUTING
+Plan: 2 of 6 (Plan 01 complete)
 **Phase:** 3
-**Plan:** Not started
-**Status:** Ready to execute
-**Progress:** 0/22 v1 Requirements geliefert
+**Plan:** 01 — DAO Foundation (DONE 2026-05-04)
+**Status:** Executing Phase 03 (Wave 1 partial — Plan 01 done; 02/03/04 still pending)
+**Progress:** [███████░░░] 74%
 
 ```
 [ ] Phase 1: Assembly-Aggregat + Audit-Hardening                     0/0 plans
@@ -53,6 +53,7 @@ Overall: 0% complete
 | Phases | 5 | coarse Granularity |
 | Build Order | Backend-First → Frontend → Operations | Genossi-Konvention |
 | Audit Scope | ASSY-* + HLPR-* lifecycle | ATTN-* explizit OFF (User-Decision) |
+| Phase 03 P01 | 12min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -62,6 +63,7 @@ Overall: 0% complete
 |----------|-----------|-------|
 | GV als eigene Entität (`Assembly`) statt globalem Zustand | Mehrere GVs pro Jahr, Historie für Protokoll, klare Lifecycle-Grenzen | Phase 1 |
 | Anwesenheit als Join-Tabelle, nicht Member-Flag | Saubere Mehrfach-GV-Historie, kein Datenverlust | Phase 3 |
+| Plan 03-01: `search: Option<String>` statt `Option<&str>` in DAO-Trait | `async_trait` + `automock` verlangen named lifetime auf borrowed Option-Parametern; owned String ist projekt-konsistent (DAO allokiert intern eh `format!("%{}%", ...)` neu) | Phase 3, Plan 01 |
 | One-Time-Use-QR pro Helfer | Verhindert Token-Weitergabe an Unbefugte | Phase 2 |
 | Helfer-Memo-Name = Freitext, kein Identitäts-Anker | Reine UX-Hilfe für Vorstand beim Drucken | Phase 2 |
 | GV-Status final nach Schluss; Vorstand-Korrekturen ohne Re-Open | Vermeidet Status-Pingpong, hält Audit-Story einfach | Phase 1 |
@@ -92,15 +94,22 @@ Keine.
 
 ## Session Continuity
 
-**Last action:** Roadmap erstellt mit 5 Phasen, 22/22 Requirements gemappt, 0 Orphans.
+**Last action:** Plan 03-01 (Attendance-Aggregat DAO) komplett — Migration + Trait + SQLite-Impl + 9 grüne Tests, 2 atomare Task-Commits (`56ae4fc`, `63a7371`), SUMMARY.md geschrieben.
 
-**Next action:** `/gsd-plan-phase 1` — Decompose Phase 1 (Assembly-Aggregat + Audit-Hardening) in 1–3 ausführbare Plans.
+**Next action:** Plan 03-02 (HelperTokenDao::list_session_ids_for_assembly), 03-03 (Cascade-Invalidation in close_assembly), oder 03-04 (AttendanceService Trait) — alle in Wave 1 parallelisierbar gegen Plan 01-Output.
 
 **Files written this session:**
 
-- `.planning/ROADMAP.md` (5 Phasen, Phase Details, Coverage, Hard Constraints)
-- `.planning/STATE.md` (dieses Dokument)
-- `.planning/REQUIREMENTS.md` (Traceability-Tabelle aktualisiert)
+- `migrations/sqlite/20260504000000_create_attendance_table.sql` (NEW — Schema-DDL)
+- `genossi_dao/src/attendance.rs` (NEW — Trait + Entities + 3 Tests)
+- `genossi_dao_impl_sqlite/src/attendance.rs` (NEW — Impl + 6 Tests)
+- `genossi_dao/src/lib.rs` (MOD — pub mod attendance)
+- `genossi_dao_impl_sqlite/src/lib.rs` (MOD — pub mod attendance)
+- `.planning/phases/03-attendance-aggregat-cascade-invalidation/03-01-SUMMARY.md` (NEW)
+- `.planning/STATE.md` (MOD — diese Aktualisierung)
+- `.planning/ROADMAP.md` (MOD — Plan 01 Progress via SDK)
+- `.planning/REQUIREMENTS.md` (MOD — ATTN-03/ATTN-04/SYNC-02 als complete markiert)
 
 ---
 *State initialized: 2026-05-02*
+*Phase 03 Plan 01 completed: 2026-05-04*
