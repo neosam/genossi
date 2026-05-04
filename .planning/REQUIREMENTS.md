@@ -12,7 +12,7 @@ Anforderungen für den GV-Anwesenheits-Milestone. Jede Anforderung wird im Roadm
 - [ ] **ASSY-01**: Vorstand kann eine Generalversammlung anlegen mit Datum und Titel; Initial-Status `Vorbereitung`
 - [ ] **ASSY-02**: Vorstand kann eine vorbereitete GV öffnen (Status `Offen`); beim Öffnen wird ein Member-Universe-Snapshot persistiert (alle aktiven Mitglieder zum Zeitpunkt des Öffnens — definiert das stabile „Y" im Anwesenheits-Counter)
 - [ ] **ASSY-03**: Vorstand kann eine offene GV schließen (Status `Geschlossen`); alle Helfer-Sessions zu dieser GV werden ab diesem Moment ungültig
-- [ ] **ASSY-04**: Vorstand sieht während einer offenen GV einen Live-Counter „X von Y anwesend" (X = aktuelle Anwesende, Y = Member-Universe-Snapshot aus ASSY-02); Aktualisierung bei Refresh/Polling, kein Push
+- [x] **ASSY-04**: Vorstand sieht während einer offenen GV einen Live-Counter „X von Y anwesend" (X = aktuelle Anwesende, Y = Member-Universe-Snapshot aus ASSY-02); Aktualisierung bei Refresh/Polling, kein Push
 - [ ] **ASSY-05**: GV-Daten (Anwesenheits-Liste + Anzahl Anwesender + Member-Universe-Snapshot) bleiben nach GV-Schluss persistent für Protokoll-Export und retrospektive Statistik
 - [ ] **ASSY-06**: Vorstand kann auch nach GV-Schluss noch Anwesenheits-Einträge hinzufügen oder entfernen (z. B. nachgemeldete Anwesenheiten); GV-Status bleibt dabei `Geschlossen` (kein Re-Open)
 - [ ] **ASSY-07**: Assembly-Lifecycle-Vorgänge (`create`, `open`, `close`, post-close-Korrektur) werden via bestehender Audit-Hashchain protokolliert
@@ -29,8 +29,8 @@ Anforderungen für den GV-Anwesenheits-Milestone. Jede Anforderung wird im Roadm
 
 ### Anwesenheits-Erfassung
 
-- [ ] **ATTN-01**: Helfer-Ansicht zeigt eine Mitgliederliste mit ausschließlich diesen Spalten: Mitgliedsnummer, Name, Titel, Anrede — keine weiteren Felder werden vom Backend ausgeliefert
-- [ ] **ATTN-02**: Helfer kann in der Liste suchen (Substring-Match auf Name oder Mitgliedsnummer)
+- [x] **ATTN-01**: Helfer-Ansicht zeigt eine Mitgliederliste mit ausschließlich diesen Spalten: Mitgliedsnummer, Name, Titel, Anrede — keine weiteren Felder werden vom Backend ausgeliefert
+- [x] **ATTN-02**: Helfer kann in der Liste suchen (Substring-Match auf Name oder Mitgliedsnummer)
 - [x] **ATTN-03**: Helfer kann ein Mitglied als anwesend markieren; API ist idempotent (PUT, Doppel-Klick erzeugt keinen Fehler, kein duplizierter Eintrag)
 - [x] **ATTN-04**: Helfer kann ein Mitglied wieder austragen (anwesend → nicht-anwesend); ebenfalls idempotent
 - [ ] **ATTN-05**: Anwesenheits-Markierungen werden bewusst **nicht** in der Audit-Hashchain protokolliert (vom User explizit ausgeschlossen)
@@ -86,7 +86,7 @@ Phase-Mapping aus Roadmap (2026-05-02). Coverage: 22/22 v1 Requirements gemappt,
 | ASSY-01 | Phase 1 | Pending |
 | ASSY-02 | Phase 1 | Pending |
 | ASSY-03 | Phase 1 | Pending |
-| ASSY-04 | Phase 3 | Pending |
+| ASSY-04 | Phase 3 | Complete |
 | ASSY-05 | Phase 1 | Pending |
 | ASSY-06 | Phase 3 | Pending |
 | ASSY-07 | Phase 1 | Pending |
@@ -97,8 +97,8 @@ Phase-Mapping aus Roadmap (2026-05-02). Coverage: 22/22 v1 Requirements gemappt,
 | HLPR-05 | Phase 2 | Pending |
 | HLPR-06 | Phase 2 | Pending |
 | HLPR-07 | Phase 2 | Pending |
-| ATTN-01 | Phase 3 | Pending |
-| ATTN-02 | Phase 3 | Pending |
+| ATTN-01 | Phase 3 | Complete |
+| ATTN-02 | Phase 3 | Complete |
 | ATTN-03 | Phase 3 | Complete |
 | ATTN-04 | Phase 3 | Complete |
 | ATTN-05 | Phase 3 | Pending |
