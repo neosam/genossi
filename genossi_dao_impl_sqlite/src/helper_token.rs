@@ -663,4 +663,123 @@ mod tests {
 
         tx.commit().await.unwrap();
     }
+
+    // ---------------------------------------------------------------
+    // Phase 3 Plan 02: list_session_ids_for_assembly (D-12)
+    // ---------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_list_session_ids_for_assembly_returns_redeemed_only() {
+        let pool = setup_db().await;
+        let assembly_id = Uuid::new_v4();
+        create_assembly_for_test(&pool, assembly_id).await;
+
+        let dao = HelperTokenDaoImpl::new(pool.clone());
+        let tx_dao = TransactionDaoImpl::new(pool);
+
+        let tx = tx_dao.transaction().await.unwrap();
+
+        // Token A: redeemed (used_at + session_id set)
+        let mut token_a = make_token(assembly_id, "tok-a-hash");
+        token_a.used_at = Some(now_pdt());
+        token_a.session_id = Some(Arc::from("sess-A"));
+        dao.create(&token_a, "test", tx.clone()).await.unwrap();
+
+        // Token B: open (no session_id, no used_at)
+        let token_b = make_token(assembly_id, "tok-b-hash");
+        dao.create(&token_b, "test", tx.clone()).await.unwrap();
+
+        // Token C: revoked AND soft-deleted (deleted IS NOT NULL)
+        // — even if it had a session_id, it must be excluded.
+        let mut token_c = make_token(assembly_id, "tok-c-hash");
+        token_c.session_id = Some(Arc::from("sess-C"));
+        token_c.revoked_at = Some(now_pdt());
+        token_c.deleted = Some(now_pdt());
+        dao.create(&token_c, "test", tx.clone()).await.unwrap();
+
+        let result = dao
+            .list_session_ids_for_assembly(assembly_id, tx.clone())
+            .await
+            .unwrap();
+
+        assert_eq!(
+            result.len(),
+            1,
+            "exactly 1 redeemed-and-active session_id must be returned"
+        );
+        assert_eq!(result[0].as_ref(), "sess-A");
+
+        tx.commit().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_list_session_ids_for_assembly_empty_for_unknown_assembly() {
+        let pool = setup_db().await;
+        let assembly_id = Uuid::new_v4();
+        create_assembly_for_test(&pool, assembly_id).await;
+
+        let dao = HelperTokenDaoImpl::new(pool.clone());
+        let tx_dao = TransactionDaoImpl::new(pool);
+
+        let tx = tx_dao.transaction().await.unwrap();
+
+        // Random UUID — no FK target, no rows. The DAO method just runs a
+        // SELECT, so it returns an empty Vec regardless of FK existence.
+        let unknown_assembly = Uuid::new_v4();
+        let result = dao
+            .list_session_ids_for_assembly(unknown_assembly, tx.clone())
+            .await
+            .unwrap();
+        assert!(
+            result.is_empty(),
+            "no rows for an unknown assembly_id, got {:?}",
+            result
+        );
+
+        tx.commit().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_list_session_ids_for_assembly_excludes_other_assemblies() {
+        let pool = setup_db().await;
+        let assembly_a = Uuid::new_v4();
+        let assembly_b = Uuid::new_v4();
+        create_assembly_for_test(&pool, assembly_a).await;
+        create_assembly_for_test(&pool, assembly_b).await;
+
+        let dao = HelperTokenDaoImpl::new(pool.clone());
+        let tx_dao = TransactionDaoImpl::new(pool);
+
+        let tx = tx_dao.transaction().await.unwrap();
+
+        // Assembly A: 1 redeemed token with session "sess-AAA"
+        let mut tok_a = make_token(assembly_a, "hash-aaa");
+        tok_a.used_at = Some(now_pdt());
+        tok_a.session_id = Some(Arc::from("sess-AAA"));
+        dao.create(&tok_a, "test", tx.clone()).await.unwrap();
+
+        // Assembly B: 1 redeemed token with session "sess-BBB"
+        let mut tok_b = make_token(assembly_b, "hash-bbb");
+        tok_b.used_at = Some(now_pdt());
+        tok_b.session_id = Some(Arc::from("sess-BBB"));
+        dao.create(&tok_b, "test", tx.clone()).await.unwrap();
+
+        // Query Assembly A → only sess-AAA, never sess-BBB.
+        let result = dao
+            .list_session_ids_for_assembly(assembly_a, tx.clone())
+            .await
+            .unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].as_ref(), "sess-AAA");
+
+        // Query Assembly B → only sess-BBB.
+        let result_b = dao
+            .list_session_ids_for_assembly(assembly_b, tx.clone())
+            .await
+            .unwrap();
+        assert_eq!(result_b.len(), 1);
+        assert_eq!(result_b[0].as_ref(), "sess-BBB");
+
+        tx.commit().await.unwrap();
+    }
 }
