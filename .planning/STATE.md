@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-05-04T07:36:33.355Z"
+last_updated: "2026-05-04T07:48:39.868Z"
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 19
-  completed_plans: 14
-  percent: 74
+  completed_plans: 15
+  percent: 79
 ---
 
 # State: Genossi — GV-Anwesenheits-Erfassung
@@ -28,11 +28,11 @@ progress:
 ## Current Position
 
 Phase: 03 (attendance-aggregat-cascade-invalidation) — EXECUTING
-Plan: 2 of 6 (Plan 01 complete)
+Plan: 3 of 6 (Plans 01 + 02 complete)
 **Phase:** 3
-**Plan:** 01 — DAO Foundation (DONE 2026-05-04)
-**Status:** Executing Phase 03 (Wave 1 partial — Plan 01 done; 02/03/04 still pending)
-**Progress:** [███████░░░] 74%
+**Plan:** 02 — HelperTokenDao Cascade-Discovery (DONE 2026-05-04)
+**Status:** Executing Phase 03 (Wave 1 partial — Plans 01+02 done; 03/04 still pending)
+**Progress:** [████████░░] 79%
 
 ```
 [ ] Phase 1: Assembly-Aggregat + Audit-Hardening                     0/0 plans
@@ -54,6 +54,7 @@ Overall: 0% complete
 | Build Order | Backend-First → Frontend → Operations | Genossi-Konvention |
 | Audit Scope | ASSY-* + HLPR-* lifecycle | ATTN-* explizit OFF (User-Decision) |
 | Phase 03 P01 | 12min | 2 tasks | 5 files |
+| Phase 03 P02 | ~10 min | 1 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -64,6 +65,7 @@ Overall: 0% complete
 | GV als eigene Entität (`Assembly`) statt globalem Zustand | Mehrere GVs pro Jahr, Historie für Protokoll, klare Lifecycle-Grenzen | Phase 1 |
 | Anwesenheit als Join-Tabelle, nicht Member-Flag | Saubere Mehrfach-GV-Historie, kein Datenverlust | Phase 3 |
 | Plan 03-01: `search: Option<String>` statt `Option<&str>` in DAO-Trait | `async_trait` + `automock` verlangen named lifetime auf borrowed Option-Parametern; owned String ist projekt-konsistent (DAO allokiert intern eh `format!("%{}%", ...)` neu) | Phase 3, Plan 01 |
+| Plan 03-02: hand-rolled `TestHelperTokenDao`-Mock liegt in `genossi_service_impl/src/helper_token.rs::tests` (NICHT in `assembly.rs::tests` wie das Plan-Dokument behauptete) | DAO-Trait-Erweiterungen müssen den existierenden hand-rolled Mock synchron pflegen, sonst E0046 in `cargo test -p genossi_service_impl`. Plan 05 wird einen **neuen** Mock in `assembly.rs::tests` anlegen, der ebenfalls die neue Method listen muss. | Phase 3, Plan 02 |
 | One-Time-Use-QR pro Helfer | Verhindert Token-Weitergabe an Unbefugte | Phase 2 |
 | Helfer-Memo-Name = Freitext, kein Identitäts-Anker | Reine UX-Hilfe für Vorstand beim Drucken | Phase 2 |
 | GV-Status final nach Schluss; Vorstand-Korrekturen ohne Re-Open | Vermeidet Status-Pingpong, hält Audit-Story einfach | Phase 1 |
@@ -94,22 +96,21 @@ Keine.
 
 ## Session Continuity
 
-**Last action:** Plan 03-01 (Attendance-Aggregat DAO) komplett — Migration + Trait + SQLite-Impl + 9 grüne Tests, 2 atomare Task-Commits (`56ae4fc`, `63a7371`), SUMMARY.md geschrieben.
+**Last action:** Plan 03-02 (HelperTokenDao::list_session_ids_for_assembly Cascade-Discovery) komplett — Trait-Erweiterung + SQLx-Impl + Pitfall-4-Mock-Sync, 3 grüne neue Tests, RED+GREEN-Commits (`8b37b32`, `c25d48f`), SUMMARY.md geschrieben.
 
-**Next action:** Plan 03-02 (HelperTokenDao::list_session_ids_for_assembly), 03-03 (Cascade-Invalidation in close_assembly), oder 03-04 (AttendanceService Trait) — alle in Wave 1 parallelisierbar gegen Plan 01-Output.
+**Next action:** Plan 03-03 (Cascade-Invalidation in close_assembly — depends on Plan 02), Plan 03-04 (AttendanceService Trait — Wave 1, kein Konflikt mit Plans 02/03).
 
-**Files written this session:**
+**Files written this session (Plan 02):**
 
-- `migrations/sqlite/20260504000000_create_attendance_table.sql` (NEW — Schema-DDL)
-- `genossi_dao/src/attendance.rs` (NEW — Trait + Entities + 3 Tests)
-- `genossi_dao_impl_sqlite/src/attendance.rs` (NEW — Impl + 6 Tests)
-- `genossi_dao/src/lib.rs` (MOD — pub mod attendance)
-- `genossi_dao_impl_sqlite/src/lib.rs` (MOD — pub mod attendance)
-- `.planning/phases/03-attendance-aggregat-cascade-invalidation/03-01-SUMMARY.md` (NEW)
+- `genossi_dao/src/helper_token.rs` (MOD — Trait-Method nach `all_for_assembly` ergänzt)
+- `genossi_dao_impl_sqlite/src/helper_token.rs` (MOD — SQLx-Impl + 3 Modul-Tests)
+- `genossi_service_impl/src/helper_token.rs` (MOD — Pitfall 4: hand-rolled `TestHelperTokenDao`-Mock-Set ergänzt)
+- `.planning/phases/03-attendance-aggregat-cascade-invalidation/03-02-SUMMARY.md` (NEW)
 - `.planning/STATE.md` (MOD — diese Aktualisierung)
-- `.planning/ROADMAP.md` (MOD — Plan 01 Progress via SDK)
-- `.planning/REQUIREMENTS.md` (MOD — ATTN-03/ATTN-04/SYNC-02 als complete markiert)
+- `.planning/ROADMAP.md` (MOD — Plan 02 Progress via SDK)
+- `.planning/REQUIREMENTS.md` (MOD — ATTN-06 als complete markiert)
 
 ---
 *State initialized: 2026-05-02*
 *Phase 03 Plan 01 completed: 2026-05-04*
+*Phase 03 Plan 02 completed: 2026-05-04*

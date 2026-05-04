@@ -34,7 +34,7 @@ Anforderungen für den GV-Anwesenheits-Milestone. Jede Anforderung wird im Roadm
 - [x] **ATTN-03**: Helfer kann ein Mitglied als anwesend markieren; API ist idempotent (PUT, Doppel-Klick erzeugt keinen Fehler, kein duplizierter Eintrag)
 - [x] **ATTN-04**: Helfer kann ein Mitglied wieder austragen (anwesend → nicht-anwesend); ebenfalls idempotent
 - [ ] **ATTN-05**: Anwesenheits-Markierungen werden bewusst **nicht** in der Audit-Hashchain protokolliert (vom User explizit ausgeschlossen)
-- [ ] **ATTN-06**: Helfer-View ist auch für eingeloggte Vorstands-User direkt aufrufbar — ohne QR-Token, mit derselben UI; Permission-Check auf Service-Layer akzeptiert beide Auth-Pfade
+- [x] **ATTN-06**: Helfer-View ist auch für eingeloggte Vorstands-User direkt aufrufbar — ohne QR-Token, mit derselben UI; Permission-Check auf Service-Layer akzeptiert beide Auth-Pfade
 
 ### Sync zwischen mehreren Helfern
 
@@ -102,7 +102,7 @@ Phase-Mapping aus Roadmap (2026-05-02). Coverage: 22/22 v1 Requirements gemappt,
 | ATTN-03 | Phase 3 | Complete |
 | ATTN-04 | Phase 3 | Complete |
 | ATTN-05 | Phase 3 | Pending |
-| ATTN-06 | Phase 3 | Pending |
+| ATTN-06 | Phase 3 | Complete |
 | SYNC-01 | Phase 4 | Pending |
 | SYNC-02 | Phase 3 | Complete |
 

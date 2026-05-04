@@ -70,7 +70,7 @@
   9. Vorstand kann nach GV-Schluss Anwesenheits-Einträge ergänzen oder entfernen (Post-Close-Edit-Endpoint), ohne dass sich der GV-Status ändert; die Aktionen erscheinen weiterhin in der Audit-Hashchain (ASSY-06)
 **Plans**: 6 plans
 - [x] 03-01-PLAN.md — Migration + AttendanceDao Trait + SQLite-Impl (UPSERT, Soft-Delete, LEFT-JOIN-Liste, Snapshot-Check)
-- [ ] 03-02-PLAN.md — HelperTokenDao::list_session_ids_for_assembly Erweiterung (Cascade-Discovery-Anker)
+- [x] 03-02-PLAN.md — HelperTokenDao::list_session_ids_for_assembly Erweiterung (Cascade-Discovery-Anker)
 - [ ] 03-03-PLAN.md — ClaimContext::as_helper Trait-Default + AuthenticatedContext-Override (Helper-Discrimination)
 - [ ] 03-04-PLAN.md — AttendanceService Trait + Domain-Types + AttendanceMemberTO/AttendanceStatsTO (PII-Whitelist)
 - [ ] 03-05-PLAN.md — AttendanceServiceImpl mit check_assembly_access + 4 Methods + AssemblyServiceImpl Cascade-Erweiterung
