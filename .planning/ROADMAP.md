@@ -73,7 +73,7 @@
 - [x] 03-02-PLAN.md — HelperTokenDao::list_session_ids_for_assembly Erweiterung (Cascade-Discovery-Anker)
 - [x] 03-03-PLAN.md — ClaimContext::as_helper Trait-Default + AuthenticatedContext-Override (Helper-Discrimination)
 - [x] 03-04-PLAN.md — AttendanceService Trait + Domain-Types + AttendanceMemberTO/AttendanceStatsTO (PII-Whitelist)
-- [ ] 03-05-PLAN.md — AttendanceServiceImpl mit check_assembly_access + 4 Methods + AssemblyServiceImpl Cascade-Erweiterung
+- [x] 03-05-PLAN.md — AttendanceServiceImpl mit check_assembly_access + 4 Methods + AssemblyServiceImpl Cascade-Erweiterung
 - [ ] 03-06-PLAN.md — REST-Handler + Router + DI-Wiring + 5 E2E-Tests (Race, Cascade, PII-Leak, Hash-Chain, Post-Close-Edit)
 
 ### Phase 4: Frontend (Component-First) mit QR-Scanner und Manual-Code-Fallback

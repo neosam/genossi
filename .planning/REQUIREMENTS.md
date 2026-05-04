@@ -14,7 +14,7 @@ Anforderungen für den GV-Anwesenheits-Milestone. Jede Anforderung wird im Roadm
 - [ ] **ASSY-03**: Vorstand kann eine offene GV schließen (Status `Geschlossen`); alle Helfer-Sessions zu dieser GV werden ab diesem Moment ungültig
 - [x] **ASSY-04**: Vorstand sieht während einer offenen GV einen Live-Counter „X von Y anwesend" (X = aktuelle Anwesende, Y = Member-Universe-Snapshot aus ASSY-02); Aktualisierung bei Refresh/Polling, kein Push
 - [ ] **ASSY-05**: GV-Daten (Anwesenheits-Liste + Anzahl Anwesender + Member-Universe-Snapshot) bleiben nach GV-Schluss persistent für Protokoll-Export und retrospektive Statistik
-- [ ] **ASSY-06**: Vorstand kann auch nach GV-Schluss noch Anwesenheits-Einträge hinzufügen oder entfernen (z. B. nachgemeldete Anwesenheiten); GV-Status bleibt dabei `Geschlossen` (kein Re-Open)
+- [x] **ASSY-06**: Vorstand kann auch nach GV-Schluss noch Anwesenheits-Einträge hinzufügen oder entfernen (z. B. nachgemeldete Anwesenheiten); GV-Status bleibt dabei `Geschlossen` (kein Re-Open)
 - [ ] **ASSY-07**: Assembly-Lifecycle-Vorgänge (`create`, `open`, `close`, post-close-Korrektur) werden via bestehender Audit-Hashchain protokolliert
 
 ### Helfer-Token & Session
@@ -33,7 +33,7 @@ Anforderungen für den GV-Anwesenheits-Milestone. Jede Anforderung wird im Roadm
 - [x] **ATTN-02**: Helfer kann in der Liste suchen (Substring-Match auf Name oder Mitgliedsnummer)
 - [x] **ATTN-03**: Helfer kann ein Mitglied als anwesend markieren; API ist idempotent (PUT, Doppel-Klick erzeugt keinen Fehler, kein duplizierter Eintrag)
 - [x] **ATTN-04**: Helfer kann ein Mitglied wieder austragen (anwesend → nicht-anwesend); ebenfalls idempotent
-- [ ] **ATTN-05**: Anwesenheits-Markierungen werden bewusst **nicht** in der Audit-Hashchain protokolliert (vom User explizit ausgeschlossen)
+- [x] **ATTN-05**: Anwesenheits-Markierungen werden bewusst **nicht** in der Audit-Hashchain protokolliert (vom User explizit ausgeschlossen)
 - [x] **ATTN-06**: Helfer-View ist auch für eingeloggte Vorstands-User direkt aufrufbar — ohne QR-Token, mit derselben UI; Permission-Check auf Service-Layer akzeptiert beide Auth-Pfade
 
 ### Sync zwischen mehreren Helfern
@@ -88,7 +88,7 @@ Phase-Mapping aus Roadmap (2026-05-02). Coverage: 22/22 v1 Requirements gemappt,
 | ASSY-03 | Phase 1 | Pending |
 | ASSY-04 | Phase 3 | Complete |
 | ASSY-05 | Phase 1 | Pending |
-| ASSY-06 | Phase 3 | Pending |
+| ASSY-06 | Phase 3 | Complete |
 | ASSY-07 | Phase 1 | Pending |
 | HLPR-01 | Phase 2 | Pending |
 | HLPR-02 | Phase 2 | Pending |
@@ -101,7 +101,7 @@ Phase-Mapping aus Roadmap (2026-05-02). Coverage: 22/22 v1 Requirements gemappt,
 | ATTN-02 | Phase 3 | Complete |
 | ATTN-03 | Phase 3 | Complete |
 | ATTN-04 | Phase 3 | Complete |
-| ATTN-05 | Phase 3 | Pending |
+| ATTN-05 | Phase 3 | Complete |
 | ATTN-06 | Phase 3 | Complete |
 | SYNC-01 | Phase 4 | Pending |
 | SYNC-02 | Phase 3 | Complete |

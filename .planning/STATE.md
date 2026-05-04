@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-05-04T08:14:34.603Z"
+last_updated: "2026-05-04T08:35:21.359Z"
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 19
-  completed_plans: 17
-  percent: 89
+  completed_plans: 18
+  percent: 95
 ---
 
 # State: Genossi — GV-Anwesenheits-Erfassung
@@ -28,11 +28,11 @@ progress:
 ## Current Position
 
 Phase: 03 (attendance-aggregat-cascade-invalidation) — EXECUTING
-Plan: 5 of 6 (Plans 01 + 02 + 03 + 04 complete)
+Plan: 6 of 6 (Plans 01 + 02 + 03 + 04 + 05 complete)
 **Phase:** 3
-**Plan:** 04 — AttendanceService Trait + Wire-Types (DONE 2026-05-04)
-**Status:** Executing Phase 03 (Wave 1 + Wave 2 partial — Plans 01+02+03+04 done; 05+06 pending)
-**Progress:** [█████████░] 89%
+**Plan:** 05 — AttendanceServiceImpl + close_assembly Cascade (DONE 2026-05-04)
+**Status:** Executing Phase 03 (Wave 1 + Wave 2 + Wave 3 done — Plans 01+02+03+04+05 done; 06 pending)
+**Progress:** [█████████▓] 95%
 
 ```
 [ ] Phase 1: Assembly-Aggregat + Audit-Hardening                     0/0 plans
@@ -57,6 +57,7 @@ Overall: 0% complete
 | Phase 03 P02 | ~10 min | 1 tasks | 3 files |
 | Phase 03 P03 | ~7 min | 1 tasks | 1 files |
 | Phase 03 P04 | 8min | 2 tasks | 3 files |
+| Phase 03 P05 | ~13 min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -72,6 +73,10 @@ Overall: 0% complete
 | Plan 03-03: `permission::MockContext` (`genossi_service/src/permission.rs:150`) ist Unit-Struct ohne `Default`-Impl — distinkt von `auth_types::MockContext`. Plan 05+ Test-Fixtures müssen Unit-Construct-Syntax `MockContext` verwenden, kein `::default()`. | Phase 3, Plan 03 |
 | Plan 03-04: AttendanceService-Trait-Test 3 nutzt `#[test]` (sync) statt `#[tokio::test]` (async) — `genossi_service` hat keine tokio dev-dependency. Test verifiziert nur die `#[automock]`-Builder-API (`expect_*` für alle 4 Methods); der reale `await`-Pfad wird in Plan 06's REST-Tests gegen `AttendanceServiceImpl` exerciert. Symmetrisches Pattern für zukünftige genossi_service-Trait-Tests. | Phase 3, Plan 04 |
 | Plan 03-04: AttendanceMemberTO-PII-Guard hat 3 Verteidigungslinien: (1) strikte 7-Feld-Whitelist auf Struct-Ebene, (2) Doc-Comment-Verbot für `From<&MemberTO>`, (3) Konversion exklusiv aus `AttendanceMemberRow` (DAO-7-Spalten-SELECT-Whitelist). Plan 06's E2E-Test verifiziert das gleiche Pattern auf HTTP-Response-JSON. | Phase 3, Plan 04 |
+| Plan 03-05: `check_assembly_access` Permission-Funnel ist EXKLUSIV im AttendanceServiceImpl (NICHT im PermissionService) und wird von ALLEN 4 Endpoint-Methods als erster DAO-touchender Schritt aufgerufen. Helper-Branch terminiert mit `return Ok(assembly)` nach Status-Check — fällt NIEMALS in den admin-Branch durch (failure-closed). Admin-Branch hat KEINEN Status-Check (D-20, ASSY-06). | Phase 3, Plan 05 |
+| Plan 03-05: `close_assembly` Cascade-Reihenfolge: `audited_update!` → `list_session_ids_for_assembly` (in tx) → `tx.commit()` → pool-loop `delete_session` mit `tracing::warn!` bei Fehlern. Conflict-2-Resolution: pool-basierte `delete_session` deadlockt gegen offenen BEGIN, daher MUSS commit VOR der Loop. Continue-on-Error mit Defense-in-Depth via Phase-2 D-18 verify_user_session-Status-Check. | Phase 3, Plan 05 |
+| Plan 03-05: `genossi_bin` `helper_token_dao` wird BEVOR `AssemblyServiceImpl`-Construction angelegt und dann mit `HelperTokenServiceImpl` per `Arc::clone` geteilt — exakt EIN HelperTokenDaoImpl pro Prozess. Pattern-Anker für künftige Service-DAO-Sharing-Setups. | Phase 3, Plan 05 |
+| Plan 03-05: Hand-rolled `TestHelperTokenDao` + `TestPermissionDao` Mocks duplizieren bewusst den existierenden Mock in `helper_token.rs::tests` (Pitfall 4). Beide Test-Module müssen synchron mitgepflegt werden, weil mockall-`automock` den `Transaction`-Type hartkodiert; cross-Module-Sharing erfordert `pub(crate)`-Refactor (out-of-scope). | Phase 3, Plan 05 |
 | One-Time-Use-QR pro Helfer | Verhindert Token-Weitergabe an Unbefugte | Phase 2 |
 | Helfer-Memo-Name = Freitext, kein Identitäts-Anker | Reine UX-Hilfe für Vorstand beim Drucken | Phase 2 |
 | GV-Status final nach Schluss; Vorstand-Korrekturen ohne Re-Open | Vermeidet Status-Pingpong, hält Audit-Story einfach | Phase 1 |
@@ -102,19 +107,20 @@ Keine.
 
 ## Session Continuity
 
-**Last action:** Plan 03-04 (AttendanceService Trait + AttendanceMemberTO/AttendanceStatsTO Wire-Types) komplett — Service-Trait + Domain-Type + 2 REST-TOs mit From-Impls und PII-Guard, 9 grüne Modul-Tests (3 in genossi_service + 6 in genossi_rest_types), 2 Task-Commits (`73bd75b`, `6bf493e`), SUMMARY.md geschrieben.
+**Last action:** Plan 03-05 (AttendanceServiceImpl + close_assembly Cascade-Invalidation) komplett — AttendanceServiceImpl mit zentralem `check_assembly_access` Permission-Funnel + 4 Endpoint-Methods (list_members/mark_present/mark_absent/stats), AssemblyServiceImpl::close_assembly um Cascade-Loop erweitert (Conflict-2: commit BEFORE pool-loop, Continue-on-Error mit tracing::warn!), 2 neue Deps (HelperTokenDao + PermissionDao) auch in genossi_bin gewired, 19 grüne Service-Layer-Tests (14 attendance + 4 cascade + 1 Phase-1-Regression), 2 Task-Commits (`8624b1c`, `4a18d62`), SUMMARY.md geschrieben.
 
-**Next action:** Plan 03-05 (AttendanceServiceImpl — Wave 2, depends on 03-01 + 03-03 + 03-04). Plan 03-06 ist Wave 4 (REST + E2E).
+**Next action:** Plan 03-06 (REST + E2E — Wave 4, letzter Plan dieser Phase). REST-Handler binden gegen AttendanceService, RestStateImpl bekommt attendance_service-Field, E2E-Tests für SYNC-02-Race + Cascade-DB + PII-Leak + Hash-Chain-Stability + Post-Close-Edit + Helfer-vs-Vorstand.
 
-**Files written this session (Plan 04):**
+**Files written this session (Plan 05):**
 
-- `genossi_service/src/attendance.rs` (NEW — AttendanceService-Trait + AttendanceStats + 3 Modul-Tests)
-- `genossi_service/src/lib.rs` (MOD — `pub mod attendance;`)
-- `genossi_rest_types/src/lib.rs` (MOD — AttendanceMemberTO + AttendanceStatsTO + From-Impls + 6 Modul-Tests)
-- `.planning/phases/03-attendance-aggregat-cascade-invalidation/03-04-SUMMARY.md` (NEW)
+- `genossi_service_impl/src/attendance.rs` (NEW — AttendanceServiceImpl + check_assembly_access + 4 Methods + 14 Modul-Tests + TestContext + handgeschriebene Mocks)
+- `genossi_service_impl/src/lib.rs` (MOD — `pub mod attendance;`)
+- `genossi_service_impl/src/assembly.rs` (MOD — gen_service_impl-Erweiterung um HelperTokenDao + PermissionDao + close_assembly-Cascade-Body + 4 Cascade-Tests + handgeschriebene TestHelperTokenDao/TestPermissionDao Mocks)
+- `genossi_bin/src/lib.rs` (MOD — AssemblyServiceDeps wiring + AssemblyServiceImpl-Construction um 2 neue Felder erweitert + helper_token_dao Construction-Order vorgezogen)
+- `.planning/phases/03-attendance-aggregat-cascade-invalidation/03-05-SUMMARY.md` (NEW)
 - `.planning/STATE.md` (MOD — diese Aktualisierung)
-- `.planning/ROADMAP.md` (MOD — Plan 04 Progress)
-- `.planning/REQUIREMENTS.md` (MOD — ATTN-01 + ATTN-02 + ASSY-04 als TO-Vertrag complete)
+- `.planning/ROADMAP.md` (MOD — Plan 05 Progress)
+- `.planning/REQUIREMENTS.md` (MOD — ASSY-04 + ASSY-06 + ATTN-01..06 + SYNC-02 als Service-Vertrag complete)
 
 ---
 *State initialized: 2026-05-02*
@@ -122,3 +128,4 @@ Keine.
 *Phase 03 Plan 02 completed: 2026-05-04*
 *Phase 03 Plan 03 completed: 2026-05-04*
 *Phase 03 Plan 04 completed: 2026-05-04*
+*Phase 03 Plan 05 completed: 2026-05-04*
