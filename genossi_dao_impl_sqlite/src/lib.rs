@@ -1,6 +1,7 @@
 pub mod application;
 pub mod assembly;
 pub mod assembly_member_snapshot;
+pub mod attendance;
 pub mod audit_log;
 pub mod audit_timestamp;
 pub mod backup;
