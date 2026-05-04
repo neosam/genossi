@@ -40,10 +40,7 @@ use uuid::Uuid;
 use crate::{error_handler, Context, RestError, RestStateDef};
 
 pub trait AttendanceRestState: Clone + Send + Sync + 'static {
-    type AttendanceService: AttendanceService<Context = crate::ContextType>
-        + Send
-        + Sync
-        + 'static;
+    type AttendanceService: AttendanceService<Context = crate::ContextType> + Send + Sync + 'static;
     fn attendance_service(&self) -> Arc<Self::AttendanceService>;
 }
 
@@ -100,8 +97,7 @@ pub async fn list_attendance_members<RestState: RestStateDef + AttendanceRestSta
                 .list_members(assembly_id, query.q, auth)
                 .await
                 .map_err(map_attendance_error)?;
-            let tos: Vec<AttendanceMemberTO> =
-                rows.iter().map(AttendanceMemberTO::from).collect();
+            let tos: Vec<AttendanceMemberTO> = rows.iter().map(AttendanceMemberTO::from).collect();
             let body = serde_json::to_string(&tos)
                 .map_err(|e| RestError::InternalError(format!("serialize: {}", e)))?;
             Ok(Response::builder()
@@ -143,10 +139,7 @@ pub async fn mark_attendance_present<RestState: RestStateDef + AttendanceRestSta
                 .mark_present(assembly_id, member_id, auth)
                 .await
                 .map_err(map_attendance_error)?;
-            Ok(Response::builder()
-                .status(200)
-                .body(Body::empty())
-                .unwrap())
+            Ok(Response::builder().status(200).body(Body::empty()).unwrap())
         })
         .await,
     )
@@ -181,10 +174,7 @@ pub async fn mark_attendance_absent<RestState: RestStateDef + AttendanceRestStat
                 .mark_absent(assembly_id, member_id, auth)
                 .await
                 .map_err(map_attendance_error)?;
-            Ok(Response::builder()
-                .status(200)
-                .body(Body::empty())
-                .unwrap())
+            Ok(Response::builder().status(200).body(Body::empty()).unwrap())
         })
         .await,
     )
@@ -240,8 +230,7 @@ pub fn generate_attendance_route<RestState: RestStateDef + AttendanceRestState>(
         .route("/members", get(list_attendance_members::<RestState>))
         .route(
             "/{member_id}",
-            put(mark_attendance_present::<RestState>)
-                .delete(mark_attendance_absent::<RestState>),
+            put(mark_attendance_present::<RestState>).delete(mark_attendance_absent::<RestState>),
         )
 }
 
@@ -250,8 +239,7 @@ pub fn generate_attendance_route<RestState: RestStateDef + AttendanceRestState>(
 /// Lives under the assembly namespace because the live counter is
 /// semantically an assembly aspect, even though the implementation is in
 /// `AttendanceService` (D-23).
-pub fn generate_stats_route<RestState: RestStateDef + AttendanceRestState>(
-) -> Router<RestState> {
+pub fn generate_stats_route<RestState: RestStateDef + AttendanceRestState>() -> Router<RestState> {
     Router::new().route("/stats", get(get_assembly_stats::<RestState>))
 }
 

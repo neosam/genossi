@@ -646,14 +646,15 @@ impl RestStateImpl {
         // PermissionService, TransactionDao. No UuidService, no AuditLogDao
         // (D-08, ATTN-05 — attendance is not audited).
         let attendance_dao = Arc::new(AttendanceDao::new(pool.clone()));
-        let attendance_service = Arc::new(genossi_service_impl::attendance::AttendanceServiceImpl {
-            attendance_dao,
-            assembly_dao: assembly_dao.clone(),
-            member_dao: member_dao.clone(),
-            assembly_member_snapshot_dao,
-            permission_service: permission_service.clone(),
-            transaction_dao: transaction_dao.clone(),
-        });
+        let attendance_service =
+            Arc::new(genossi_service_impl::attendance::AttendanceServiceImpl {
+                attendance_dao,
+                assembly_dao: assembly_dao.clone(),
+                member_dao: member_dao.clone(),
+                assembly_member_snapshot_dao,
+                permission_service: permission_service.clone(),
+                transaction_dao: transaction_dao.clone(),
+            });
 
         // Plan 02-07: HelperTokenServiceImpl with 8 deps (HelperTokenDao,
         // AssemblyDao, AuditLogDao, PermissionService, PermissionDao,
