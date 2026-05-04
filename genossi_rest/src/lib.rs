@@ -1,5 +1,6 @@
 pub mod application;
 pub mod assembly;
+pub mod attendance;
 pub mod audit_log;
 pub mod audit_timestamp;
 pub mod auth;
@@ -265,6 +266,7 @@ pub trait RestStateDef:
         (path = "/api/applications", api = application::ApiDoc),
         (path = "/api/assembly", api = assembly::ApiDoc),
         (path = "/api/assembly/{assembly_id}/helper-tokens", api = helper_token::ApiDoc),
+        (path = "/api/attendance/{assembly_id}", api = attendance::ApiDoc),
         (path = "/api/audit", api = audit_log::ApiDoc),
         (path = "/api/audit/timestamps", api = audit_timestamp::ApiDoc),
         (path = "/api/session", api = session_management::ApiDoc)
@@ -430,6 +432,7 @@ pub async fn create_app<
         + application::ApplicationRestState
         + assembly::AssemblyRestState
         + helper_token::HelperTokenRestState
+        + attendance::AttendanceRestState
         + audit_log::AuditRestState
         + audit_timestamp::TimestampRestState,
 >(
@@ -601,6 +604,18 @@ pub async fn create_app<
             "/api/assembly/{assembly_id}/helper-tokens",
             helper_token::generate_route::<RestState>(),
         )
+        // Phase 3 Plan 06 (D-21): attendance live-counter under the assembly
+        // namespace because the counter is semantically an assembly aspect,
+        // even though the implementation lives in AttendanceService (D-23).
+        .nest(
+            "/api/assembly/{assembly_id}",
+            attendance::generate_stats_route::<RestState>(),
+        )
+        // Phase 3 Plan 06 (D-21): attendance toggle + reduced member list.
+        .nest(
+            "/api/attendance/{assembly_id}",
+            attendance::generate_attendance_route::<RestState>(),
+        )
         .nest("/api/audit", audit_log::generate_route::<RestState>())
         .nest(
             "/api/audit/timestamps",
@@ -721,6 +736,7 @@ pub async fn start_server<
         + application::ApplicationRestState
         + assembly::AssemblyRestState
         + helper_token::HelperTokenRestState
+        + attendance::AttendanceRestState
         + audit_log::AuditRestState
         + audit_timestamp::TimestampRestState,
 >(
