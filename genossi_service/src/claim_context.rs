@@ -151,9 +151,7 @@ mod tests {
         // assembly_id="not-a-uuid" → Deserialize fails (Uuid type) → None.
         let ctx = AuthenticatedContext {
             user_id: Arc::from("helper:abc"),
-            claims: Some(Arc::from(
-                r#"{"kind":"helper","assembly_id":"not-a-uuid"}"#,
-            )),
+            claims: Some(Arc::from(r#"{"kind":"helper","assembly_id":"not-a-uuid"}"#)),
         };
         assert!(ctx.as_helper().is_none());
     }
