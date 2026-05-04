@@ -1,15 +1,64 @@
+use uuid::Uuid;
+
 use crate::claim_utils;
 
 /// Trait for contexts that can provide claim information
 pub trait ClaimContext {
     /// Check if this context has claims
     fn has_claims(&self) -> bool;
+
+    /// Helper-discrimination (Phase 3, D-17/D-18; resolves Open Question 1 in 03-RESEARCH.md).
+    ///
+    /// Returns `Some(assembly_id)` if this context represents a redeemed
+    /// Helfer-Token (claim `kind == "helper"` AND parseable `assembly_id`); else `None`.
+    ///
+    /// **The Phase-2 claims schema (genossi_service_impl/src/session.rs:17-30) is**
+    /// `{"kind":"helper","assembly_id":"<uuid-string>"}` — there is NO `session_id`
+    /// field. The session_id is the SessionEntity row id, available via
+    /// `AuthenticatedContext.user_id` (format `helper:<token_id>`); it is NOT
+    /// part of the claim JSON. Inside `check_assembly_access` (Plan 05) only
+    /// the assembly_id is needed (compare against endpoint aid + check
+    /// `assembly.status == Open`). Cascade-side session enumeration in
+    /// `close_assembly` reads session ids from `HelperTokenDao::list_session_ids_for_assembly`,
+    /// not from this method.
+    ///
+    /// Default impl: `None` — used by `()` (automock) and `MockContext`
+    /// (mock_auth uses cookie-format `helper:<aid>:<tid>` instead of claims;
+    /// see Phase 2 D-15 / D-16). Only `AuthenticatedContext` (oidc build)
+    /// overrides this method to parse the claims JSON.
+    fn as_helper(&self) -> Option<Uuid> {
+        None
+    }
 }
 
 // Implement for AuthenticatedContext
 impl ClaimContext for crate::auth_types::AuthenticatedContext {
     fn has_claims(&self) -> bool {
         claim_utils::has_claims(self)
+    }
+
+    fn as_helper(&self) -> Option<Uuid> {
+        // Defensive parse — malformed JSON or missing fields → None (failure-closed).
+        // Claims schema produced by SessionServiceImpl in Phase 2 (D-16),
+        // verbatim from genossi_service_impl/src/session.rs:17-30:
+        //   #[derive(Deserialize)] struct HelperClaims { kind: String, assembly_id: Uuid }
+        //   → JSON: { "kind": "helper", "assembly_id": "<uuid-string>" }
+        // NO `session_id` field — see method doc-comment.
+        let claims_str = self.claims.as_ref()?;
+
+        // Mirror the Phase-2 HelperClaims struct locally — keeps the Deserialize
+        // contract identical to the producer side (single source of truth).
+        #[derive(serde::Deserialize)]
+        struct HelperClaims {
+            kind: String,
+            assembly_id: Uuid,
+        }
+
+        let parsed: HelperClaims = serde_json::from_str(claims_str.as_ref()).ok()?;
+        if parsed.kind != "helper" {
+            return None;
+        }
+        Some(parsed.assembly_id)
     }
 }
 
@@ -18,6 +67,8 @@ impl ClaimContext for crate::permission::MockContext {
     fn has_claims(&self) -> bool {
         false
     }
+    // as_helper() inherits Default — returns None.
+    // mock_auth uses cookie-pattern (helper:<aid>:<tid>), not claims.
 }
 
 // Implement for () used in automock
@@ -25,6 +76,7 @@ impl ClaimContext for () {
     fn has_claims(&self) -> bool {
         false
     }
+    // as_helper() inherits Default — returns None.
 }
 
 #[cfg(test)]
@@ -48,7 +100,10 @@ mod tests {
 
     #[test]
     fn test_as_helper_for_mock_context_returns_none() {
-        assert!(MockContext::default().as_helper().is_none());
+        // permission::MockContext is a unit-struct (no fields, no Default).
+        // mock_auth uses cookie-pattern (helper:<aid>:<tid>), not claims —
+        // so this context never carries helper info.
+        assert!(MockContext.as_helper().is_none());
     }
 
     #[test]
