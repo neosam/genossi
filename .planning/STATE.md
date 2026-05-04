@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-05-04T08:35:21.359Z"
+last_updated: "2026-05-04T08:58:51.768Z"
 progress:
   total_phases: 5
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 19
-  completed_plans: 18
-  percent: 95
+  completed_plans: 19
+  percent: 100
 ---
 
 # State: Genossi — GV-Anwesenheits-Erfassung
@@ -27,12 +27,12 @@ progress:
 
 ## Current Position
 
-Phase: 03 (attendance-aggregat-cascade-invalidation) — EXECUTING
-Plan: 6 of 6 (Plans 01 + 02 + 03 + 04 + 05 complete)
-**Phase:** 3
-**Plan:** 05 — AttendanceServiceImpl + close_assembly Cascade (DONE 2026-05-04)
-**Status:** Executing Phase 03 (Wave 1 + Wave 2 + Wave 3 done — Plans 01+02+03+04+05 done; 06 pending)
-**Progress:** [█████████▓] 95%
+Phase: 03 (attendance-aggregat-cascade-invalidation) — COMPLETE
+Plan: 6 of 6 (ALL plans complete)
+**Phase:** 3 (COMPLETE — Wave 4 done 2026-05-04)
+**Plan:** 06 — REST handlers + DI-Wiring + 6 E2E tests (DONE 2026-05-04)
+**Status:** Phase 03 complete. Next: Phase 04 (Frontend — Component-First Helper-Page)
+**Progress:** [██████████] 100%
 
 ```
 [ ] Phase 1: Assembly-Aggregat + Audit-Hardening                     0/0 plans
@@ -58,6 +58,7 @@ Overall: 0% complete
 | Phase 03 P03 | ~7 min | 1 tasks | 1 files |
 | Phase 03 P04 | 8min | 2 tasks | 3 files |
 | Phase 03 P05 | ~13 min | 2 tasks | 4 files |
+| Phase 03 P06 | ~15 min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -77,6 +78,10 @@ Overall: 0% complete
 | Plan 03-05: `close_assembly` Cascade-Reihenfolge: `audited_update!` → `list_session_ids_for_assembly` (in tx) → `tx.commit()` → pool-loop `delete_session` mit `tracing::warn!` bei Fehlern. Conflict-2-Resolution: pool-basierte `delete_session` deadlockt gegen offenen BEGIN, daher MUSS commit VOR der Loop. Continue-on-Error mit Defense-in-Depth via Phase-2 D-18 verify_user_session-Status-Check. | Phase 3, Plan 05 |
 | Plan 03-05: `genossi_bin` `helper_token_dao` wird BEVOR `AssemblyServiceImpl`-Construction angelegt und dann mit `HelperTokenServiceImpl` per `Arc::clone` geteilt — exakt EIN HelperTokenDaoImpl pro Prozess. Pattern-Anker für künftige Service-DAO-Sharing-Setups. | Phase 3, Plan 05 |
 | Plan 03-05: Hand-rolled `TestHelperTokenDao` + `TestPermissionDao` Mocks duplizieren bewusst den existierenden Mock in `helper_token.rs::tests` (Pitfall 4). Beide Test-Module müssen synchron mitgepflegt werden, weil mockall-`automock` den `Transaction`-Type hartkodiert; cross-Module-Sharing erfordert `pub(crate)`-Refactor (out-of-scope). | Phase 3, Plan 05 |
+| Plan 03-06: Differential `map_attendance_error` (PermissionDenied → 403 Forbidden) lebt LOKAL in `genossi_rest/src/attendance.rs`, NICHT als globaler `From<ServiceError>`-Override. Begründung: globale Änderung würde Phase-1+2-Endpoints brechen. Pattern reusable für künftige Endpoint-Familien mit eigener Status-Code-Policy. | Phase 3, Plan 06 |
+| Plan 03-06: Stats-Endpoint registriert als separater `Router::nest("/api/assembly/{assembly_id}", attendance::generate_stats_route())` neben `assembly::generate_route()` unter `/api/assembly`. Axum erlaubt mehrere `.nest`-Aufrufe mit unterschiedlich-spezifischen Pfad-Prefixes. Pattern für cross-namespace-Endpoints, deren Implementation in einem anderen Service als der Pfad-Namespace lebt. | Phase 3, Plan 06 |
+| Plan 03-06: `assembly_member_snapshot_dao` jetzt Arc-shared via `.clone()` zwischen AssemblyServiceImpl und AttendanceServiceImpl — exakt EIN DAO pro Prozess (Mirror des helper_token_dao-Sharing-Patterns von Plan 05). | Phase 3, Plan 06 |
+| Plan 03-06: Hash-chain-Burst-Test reduziert von 100 auf 40 Toggles — global `api_rate_layer` cap (60 burst, 1/sec refill) hätte 100 Toggles + 4 surrounding REST calls als 429 Too Many Requests gedrosselt. ATTN-05-Invariante (count_before == count_after) ist unabhängig von der Burst-Größe; 40 reicht für volle Verifikation. | Phase 3, Plan 06 |
 | One-Time-Use-QR pro Helfer | Verhindert Token-Weitergabe an Unbefugte | Phase 2 |
 | Helfer-Memo-Name = Freitext, kein Identitäts-Anker | Reine UX-Hilfe für Vorstand beim Drucken | Phase 2 |
 | GV-Status final nach Schluss; Vorstand-Korrekturen ohne Re-Open | Vermeidet Status-Pingpong, hält Audit-Story einfach | Phase 1 |
@@ -107,20 +112,21 @@ Keine.
 
 ## Session Continuity
 
-**Last action:** Plan 03-05 (AttendanceServiceImpl + close_assembly Cascade-Invalidation) komplett — AttendanceServiceImpl mit zentralem `check_assembly_access` Permission-Funnel + 4 Endpoint-Methods (list_members/mark_present/mark_absent/stats), AssemblyServiceImpl::close_assembly um Cascade-Loop erweitert (Conflict-2: commit BEFORE pool-loop, Continue-on-Error mit tracing::warn!), 2 neue Deps (HelperTokenDao + PermissionDao) auch in genossi_bin gewired, 19 grüne Service-Layer-Tests (14 attendance + 4 cascade + 1 Phase-1-Regression), 2 Task-Commits (`8624b1c`, `4a18d62`), SUMMARY.md geschrieben.
+**Last action:** Plan 03-06 (REST handlers + DI-Wiring + 6 E2E tests) komplett — Phase 3 vollständig abgeschlossen. 4 attendance REST-Handler in genossi_rest/src/attendance.rs (list_members/mark_present/mark_absent/get_stats) mit lokalem map_attendance_error (PermissionDenied → 403, D-26). RestStateImpl in genossi_bin DI-gewired mit AttendanceServiceImpl + 6 Deps. 6 grüne E2E-Tests gegen real-laufenden HTTP-Server mit in-memory SQLite — alle 9 Phase-3-Requirements (ASSY-04, ASSY-06, ATTN-01..06, SYNC-02) + SC#8-Cascade-DB direkt verifiziert. 234/234 E2E-Tests grün (228 vorher + 6 neu); 4 unit-Tests + 6 E2E = 10 neue grüne Tests. 4 Task-Commits (`a553b6a`, `b72b72c`, `e39af6b`, `e90bd33`).
 
-**Next action:** Plan 03-06 (REST + E2E — Wave 4, letzter Plan dieser Phase). REST-Handler binden gegen AttendanceService, RestStateImpl bekommt attendance_service-Field, E2E-Tests für SYNC-02-Race + Cascade-DB + PII-Leak + Hash-Chain-Stability + Post-Close-Edit + Helfer-vs-Vorstand.
+**Next action:** Phase 04 (Frontend — Component-First Helper-Page). REST-Schemas (AttendanceMemberTO + AttendanceStatsTO + ListMembersQuery) sind stabil; Endpoints sind dokumentiert via Swagger-UI; Phase 4 kann direkt Dioxus-Components gegen die API bauen (helfer-Page, Live-Counter mit ~5s-Polling, Member-Search mit Debounce).
 
-**Files written this session (Plan 05):**
+**Files written this session (Plan 06):**
 
-- `genossi_service_impl/src/attendance.rs` (NEW — AttendanceServiceImpl + check_assembly_access + 4 Methods + 14 Modul-Tests + TestContext + handgeschriebene Mocks)
-- `genossi_service_impl/src/lib.rs` (MOD — `pub mod attendance;`)
-- `genossi_service_impl/src/assembly.rs` (MOD — gen_service_impl-Erweiterung um HelperTokenDao + PermissionDao + close_assembly-Cascade-Body + 4 Cascade-Tests + handgeschriebene TestHelperTokenDao/TestPermissionDao Mocks)
-- `genossi_bin/src/lib.rs` (MOD — AssemblyServiceDeps wiring + AssemblyServiceImpl-Construction um 2 neue Felder erweitert + helper_token_dao Construction-Order vorgezogen)
-- `.planning/phases/03-attendance-aggregat-cascade-invalidation/03-05-SUMMARY.md` (NEW)
+- `genossi_rest/src/attendance.rs` (NEW — 4 Handler + AttendanceRestState-Trait + 2 Router-Builder + map_attendance_error + ApiDoc + 4 Unit-Tests)
+- `genossi_rest/src/lib.rs` (MOD — `pub mod attendance` + ApiDoc-nest + 2 `.nest()` für `/api/attendance/{aid}` und `/api/assembly/{aid}` stats + AttendanceRestState-Bound auf create_app/start_server)
+- `genossi_rest/src/test_server.rs` (MOD — AttendanceRestState-Bound auf start_test_server)
+- `genossi_bin/src/lib.rs` (MOD — type alias AttendanceDao + AttendanceServiceDependencies + AttendanceService + RestStateImpl.attendance_service Field + RestStateImpl::new() Construction + impl AttendanceRestState)
+- `genossi_bin/tests/e2e_tests.rs` (MOD — 4 neue Imports + create_open_assembly_with_members Helper + 6 E2E-Tests)
+- `.planning/phases/03-attendance-aggregat-cascade-invalidation/03-06-SUMMARY.md` (NEW)
 - `.planning/STATE.md` (MOD — diese Aktualisierung)
-- `.planning/ROADMAP.md` (MOD — Plan 05 Progress)
-- `.planning/REQUIREMENTS.md` (MOD — ASSY-04 + ASSY-06 + ATTN-01..06 + SYNC-02 als Service-Vertrag complete)
+- `.planning/ROADMAP.md` (MOD — Phase 3 als COMPLETE markiert)
+- `.planning/REQUIREMENTS.md` (MOD — alle 9 Phase-3-Requirements als END-TO-END-VERIFIED markiert)
 
 ---
 *State initialized: 2026-05-02*
@@ -129,3 +135,5 @@ Keine.
 *Phase 03 Plan 03 completed: 2026-05-04*
 *Phase 03 Plan 04 completed: 2026-05-04*
 *Phase 03 Plan 05 completed: 2026-05-04*
+*Phase 03 Plan 06 completed: 2026-05-04*
+*Phase 03 COMPLETE: 2026-05-04*

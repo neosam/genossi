@@ -74,7 +74,7 @@
 - [x] 03-03-PLAN.md — ClaimContext::as_helper Trait-Default + AuthenticatedContext-Override (Helper-Discrimination)
 - [x] 03-04-PLAN.md — AttendanceService Trait + Domain-Types + AttendanceMemberTO/AttendanceStatsTO (PII-Whitelist)
 - [x] 03-05-PLAN.md — AttendanceServiceImpl mit check_assembly_access + 4 Methods + AssemblyServiceImpl Cascade-Erweiterung
-- [ ] 03-06-PLAN.md — REST-Handler + Router + DI-Wiring + 5 E2E-Tests (Race, Cascade, PII-Leak, Hash-Chain, Post-Close-Edit)
+- [x] 03-06-PLAN.md — REST-Handler + Router + DI-Wiring + 5 E2E-Tests (Race, Cascade, PII-Leak, Hash-Chain, Post-Close-Edit)
 
 ### Phase 4: Frontend (Component-First) mit QR-Scanner und Manual-Code-Fallback
 **Goal**: Vorstand und Helfer bedienen das vollständige GV-Feature über das Dioxus-WASM-Frontend — GV anlegen/öffnen/schließen, QR-Codes erzeugen und drucken, Helfer-Login per QR-Scan ODER manuellem Code, reduzierte Mitgliederliste mit Suche, idempotenter Anwesenheits-Toggle, Live-Counter mit expliziter Y-Beschriftung. Components sind wiederverwendbar in `genossi-frontend/src/component/`, keine inline-RSX-Duplikate.
