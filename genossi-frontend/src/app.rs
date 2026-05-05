@@ -28,22 +28,41 @@ pub fn App() -> Element {
             }
         });
 
-        rsx! {
-            document::Stylesheet { href: "/assets/tailwind.css" }
-            div { class: "flex flex-col min-h-screen",
-                DropdownBase {}
-                div { class: "flex-1",
-                    Auth {
-                        authenticated: rsx! {
-                            Router::<Route> {}
-                        },
-                        unauthenticated: rsx! {
-                            TopBar {}
-                            NotAuthenticated {}
-                        },
-                    }
+        // Phase 4 Plan 07 (D-05/D-07): Layout-Branch für /helper*-Routes.
+        // Helfer haben keinen OIDC-Login → Auth-Wrapper umgehen.
+        // Helfer dürfen kein TopBar/Footer mit Vorstand-Links sehen → Datenschutz.
+        let pathname = web_sys::window()
+            .and_then(|w| w.location().pathname().ok())
+            .unwrap_or_default();
+        let is_helper_route = pathname.starts_with("/helper");
+
+        if is_helper_route {
+            rsx! {
+                document::Stylesheet { href: "/assets/tailwind.css" }
+                div { class: "min-h-screen flex flex-col",
+                    DropdownBase {}
+                    // KEIN TopBar/Footer/Auth-Wrapper für /helper*
+                    Router::<Route> {}
                 }
-                Footer {}
+            }
+        } else {
+            rsx! {
+                document::Stylesheet { href: "/assets/tailwind.css" }
+                div { class: "flex flex-col min-h-screen",
+                    DropdownBase {}
+                    div { class: "flex-1",
+                        Auth {
+                            authenticated: rsx! {
+                                Router::<Route> {}
+                            },
+                            unauthenticated: rsx! {
+                                TopBar {}
+                                NotAuthenticated {}
+                            },
+                        }
+                    }
+                    Footer {}
+                }
             }
         }
     } else {
