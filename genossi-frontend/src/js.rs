@@ -153,3 +153,36 @@ fn copy_with_exec_command(text: &str) -> Result<(), JsValue> {
         Err(JsValue::from_str("execCommand('copy') failed"))
     }
 }
+
+// ─── Phase 4 Plan 02 ─── BarcodeDetector + ZXing-Polyfill bridge ─────────────
+
+/// Browser-native Barcode/QR detection.
+/// NOT available in iOS Safari (any version through 26.5) — see RESEARCH.md §Browser-Support-Realität.
+/// `has_barcode_detector()` MUST be called first; if false, fall back to ZXing-JS polyfill.
+#[wasm_bindgen]
+extern "C" {
+    pub type BarcodeDetector;
+
+    #[wasm_bindgen(constructor)]
+    pub fn new(options: &JsValue) -> BarcodeDetector;
+
+    #[wasm_bindgen(method)]
+    pub fn detect(this: &BarcodeDetector, source: &JsValue) -> js_sys::Promise;
+}
+
+/// Feature detection: `'BarcodeDetector' in window`.
+/// Source: RESEARCH.md §"BarcodeDetector via wasm-bindgen extern".
+#[allow(dead_code)]
+pub fn has_barcode_detector() -> bool {
+    let window = match web_sys::window() {
+        Some(w) => w,
+        None => return false,
+    };
+    js_sys::Reflect::has(&window, &JsValue::from_str("BarcodeDetector")).unwrap_or(false)
+}
+
+/// Asset path for the lazy-loaded ZXing-JS polyfill (used by qr_scanner.rs in Plan 05
+/// when has_barcode_detector() == false).
+/// Manganis fingerprints the path at build time — see Pitfall 7 in RESEARCH.md.
+#[allow(dead_code)]
+pub const ZXING_POLYFILL: manganis::Asset = manganis::asset!("/assets/zxing.umd.min.js");

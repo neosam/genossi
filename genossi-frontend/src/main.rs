@@ -10,6 +10,7 @@ mod base_types;
 mod columns;
 mod component;
 mod error;
+mod helper_code;
 mod i18n;
 mod js;
 mod loader;
