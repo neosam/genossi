@@ -97,7 +97,7 @@
 - [x] 04-06b-PLAN.md — Single-writer mod.rs-Merger: appendet `pub mod` + `pub use` für alle Plan-04/05/06-Components (B-01 Wave-Serialisierung)
 - [x] 04-07-PLAN.md — Routing + App-Layout-Branching: 4 neue Route-Variants + page-Stubs + /helper-Layout-Branch
 - [x] 04-08-PLAN.md — Vorstand-Pages: assemblies (List+Modal) + assembly_details (3-Tab — nutzt Plan-06 BasicsTab/TokenRow/CreateTokenForm + 5 Anwesenheits-Components)
-- [ ] 04-09-PLAN.md — Helfer-Pages: helper_login (HLPR-03 QR+Manual parallel + Auto-Redirect + DelayedLoadingSkeleton W-05) + helper_attendance (HelperShell + 4 shared Components)
+- [x] 04-09-PLAN.md — Helfer-Pages: helper_login (HLPR-03 QR+Manual parallel + Auto-Redirect + DelayedLoadingSkeleton W-05) + helper_attendance (HelperShell + 4 shared Components)
 - [ ] 04-10-PLAN.md — Verifikation: automated VERIFICATION.md + manual UAT-Checklist + Checkpoint
 **UI hint**: yes
 

@@ -8,8 +8,8 @@ progress:
   total_phases: 5
   completed_phases: 3
   total_plans: 30
-  completed_plans: 28
-  percent: 93
+  completed_plans: 29
+  percent: 97
 ---
 
 # State: Genossi — GV-Anwesenheits-Erfassung
@@ -28,11 +28,11 @@ progress:
 ## Current Position
 
 **Phase:** 04 — frontend-component-first-mit-qr-scanner-und-manual-code-fall (EXECUTING)
-**Wave:** 3 of 5 — COMPLETE (2026-05-05)
-**Plans done in Phase 04:** 9 of 11 (04-01, 04-02, 04-03, 04-04, 04-05, 04-06, 04-06b, 04-07, 04-08)
-**Next Wave:** Wave 4 — Plan 04-09 (Helfer-Pages: helper_login + helper_attendance with HelperShell, ATTN-06 reuse)
-**Status:** Executing Phase 04 — Wave 3 complete, awaiting user before Wave 4
-**Progress:** [█████████░] 93% (28/30 plans across milestone)
+**Wave:** 4 of 5 — COMPLETE (2026-05-05)
+**Plans done in Phase 04:** 10 of 11 (04-01..04-09)
+**Next Wave:** Wave 5 — Plan 04-10 (Phase Verification + UAT-Checklist, autonomous: false — User-Checkpoint required)
+**Status:** Executing Phase 04 — Wave 4 complete, awaiting user before Wave 5
+**Progress:** [█████████░] 97% (29/30 plans across milestone)
 
 ```
 [ ] Phase 1: Assembly-Aggregat + Audit-Hardening                     0/0 plans
