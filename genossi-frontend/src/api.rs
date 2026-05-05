@@ -53,6 +53,7 @@ fn status_to_message(status: u16) -> &'static str {
         403 => "Keine Berechtigung für diese Aktion",
         404 => "Nicht gefunden",
         409 => "Konflikt — das Element wurde zwischenzeitlich geändert",
+        410 => "Bereits eingelöst",
         415 => "Dateityp nicht erlaubt",
         422 => "Validierungsfehler",
         429 => "Zu viele Anfragen — bitte warten",
@@ -1488,6 +1489,334 @@ pub async fn revoke_user_sessions(
     Ok(response.json().await?)
 }
 
+// ─── Phase 4 ─── Assembly TOs ───────────────────────────────────────
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum AssemblyStatusTO {
+    Preparation,
+    Open,
+    Closed,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AssemblyTO {
+    pub id: Uuid,
+    pub name: String,
+    #[serde(default)]
+    pub date: Option<String>,
+    #[serde(default)]
+    pub location: Option<String>,
+    pub status: AssemblyStatusTO,
+    #[serde(default)]
+    pub opened_at: Option<String>,
+    #[serde(default)]
+    pub closed_at: Option<String>,
+    #[serde(default)]
+    pub created: Option<String>,
+    #[serde(default)]
+    pub deleted: Option<String>,
+    #[serde(default)]
+    pub version: Option<Uuid>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CreateAssemblyRequest {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub date: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub location: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct UpdateAssemblyRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub date: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub location: Option<String>,
+    pub version: Uuid,
+}
+
+// ─── Phase 4 ─── Helper Token TOs ───────────────────────────────────
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum HelperTokenStatusTO {
+    Open,
+    Used,
+    Revoked,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HelperTokenTO {
+    pub id: Uuid,
+    pub assembly_id: Uuid,
+    pub memo: String,
+    pub status: HelperTokenStatusTO,
+    #[serde(default)]
+    pub used_at: Option<String>,
+    #[serde(default)]
+    pub revoked_at: Option<String>,
+    #[serde(default)]
+    pub created: Option<String>,
+    pub version: Uuid,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HelperTokenCreateResponseTO {
+    pub token: HelperTokenTO,
+    pub code: String,
+    pub qr_svg: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CreateHelperTokenRequest {
+    pub memo: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RedeemRequest {
+    pub code: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RedeemResponse {
+    pub assembly_id: Uuid,
+    pub expires_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HelperSessionTO {
+    pub assembly_id: Uuid,
+    pub assembly_name: String,
+    pub expires_at: String,
+}
+
+// ─── Phase 4 ─── Attendance TOs (PII Whitelist — exactly 7 fields) ──
+
+/// Reduced helper-view of a member.
+///
+/// **WHITELIST CONTRACT:** This struct mirrors the backend
+/// `AttendanceMemberTO` (Phase 3 D-24) which is enforced at the DAO
+/// layer to expose ONLY 7 fields (`member_number`, `first_name`,
+/// `last_name`, `salutation`, `title`, `is_present`, `member_id`).
+/// DO NOT add fields here — the frontend acts as the last line of
+/// defence against accidental PII leaks.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AttendanceMemberTO {
+    pub member_number: i64,
+    pub first_name: String,
+    pub last_name: String,
+    #[serde(default)]
+    pub salutation: Option<String>,
+    #[serde(default)]
+    pub title: Option<String>,
+    pub is_present: bool,
+    pub member_id: Uuid,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AttendanceStatsTO {
+    pub present: u64,
+    pub total: u64,
+}
+
+// ─── Phase 4 ─── Assembly endpoints ─────────────────────────────────
+
+pub async fn list_assemblies(config: &Config) -> Result<Vec<AssemblyTO>, AppError> {
+    info!("Fetching assemblies");
+    let url = format!("{}/api/assembly", config.backend);
+    let response = check_response(reqwest::get(url).await?).await?;
+    Ok(response.json().await?)
+}
+
+pub async fn get_assembly(config: &Config, id: Uuid) -> Result<AssemblyTO, AppError> {
+    info!("Fetching assembly {id}");
+    let url = format!("{}/api/assembly/{id}", config.backend);
+    let response = check_response(reqwest::get(url).await?).await?;
+    Ok(response.json().await?)
+}
+
+pub async fn create_assembly(
+    config: &Config,
+    req: &CreateAssemblyRequest,
+) -> Result<AssemblyTO, AppError> {
+    info!("Creating assembly");
+    let url = format!("{}/api/assembly", config.backend);
+    let response = reqwest::Client::new().post(url).json(req).send().await?;
+    let response = check_response(response).await?;
+    Ok(response.json().await?)
+}
+
+pub async fn update_assembly(
+    config: &Config,
+    id: Uuid,
+    req: &UpdateAssemblyRequest,
+) -> Result<AssemblyTO, AppError> {
+    info!("Updating assembly {id}");
+    let url = format!("{}/api/assembly/{id}", config.backend);
+    let response = reqwest::Client::new().put(url).json(req).send().await?;
+    let response = check_response(response).await?;
+    Ok(response.json().await?)
+}
+
+pub async fn open_assembly(config: &Config, id: Uuid) -> Result<AssemblyTO, AppError> {
+    info!("Opening assembly {id}");
+    let url = format!("{}/api/assembly/{id}/open", config.backend);
+    let response = reqwest::Client::new().post(url).send().await?;
+    let response = check_response(response).await?;
+    Ok(response.json().await?)
+}
+
+pub async fn close_assembly(config: &Config, id: Uuid) -> Result<AssemblyTO, AppError> {
+    info!("Closing assembly {id}");
+    let url = format!("{}/api/assembly/{id}/close", config.backend);
+    let response = reqwest::Client::new().post(url).send().await?;
+    let response = check_response(response).await?;
+    Ok(response.json().await?)
+}
+
+// ─── Phase 4 ─── Helper-Token endpoints ─────────────────────────────
+
+pub async fn list_helper_tokens(
+    config: &Config,
+    assembly_id: Uuid,
+) -> Result<Vec<HelperTokenTO>, AppError> {
+    info!("Listing helper tokens for assembly {assembly_id}");
+    let url = format!(
+        "{}/api/assembly/{assembly_id}/helper-tokens",
+        config.backend
+    );
+    let response = check_response(reqwest::get(url).await?).await?;
+    Ok(response.json().await?)
+}
+
+pub async fn create_helper_token(
+    config: &Config,
+    assembly_id: Uuid,
+    memo: String,
+) -> Result<HelperTokenCreateResponseTO, AppError> {
+    // SECURITY (T-04-13): do NOT log the memo (PII).
+    info!("Creating helper token for assembly {assembly_id}");
+    let url = format!(
+        "{}/api/assembly/{assembly_id}/helper-tokens",
+        config.backend
+    );
+    let body = CreateHelperTokenRequest { memo };
+    let response = reqwest::Client::new()
+        .post(url)
+        .json(&body)
+        .send()
+        .await?;
+    let response = check_response(response).await?;
+    Ok(response.json().await?)
+}
+
+pub async fn revoke_helper_token(
+    config: &Config,
+    assembly_id: Uuid,
+    token_id: Uuid,
+) -> Result<HelperTokenTO, AppError> {
+    info!("Revoking helper token {token_id}");
+    let url = format!(
+        "{}/api/assembly/{assembly_id}/helper-tokens/{token_id}/revoke",
+        config.backend
+    );
+    let response = reqwest::Client::new().post(url).send().await?;
+    let response = check_response(response).await?;
+    Ok(response.json().await?)
+}
+
+pub async fn redeem_helper_token(
+    config: &Config,
+    code: String,
+) -> Result<RedeemResponse, AppError> {
+    // SECURITY (T-04-13): do NOT log the code (one-time secret).
+    info!("Redeeming helper token");
+    let url = format!("{}/api/helper/redeem", config.backend);
+    let body = RedeemRequest { code };
+    let response = reqwest::Client::new().post(url).json(&body).send().await?;
+    let response = check_response(response).await?;
+    Ok(response.json().await?)
+}
+
+pub async fn get_helper_session(config: &Config) -> Result<HelperSessionTO, AppError> {
+    info!("Checking helper session");
+    let url = format!("{}/api/helper/session", config.backend);
+    let response = check_response(reqwest::get(url).await?).await?;
+    Ok(response.json().await?)
+}
+
+pub async fn helper_logout(config: &Config) -> Result<(), AppError> {
+    info!("Logging out helper");
+    let url = format!("{}/api/helper/logout", config.backend);
+    let response = reqwest::Client::new().post(url).send().await?;
+    check_response(response).await?;
+    Ok(())
+}
+
+// ─── Phase 4 ─── Attendance endpoints ───────────────────────────────
+
+pub async fn list_attendance_members(
+    config: &Config,
+    assembly_id: Uuid,
+    search: Option<&str>,
+) -> Result<Vec<AttendanceMemberTO>, AppError> {
+    info!("Listing attendance members for assembly {assembly_id}");
+    let url = match search {
+        Some(q) if !q.is_empty() => format!(
+            "{}/api/attendance/{assembly_id}/members?q={}",
+            config.backend,
+            js_sys::encode_uri_component(q)
+        ),
+        _ => format!("{}/api/attendance/{assembly_id}/members", config.backend),
+    };
+    let response = check_response(reqwest::get(url).await?).await?;
+    Ok(response.json().await?)
+}
+
+pub async fn mark_present(
+    config: &Config,
+    assembly_id: Uuid,
+    member_id: Uuid,
+) -> Result<(), AppError> {
+    info!("Marking present: {member_id} in {assembly_id}");
+    let url = format!(
+        "{}/api/attendance/{assembly_id}/{member_id}",
+        config.backend
+    );
+    let response = reqwest::Client::new().put(url).send().await?;
+    check_response(response).await?;
+    Ok(())
+}
+
+pub async fn mark_absent(
+    config: &Config,
+    assembly_id: Uuid,
+    member_id: Uuid,
+) -> Result<(), AppError> {
+    info!("Marking absent: {member_id} in {assembly_id}");
+    let url = format!(
+        "{}/api/attendance/{assembly_id}/{member_id}",
+        config.backend
+    );
+    let response = reqwest::Client::new().delete(url).send().await?;
+    check_response(response).await?;
+    Ok(())
+}
+
+pub async fn get_assembly_stats(
+    config: &Config,
+    assembly_id: Uuid,
+) -> Result<AttendanceStatsTO, AppError> {
+    // Polled every ~5s by LiveCounter — kept at info! to match neighbouring
+    // endpoints; can be lowered to debug! later if log noise becomes an issue.
+    let url = format!("{}/api/assembly/{assembly_id}/stats", config.backend);
+    let response = check_response(reqwest::get(url).await?).await?;
+    Ok(response.json().await?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1508,6 +1837,7 @@ mod tests {
             status_to_message(409),
             "Konflikt — das Element wurde zwischenzeitlich geändert"
         );
+        assert_eq!(status_to_message(410), "Bereits eingelöst");
         assert_eq!(status_to_message(415), "Dateityp nicht erlaubt");
         assert_eq!(status_to_message(422), "Validierungsfehler");
         assert_eq!(
