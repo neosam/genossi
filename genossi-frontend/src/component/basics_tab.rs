@@ -11,7 +11,7 @@ use crate::component::Modal;
 use crate::i18n::{use_i18n, Key};
 use crate::service::config::CONFIG;
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum BasicsMode {
     ReadOnly,
     Edit,

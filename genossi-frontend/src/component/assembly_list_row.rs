@@ -6,7 +6,6 @@ use dioxus::prelude::*;
 
 use crate::api::AssemblyTO;
 use crate::component::AssemblyStatusBadge;
-use crate::router::Route;
 
 #[component]
 pub fn AssemblyListRow(assembly: AssemblyTO) -> Element {
@@ -15,9 +14,10 @@ pub fn AssemblyListRow(assembly: AssemblyTO) -> Element {
     let location_str = assembly.location.clone().unwrap_or_default();
     let name = assembly.name.clone();
     let status = assembly.status.clone();
+    let href = format!("/assemblies/{}", id);
     rsx! {
-        Link {
-            to: Route::AssemblyDetails { id: id.to_string() },
+        a {
+            href: "{href}",
             class: "block",
             div { class: "flex items-center justify-between bg-white border border-gray-200 rounded-lg px-4 py-3 mb-2 hover:bg-gray-50 transition-colors",
                 div { class: "flex flex-col gap-1",

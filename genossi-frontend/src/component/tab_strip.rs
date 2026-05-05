@@ -7,7 +7,7 @@
 //! per Plan-06 instruction. The inline pattern there remains; future refactor can migrate.
 use dioxus::prelude::*;
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct TabDef {
     pub key: &'static str,
     pub label: String,
