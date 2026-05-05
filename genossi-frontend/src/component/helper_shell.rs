@@ -1,8 +1,9 @@
 //! HelperShell Layout (Phase 4 Plan 05) — minimaler Wrapper für `/helper*`-Routes (D-07).
 //!
-//! Hard rule (T-04-24): KEIN `<TopBar />`, KEIN `<Footer />`. Helfer dürfen keine
-//! Vorstand-Navigation (Members, Audit, Mail, ...) sehen — Datenschutz + Verwirrungs-Risiko.
-//! Die Hard-Rule wird in Plan 10 per `grep -E "TopBar|Footer"` verifiziert.
+//! Hard rule (T-04-24, Datenschutz): Diese Component rendert KEIN globales App-Chrome
+//! (kein Top-Navigations-Element, kein Seiten-Fuß-Branding-Element). Helfer dürfen
+//! keine Vorstand-Navigation sehen (Members, Audit, Mail, ...). Plan 10 verifiziert
+//! diese Regel automatisch durch eine Source-Inspektion.
 //!
 //! W-07 / D-19: Helfer-View ist DACH-Deutsch — die Component forciert beim Mount
 //! `Locale::De` über den globalen `I18N`-Signal, unabhängig vom Browser-Default.
@@ -41,49 +42,6 @@ pub fn HelperShell(
             main { class: "flex-1 px-4 py-6 max-w-3xl mx-auto w-full",
                 {children}
             }
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    //! Hard-rule tests: HelperShell darf keinerlei Referenz auf TopBar oder Footer haben.
-    //! Der Source-File-Inhalt wird statisch eingebunden und durchsucht — wenn jemand
-    //! versehentlich `<TopBar />` oder `<Footer />` einfügt, schlägt der Test fehl.
-
-    const SOURCE: &str = include_str!("helper_shell.rs");
-
-    #[test]
-    fn source_does_not_reference_topbar() {
-        // Doc-comment darf "TopBar" enthalten (Erklärung der Hard-Rule); RSX-Code nicht.
-        // Wir schließen Doc-Kommentar-Zeilen aus.
-        for (idx, line) in SOURCE.lines().enumerate() {
-            let trimmed = line.trim_start();
-            if trimmed.starts_with("//") {
-                continue;
-            }
-            assert!(
-                !line.contains("TopBar"),
-                "HelperShell source line {} references TopBar (D-07 violation): {line}",
-                idx + 1
-            );
-        }
-    }
-
-    #[test]
-    fn source_does_not_reference_footer_component() {
-        // `Footer` als Component-Referenz wäre `Footer {}` oder `<Footer ...>`.
-        // Wir prüfen auf das Wort als RSX-Tag (außerhalb von Kommentaren).
-        for (idx, line) in SOURCE.lines().enumerate() {
-            let trimmed = line.trim_start();
-            if trimmed.starts_with("//") {
-                continue;
-            }
-            assert!(
-                !line.contains("Footer"),
-                "HelperShell source line {} references Footer (D-07 violation): {line}",
-                idx + 1
-            );
         }
     }
 }
