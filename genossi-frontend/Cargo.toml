@@ -60,6 +60,12 @@ features = [
     "RequestMode",
     "Response",
     "Url",
+    "MediaDevices",
+    "MediaStream",
+    "MediaStreamTrack",
+    "MediaStreamConstraints",
+    "MediaTrackConstraints",
+    "HtmlVideoElement",
 ]
 
 [profile]
