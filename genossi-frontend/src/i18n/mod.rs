@@ -699,7 +699,10 @@ impl Clone for I18n {
     }
 }
 
-static I18N: GlobalSignal<I18n> = GlobalSignal::new(|| I18n::new(detect_browser_locale()));
+/// Global I18N signal. Default-Locale wird beim Mount via `detect_browser_locale()`
+/// bestimmt, kann aber von Components überschrieben werden — Phase 4 D-19 / W-07
+/// nutzt das in `HelperShell`, um die Helfer-View hart auf `Locale::De` zu fixieren.
+pub static I18N: GlobalSignal<I18n> = GlobalSignal::new(|| I18n::new(detect_browser_locale()));
 
 pub fn use_i18n() -> I18n {
     I18N.read().clone()
