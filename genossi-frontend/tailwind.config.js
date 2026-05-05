@@ -24,6 +24,15 @@ module.exports = {
     "text-green-800",
     "text-red-800",
     "bg-missingColor",
-    "bg-blockedColor"
+    "bg-blockedColor",
+    // ─── Phase 4 Plan 02 ─── (RESEARCH Pitfall 6 — präventive Erhaltung)
+    "qr-card",
+    "bg-amber-100",
+    "text-amber-900",
+    "border-amber-400",
+    "border-b-2",
+    "animate-spin",
+    "animate-pulse",
+    "print:hidden",
   ]
 };

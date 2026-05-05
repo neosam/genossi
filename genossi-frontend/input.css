@@ -24,3 +24,43 @@
         zoom: 1.0;
     }
 }
+
+/* ─── Phase 4 Plan 02 ─── Print rules for QrCard (UI-SPEC §QrCard print contract) */
+@media print {
+    /* Hide everything except the .qr-card being printed. */
+    body * {
+        visibility: hidden;
+    }
+    .qr-card,
+    .qr-card * {
+        visibility: visible;
+    }
+    .qr-card {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        box-shadow: none;
+        border: none;
+        max-width: 80mm;
+    }
+    .qr-card .w-64 {
+        /* QR SVG fills printable area */
+        width: 60mm;
+        height: 60mm;
+    }
+    .qr-card .font-mono {
+        font-size: 16pt;
+        letter-spacing: 0.15em;
+    }
+    @page {
+        size: A4 portrait;
+        margin: 16mm;
+    }
+}
+
+/* Ensure background colors print (Chrome default = off) */
+body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+}
