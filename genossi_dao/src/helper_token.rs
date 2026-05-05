@@ -182,6 +182,18 @@ pub trait HelperTokenDao {
         assembly_id: Uuid,
         tx: Self::Transaction,
     ) -> Result<Vec<Arc<str>>, DaoError>;
+
+    /// Phase 4 Plan 01 (D-06): Reverse-lookup the assembly_id for a given
+    /// helper-session id. Returns `Ok(Some(assembly_id))` if a non-deleted
+    /// helper_token row carries this `session_id`, `Ok(None)` if no such row
+    /// exists. Used by the public `/api/helper/session` and `/api/helper/logout`
+    /// endpoints to confirm that a generic `app_session` cookie is in fact a
+    /// Helper-Session (not an admin/OIDC session) before honouring it.
+    async fn find_assembly_id_for_session(
+        &self,
+        session_id: &str,
+        tx: Self::Transaction,
+    ) -> Result<Option<Uuid>, DaoError>;
 }
 
 #[cfg(test)]

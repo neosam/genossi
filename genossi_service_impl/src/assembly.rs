@@ -559,6 +559,12 @@ mod tests {
                 assembly_id: Uuid,
                 tx: TestTransaction,
             ) -> Result<Vec<Arc<str>>, DaoError>;
+            // Phase 4 Plan 01 (D-06): reverse-lookup for /api/helper/session.
+            async fn find_assembly_id_for_session(
+                &self,
+                session_id: &str,
+                tx: TestTransaction,
+            ) -> Result<Option<Uuid>, DaoError>;
         }
     }
 

@@ -331,6 +331,33 @@ impl HelperTokenDao for HelperTokenDaoImpl {
         .map_err(|e| DaoError::DatabaseError(Arc::from(e.to_string())))?;
         Ok(rows.into_iter().map(|s| Arc::from(s.as_str())).collect())
     }
+
+    async fn find_assembly_id_for_session(
+        &self,
+        session_id: &str,
+        tx: Self::Transaction,
+    ) -> Result<Option<Uuid>, DaoError> {
+        // Phase 4 Plan 01 (D-06): reverse-lookup for the public helper session
+        // and logout endpoints. Filters deleted IS NULL — a soft-deleted row
+        // never authenticates a helper. Parameterized binding mitigates SQLi.
+        let row: Option<Vec<u8>> = sqlx::query_scalar(
+            "SELECT assembly_id FROM helper_token \
+             WHERE session_id = ? AND deleted IS NULL LIMIT 1",
+        )
+        .bind(session_id)
+        .fetch_optional(tx.tx.lock().await.as_mut())
+        .await
+        .map_err(|e| DaoError::DatabaseError(Arc::from(e.to_string())))?;
+        match row {
+            None => Ok(None),
+            Some(bytes) => {
+                let aid = Uuid::from_slice(&bytes).map_err(|e| {
+                    DaoError::ParseError(Arc::from(format!("assembly_id uuid: {}", e)))
+                })?;
+                Ok(Some(aid))
+            }
+        }
+    }
 }
 
 #[cfg(test)]

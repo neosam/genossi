@@ -38,7 +38,8 @@ use genossi_dao::helper_token::{HelperTokenDao, HelperTokenEntity};
 use genossi_dao::permission::PermissionDao;
 use genossi_dao::TransactionDao;
 use genossi_service::helper_token::{
-    HelperRedeemSuccess, HelperToken, HelperTokenCreated, HelperTokenService, HelperTokenSubmission,
+    HelperRedeemSuccess, HelperSessionInfo, HelperToken, HelperTokenCreated, HelperTokenService,
+    HelperTokenSubmission,
 };
 use genossi_service::permission::{Authentication, PermissionService};
 use genossi_service::session::SessionService;
@@ -428,6 +429,35 @@ impl<Deps: HelperTokenServiceDeps> HelperTokenService for HelperTokenServiceImpl
             expires_at: session.expires_at,
         })
     }
+
+    async fn find_assembly_for_session(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<HelperSessionInfo>, ServiceError> {
+        // Phase 4 Plan 01 (D-06): public reverse-lookup for /api/helper/session
+        // and /api/helper/logout. Read-only — no audit, no permission check
+        // (the caller has already validated the SessionService token).
+        // Joins helper_token.session_id -> assembly_id -> assembly.name in
+        // the same transaction so the public handler does not need
+        // admin-only AssemblyService::get_assembly.
+        let tx = self.transaction_dao.use_transaction(None).await?;
+        let assembly_id_opt = self
+            .helper_token_dao
+            .find_assembly_id_for_session(session_id, tx.clone())
+            .await?;
+        let info = match assembly_id_opt {
+            None => None,
+            Some(aid) => {
+                let assembly = self.assembly_dao.find_by_id(aid, tx.clone()).await?;
+                assembly.map(|a| HelperSessionInfo {
+                    assembly_id: a.id,
+                    assembly_name: a.name.clone(),
+                })
+            }
+        };
+        self.transaction_dao.commit(tx).await?;
+        Ok(info)
+    }
 }
 
 #[cfg(test)]
@@ -657,6 +687,12 @@ mod service_tests {
                 assembly_id: Uuid,
                 tx: TestTransaction,
             ) -> Result<Vec<Arc<str>>, DaoError>;
+            // Phase 4 Plan 01 (D-06): reverse-lookup for /api/helper/session.
+            async fn find_assembly_id_for_session(
+                &self,
+                session_id: &str,
+                tx: TestTransaction,
+            ) -> Result<Option<Uuid>, DaoError>;
         }
     }
 

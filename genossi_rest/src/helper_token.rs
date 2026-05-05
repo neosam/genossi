@@ -16,16 +16,17 @@
 use axum::{
     body::Body,
     extract::{Path, State},
-    http::{header, HeaderValue},
+    http::{header, HeaderMap, HeaderValue},
     response::Response,
     routing::{get, post},
     Extension, Json, Router,
 };
 use genossi_rest_types::{
-    CreateHelperTokenRequest, HelperTokenCreateResponseTO, HelperTokenStatusTO, HelperTokenTO,
-    RedeemRequest, RedeemResponse,
+    CreateHelperTokenRequest, HelperSessionTO, HelperTokenCreateResponseTO, HelperTokenStatusTO,
+    HelperTokenTO, RedeemRequest, RedeemResponse,
 };
 use genossi_service::helper_token::{HelperTokenService, HelperTokenSubmission};
+use genossi_service::session::SessionService;
 use genossi_service::{ServiceError, ValidationFailureItem};
 use std::sync::Arc;
 use tracing::instrument;
@@ -348,6 +349,175 @@ pub async fn redeem_helper_token<RestState: RestStateDef + HelperTokenRestState>
 }
 
 // ============================================================================
+// Public Handler 5+6: Helper-Session-Lookup + Logout (Phase 4 D-06, D-07)
+// ============================================================================
+
+/// Read the `app_session` cookie value from the request headers.
+/// Returns `None` if the cookie is absent, malformed, or empty.
+///
+/// Pattern mirrors the SET-side in `redeem_helper_token` (Set-Cookie at
+/// `app_session=<sid>; Path=/; HttpOnly; SameSite=Strict; Secure;
+/// Max-Age=86400`). RFC-6265 cookie strings are split on `;` and each
+/// `name=value` pair is trimmed before matching against the
+/// `app_session=` prefix. We deliberately do NOT use `tower_cookies::Cookies`
+/// here to keep the handlers symmetric with `redeem_helper_token` — both the
+/// SET-side and READ-side now operate directly on `header::COOKIE` /
+/// `header::SET_COOKIE`. NO Extension<Context>: these endpoints are PUBLIC
+/// (D-22 parallel) and their authentication is the cookie itself, validated
+/// against the SessionService below.
+fn read_session_cookie(headers: &HeaderMap) -> Option<String> {
+    let raw = headers.get(header::COOKIE)?.to_str().ok()?;
+    raw.split(';').map(str::trim).find_map(|kv| {
+        let mut it = kv.splitn(2, '=');
+        match (it.next(), it.next()) {
+            (Some("app_session"), Some(v)) if !v.is_empty() => Some(v.to_string()),
+            _ => None,
+        }
+    })
+}
+
+/// GET /api/helper/session — returns 200 + HelperSessionTO if a valid
+/// Helper-Session-Cookie is present. Used by Frontend (Phase 4 D-06) for
+/// Auto-Redirect on the `/helper`-mount.
+///
+/// T-04-01 Mitigation: response is exactly 3 keys (assembly_id, assembly_name,
+/// expires_at) — no token-id, memo, or member PII.
+/// T-04-02 Mitigation: rejects 401 if the `app_session` does not map to a
+/// helper_token row (i.e. it is an admin/OIDC session, not a Helper one).
+#[instrument(skip(rest_state, headers))]
+#[utoipa::path(
+    get,
+    tag = "Helper Session",
+    path = "/session",
+    responses(
+        (status = 200, description = "Active helper session", body = HelperSessionTO),
+        (status = 401, description = "No helper session present"),
+    ),
+)]
+pub async fn get_helper_session<RestState: RestStateDef + HelperTokenRestState>(
+    rest_state: State<RestState>,
+    headers: HeaderMap,
+) -> Response {
+    error_handler(
+        (async {
+            let session_id_str = read_session_cookie(&headers).ok_or(RestError::Unauthorized)?;
+
+            // Step 1: validate the session via SessionService — must exist
+            // (not expired, not invalidated). 401 on any error / unknown.
+            let user_session = rest_state
+                .session_service()
+                .verify_user_session(&session_id_str)
+                .await
+                .map_err(|_| RestError::Unauthorized)?
+                .ok_or(RestError::Unauthorized)?;
+
+            // Step 2: confirm it is a Helper-Session (T-04-02). The reverse
+            // lookup returns Some only if a non-deleted helper_token row
+            // carries this session_id. Admin/OIDC sessions return None → 401.
+            let info = rest_state
+                .helper_token_service()
+                .find_assembly_for_session(&session_id_str)
+                .await
+                .map_err(|_| RestError::Unauthorized)?
+                .ok_or(RestError::Unauthorized)?;
+
+            // Step 3: format expires_at as ISO8601 (Unix timestamp from the
+            // session row → ISO-formatted string for the JSON response).
+            let expires_at = time::OffsetDateTime::from_unix_timestamp(user_session.expires_at)
+                .map_err(|e| RestError::InternalError(format!("invalid expires_at: {}", e)))?
+                .format(&time::format_description::well_known::Iso8601::DEFAULT)
+                .map_err(|e| RestError::InternalError(format!("format expires_at: {}", e)))?;
+
+            let body = HelperSessionTO {
+                assembly_id: info.assembly_id,
+                assembly_name: info.assembly_name.to_string(),
+                expires_at,
+            };
+
+            Ok(Response::builder()
+                .status(200)
+                .header("Content-Type", "application/json")
+                .body(Body::new(serde_json::to_string(&body)?))
+                .unwrap())
+        })
+        .await,
+    )
+}
+
+/// POST /api/helper/logout — invalidates the current Helper-Session (D-07).
+/// Sets `app_session=; Max-Age=0` to clear the cookie client-side AND
+/// invalidates the session server-side via `SessionService::invalidate_session`.
+///
+/// T-04-03 Mitigation: only the cookie's session_id is honoured (no body /
+/// query parameter parsing). Browsers can only emit their own cookie.
+#[instrument(skip(rest_state, headers))]
+#[utoipa::path(
+    post,
+    tag = "Helper Session",
+    path = "/logout",
+    responses(
+        (status = 204, description = "Session invalidated"),
+        (status = 401, description = "No helper session present"),
+    ),
+)]
+pub async fn helper_logout<RestState: RestStateDef + HelperTokenRestState>(
+    rest_state: State<RestState>,
+    headers: HeaderMap,
+) -> Response {
+    error_handler(
+        (async {
+            let session_id_str = read_session_cookie(&headers).ok_or(RestError::Unauthorized)?;
+
+            // Verify the session is real and is a Helper-Session before doing
+            // anything destructive — otherwise an attacker could probe for
+            // valid session-ids by observing the response code. We require
+            // BOTH the SessionService check AND the helper_token reverse
+            // lookup so admin/OIDC sessions are rejected with 401 (T-04-02).
+            rest_state
+                .session_service()
+                .verify_user_session(&session_id_str)
+                .await
+                .map_err(|_| RestError::Unauthorized)?
+                .ok_or(RestError::Unauthorized)?;
+            rest_state
+                .helper_token_service()
+                .find_assembly_for_session(&session_id_str)
+                .await
+                .map_err(|_| RestError::Unauthorized)?
+                .ok_or(RestError::Unauthorized)?;
+
+            // Server-side invalidation. Errors are logged but not surfaced —
+            // the cookie-override below is authoritative for the client. A
+            // failure here at most leaves an orphan session row that the
+            // session cleanup worker eventually reaps.
+            if let Err(e) = rest_state
+                .session_service()
+                .invalidate_session(&session_id_str)
+                .await
+            {
+                tracing::warn!(error = ?e, "session invalidation failed during logout");
+            }
+
+            // Cookie-Override Max-Age=0 (mirror of the redeem Set-Cookie
+            // attributes from helper_token.rs:317-319).
+            let cookie_value = "app_session=; Path=/; HttpOnly; SameSite=Strict; Secure; Max-Age=0";
+
+            Ok(Response::builder()
+                .status(204)
+                .header(
+                    header::SET_COOKIE,
+                    HeaderValue::from_str(cookie_value).map_err(|e| {
+                        RestError::InternalError(format!("invalid cookie value: {}", e))
+                    })?,
+                )
+                .body(Body::empty())
+                .unwrap())
+        })
+        .await,
+    )
+}
+
+// ============================================================================
 // Router-Funktionen
 // ============================================================================
 
@@ -362,7 +532,13 @@ pub fn generate_route<RestState: RestStateDef + HelperTokenRestState>() -> Route
 
 pub fn generate_public_route<RestState: RestStateDef + HelperTokenRestState>() -> Router<RestState>
 {
-    Router::new().route("/redeem", post(redeem_helper_token::<RestState>))
+    // Append-only: lib.rs:711 mounts THIS router on /api/helper. A second
+    // `.nest("/api/helper", ...)` would shadow this one. Phase 4 Plan 01
+    // adds /session (D-06) + /logout (D-07) here.
+    Router::new()
+        .route("/redeem", post(redeem_helper_token::<RestState>))
+        .route("/session", get(get_helper_session::<RestState>))
+        .route("/logout", post(helper_logout::<RestState>))
 }
 
 // ============================================================================
@@ -383,8 +559,8 @@ pub struct ApiDoc;
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(redeem_helper_token),
-    components(schemas(RedeemRequest, RedeemResponse))
+    paths(redeem_helper_token, get_helper_session, helper_logout),
+    components(schemas(RedeemRequest, RedeemResponse, HelperSessionTO))
 )]
 pub struct PublicApiDoc;
 

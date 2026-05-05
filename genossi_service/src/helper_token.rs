@@ -121,6 +121,30 @@ pub trait HelperTokenService: Send + Sync {
     /// REST-layer mapping. Naming convention: `Conflict(Arc<str>)` payload values
     /// are stable error-codes (lowercase snake_case).
     async fn redeem_helper_token(&self, code: &str) -> Result<HelperRedeemSuccess, ServiceError>;
+
+    /// Phase 4 Plan 01 (D-06): Reverse-lookup for the public Helper-Session
+    /// endpoint. Returns `Ok(Some(HelperSessionInfo))` if a helper_token row
+    /// carries this `session_id` (i.e. the session was issued by
+    /// `redeem_helper_token`), `Ok(None)` if no such row exists. PUBLIC — no
+    /// auth context required. Used by `/api/helper/session` and
+    /// `/api/helper/logout` to validate that an `app_session` cookie originates
+    /// from a helper redeem (and not from an admin/OIDC session). Also returns
+    /// `assembly_name` so the REST handler can build `HelperSessionTO` without
+    /// going through the admin-only `AssemblyService::get_assembly`.
+    async fn find_assembly_for_session(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<HelperSessionInfo>, ServiceError>;
+}
+
+/// Phase 4 Plan 01 (D-06) result of `HelperTokenService::find_assembly_for_session`.
+/// Carries the bound assembly's id + name (denormalized for the public
+/// `/api/helper/session` endpoint, which has no admin context to call
+/// `AssemblyService::get_assembly`).
+#[derive(Clone, Debug)]
+pub struct HelperSessionInfo {
+    pub assembly_id: Uuid,
+    pub assembly_name: Arc<str>,
 }
 
 #[cfg(test)]
