@@ -1247,6 +1247,51 @@ pub struct RedeemResponse {
     pub expires_at: String,
 }
 
+/// Response body for GET /api/helper/session — used by Frontend Auto-Redirect
+/// (Phase 4 D-06). Returned only when a valid Helper-Session-Cookie is
+/// present; 401 otherwise. PII-Whitelist: exactly 3 keys, no token-id, memo,
+/// or member data (T-04-01 mitigation, parallel zu `AttendanceMemberTO`-Pattern).
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct HelperSessionTO {
+    #[schema(example = "123e4567-e89b-12d3-a456-426614174000")]
+    pub assembly_id: Uuid,
+    #[schema(example = "GV 2026")]
+    pub assembly_name: String,
+    /// ISO8601 timestamp when the session expires (24h ab Redeem, D-18).
+    #[schema(example = "2026-05-04T10:00:00.000000000Z")]
+    pub expires_at: String,
+}
+
+#[cfg(test)]
+mod helper_session_to_tests {
+    use super::*;
+
+    #[test]
+    fn helper_session_to_serializes_exactly_three_keys() {
+        let to = HelperSessionTO {
+            assembly_id: Uuid::new_v4(),
+            assembly_name: "GV 2026".to_string(),
+            expires_at: "2026-05-04T10:00:00.000000000Z".to_string(),
+        };
+        let json = serde_json::to_value(&to).unwrap();
+        let obj = json
+            .as_object()
+            .expect("HelperSessionTO must serialize as JSON object");
+        assert_eq!(
+            obj.len(),
+            3,
+            "HelperSessionTO must serialize exactly 3 keys (PII-Whitelist, T-04-01); got: {:?}",
+            obj.keys().collect::<Vec<_>>()
+        );
+        assert!(obj.contains_key("assembly_id"), "missing key: assembly_id");
+        assert!(
+            obj.contains_key("assembly_name"),
+            "missing key: assembly_name"
+        );
+        assert!(obj.contains_key("expires_at"), "missing key: expires_at");
+    }
+}
+
 // Audit Log types
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]

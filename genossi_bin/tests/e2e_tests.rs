@@ -12,8 +12,8 @@ use genossi_rest::test_server::test_support::start_test_server;
 use genossi_rest_types::{
     ActionTypeTO, AdminCreateApplicationRequest, ApplicationStatusTO, ApplicationTO,
     AssemblyDetailTO, AssemblyStatusTO, AssemblyTO, AttendanceMemberTO, AttendanceStatsTO,
-    MemberActionTO, MemberDocumentTO, MemberImportResultTO, MemberTO, MigrationStatusTO,
-    PublicJoinRequest, PublicJoinResponse, SalutationTO, SessionRevokeResponse,
+    HelperSessionTO, MemberActionTO, MemberDocumentTO, MemberImportResultTO, MemberTO,
+    MigrationStatusTO, PublicJoinRequest, PublicJoinResponse, SalutationTO, SessionRevokeResponse,
     UpdateApplicationRequest, UserPreferenceTO, ValidationResultTO, VerifyResponseTO,
 };
 use reqwest::StatusCode;
@@ -9739,5 +9739,207 @@ async fn test_attendance_members_substring_search_filters_by_query_param() {
         2,
         "Without ?q both snapshot members must be returned, got {}",
         all.len()
+    );
+}
+
+// =====================================================================
+// Phase 04 Plan 01: GET /api/helper/session + POST /api/helper/logout
+// (D-06 Frontend Auto-Redirect, D-07 Logout-Action)
+// =====================================================================
+
+/// Phase 4 D-06: After a successful redeem, GET /api/helper/session must return
+/// 200 + HelperSessionTO whose assembly_id matches the redeem-target assembly.
+/// Cookie-Jar of the reqwest::Client carries the app_session cookie set by
+/// the redeem call, so the session-endpoint authenticates via that cookie.
+#[tokio::test]
+async fn helper_session_returns_200_after_redeem() {
+    let server = setup().await;
+    // Cookie-Jar required so the redeem-Set-Cookie persists for the next request.
+    let admin_client = reqwest::Client::new();
+    let assembly_id = create_open_assembly_for_helper_test(&admin_client, &server).await;
+    let (_token_id, code) =
+        create_helper_token_for_test(&admin_client, &server, assembly_id, "Anna").await;
+
+    // Helper-Client uses its own Cookie-Jar so admin's headers don't bleed in.
+    let helper_client = reqwest::Client::builder()
+        .cookie_store(true)
+        .build()
+        .expect("client with cookie_store");
+
+    let redeem_resp = helper_client
+        .post(server.url("/api/helper/redeem"))
+        .json(&serde_json::json!({ "code": code }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        redeem_resp.status(),
+        StatusCode::OK,
+        "redeem must succeed; got {}",
+        redeem_resp.status()
+    );
+
+    // Now GET /api/helper/session — Cookie-Jar replays app_session automatically.
+    let session_resp = helper_client
+        .get(server.url("/api/helper/session"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        session_resp.status(),
+        StatusCode::OK,
+        "session must return 200 with valid Helper cookie"
+    );
+    let body: HelperSessionTO = session_resp.json().await.unwrap();
+    assert_eq!(
+        body.assembly_id, assembly_id,
+        "assembly_id must match the redeem target"
+    );
+    assert_eq!(
+        body.assembly_name, "GV Helper Test",
+        "assembly_name must match the GV name"
+    );
+    assert!(
+        !body.expires_at.is_empty(),
+        "expires_at must be a non-empty ISO8601 string"
+    );
+}
+
+/// Phase 4 D-06: Without an app_session cookie, GET /api/helper/session
+/// must reject with 401 (no helper context to authenticate against).
+#[tokio::test]
+async fn helper_session_returns_401_without_cookie() {
+    let server = setup().await;
+    let client = reqwest::Client::new(); // no cookie jar, no cookies
+    let resp = client
+        .get(server.url("/api/helper/session"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::UNAUTHORIZED,
+        "GET /api/helper/session without cookie must be 401"
+    );
+}
+
+/// T-04-02 — admin or invalid cookie must NOT authenticate as helper.
+/// We send an `app_session` cookie whose value is a random UUID that does
+/// not exist in the session table. The helper-session endpoint must reject
+/// with 401 (only Helper-Sessions whose session_id is bound to a helper_token
+/// row may pass).
+#[tokio::test]
+async fn helper_session_returns_401_for_admin_cookie() {
+    let server = setup().await;
+    let bogus_session_id = uuid::Uuid::new_v4().to_string();
+    let cookie = format!("app_session={}", bogus_session_id);
+    let client = reqwest::Client::new();
+    let resp = client
+        .get(server.url("/api/helper/session"))
+        .header(reqwest::header::COOKIE, cookie)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::UNAUTHORIZED,
+        "T-04-02: invalid/admin app_session cookie must not authenticate as helper; got {}",
+        resp.status()
+    );
+}
+
+/// Phase 4 D-07: After POST /api/helper/logout, the same cookie-jar must no
+/// longer authenticate against /api/helper/session (server-side invalidation
+/// AND client-side cookie override via Set-Cookie Max-Age=0).
+#[tokio::test]
+async fn helper_logout_invalidates_session() {
+    let server = setup().await;
+    let admin_client = reqwest::Client::new();
+    let assembly_id = create_open_assembly_for_helper_test(&admin_client, &server).await;
+    let (_token_id, code) =
+        create_helper_token_for_test(&admin_client, &server, assembly_id, "Bernd").await;
+
+    let helper_client = reqwest::Client::builder()
+        .cookie_store(true)
+        .build()
+        .expect("client with cookie_store");
+
+    let redeem_resp = helper_client
+        .post(server.url("/api/helper/redeem"))
+        .json(&serde_json::json!({ "code": code }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(redeem_resp.status(), StatusCode::OK);
+
+    // Pre-condition: session is valid before logout.
+    let pre = helper_client
+        .get(server.url("/api/helper/session"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        pre.status(),
+        StatusCode::OK,
+        "pre-condition: session must be valid before logout"
+    );
+
+    let logout_resp = helper_client
+        .post(server.url("/api/helper/logout"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        logout_resp.status(),
+        StatusCode::NO_CONTENT,
+        "logout must return 204; got {}",
+        logout_resp.status()
+    );
+    let set_cookie: Vec<String> = logout_resp
+        .headers()
+        .get_all("set-cookie")
+        .iter()
+        .map(|v| v.to_str().unwrap().to_string())
+        .collect();
+    let cleared = set_cookie
+        .iter()
+        .find(|s| s.starts_with("app_session="))
+        .expect("logout must emit Set-Cookie for app_session");
+    assert!(
+        cleared.contains("Max-Age=0"),
+        "logout cookie must be Max-Age=0; got {}",
+        cleared
+    );
+
+    // Post-condition: GET /api/helper/session is now 401 — server-side invalidation.
+    let post = helper_client
+        .get(server.url("/api/helper/session"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        post.status(),
+        StatusCode::UNAUTHORIZED,
+        "post-logout: session endpoint must reject with 401"
+    );
+}
+
+/// Phase 4 D-07: POST /api/helper/logout without an app_session cookie must
+/// return 401. There is nothing to invalidate; emitting a Set-Cookie clear
+/// would be misleading.
+#[tokio::test]
+async fn helper_logout_returns_401_without_cookie() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(server.url("/api/helper/logout"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::UNAUTHORIZED,
+        "logout without cookie must be 401; got {}",
+        resp.status()
     );
 }
