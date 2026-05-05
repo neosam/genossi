@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-05-05T04:23:22.650Z"
+last_updated: "2026-05-05T18:07:41.572Z"
 progress:
   total_phases: 5
   completed_phases: 3
   total_plans: 30
-  completed_plans: 19
-  percent: 63
+  completed_plans: 22
+  percent: 73
 ---
 
 # State: Genossi — GV-Anwesenheits-Erfassung
@@ -21,18 +21,18 @@ progress:
 
 **Core Value:** Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachvollziehbar (Audit-Hashchain), mit weniger manueller Arbeit. Dieser Milestone bringt papierlose Anwesenheits-Erfassung auf der Generalversammlung.
 
-**Current Focus:** Phase 04 — frontend-component-first-mit-qr-scanner-und-manual-code-fall (10 plans created, ready for execute-phase)
+**Current Focus:** Phase 04 — frontend-component-first-mit-qr-scanner-und-manual-code-fall
 
 **Granularity:** coarse (5 Phasen, 1–3 Plans pro Phase)
 
 ## Current Position
 
-Phase: 3 — COMPLETE
-Plan: 6 of 6 (ALL plans complete)
-**Phase:** 3 (COMPLETE — Wave 4 done 2026-05-04)
-**Plan:** 06 — REST handlers + DI-Wiring + 6 E2E tests (DONE 2026-05-04)
-**Status:** Ready to execute
-**Progress:** [██████████] 100%
+**Phase:** 04 — frontend-component-first-mit-qr-scanner-und-manual-code-fall (EXECUTING)
+**Wave:** 1 of 5 — COMPLETE (2026-05-05)
+**Plans done in Phase 04:** 3 of 11 (04-01, 04-02, 04-03)
+**Next Wave:** Wave 2 — Plans 04-04, 04-05, 04-06 (parallel) + 04-06b (sequential single-writer for `component/mod.rs`)
+**Status:** Executing Phase 04 — Wave 1 complete, awaiting user before Wave 2
+**Progress:** [███████░░░] 73% (22/30 plans across milestone)
 
 ```
 [ ] Phase 1: Assembly-Aggregat + Audit-Hardening                     0/0 plans

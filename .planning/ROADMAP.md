@@ -88,9 +88,9 @@
   5. Helfer-View und Vorstand-View teilen sich dieselben Components (`AttendanceRow`, `AttendanceSearch`, `LiveCounter`, `QrCard`, `QrScanner`); ein UI-Code-Diff zwischen den beiden Pages zeigt nur Auth-spezifische Top-Bar-Unterschiede, keine duplizierte Liste oder Suche
   6. Connection-Banner erscheint klar sichtbar bei Verbindungsverlust; Anwesenheits-Markierungen werden erst nach 200-OK-Response visuell bestätigt (kein Optimistic-UI-Phantom-Häkchen)
 **Plans**: 11 plans (10 original + 04-06b mod.rs serializer; W-04 expanded Plan 06 mit 3 zusätzlichen Components)
-- [ ] 04-01-PLAN.md — Backend Helper-Endpoints (`GET /api/helper/session` + `POST /api/helper/logout`, Variante A: append-only in helper_redeem_router) + 5 E2E-Tests
-- [ ] 04-02-PLAN.md — Frontend Foundation: web-sys camera features + ZXing-JS vendoring + js bridge + Crockford Pure-Logic + Print-CSS + Tailwind safelist
-- [ ] 04-03-PLAN.md — Frontend api.rs erweitern: 14 Phase-4-TOs + 16 API-Funktionen + ~51 i18n-Keys (de+en, inkl. Key::Close)
+- [x] 04-01-PLAN.md — Backend Helper-Endpoints (`GET /api/helper/session` + `POST /api/helper/logout`, Variante A: append-only in helper_redeem_router) + 5 E2E-Tests
+- [x] 04-02-PLAN.md — Frontend Foundation: web-sys camera features + ZXing-JS vendoring + js bridge + Crockford Pure-Logic + Print-CSS + Tailwind safelist
+- [x] 04-03-PLAN.md — Frontend api.rs erweitern: 14 Phase-4-TOs + 16 API-Funktionen + ~51 i18n-Keys (de+en, inkl. Key::Close)
 - [ ] 04-04-PLAN.md — Shared Attendance Components: AttendanceList + AttendanceSearch + LiveCounter + ConnectionBanner (SYNC-01, ATTN-06 reuse anchor)
 - [ ] 04-05-PLAN.md — Helper Login Components: ManualCodeInput (HLPR-03) + QrScanner (use_drop + decide_camera_path Pure-Logic-Test W-02) + QrCard + HelperShell (Locale::De forced — W-07)
 - [ ] 04-06-PLAN.md — Vorstand Layout Components: AssemblyStatusBadge + AssemblyListRow + TabStrip + Toast + W-04-Extraktion (TokenRow + CreateTokenForm + BasicsTab mit W-01 Edit-Mode)
