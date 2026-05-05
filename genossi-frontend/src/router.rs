@@ -3,9 +3,13 @@ use dioxus::prelude::*;
 pub use crate::page::inbox_page::InboxDetail;
 pub use crate::page::mail_page::MailJobDetail;
 pub use crate::page::ApplicationsPage;
+pub use crate::page::Assemblies;
+pub use crate::page::AssemblyDetails;
 pub use crate::page::AuditLogPage;
 pub use crate::page::BackupPage;
 pub use crate::page::ConfigPage;
+pub use crate::page::HelperAttendance;
+pub use crate::page::HelperLogin;
 pub use crate::page::Home;
 pub use crate::page::InboxPage;
 pub use crate::page::MailPage;
@@ -21,6 +25,17 @@ pub use crate::page::Validation;
 pub enum Route {
     #[route("/")]
     Home {},
+    // ─── Phase 4 ─── Helper routes (no auth-wrapper, see app.rs branching)
+    #[route("/helper")]
+    HelperLogin {},
+    #[route("/helper/attendance")]
+    HelperAttendance {},
+    // ─── Phase 4 ─── Vorstand assembly routes (admin-gated in Plan 04-08)
+    #[route("/assemblies")]
+    Assemblies {},
+    #[route("/assemblies/:id")]
+    AssemblyDetails { id: String },
+    // ─── existing routes ─────────────────────────
     #[route("/members")]
     Members {},
     #[route("/members/:id")]
