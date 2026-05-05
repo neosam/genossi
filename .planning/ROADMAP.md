@@ -91,10 +91,10 @@
 - [x] 04-01-PLAN.md — Backend Helper-Endpoints (`GET /api/helper/session` + `POST /api/helper/logout`, Variante A: append-only in helper_redeem_router) + 5 E2E-Tests
 - [x] 04-02-PLAN.md — Frontend Foundation: web-sys camera features + ZXing-JS vendoring + js bridge + Crockford Pure-Logic + Print-CSS + Tailwind safelist
 - [x] 04-03-PLAN.md — Frontend api.rs erweitern: 14 Phase-4-TOs + 16 API-Funktionen + ~51 i18n-Keys (de+en, inkl. Key::Close)
-- [ ] 04-04-PLAN.md — Shared Attendance Components: AttendanceList + AttendanceSearch + LiveCounter + ConnectionBanner (SYNC-01, ATTN-06 reuse anchor)
-- [ ] 04-05-PLAN.md — Helper Login Components: ManualCodeInput (HLPR-03) + QrScanner (use_drop + decide_camera_path Pure-Logic-Test W-02) + QrCard + HelperShell (Locale::De forced — W-07)
-- [ ] 04-06-PLAN.md — Vorstand Layout Components: AssemblyStatusBadge + AssemblyListRow + TabStrip + Toast + W-04-Extraktion (TokenRow + CreateTokenForm + BasicsTab mit W-01 Edit-Mode)
-- [ ] 04-06b-PLAN.md — Single-writer mod.rs-Merger: appendet `pub mod` + `pub use` für alle Plan-04/05/06-Components (B-01 Wave-Serialisierung)
+- [x] 04-04-PLAN.md — Shared Attendance Components: AttendanceList + AttendanceSearch + LiveCounter + ConnectionBanner (SYNC-01, ATTN-06 reuse anchor)
+- [x] 04-05-PLAN.md — Helper Login Components: ManualCodeInput (HLPR-03) + QrScanner (use_drop + decide_camera_path Pure-Logic-Test W-02) + QrCard + HelperShell (Locale::De forced — W-07)
+- [x] 04-06-PLAN.md — Vorstand Layout Components: AssemblyStatusBadge + AssemblyListRow + TabStrip + Toast + W-04-Extraktion (TokenRow + CreateTokenForm + BasicsTab mit W-01 Edit-Mode)
+- [x] 04-06b-PLAN.md — Single-writer mod.rs-Merger: appendet `pub mod` + `pub use` für alle Plan-04/05/06-Components (B-01 Wave-Serialisierung)
 - [ ] 04-07-PLAN.md — Routing + App-Layout-Branching: 4 neue Route-Variants + page-Stubs + /helper-Layout-Branch
 - [ ] 04-08-PLAN.md — Vorstand-Pages: assemblies (List+Modal) + assembly_details (3-Tab — nutzt Plan-06 BasicsTab/TokenRow/CreateTokenForm + 5 Anwesenheits-Components)
 - [ ] 04-09-PLAN.md — Helfer-Pages: helper_login (HLPR-03 QR+Manual parallel + Auto-Redirect + DelayedLoadingSkeleton W-05) + helper_attendance (HelperShell + 4 shared Components)
