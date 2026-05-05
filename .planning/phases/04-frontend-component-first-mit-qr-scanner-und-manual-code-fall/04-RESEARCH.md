@@ -1351,47 +1351,55 @@ grep -E "print|screens" genossi-frontend/tailwind.config.js
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Helper-Session-Endpoint (D-06):**
    - What we know: D-06 fordert Auto-Redirect bei `/helper`-Mount.
    - What's unclear: Backend hat keinen dedizierten Endpoint; Frontend braucht eine Probe.
    - Recommendation: Plan baut entweder (a) schmalen Backend-Endpoint `GET /api/helper/session` → 200 `{assembly_id, expires_at, gv_name}` oder 401 (5-15 Zeilen Backend-Code) ODER (b) nutzt existierenden `/api/attendance/{aid}/members` als Probe — aber dann fehlt `aid` beim ersten Mount, also (a) ist sauberer.
+   - **RESOLVED:** Plan 01 implementiert GET /api/helper/session + POST /api/helper/logout (Variante A — append-only in helper_redeem_router; Cookie-Reading direkt im Handler analog redeem_helper_token)
 
 2. **Crockford-Alphabet-Single-Source-of-Truth:**
    - What we know: Phase 2 D-09 spezifiziert `0-9ABCDEFGHJKMNPQRSTVWXYZ`. UI-SPEC schreibt mehrdeutig `0-9A-HJ-NP-Z`.
    - What's unclear: Range-Notation in UI-SPEC ist semantisch fehlerhaft (würde L+U einschließen).
    - Recommendation: Plan definiert eine `CROCKFORD_ALPHABET`-Konstante und verifiziert per Cargo-Test gegen Backend-Phase-2-Code (gleichen Backend-`generate_code`-Test referenzieren oder duplizieren). Plan-Task: UI-SPEC korrigieren zu expliziter Whitelist.
+   - **RESOLVED:** Plan 02 etabliert CROCKFORD_ALPHABET in genossi-frontend/src/helper_code.rs als single source of truth (32 chars, excludes I, L, O, U); Plan 10 grep-verifiziert Frontend+Backend identisch
 
 3. **Logout-Endpoint für Helfer:**
    - What we know: HelperShell hat einen "Abmelden"-Button.
    - What's unclear: Phase 2 hat keinen `POST /api/helper/logout`-Endpoint dokumentiert. Existing `/api/auth/logout` ist OIDC-spezifisch.
    - Recommendation: Plan baut kleinen Endpoint `POST /api/helper/logout` der Helper-Session-Cookie invalidiert (5-10 Zeilen Backend). Alternative: Cookie via JS löschen — geht NICHT bei HTTP-Only-Cookie. Backend-Endpoint ist Pflicht.
+   - **RESOLVED:** Plan 01 implementiert POST /api/helper/logout via Set-Cookie Max-Age=0 (Phase-2 helper_token.rs:317-319 Pattern, kein tower-sessions::Session::delete) + SessionService::invalidate(session_id)
 
 4. **Dioxus Layout vs if/else in app.rs:**
    - What we know: Helper-Routes brauchen anderes Layout (kein TopBar).
    - What's unclear: Cleaner with `#[layout]` annotations or with if/else-branch in `App()`?
    - Recommendation: Plan-Discretion. `#[layout]` ist idiomatischer; if/else ist näher am bestehenden Pattern. Plan-Reviewer entscheidet.
+   - **RESOLVED:** Plan 07 wählt Option A (if/else in app.rs basiert auf pathname.starts_with("/helper")) — minimaler Eingriff, näher am bestehenden Pattern
 
 5. **AttendanceList: Polling-Refresh oder Push-Notification?**
    - What we know: D-15 Polling-Refresh; SYNC-01 fordert Refresh-only.
    - What's unclear: Plan-Discretion ob LiveCounter und AttendanceList gemeinsamen oder separaten Hook nutzen.
    - Recommendation: separat (siehe "Polling-Pattern" oben); Plan kann später konsolidieren.
+   - **RESOLVED:** Plan 04 nutzt separate Polling-Hooks (LiveCounter und AttendanceList sind unabhängig)
 
 6. **Locale-Switch in HelperShell:**
    - What we know: Helfer-View deutsch-only (D-19).
    - What's unclear: Bei Helfer mit nicht-deutschem Browser-Default (selten in Genossi-DACH-Zielgruppe) — Locale-Detection oder fix de?
    - Recommendation: fix de für Phase 4; Phase 5 evaluiert wenn Vereins-Diversität ein Issue ist. Bestehender `detect_browser_locale()` (`i18n/mod.rs:20-38`) wird in `HelperShell` deaktiviert (lokal `Locale::De` setzen).
+   - **RESOLVED:** Plan 05 HelperShell forciert Locale::De beim Mount (use_effect setzt I18N global) — siehe W-07-Fix
 
 7. **WASM-Test-Strategie:**
    - What we know: `wasm-bindgen-test` in dev-deps aber unbenutzt; existing Cargo-Tests sind Pure-Logic.
    - What's unclear: Brauch Phase 4 Browser-Tests für QrScanner/Camera-Lifecycle?
    - Recommendation: Cargo-Tests für reine Logik (Crockford-Validation, ConnectionState-Machine, Counter-Display-Format). Camera-Lifecycle wird in Phase 5 manuell auf echtem iPhone/Android getestet (SC#3). Plan-Task: identifiziert testbare Pure-Functions.
+   - **RESOLVED:** Plan 02 + Plan 04 testen Pure-Logic via cargo test im genossi-frontend Verzeichnis (member_search.rs ist Anchor-Pattern, validiert via cargo test member_search → 8/8 passed). Camera-Lifecycle wird Phase-5 manuell verifiziert.
 
 8. **Manganis Asset-Hash für `.sha256`-Companion:**
    - What we know: UI-SPEC fordert SHA256-Pin für `zxing.umd.min.js`.
    - What's unclear: Die `.sha256`-Datei wird auch durch `asset!`-Macro hash-fingerprinted — wenn ja, ist Pinning der HASH der Hash-File schwierig.
    - Recommendation: `.sha256`-File nicht via `asset!()` einbinden, sondern als reine Repo-Datei für Reviewer-Verifikation. Plan klärt Manganis-Ausschluss-Pattern.
+   - **RESOLVED:** Plan 02 README dokumentiert: .sha256-Companion-File ist Repo-File für Reviewer-Verifikation (sha256sum -c), NICHT via manganis::asset!() eingebunden
 
 ---
 

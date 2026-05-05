@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: completed
-last_updated: "2026-05-04T18:19:39.668Z"
+status: executing
+last_updated: "2026-05-05T04:23:22.650Z"
 progress:
   total_phases: 5
   completed_phases: 3
-  total_plans: 19
+  total_plans: 30
   completed_plans: 19
-  percent: 100
+  percent: 63
 ---
 
 # State: Genossi — GV-Anwesenheits-Erfassung
@@ -21,7 +21,7 @@ progress:
 
 **Core Value:** Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachvollziehbar (Audit-Hashchain), mit weniger manueller Arbeit. Dieser Milestone bringt papierlose Anwesenheits-Erfassung auf der Generalversammlung.
 
-**Current Focus:** Phase 03 — attendance-aggregat-cascade-invalidation
+**Current Focus:** Phase 04 — frontend-component-first-mit-qr-scanner-und-manual-code-fall (10 plans created, ready for execute-phase)
 
 **Granularity:** coarse (5 Phasen, 1–3 Plans pro Phase)
 
@@ -31,7 +31,7 @@ Phase: 3 — COMPLETE
 Plan: 6 of 6 (ALL plans complete)
 **Phase:** 3 (COMPLETE — Wave 4 done 2026-05-04)
 **Plan:** 06 — REST handlers + DI-Wiring + 6 E2E tests (DONE 2026-05-04)
-**Status:** Phase 3 complete
+**Status:** Ready to execute
 **Progress:** [██████████] 100%
 
 ```
@@ -114,7 +114,7 @@ Keine.
 
 **Last action:** Plan 03-06 (REST handlers + DI-Wiring + 6 E2E tests) komplett — Phase 3 vollständig abgeschlossen. 4 attendance REST-Handler in genossi_rest/src/attendance.rs (list_members/mark_present/mark_absent/get_stats) mit lokalem map_attendance_error (PermissionDenied → 403, D-26). RestStateImpl in genossi_bin DI-gewired mit AttendanceServiceImpl + 6 Deps. 6 grüne E2E-Tests gegen real-laufenden HTTP-Server mit in-memory SQLite — alle 9 Phase-3-Requirements (ASSY-04, ASSY-06, ATTN-01..06, SYNC-02) + SC#8-Cascade-DB direkt verifiziert. 234/234 E2E-Tests grün (228 vorher + 6 neu); 4 unit-Tests + 6 E2E = 10 neue grüne Tests. 4 Task-Commits (`a553b6a`, `b72b72c`, `e39af6b`, `e90bd33`).
 
-**Next action:** Phase 04 (Frontend — Component-First Helper-Page). REST-Schemas (AttendanceMemberTO + AttendanceStatsTO + ListMembersQuery) sind stabil; Endpoints sind dokumentiert via Swagger-UI; Phase 4 kann direkt Dioxus-Components gegen die API bauen (helfer-Page, Live-Counter mit ~5s-Polling, Member-Search mit Debounce).
+**Next action:** Phase 04 plans created (10 plans across 5 waves). Run /gsd-execute-phase 04. Wave 1 (parallel): Plans 01 (Backend Helper-Endpoints) + 02 (Frontend Foundation) + 03 (api.rs + i18n). Wave 2 (parallel): Plans 04 (shared attendance) + 05 (helper login) + 06 (vorstand layout). Wave 3 (sequential): Plans 07 (routing) → 08 (vorstand pages). Wave 4: Plan 09 (helfer pages). Wave 5: Plan 10 (UAT checkpoint).
 
 **Files written this session (Plan 06):**
 

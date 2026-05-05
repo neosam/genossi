@@ -87,7 +87,18 @@
   4. Helfer sehen aktualisierte Anwesenheits-Status beim nächsten Refresh oder beim nächsten Such-Vorgang (kein SSE/WebSocket nötig) (SYNC-01)
   5. Helfer-View und Vorstand-View teilen sich dieselben Components (`AttendanceRow`, `AttendanceSearch`, `LiveCounter`, `QrCard`, `QrScanner`); ein UI-Code-Diff zwischen den beiden Pages zeigt nur Auth-spezifische Top-Bar-Unterschiede, keine duplizierte Liste oder Suche
   6. Connection-Banner erscheint klar sichtbar bei Verbindungsverlust; Anwesenheits-Markierungen werden erst nach 200-OK-Response visuell bestätigt (kein Optimistic-UI-Phantom-Häkchen)
-**Plans**: TBD
+**Plans**: 11 plans (10 original + 04-06b mod.rs serializer; W-04 expanded Plan 06 mit 3 zusätzlichen Components)
+- [ ] 04-01-PLAN.md — Backend Helper-Endpoints (`GET /api/helper/session` + `POST /api/helper/logout`, Variante A: append-only in helper_redeem_router) + 5 E2E-Tests
+- [ ] 04-02-PLAN.md — Frontend Foundation: web-sys camera features + ZXing-JS vendoring + js bridge + Crockford Pure-Logic + Print-CSS + Tailwind safelist
+- [ ] 04-03-PLAN.md — Frontend api.rs erweitern: 14 Phase-4-TOs + 16 API-Funktionen + ~51 i18n-Keys (de+en, inkl. Key::Close)
+- [ ] 04-04-PLAN.md — Shared Attendance Components: AttendanceList + AttendanceSearch + LiveCounter + ConnectionBanner (SYNC-01, ATTN-06 reuse anchor)
+- [ ] 04-05-PLAN.md — Helper Login Components: ManualCodeInput (HLPR-03) + QrScanner (use_drop + decide_camera_path Pure-Logic-Test W-02) + QrCard + HelperShell (Locale::De forced — W-07)
+- [ ] 04-06-PLAN.md — Vorstand Layout Components: AssemblyStatusBadge + AssemblyListRow + TabStrip + Toast + W-04-Extraktion (TokenRow + CreateTokenForm + BasicsTab mit W-01 Edit-Mode)
+- [ ] 04-06b-PLAN.md — Single-writer mod.rs-Merger: appendet `pub mod` + `pub use` für alle Plan-04/05/06-Components (B-01 Wave-Serialisierung)
+- [ ] 04-07-PLAN.md — Routing + App-Layout-Branching: 4 neue Route-Variants + page-Stubs + /helper-Layout-Branch
+- [ ] 04-08-PLAN.md — Vorstand-Pages: assemblies (List+Modal) + assembly_details (3-Tab — nutzt Plan-06 BasicsTab/TokenRow/CreateTokenForm + 5 Anwesenheits-Components)
+- [ ] 04-09-PLAN.md — Helfer-Pages: helper_login (HLPR-03 QR+Manual parallel + Auto-Redirect + DelayedLoadingSkeleton W-05) + helper_attendance (HelperShell + 4 shared Components)
+- [ ] 04-10-PLAN.md — Verifikation: automated VERIFICATION.md + manual UAT-Checklist + Checkpoint
 **UI hint**: yes
 
 ### Phase 5: Pre-GV-Generalprobe und Operations-Plan
@@ -109,7 +120,7 @@
 | 1. Assembly-Aggregat + Audit-Hardening | 0/5 | Not started | - |
 | 2. Helfer-Token + Session + AuthContext::Helper | 0/8 | Not started | - |
 | 3. Attendance-Aggregat + Cascade-Invalidation | 4/6 | In Progress|  |
-| 4. Frontend (Component-First) | 0/0 | Not started | - |
+| 4. Frontend (Component-First) | 0/10 | Plans created | - |
 | 5. Pre-GV-Generalprobe und Operations-Plan | 0/0 | Not started | - |
 
 ## Coverage Summary
