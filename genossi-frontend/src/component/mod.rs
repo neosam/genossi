@@ -44,3 +44,49 @@ pub use timestamp_section::TimestampSection;
 pub use top_bar::TopBar;
 pub use tsa_config::TsaConfigSection;
 pub use wordpress_integration::WordPressIntegrationSection;
+
+// ─── Phase 4 Plan 04 ─── shared attendance components ────────────
+pub mod attendance_list;
+pub mod attendance_search;
+pub mod live_counter;
+pub mod connection_banner;
+
+// ─── Phase 4 Plan 05 ─── helper login components ─────────────────
+pub mod manual_code_input;
+pub mod qr_scanner;
+pub mod qr_card;
+pub mod helper_shell;
+
+// ─── Phase 4 Plan 06 ─── vorstand layout components ──────────────
+pub mod assembly_status_badge;
+pub mod assembly_list_row;
+pub mod tab_strip;
+pub mod toast;
+
+// ─── Phase 4 Plan 06 (W-04 extraction from assembly_details) ─────
+pub mod token_row;
+pub mod create_token_form;
+pub mod basics_tab;
+
+// ─── Phase 4 Plan 04 ─── shared attendance components ────────────
+pub use attendance_list::{AttendanceList, AttendanceToggleRequest};
+pub use attendance_search::AttendanceSearch;
+pub use live_counter::{ConnState, LiveCounter};
+pub use connection_banner::ConnectionBanner;
+
+// ─── Phase 4 Plan 05 ─── helper login components ─────────────────
+pub use manual_code_input::ManualCodeInput;
+pub use qr_scanner::{CameraPath, QrScanner, decide_camera_path};
+pub use qr_card::QrCard;
+pub use helper_shell::HelperShell;
+
+// ─── Phase 4 Plan 06 ─── vorstand layout components ──────────────
+pub use assembly_status_badge::AssemblyStatusBadge;
+pub use assembly_list_row::AssemblyListRow;
+pub use tab_strip::{TabDef, TabStrip};
+pub use toast::{ToastContainer, show_toast};
+
+// ─── Phase 4 Plan 06 (W-04 extraction from assembly_details) ─────
+pub use token_row::TokenRow;
+pub use create_token_form::CreateTokenForm;
+pub use basics_tab::BasicsTab;
