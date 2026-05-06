@@ -6,10 +6,10 @@ status: executing
 last_updated: "2026-05-05T18:07:41.572Z"
 progress:
   total_phases: 5
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 30
-  completed_plans: 29
-  percent: 97
+  completed_plans: 30
+  percent: 100
 ---
 
 # State: Genossi — GV-Anwesenheits-Erfassung
@@ -27,12 +27,20 @@ progress:
 
 ## Current Position
 
-**Phase:** 04 — frontend-component-first-mit-qr-scanner-und-manual-code-fall (EXECUTING)
-**Wave:** 4 of 5 — COMPLETE (2026-05-05)
-**Plans done in Phase 04:** 10 of 11 (04-01..04-09)
-**Next Wave:** Wave 5 — Plan 04-10 (Phase Verification + UAT-Checklist, autonomous: false — User-Checkpoint required)
-**Status:** Executing Phase 04 — Wave 4 complete, awaiting user before Wave 5
-**Progress:** [█████████░] 97% (29/30 plans across milestone)
+**Phase:** 04 — frontend-component-first-mit-qr-scanner-und-manual-code-fall (COMPLETE 2026-05-06)
+**Wave:** 5 of 5 — COMPLETE
+**Plans done in Phase 04:** 11 of 11 (04-01..04-09, 04-10) + Tailwind purge fix `bfffbe2`
+**Next Phase:** Phase 5 — Pre-GV-Generalprobe und Operations-Plan
+**Status:** Phase 04 complete — milestone code-complete (4 of 5 phases done)
+**Progress:** [██████████] 100% Phase 4 (30/30 milestone plans done)
+
+## Phase 04 Closure Notes (2026-05-06)
+
+- **Verification (04-VERIFICATION.md):** 14 PASS / 0 FAIL / 1 PENDING after fix `bfffbe2`. Only PENDING is `dx build --release` (blocked by missing `wasm-bindgen-cli@0.2.104` in local Nix profile — pure tooling, must be resolved at the start of Phase 5).
+- **UAT (04-UAT-CHECKLIST.md):** 173 manual checkboxes spanning Vorstand flows, HLPR-03 manual code login, SYNC-01 polling/race, ATTN-06 visual diff, Datenschutz, GV lifecycle. To be exercised on real hardware during Phase 5 generalprobe.
+- **Tests:** Backend 819 / Frontend 108 / 927 total pass / 0 fail.
+- **ATTN-06 Component-Reuse-Anchor:** verified via literal grep diff between `assembly_details.rs::AttendanceTab` and `helper_attendance.rs` — same component invocations, same on_toggle smart-parent wiring.
+- **Tooling debt for Phase 5:** install `wasm-bindgen-cli@0.2.104`, then re-run `dx build --release` and verify Tailwind purge result on the actual release artifact.
 
 ```
 [ ] Phase 1: Assembly-Aggregat + Audit-Hardening                     0/0 plans
