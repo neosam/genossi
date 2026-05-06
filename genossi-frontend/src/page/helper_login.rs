@@ -24,6 +24,39 @@ fn map_redeem_error(i18n: &I18n, err: &AppError) -> String {
     }
 }
 
+/// ADR-2026-05-06: pure helper that extracts the `code` query parameter
+/// from a URL search string (e.g. `?code=ABC1234567` or `?foo=bar&code=…`).
+/// Returns `None` if the parameter is absent or empty. Cargo-testbar (no
+/// web-sys).
+///
+/// We deliberately implement a minimal parser instead of pulling in `url`
+/// or `urlencoding` — the magic-link only ever sends a 10-char Crockford-
+/// Base32 string, which has no characters that require percent-decoding.
+#[allow(dead_code)]
+pub fn extract_code_query_param(search: &str) -> Option<String> {
+    let trimmed = search.trim_start_matches('?');
+    if trimmed.is_empty() {
+        return None;
+    }
+    for pair in trimmed.split('&') {
+        let mut split = pair.splitn(2, '=');
+        let key = split.next().unwrap_or("");
+        let value = split.next().unwrap_or("");
+        if key == "code" && !value.is_empty() {
+            return Some(value.to_string());
+        }
+    }
+    None
+}
+
+/// Read the current URL's query string via `window.location.search()`.
+/// Returns an empty string if the call fails (test/SSR contexts).
+fn read_window_search() -> String {
+    web_sys::window()
+        .and_then(|w| w.location().search().ok())
+        .unwrap_or_default()
+}
+
 // W-05: Delayed loading skeleton — zeigt für die ersten 200ms NICHTS,
 // erst danach einen zentrierten Skeleton-Box. Vermeidet Flash-of-Loading
 // bei schnellen /api/helper/session-Probes (RESEARCH §UI-SPEC Loading-Pattern).
@@ -84,11 +117,20 @@ pub fn HelperLogin() -> Element {
     let submitting = use_signal(|| false);
     let error_msg = use_signal(|| Option::<String>::None);
     let mut redirect_check_done = use_signal(|| false);
+    // ADR-2026-05-06: ?code= magic-link state. `initial_code` pre-fills the
+    // ManualCodeInput when the redeem fails (so the user can retry).
+    let initial_code = use_signal(|| extract_code_query_param(&read_window_search()));
 
     // Auto-Redirect (D-06): probe /api/helper/session on mount.
     // 200 → already authenticated → nav.replace zu /helper/attendance.
-    // 401 → render Login-UI (set redirect_check_done=true).
+    // 401 → render Login-UI (set redirect_check_done=true). On 401 we ALSO
+    // auto-submit the redeem if the magic-link supplied a `?code=` query
+    // parameter (ADR-2026-05-06). Edge case: if the redeem fails (already
+    // used, revoked, etc.) the existing map_redeem_error path renders the
+    // inline error and the pre-filled code stays visible for manual retry.
+    let i18n_for_effect = i18n.clone();
     use_effect(move || {
+        let i18n = i18n_for_effect.clone();
         spawn(async move {
             let config = CONFIG.read().clone();
             if api::get_helper_session(&config).await.is_ok() {
@@ -96,6 +138,12 @@ pub fn HelperLogin() -> Element {
                 return;
             }
             redirect_check_done.set(true);
+            // After confirming there is no existing helper session, attempt
+            // the magic-link auto-submit. spawn_redeem already handles the
+            // navigation on success and the error path on failure.
+            if let Some(code) = (*initial_code.read()).clone() {
+                spawn_redeem(code, i18n, nav, submitting, error_msg);
+            }
         });
     });
 
@@ -130,7 +178,7 @@ pub fn HelperLogin() -> Element {
                         div { class: "text-center text-gray-400 text-sm md:flex md:items-center md:px-4",
                             "oder"
                         }
-                        // Right path: Manual-Code
+                        // Right path: Manual-Code (pre-filled by ?code= magic-link).
                         div { class: "flex-1",
                             ManualCodeInput {
                                 on_submit: move |code: String| {
@@ -138,6 +186,7 @@ pub fn HelperLogin() -> Element {
                                 },
                                 submitting: *submitting.read(),
                                 error: error_msg.read().clone(),
+                                initial_value: (*initial_code.read()).clone(),
                             }
                         }
                     }
@@ -158,5 +207,62 @@ pub fn HelperLogin() -> Element {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extract_code_returns_none_for_empty_search() {
+        assert_eq!(extract_code_query_param(""), None);
+        assert_eq!(extract_code_query_param("?"), None);
+    }
+
+    #[test]
+    fn extract_code_returns_value_when_only_param() {
+        assert_eq!(
+            extract_code_query_param("?code=ABC1234567"),
+            Some("ABC1234567".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_code_returns_value_without_leading_question_mark() {
+        // window.location.search() in modern browsers includes the '?', but
+        // be defensive — some embedders strip it.
+        assert_eq!(
+            extract_code_query_param("code=ABC1234567"),
+            Some("ABC1234567".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_code_skips_other_params() {
+        assert_eq!(
+            extract_code_query_param("?foo=bar&code=Z9X8C7V6B5&baz=qux"),
+            Some("Z9X8C7V6B5".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_code_returns_none_when_param_absent() {
+        assert_eq!(extract_code_query_param("?foo=bar"), None);
+    }
+
+    #[test]
+    fn extract_code_returns_none_when_value_empty() {
+        // Defensive: ?code= with empty value must NOT trigger auto-submit.
+        // The frontend is the last line of defence before a backend 400.
+        assert_eq!(extract_code_query_param("?code="), None);
+    }
+
+    #[test]
+    fn extract_code_handles_code_as_first_of_many() {
+        assert_eq!(
+            extract_code_query_param("?code=ABC1234567&extra=1"),
+            Some("ABC1234567".to_string())
+        );
     }
 }

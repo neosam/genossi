@@ -35,9 +35,15 @@ pub fn ManualCodeInput(
     on_submit: EventHandler<String>,
     submitting: bool,
     error: Option<String>,
+    /// ADR-2026-05-06: optional pre-fill when the magic-link `?code=` query
+    /// parameter routed the helper here. The page-level auto-submit handles
+    /// the actual redeem; this prop only ensures the input field shows the
+    /// code if the redeem fails and the user can retry.
+    #[props(default)]
+    initial_value: Option<String>,
 ) -> Element {
     let i18n = use_i18n();
-    let mut value = use_signal(String::new);
+    let mut value = use_signal(|| initial_value.unwrap_or_default());
 
     let (_, submit_disabled) = compute_submit_state(&value.read(), submitting);
 
