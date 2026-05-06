@@ -38,10 +38,31 @@ impl std::error::Error for AppError {}
 
 impl From<reqwest::Error> for AppError {
     fn from(e: reqwest::Error) -> Self {
+        // reqwest::Error umfasst Network-, Build- und Decode-Fehler. Connection-Banner
+        // soll nur bei echten Netzwerk-Problemen erscheinen — JSON-Decode-Fehler
+        // sind meistens Schema-Mismatches zwischen Backend-TO und Frontend-TO und
+        // kommen NICHT durch eine fehlende Internetverbindung. Trenne die Klassen,
+        // damit der Fehler-Toast eine sinnvolle Meldung zeigt.
+        let status = e.status().map(|s| s.as_u16());
+        let detail = Some(e.to_string());
+        let message = if e.is_decode() {
+            "Antwort vom Server konnte nicht gelesen werden (JSON-Parse-Fehler)".into()
+        } else if e.is_timeout() {
+            "Zeitüberschreitung — Server antwortet nicht".into()
+        } else if e.is_request() && status.is_none() {
+            // Build-Phase-Fehler (z.B. URL ungültig) ODER Network-Layer ohne Status
+            "Anfrage konnte nicht gesendet werden".into()
+        } else if e.is_connect() {
+            "Verbindungsfehler — bitte Internetverbindung prüfen".into()
+        } else {
+            // Fallback: kein klares Signal aus reqwest. Zeig die Detail-Message
+            // mit, statt fälschlich als Connection-Problem zu interpretieren.
+            format!("Fehler beim API-Aufruf: {}", e)
+        };
         AppError {
-            status: e.status().map(|s| s.as_u16()),
-            message: "Verbindungsfehler — bitte Internetverbindung prüfen".into(),
-            detail: Some(e.to_string()),
+            status,
+            message,
+            detail,
         }
     }
 }
