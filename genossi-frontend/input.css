@@ -25,6 +25,15 @@
     }
 }
 
+/* ─── Phase 4 Plan 02 / 04-10 fix ─── Top-level .qr-card marker so Tailwind purge
+   keeps the @media print rules below. Without this, @media-only rules whose
+   selector never appears at top-level get pruned (Pitfall 6). */
+.qr-card {
+    /* Screen layout is composed via Tailwind utilities in qr_card.rs RSX
+       (`bg-white border border-gray-300 rounded-lg p-6 shadow-sm ...`).
+       This empty rule exists solely as a purge anchor — do not add styles here. */
+}
+
 /* ─── Phase 4 Plan 02 ─── Print rules for QrCard (UI-SPEC §QrCard print contract) */
 @media print {
     /* Hide everything except the .qr-card being printed. */
