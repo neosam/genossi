@@ -22,11 +22,17 @@ use crate::ServiceError;
 
 /// Domain representation of a helper_token. Mirrors `HelperTokenEntity` but
 /// EXCLUDES `token_hash` and `deleted` — neither belongs in the service contract.
+///
+/// ADR-2026-05-06: `code` is the plain-text Crockford-Base32 code, exposed
+/// here so the REST layer can hand it through to the Vorstand UI for QR
+/// re-display. `None` means the row was created before the migration; the
+/// frontend renders a "revoke + recreate" hint instead of the QR card.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HelperToken {
     pub id: Uuid,
     pub assembly_id: Uuid,
     pub memo: Arc<str>,
+    pub code: Option<Arc<str>>,
     pub used_at: Option<time::PrimitiveDateTime>,
     pub session_id: Option<Arc<str>>,
     pub revoked_at: Option<time::PrimitiveDateTime>,
@@ -40,6 +46,10 @@ impl From<&genossi_dao::helper_token::HelperTokenEntity> for HelperToken {
             id: e.id,
             assembly_id: e.assembly_id,
             memo: e.memo.clone(),
+            // ADR-2026-05-06: round-trip the plain-text code into the domain
+            // layer so the REST handler can attach it (+ the regenerated
+            // qr_svg) to the response without touching the DAO entity.
+            code: e.code.clone(),
             used_at: e.used_at,
             session_id: e.session_id.clone(),
             revoked_at: e.revoked_at,
@@ -187,6 +197,40 @@ mod tests {
             "HelperToken should not have a token_hash field; got: {}",
             debug_str
         );
+        // ADR-2026-05-06: the plain-text code DOES round-trip into the domain
+        // type — the REST layer needs it for QR re-display.
+        assert_eq!(
+            domain.code.as_deref(),
+            Some("ABC1234567"),
+            "HelperToken must round-trip the plain-text code"
+        );
+    }
+
+    #[test]
+    fn test_helper_token_from_entity_with_null_code() {
+        // ADR-2026-05-06: legacy rows (created before the migration) carry
+        // `code = None`. The domain conversion must preserve None — the
+        // frontend distinguishes None (legacy) vs Some (re-displayable).
+        let now = time::OffsetDateTime::now_utc();
+        let now_pdt = time::PrimitiveDateTime::new(now.date(), now.time());
+        let entity = genossi_dao::helper_token::HelperTokenEntity {
+            id: Uuid::nil(),
+            assembly_id: Uuid::nil(),
+            memo: Arc::from("Anna"),
+            token_hash: Arc::from("hash"),
+            code: None,
+            created: now_pdt,
+            used_at: None,
+            session_id: None,
+            revoked_at: None,
+            deleted: None,
+            version: Uuid::nil(),
+        };
+        let domain = HelperToken::from(&entity);
+        assert!(
+            domain.code.is_none(),
+            "legacy rows must surface as None in the domain layer"
+        );
     }
 
     #[test]
@@ -197,6 +241,7 @@ mod tests {
             id: Uuid::nil(),
             assembly_id: Uuid::nil(),
             memo: Arc::from("Anna"),
+            code: Some(Arc::from("ABC1234567")),
             used_at: None,
             session_id: None,
             revoked_at: None,
