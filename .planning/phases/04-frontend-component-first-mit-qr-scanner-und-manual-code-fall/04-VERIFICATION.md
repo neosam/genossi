@@ -2,7 +2,7 @@
 
 **Run:** 2026-05-05 19:56 UTC
 **Worktree HEAD:** `8d1e834` (Wave 4 complete — Plan 04-09)
-**Status:** **PASS (mit 1 dokumentiertem FAIL — Pitfall 6 Tailwind Purge: `.qr-card` Print-Rules werden gepurged; Mitigation siehe unten + UAT)**
+**Status:** **PASS** (Pitfall 6 in Commit `bfffbe2` gefixed — siehe Update zu Check 14; nur tooling-PENDING `dx build --release` offen)
 
 ## Summary Table
 
@@ -21,10 +21,12 @@
 | 11. Pitfall 2 — use_drop + track.stop in qr_scanner | PASS |
 | 12. HLPR-03 Frontend (ManualCodeInput + redeem) | PASS |
 | 13. SYNC-01 Frontend (use_future + 5s polling + refresh_signal) | PASS |
-| 14. Pitfall 6 — Tailwind purge erhält .qr-card Print-Rules | **FAIL** (siehe Check 14) |
+| 14. Pitfall 6 — Tailwind purge erhält .qr-card Print-Rules | PASS (nach Fix `bfffbe2`) |
 | 15. dx build --release (full WASM release) | PENDING (siehe Check 15) |
 
-**Total: 13 PASS / 1 FAIL / 1 PENDING (15 Checks gesamt)**
+**Total: 14 PASS / 0 FAIL / 1 PENDING (15 Checks gesamt) — nach Fix `bfffbe2`**
+
+> **Update 2026-05-06:** Check 14 wurde nachträglich gefixed (Top-level `.qr-card`-Marker in `input.css` als Purge-Anchor). Re-Run der Tailwind-CLI gegen `input.css` produziert 31KB CSS mit allen 4 `.qr-card` Print-Rules + dem `body * { visibility: hidden }` Guard. Damit bleibt nur das tooling-PENDING (`dx build --release` braucht `wasm-bindgen-cli@0.2.104`) — kein Code-FAIL mehr.
 
 ---
 
@@ -266,6 +268,20 @@ SYNC-01 mechanism: LiveCounter polled alle 5s; Parent (Page) bumpt `refresh_sign
 ---
 
 ## Check 14: Pitfall 6 — Tailwind Purge erhält `.qr-card` Print-Rules
+
+**Status:** PASS (nach Fix `bfffbe2`)
+
+> **Update 2026-05-06 — gefixt in Commit `bfffbe2`:** Top-level `.qr-card`-Selektor mit leerem Body wurde in `input.css` ergänzt als Purge-Anchor. Re-Run via `tailwindcss -i input.css -o /tmp/test.css --minify` produziert 31KB Output mit allen 4 erwarteten Print-Regeln:
+> - `.qr-card,.qr-card *{visibility:visible}`
+> - `.qr-card{...position:absolute;max-width:80mm;...}`
+> - `.qr-card .w-64{height:60mm;width:60mm}`
+> - `.qr-card .font-mono{font-size:16pt;letter-spacing:.15em}`
+>
+> Plus den `@media print { body *{visibility:hidden} }` Guard. UAT Block A3 (visueller Print-Test in echtem Browser) bleibt sinnvoll als Smoke-Test, aber der CSS-Defekt selbst ist behoben.
+
+---
+
+### Original FAIL-Analyse (vor dem Fix `bfffbe2`)
 
 **Status:** **FAIL** (Mitigation: visuell in UAT verifizieren)
 **Command:**
