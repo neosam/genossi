@@ -63,6 +63,10 @@ pub fn TopBar() -> Element {
             label: i18n.t(Key::Applications).to_string(),
             route: Route::ApplicationsPage {},
         });
+        mitglieder_items.push(NavItem {
+            label: i18n.t(Key::Assemblies).to_string(),
+            route: Route::Assemblies {},
+        });
     }
 
     let mut kommunikation_items = Vec::new();
