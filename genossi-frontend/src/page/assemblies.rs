@@ -47,6 +47,7 @@ pub fn Assemblies() -> Element {
                 div { class: "flex justify-between items-start mb-4",
                     h1 { class: "text-2xl font-bold mb-1", "{i18n.t(Key::Assemblies)}" }
                     button {
+                        r#type: "button",
                         class: "bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded text-sm min-h-[44px]",
                         onclick: move |_| show_create.set(true),
                         "{i18n.t(Key::AssemblyCreate)}"
@@ -60,6 +61,7 @@ pub fn Assemblies() -> Element {
                         p { class: "text-lg font-medium text-gray-700", "{i18n.t(Key::AssemblyEmpty)}" }
                         p { class: "text-sm text-gray-500 mt-2 mb-6", "{i18n.t(Key::AssemblyEmptyHint)}" }
                         button {
+                            r#type: "button",
                             class: "bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded min-h-[44px]",
                             onclick: move |_| show_create.set(true),
                             "{i18n.t(Key::AssemblyCreate)}"

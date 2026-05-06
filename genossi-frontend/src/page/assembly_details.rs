@@ -236,6 +236,7 @@ fn TokensTab(assembly_id: Uuid, on_error: EventHandler<String>) -> Element {
         div { class: "flex justify-between items-start mb-4",
             h2 { class: "text-xl font-semibold", "{i18n.t(Key::HelperTokens)}" }
             button {
+                r#type: "button",
                 class: "bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded min-h-[44px]",
                 onclick: move |_| show_create.set(true),
                 "{i18n.t(Key::HelperTokenCreate)}"
@@ -252,6 +253,7 @@ fn TokensTab(assembly_id: Uuid, on_error: EventHandler<String>) -> Element {
                 }
                 div { class: "flex justify-center mt-2",
                     button {
+                        r#type: "button",
                         class: "text-sm text-gray-600 underline min-h-[44px] px-4",
                         onclick: move |_| just_created.set(None),
                         "{i18n.t(Key::Close)}"

@@ -71,6 +71,7 @@ pub fn BasicsTab(
                 div { class: "flex gap-2",
                     if can_edit {
                         button {
+                            r#type: "button",
                             class: "px-4 py-2 text-blue-600 border border-blue-600 hover:bg-blue-50 rounded min-h-[44px]",
                             onclick: move |_| {
                                 name_edit.set(name_for_reset.clone());
@@ -83,6 +84,7 @@ pub fn BasicsTab(
                     }
                     if is_preparation {
                         button {
+                            r#type: "button",
                             class: "bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded min-h-[44px]",
                             onclick: move |_| show_open_confirm.set(true),
                             "{i18n.t(Key::AssemblyOpen)}"
@@ -90,6 +92,7 @@ pub fn BasicsTab(
                     }
                     if is_open {
                         button {
+                            r#type: "button",
                             class: "bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded min-h-[44px]",
                             onclick: move |_| show_close_confirm.set(true),
                             "{i18n.t(Key::AssemblyClose)}"
@@ -185,11 +188,13 @@ pub fn BasicsTab(
                     }
                     div { class: "flex gap-2 justify-end mt-2",
                         button {
+                            r#type: "button",
                             class: "px-4 py-2 text-gray-700 hover:bg-gray-100 rounded min-h-[44px]",
                             onclick: move |_| show_open_confirm.set(false),
                             "{i18n.t(Key::Cancel)}"
                         }
                         button {
+                            r#type: "button",
                             class: "bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded min-h-[44px]",
                             onclick: move |_| {
                                 show_open_confirm.set(false);
@@ -218,11 +223,13 @@ pub fn BasicsTab(
                     }
                     div { class: "flex gap-2 justify-end mt-2",
                         button {
+                            r#type: "button",
                             class: "px-4 py-2 text-gray-700 hover:bg-gray-100 rounded min-h-[44px]",
                             onclick: move |_| show_close_confirm.set(false),
                             "{i18n.t(Key::Cancel)}"
                         }
                         button {
+                            r#type: "button",
                             class: "bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded min-h-[44px]",
                             onclick: move |_| {
                                 show_close_confirm.set(false);

@@ -99,6 +99,7 @@ pub fn TokenRow(
                 if matches!(status, HelperTokenStatusTO::Open)
                     && matches!(show_mode, ShowCodeMode::Available { .. }) {
                     button {
+                        r#type: "button",
                         class: "text-sm text-blue-600 hover:text-blue-800 underline min-h-[44px] px-2",
                         onclick: move |_| show_qr_modal.set(true),
                         "{i18n.t(Key::HelperTokenShow)}"
@@ -106,6 +107,7 @@ pub fn TokenRow(
                 }
                 if matches!(status, HelperTokenStatusTO::Open) {
                     button {
+                        r#type: "button",
                         class: "text-sm text-red-600 hover:text-red-800 underline min-h-[44px] px-2",
                         onclick: move |_| show_revoke_confirm.set(true),
                         "{i18n.t(Key::HelperTokenRevoke)}"
@@ -123,6 +125,7 @@ pub fn TokenRow(
                             qr_svg: qr_svg,
                         }
                         button {
+                            r#type: "button",
                             class: "px-4 py-2 text-gray-700 hover:bg-gray-100 rounded min-h-[44px]",
                             onclick: move |_| show_qr_modal.set(false),
                             "{i18n.t(Key::Cancel)}"
@@ -142,11 +145,13 @@ pub fn TokenRow(
                     }
                     div { class: "flex gap-2 justify-end mt-2",
                         button {
+                            r#type: "button",
                             class: "px-4 py-2 text-gray-700 hover:bg-gray-100 rounded min-h-[44px]",
                             onclick: move |_| show_revoke_confirm.set(false),
                             "{i18n.t(Key::Cancel)}"
                         }
                         button {
+                            r#type: "button",
                             class: "bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded min-h-[44px]",
                             onclick: move |_| {
                                 show_revoke_confirm.set(false);
