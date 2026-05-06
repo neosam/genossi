@@ -1656,10 +1656,22 @@ pub async fn list_assemblies(config: &Config) -> Result<Vec<AssemblyTO>, AppErro
 }
 
 pub async fn get_assembly(config: &Config, id: Uuid) -> Result<AssemblyTO, AppError> {
+    // Backend returns AssemblyDetailTO { assembly, snapshot_member_count } from
+    // GET /api/assembly/{id} — NOT a flat AssemblyTO. The list endpoint
+    // /api/assembly returns Vec<AssemblyTO> directly; only the detail endpoint
+    // wraps. We unwrap the wrapper here so callers continue to work with the
+    // flat AssemblyTO they expect.
+    #[derive(serde::Deserialize)]
+    struct AssemblyDetailWrapper {
+        assembly: AssemblyTO,
+        #[serde(default, rename = "snapshot_member_count")]
+        _snapshot_member_count: Option<u64>,
+    }
     info!("Fetching assembly {id}");
     let url = format!("{}/api/assembly/{id}", config.backend);
     let response = check_response(reqwest::get(url).await?).await?;
-    Ok(response.json().await?)
+    let detail: AssemblyDetailWrapper = response.json().await?;
+    Ok(detail.assembly)
 }
 
 pub async fn create_assembly(
