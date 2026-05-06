@@ -124,4 +124,59 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-03 after Phase 2 (helfer-token-session-authcontext-helper) completion*
+
+## ADR-2026-05-06 — Helfer-Token-Code-Persistenz (Reversal von D-11 / D-21)
+
+**Status:** Accepted — supersedes the "one-time-display" portion of Phase 2 D-11 / D-21.
+
+### Entscheidung
+Der Klartext-Code des Helper-Tokens wird ab dieser Migration in einer neuen
+Spalte `helper_token.code TEXT NULL` persistiert, sodass der Vorstand die QR-
+Karte und den manuellen Code jederzeit erneut anzeigen kann (über die
+bestehende admin-only Listing-Route `GET /api/assembly/{id}/helper-tokens`).
+
+### Begründung
+- **Vorstand-UX:** „One-time" zwingt den Vorstand, beim Anlegen sofort zu
+  drucken. Wenn ein Helfer kurzfristig hinzukommt, fehlt eine Reprint-
+  Möglichkeit; die Lösung war bisher: Token revoken + neuen anlegen — was an
+  der GV stresst.
+- **Single-tenant self-hosted:** Genossi läuft als Single-Tenant-Instanz pro
+  Genossenschaft. Die Bedrohungslage (geleakter DB-Dump) wird ohnehin auf
+  Filesystem-Ebene durch verschlüsseltes Restic-Backup abgedeckt; eine
+  zusätzliche App-Layer-Verschlüsselung des Codes brächte hier keinen echten
+  Vorteil.
+- **Atomic Redeem unverändert:** Der race-sichere Redeem-Pfad arbeitet
+  weiterhin gegen `token_hash` (`UPDATE helper_token SET used_at=?,
+  session_id=? WHERE token_hash = ? AND used_at IS NULL RETURNING …`).
+  `code` ist nur Read-State für die Re-Display-Route.
+- **Helper-Magic-Link:** Der QR-Inhalt ist seit Phase 2 ohnehin
+  `{APP_URL}/helper?code={code}`. Mit der persistierten Spalte kann der
+  Frontend-`/helper`-Mount diesen Magic-Link beim ersten Aufruf automatisch
+  redeemen — ein Helfer mit ausgedruckter Karte tippt nichts mehr ab.
+
+### Grenzen die WEITER gelten
+- **Audit-Log-Exklusion:** `code` wird in `HelperTokenEntity::audit_fields()`
+  EXPLIZIT ausgeschlossen (mit Inline-Kommentar). Der audit_log darf
+  niemals einen zweiten persistenten Code-Speicher werden.
+- **`token_hash`-Redeem-Path unverändert:** Atomic redeem matched weiterhin
+  auf `token_hash = SHA256(code)`. Plain-`code`-Spalte ist reine
+  Re-Display-State, nie input zum Redeem.
+- **Klartext nur in der DB-Row, NIE in Logs:** Die Phase-2-Regel „kein
+  `tracing::debug!(code)`" bleibt; das Backend logged den Code nirgendwo.
+- **Permission-Gate unverändert:** Re-Display läuft über die existierende
+  admin-only `list_for_assembly`-Route. Helfer und unauthenticated User
+  haben weiterhin keinen Zugriff auf den Code.
+
+### Migration & Rollback
+- Migration `20260506000000_add_code_to_helper_token.sql` fügt die Spalte
+  als `NULL`-able hinzu. Vorhandene (Phase-2-)Tokens haben `code = NULL`.
+- Frontend behandelt NULL-Code-Tokens distinkt: Anstelle des „QR/Code
+  anzeigen"-Buttons erscheint die Hint-Zeile „Code nicht verfügbar (vor
+  Update erstellt) — bitte revoken und neu erstellen". Damit ist die
+  Migration für die GV ein No-Op: alte Tokens müssen einmal regeneriert
+  werden, neue funktionieren ab Anlegen mit Re-Display.
+- Kein Down-Migration: SQLite < 3.35 hat kein `DROP COLUMN`, und das
+  Projekt führt nur Forward-Migrationen.
+
+---
+*Last updated: 2026-05-06 — ADR-2026-05-06 (helfer-token code persistence)*
