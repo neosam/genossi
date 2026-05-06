@@ -100,9 +100,16 @@ pub fn LiveCounter(
     let mut consecutive_failures = use_signal(|| 0u32);
 
     // Polling loop — auto-cancelled on unmount when the use_future task is dropped.
+    //
+    // Closed-GV fix (2026-05-06): the initial fetch ALWAYS runs, even when
+    // `polling_enabled=false`, so a closed GV displays the final attendance
+    // snapshot ("X von Y anwesend") instead of staying on "Anwesenheit lädt…".
+    // After the first fetch, the gate is enforced: closed GVs idle without
+    // re-fetching; open GVs continue the 5s polling cadence.
     use_future(move || async move {
+        let mut has_initial_load = false;
         loop {
-            if !polling_enabled {
+            if !polling_enabled && has_initial_load {
                 // Idle: re-check the gate once per second; cheap and avoids dropping
                 // the polling loop when a parent toggles the prop transiently.
                 TimeoutFuture::new(1_000).await;
@@ -133,6 +140,7 @@ pub fn LiveCounter(
                     }
                 }
             }
+            has_initial_load = true;
             TimeoutFuture::new(POLL_INTERVAL_MS).await;
         }
     });
