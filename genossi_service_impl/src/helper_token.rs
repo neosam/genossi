@@ -199,6 +199,11 @@ impl<Deps: HelperTokenServiceDeps> HelperTokenService for HelperTokenServiceImpl
             assembly_id,
             memo: submission.memo.clone(),
             token_hash: Arc::from(token_hash.as_str()),
+            // ADR-2026-05-06: persist the plain-text code so the Vorstand can
+            // re-display the QR card later. `token_hash` stays the canonical
+            // input to atomic_redeem; this column is read-only state for the
+            // re-display path.
+            code: Some(Arc::from(code.as_str())),
             created,
             used_at: None,
             session_id: None,

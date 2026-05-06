@@ -1562,6 +1562,10 @@ mod helper_token_to_tests {
             assembly_id: Uuid::nil(),
             memo: Arc::from("Anna"),
             token_hash: Arc::from("dummy-hash-not-leaked"),
+            // ADR-2026-05-06: dummy plain-text code; the From<&Entity> impl
+            // does not expose it on HelperTokenTO (the REST handler attaches
+            // code/qr_svg explicitly via the service layer).
+            code: Some(Arc::from("ABC1234567")),
             created: now_pdt,
             used_at: None,
             session_id: None,

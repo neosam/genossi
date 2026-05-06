@@ -6,21 +6,31 @@ use uuid::Uuid;
 
 use crate::DaoError;
 
-/// HelperTokenEntity — D-01: 10 columns mirroring the helper_token table.
+/// HelperTokenEntity — D-01: mirrors the helper_token table.
 ///
 /// Lifecycle status (Open/Used/Revoked) is **derived** from the columns
 /// `used_at` and `revoked_at` (D-02), no separate status column.
 ///
-/// `token_hash` holds SHA256(code) only (D-11). Plaintext code is **never**
-/// persisted. The Auditable impl explicitly excludes `token_hash` from
-/// `audit_fields()` (D-06) to avoid leaking pre-image material into the
-/// audit hash chain.
+/// `token_hash` holds SHA256(code) (D-11). It is the canonical input to the
+/// atomic redeem path and stays the only column the Auditable impl is allowed
+/// to leak (it does NOT — D-06 excludes it).
+///
+/// `code` (Option<Arc<str>>) is the plain-text Crockford-Base32 code,
+/// persisted per ADR-2026-05-06 so the Vorstand can re-display the QR card
+/// at any time. Pre-update rows have `code = None`; the frontend renders a
+/// "revoke + recreate" hint for those. The Auditable impl excludes `code`
+/// (see `audit_fields()` below) to avoid creating a parallel code store in
+/// the audit hash chain.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HelperTokenEntity {
     pub id: Uuid,
     pub assembly_id: Uuid,
     pub memo: Arc<str>,
     pub token_hash: Arc<str>,
+    /// ADR-2026-05-06: plain-text code persisted for re-display. NULL for
+    /// rows created before the migration — frontend treats those as "revoke
+    /// and recreate to obtain a QR card".
+    pub code: Option<Arc<str>>,
     pub created: time::PrimitiveDateTime,
     pub used_at: Option<time::PrimitiveDateTime>,
     pub session_id: Option<Arc<str>>,
@@ -38,6 +48,11 @@ impl crate::auditable::Auditable for HelperTokenEntity {
         self.id
     }
 
+    // SECURITY: `code` is plain-text persistence per Vorstand-decision 2026-05-06;
+    // deliberately NOT audited (would create a parallel code store in audit_log).
+    // The audit hash chain stays free of redeemable material — the helper_token
+    // row in the live DB is the single, authoritative store of the plain-text
+    // code. `token_hash` (D-06) remains excluded for the same reason.
     fn audit_fields(&self) -> Vec<(&'static str, Option<String>)> {
         // WR-08: do NOT use `unwrap_or_default()` — a silent empty string in
         // the audit log is forensically useless. Log the failure and substitute
@@ -55,6 +70,7 @@ impl crate::auditable::Auditable for HelperTokenEntity {
                 })
         };
         // D-06: NO token_hash (no pre-image leakage in audit log).
+        // ADR-2026-05-06: NO code (no parallel plain-text store in audit log).
         // Includes assembly_id, memo, used_at, session_id, revoked_at —
         // sufficient for forensic review.
         vec![
@@ -209,6 +225,7 @@ mod tests {
             assembly_id: Uuid::new_v4(),
             memo: Arc::from("Anna"),
             token_hash: Arc::from("deadbeefdeadbeefdeadbeefdeadbeef"),
+            code: Some(Arc::from("ABC1234567")),
             created: datetime,
             used_at: None,
             session_id: None,
@@ -255,12 +272,37 @@ mod tests {
             "D-06: token_hash must be excluded from audit_fields"
         );
 
+        // ADR-2026-05-06 explicit guard: code MUST NOT appear in the audit
+        // log either — the helper_token row is the only allowed store of
+        // the plain-text code (no parallel store in audit_log).
+        assert!(
+            !field_names.contains(&"code"),
+            "ADR-2026-05-06: code must be excluded from audit_fields"
+        );
+
         // Auditable convention — id/version/created/deleted are lifecycle
         // metadata and never go into audit_fields.
         assert!(!field_names.contains(&"id"));
         assert!(!field_names.contains(&"version"));
         assert!(!field_names.contains(&"created"));
         assert!(!field_names.contains(&"deleted"));
+    }
+
+    #[test]
+    fn test_audit_fields_capture_does_not_include_code_change() {
+        // ADR-2026-05-06: even if `code` is rotated/cleared, the audit log
+        // must remain free of plain-text material. Diff between two entities
+        // that differ only in `code` must produce zero changes.
+        let entity_a = make_token();
+        let mut entity_b = entity_a.clone();
+        entity_b.code = Some(Arc::from("ZZZZZZZZZZ"));
+
+        let changes = entity_a.diff(&entity_b);
+        assert!(
+            changes.is_empty(),
+            "code-only mutation must not produce audit diff entries; got {:?}",
+            changes
+        );
     }
 
     #[test]
@@ -271,6 +313,7 @@ mod tests {
         let mut old = make_token();
         old.used_at = None;
         old.revoked_at = None;
+        old.code = None;
 
         let mut new = old.clone();
         new.used_at = Some(now);

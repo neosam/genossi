@@ -22,6 +22,8 @@ struct HelperTokenDb {
     assembly_id: Vec<u8>,
     memo: String,
     token_hash: String,
+    // ADR-2026-05-06: nullable plain-text code. NULL for pre-update rows.
+    code: Option<String>,
     created: String,
     used_at: Option<String>,
     session_id: Option<String>,
@@ -39,6 +41,7 @@ impl TryFrom<&HelperTokenDb> for HelperTokenEntity {
             assembly_id: Uuid::from_slice(&db.assembly_id)?,
             memo: Arc::from(db.memo.as_str()),
             token_hash: Arc::from(db.token_hash.as_str()),
+            code: db.code.as_deref().map(Arc::from),
             created: parse_datetime(&db.created)?,
             used_at: db
                 .used_at
@@ -92,7 +95,7 @@ impl HelperTokenDao for HelperTokenDaoImpl {
         tx: Self::Transaction,
     ) -> Result<Arc<[HelperTokenEntity]>, DaoError> {
         let rows = sqlx::query_as::<_, HelperTokenDb>(
-            "SELECT id, assembly_id, memo, token_hash, created, used_at, session_id, \
+            "SELECT id, assembly_id, memo, token_hash, code, created, used_at, session_id, \
              revoked_at, deleted, version FROM helper_token ORDER BY created DESC",
         )
         .fetch_all(tx.tx.lock().await.as_mut())
@@ -116,6 +119,9 @@ impl HelperTokenDao for HelperTokenDaoImpl {
         let version = entity.version.as_bytes().to_vec();
         let memo = entity.memo.to_string();
         let token_hash = entity.token_hash.to_string();
+        // ADR-2026-05-06: optional plain-text code. NULL for backwards-compatible
+        // create paths (none in current code; the service layer always sets it).
+        let code = entity.code.as_ref().map(|s| s.to_string());
         let created = format_dt(&entity.created)?;
         let used_at = entity.used_at.as_ref().map(format_dt).transpose()?;
         let session_id = entity.session_id.as_ref().map(|s| s.to_string());
@@ -123,14 +129,15 @@ impl HelperTokenDao for HelperTokenDaoImpl {
         let deleted = entity.deleted.as_ref().map(format_dt).transpose()?;
 
         sqlx::query(
-            "INSERT INTO helper_token (id, assembly_id, memo, token_hash, created, \
+            "INSERT INTO helper_token (id, assembly_id, memo, token_hash, code, created, \
              used_at, session_id, revoked_at, deleted, version) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(id)
         .bind(assembly_id)
         .bind(memo)
         .bind(token_hash)
+        .bind(code)
         .bind(created)
         .bind(used_at)
         .bind(session_id)
@@ -156,6 +163,10 @@ impl HelperTokenDao for HelperTokenDaoImpl {
         let assembly_id = entity.assembly_id.as_bytes().to_vec();
         let memo = entity.memo.to_string();
         let token_hash = entity.token_hash.to_string();
+        // ADR-2026-05-06: round-trip the plain-text code through update so
+        // revoke / set_session_id paths preserve what the service layer
+        // loaded; the column itself is immutable in practice.
+        let code = entity.code.as_ref().map(|s| s.to_string());
         let used_at = entity.used_at.as_ref().map(format_dt).transpose()?;
         let session_id = entity.session_id.as_ref().map(|s| s.to_string());
         let revoked_at = entity.revoked_at.as_ref().map(format_dt).transpose()?;
@@ -177,13 +188,14 @@ impl HelperTokenDao for HelperTokenDaoImpl {
         }
 
         let rows_affected = sqlx::query(
-            "UPDATE helper_token SET assembly_id = ?, memo = ?, token_hash = ?, \
+            "UPDATE helper_token SET assembly_id = ?, memo = ?, token_hash = ?, code = ?, \
              used_at = ?, session_id = ?, revoked_at = ?, deleted = ?, version = ? \
              WHERE id = ? AND version = ? AND deleted IS NULL",
         )
         .bind(assembly_id)
         .bind(memo)
         .bind(token_hash)
+        .bind(code)
         .bind(used_at)
         .bind(session_id)
         .bind(revoked_at)
@@ -294,7 +306,7 @@ impl HelperTokenDao for HelperTokenDaoImpl {
     ) -> Result<Arc<[HelperTokenEntity]>, DaoError> {
         let aid = assembly_id.as_bytes().to_vec();
         let rows = sqlx::query_as::<_, HelperTokenDb>(
-            "SELECT id, assembly_id, memo, token_hash, created, used_at, session_id, \
+            "SELECT id, assembly_id, memo, token_hash, code, created, used_at, session_id, \
              revoked_at, deleted, version FROM helper_token \
              WHERE assembly_id = ? AND deleted IS NULL ORDER BY created DESC",
         )
@@ -406,6 +418,7 @@ mod tests {
                 assembly_id BLOB NOT NULL,
                 memo TEXT NOT NULL,
                 token_hash TEXT NOT NULL,
+                code TEXT,
                 created TEXT NOT NULL,
                 used_at TEXT,
                 session_id TEXT,
@@ -457,6 +470,9 @@ mod tests {
             assembly_id,
             memo: Arc::from("Anna"),
             token_hash: Arc::from(token_hash),
+            // ADR-2026-05-06: tests cover both Some and None code paths via
+            // direct mutation; default to a present plain-text code.
+            code: Some(Arc::from("ABC1234567")),
             created: datetime,
             used_at: None,
             session_id: None,
@@ -492,6 +508,8 @@ mod tests {
         assert_eq!(found.assembly_id, assembly_id);
         assert_eq!(found.memo.as_ref(), "Anna");
         assert_eq!(found.token_hash.as_ref(), "hash_create");
+        // ADR-2026-05-06: plain-text code round-trips through INSERT/SELECT.
+        assert_eq!(found.code.as_deref(), Some("ABC1234567"));
         assert!(found.used_at.is_none());
         assert!(found.revoked_at.is_none());
         assert!(found.session_id.is_none());
@@ -502,6 +520,70 @@ mod tests {
             .unwrap();
         assert_eq!(listing.len(), 1);
         assert_eq!(listing[0].id, token_id);
+
+        tx.commit().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_create_with_null_code_round_trips_as_none() {
+        // ADR-2026-05-06: pre-update rows are simulated by `code = None`.
+        // The DAO must round-trip None faithfully (no silent default).
+        let pool = setup_db().await;
+        let assembly_id = Uuid::new_v4();
+        create_assembly_for_test(&pool, assembly_id).await;
+
+        let dao = HelperTokenDaoImpl::new(pool.clone());
+        let tx_dao = TransactionDaoImpl::new(pool);
+
+        let mut token = make_token(assembly_id, "hash_legacy");
+        token.code = None;
+
+        let tx = tx_dao.transaction().await.unwrap();
+        dao.create(&token, "test", tx.clone()).await.unwrap();
+
+        let found = dao
+            .find_by_id(token.id, tx.clone())
+            .await
+            .unwrap()
+            .expect("legacy token must be found");
+        assert!(
+            found.code.is_none(),
+            "code must round-trip as None for legacy rows; got {:?}",
+            found.code
+        );
+
+        tx.commit().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_update_preserves_code_round_trip() {
+        // ADR-2026-05-06: revoke loads → mutates → updates. The plain-text
+        // code must survive the round trip unchanged.
+        let pool = setup_db().await;
+        let assembly_id = Uuid::new_v4();
+        create_assembly_for_test(&pool, assembly_id).await;
+
+        let dao = HelperTokenDaoImpl::new(pool.clone());
+        let tx_dao = TransactionDaoImpl::new(pool);
+
+        let token = make_token(assembly_id, "hash_revoke_rt");
+        let token_id = token.id;
+        let original_code = token.code.clone();
+
+        let tx = tx_dao.transaction().await.unwrap();
+        dao.create(&token, "test", tx.clone()).await.unwrap();
+
+        // Simulate revoke: load → set revoked_at → update.
+        let mut loaded = dao.find_by_id(token_id, tx.clone()).await.unwrap().unwrap();
+        loaded.revoked_at = Some(now_pdt());
+        dao.update(&loaded, "test", tx.clone()).await.unwrap();
+
+        let after = dao.find_by_id(token_id, tx.clone()).await.unwrap().unwrap();
+        assert_eq!(
+            after.code, original_code,
+            "code must survive revoke update unchanged"
+        );
+        assert!(after.revoked_at.is_some());
 
         tx.commit().await.unwrap();
     }

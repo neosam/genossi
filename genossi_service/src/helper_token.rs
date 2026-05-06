@@ -164,6 +164,10 @@ mod tests {
             assembly_id: Uuid::nil(),
             memo: Arc::from("Anna"),
             token_hash: Arc::from("not-leaked"),
+            // ADR-2026-05-06: code is reachable through the domain `HelperToken`
+            // type by design (Task 3) — the test below asserts the *hash* is
+            // not leaked through the From<&Entity> conversion.
+            code: Some(Arc::from("ABC1234567")),
             created: now_pdt,
             used_at: None,
             session_id: None,
