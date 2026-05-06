@@ -45,14 +45,17 @@ impl From<reqwest::Error> for AppError {
         // damit der Fehler-Toast eine sinnvolle Meldung zeigt.
         let status = e.status().map(|s| s.as_u16());
         let detail = Some(e.to_string());
+        // reqwest's wasm32-Backend exponiert KEIN is_connect()/is_body() —
+        // wir nutzen nur die Klassifier, die in beiden Targets stabil sind:
+        // is_decode, is_timeout, is_request, is_redirect, is_status.
         let message = if e.is_decode() {
             "Antwort vom Server konnte nicht gelesen werden (JSON-Parse-Fehler)".into()
         } else if e.is_timeout() {
             "Zeitüberschreitung — Server antwortet nicht".into()
         } else if e.is_request() && status.is_none() {
-            // Build-Phase-Fehler (z.B. URL ungültig) ODER Network-Layer ohne Status
-            "Anfrage konnte nicht gesendet werden".into()
-        } else if e.is_connect() {
+            // is_request() ohne Status erfasst sowohl Build-Fehler (URL ungültig)
+            // als auch Network-Layer-Fehler im wasm-Target (fetch() rejected, CORS,
+            // Backend nicht erreichbar). Das ist die echte Connection-Schiene.
             "Verbindungsfehler — bitte Internetverbindung prüfen".into()
         } else {
             // Fallback: kein klares Signal aus reqwest. Zeig die Detail-Message
