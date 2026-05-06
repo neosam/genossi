@@ -66,6 +66,8 @@ features = [
     "MediaStreamConstraints",
     "MediaTrackConstraints",
     "HtmlVideoElement",
+    # ADR-2026-05-06: clipboard.writeText() for the QrCard magic-link copy button.
+    "Clipboard",
 ]
 
 [profile]

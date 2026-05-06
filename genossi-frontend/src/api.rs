@@ -1585,6 +1585,14 @@ pub struct HelperTokenTO {
     #[serde(default)]
     pub created: Option<String>,
     pub version: Uuid,
+    /// ADR-2026-05-06: plain-text Crockford-Base32 code; `None` for legacy
+    /// rows created before the migration.
+    #[serde(default)]
+    pub code: Option<String>,
+    /// ADR-2026-05-06: QR SVG regenerated on-demand from `code`. `None` when
+    /// `code` is `None` (legacy rows).
+    #[serde(default)]
+    pub qr_svg: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

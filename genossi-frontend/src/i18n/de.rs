@@ -459,6 +459,11 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::HelperTokenEmptyHint => "Klicken Sie auf 'Token erzeugen', um den ersten Helfer-Code zu erstellen.".into(),
         Key::HelperTokenRevokeConfirmTitle => "Token widerrufen?".into(),
         Key::HelperTokenRevokeConfirmText => "Der Code wird ungültig. Diese Aktion kann nicht rückgängig gemacht werden.".into(),
+        // ADR-2026-05-06: Vorstand kann QR + Code jederzeit erneut anzeigen.
+        Key::HelperTokenShow => "QR/Code anzeigen".into(),
+        Key::HelperTokenCodeMissing => "Code nicht verfügbar (vor Update erstellt) — bitte revoken und neu erstellen.".into(),
+        Key::HelperTokenLoginLink => "Login-Link".into(),
+        Key::Copy => "Kopieren".into(),
 
         // ─── Phase 4 ─── Helfer-Login + Manual-Code (HLPR-03) ─────────
         Key::HelperLoginTitle => "Anwesenheit erfassen".into(),

@@ -526,6 +526,11 @@ pub enum Key {
     HelperTokenEmptyHint,
     HelperTokenRevokeConfirmTitle,
     HelperTokenRevokeConfirmText,
+    // ADR-2026-05-06: re-display of QR + manual code per Vorstand UX.
+    HelperTokenShow,
+    HelperTokenCodeMissing,
+    HelperTokenLoginLink,
+    Copy,
 
     // ─── Phase 4 ─── Helfer-Login + Manual-Code (HLPR-03) ───────────
     HelperLoginTitle,
