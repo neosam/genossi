@@ -25,9 +25,58 @@ use genossi_rest_types::{
     CreateHelperTokenRequest, HelperSessionTO, HelperTokenCreateResponseTO, HelperTokenStatusTO,
     HelperTokenTO, RedeemRequest, RedeemResponse,
 };
-use genossi_service::helper_token::{HelperTokenService, HelperTokenSubmission};
+use genossi_service::helper_token::{HelperToken, HelperTokenService, HelperTokenSubmission};
 use genossi_service::session::SessionService;
 use genossi_service::{ServiceError, ValidationFailureItem};
+use genossi_service_impl::helper_token::render_qr_svg;
+
+/// Build the QR-payload string from a plain-text code. Mirrors the format
+/// used in `HelperTokenServiceImpl::create_helper_token` (Phase 2 Plan 02-05)
+/// so re-displayed QR cards point at the same magic-link the original card
+/// did. APP_URL has the same fallback semantics as the service-impl helper
+/// (default to `http://localhost:3000/` for mock_auth / e2e-tests).
+fn build_qr_payload(code: &str) -> String {
+    let app_url = std::env::var("APP_URL").unwrap_or_else(|_| "http://localhost:3000/".to_string());
+    format!("{}/helper?code={}", app_url.trim_end_matches('/'), code)
+}
+
+/// Build a `HelperTokenTO` from a service-domain `HelperToken`, attaching
+/// the plain-text code AND a regenerated QR SVG when the row is post-migration.
+/// Pre-update rows (code == None) surface as `code: None, qr_svg: None`;
+/// the frontend renders a "revoke + recreate" hint for those.
+///
+/// Errors during QR rendering are surfaced as `RestError::InternalError` —
+/// they should be impossible for a 10-char Crockford code, but a sentinel
+/// path keeps the handler honest if the renderer ever returns Err.
+fn helper_token_to_with_code(token: &HelperToken) -> Result<HelperTokenTO, RestError> {
+    let status = if token.revoked_at.is_some() {
+        HelperTokenStatusTO::Revoked
+    } else if token.used_at.is_some() {
+        HelperTokenStatusTO::Used
+    } else {
+        HelperTokenStatusTO::Open
+    };
+    let (code_opt, qr_svg_opt) = match token.code.as_deref() {
+        Some(code) => {
+            let svg = render_qr_svg(&build_qr_payload(code))
+                .map_err(|e| RestError::InternalError(format!("qr regenerate failed: {:?}", e)))?;
+            (Some(code.to_string()), Some(svg))
+        }
+        None => (None, None),
+    };
+    Ok(HelperTokenTO {
+        id: token.id,
+        assembly_id: token.assembly_id,
+        memo: token.memo.to_string(),
+        status,
+        used_at: token.used_at,
+        revoked_at: token.revoked_at,
+        created: Some(token.created),
+        version: token.version,
+        code: code_opt,
+        qr_svg: qr_svg_opt,
+    })
+}
 use std::sync::Arc;
 use tracing::instrument;
 use utoipa::OpenApi;
@@ -113,17 +162,12 @@ pub async fn create_helper_token<RestState: RestStateDef + HelperTokenRestState>
                 .create_helper_token(assembly_id, &submission, auth)
                 .await?;
 
-            // Build the create-response: HelperTokenTO + code + qr_svg (one-time, D-21).
-            let token_to = HelperTokenTO {
-                id: created.token.id,
-                assembly_id: created.token.assembly_id,
-                memo: created.token.memo.to_string(),
-                status: HelperTokenStatusTO::Open,
-                used_at: created.token.used_at,
-                revoked_at: created.token.revoked_at,
-                created: Some(created.token.created),
-                version: created.token.version,
-            };
+            // ADR-2026-05-06: build the inner TO with code + regenerated QR
+            // attached (the persistent path). The outer response also carries
+            // `code` + `qr_svg` at the top level — that is the legacy single-
+            // use display field; the inner TO is the always-available path
+            // used by re-display via list_helper_tokens.
+            let token_to = helper_token_to_with_code(&created.token)?;
             let response = HelperTokenCreateResponseTO {
                 token: token_to,
                 code: created.code.to_string(),
@@ -167,29 +211,14 @@ pub async fn list_helper_tokens<RestState: RestStateDef + HelperTokenRestState>(
                 .helper_token_service()
                 .list_for_assembly(assembly_id, auth)
                 .await?;
-            // Map domain HelperToken to TO via inline construction (no Entity available here).
+            // ADR-2026-05-06: each TO carries the plain-text code (when
+            // present) plus a freshly regenerated QR SVG. Legacy rows with
+            // code = None surface as `code: None, qr_svg: None` so the
+            // frontend can render the "revoke + recreate" hint.
             let to_list: Vec<HelperTokenTO> = tokens
                 .iter()
-                .map(|t| {
-                    let status = if t.revoked_at.is_some() {
-                        HelperTokenStatusTO::Revoked
-                    } else if t.used_at.is_some() {
-                        HelperTokenStatusTO::Used
-                    } else {
-                        HelperTokenStatusTO::Open
-                    };
-                    HelperTokenTO {
-                        id: t.id,
-                        assembly_id: t.assembly_id,
-                        memo: t.memo.to_string(),
-                        status,
-                        used_at: t.used_at,
-                        revoked_at: t.revoked_at,
-                        created: Some(t.created),
-                        version: t.version,
-                    }
-                })
-                .collect();
+                .map(helper_token_to_with_code)
+                .collect::<Result<Vec<_>, _>>()?;
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
@@ -232,23 +261,11 @@ pub async fn revoke_helper_token<RestState: RestStateDef + HelperTokenRestState>
                 .helper_token_service()
                 .revoke_helper_token(assembly_id, token_id, auth)
                 .await?;
-            let status = if token.revoked_at.is_some() {
-                HelperTokenStatusTO::Revoked
-            } else if token.used_at.is_some() {
-                HelperTokenStatusTO::Used
-            } else {
-                HelperTokenStatusTO::Open
-            };
-            let to = HelperTokenTO {
-                id: token.id,
-                assembly_id: token.assembly_id,
-                memo: token.memo.to_string(),
-                status,
-                used_at: token.used_at,
-                revoked_at: token.revoked_at,
-                created: Some(token.created),
-                version: token.version,
-            };
+            // ADR-2026-05-06: revoked tokens still carry their plain-text code
+            // in the DB (the column is immutable). The frontend hides the
+            // "QR/Code anzeigen" button for revoked rows by status, so this
+            // is informational only — but consistent with the list response.
+            let to = helper_token_to_with_code(&token)?;
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")

@@ -1155,8 +1155,12 @@ pub enum HelperTokenStatusTO {
 
 /// REST representation of a helper_token row.
 /// Excludes `token_hash` (hash leakage prevention, D-06 audit-fields parallel).
-/// `code` and `qr_svg` are NEVER returned in this TO — only in the create-response
-/// (HelperTokenCreateResponseTO).
+///
+/// ADR-2026-05-06: `code` (plain-text) and `qr_svg` (regenerated on demand
+/// from `code`) are now optional fields. `Some` for tokens created after the
+/// migration (admin can re-display the QR card); `None` for legacy rows
+/// (frontend renders a "revoke + recreate" hint). The QR SVG is NEVER stored
+/// — the REST handler regenerates it from `code` per request.
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct HelperTokenTO {
     #[schema(example = "123e4567-e89b-12d3-a456-426614174000")]
@@ -1185,6 +1189,16 @@ pub struct HelperTokenTO {
     )]
     pub created: Option<time::PrimitiveDateTime>,
     pub version: Uuid,
+    /// ADR-2026-05-06: plain-text Crockford-Base32 code; `None` for legacy
+    /// rows created before the migration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(example = "ABC1234567")]
+    pub code: Option<String>,
+    /// ADR-2026-05-06: QR-Code SVG regenerated on-demand from `code`. Always
+    /// `None` when `code` is `None`. Not persisted in the DB.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(example = "<svg xmlns=\"http://www.w3.org/2000/svg\">...</svg>")]
+    pub qr_svg: Option<String>,
 }
 
 impl From<&genossi_dao::helper_token::HelperTokenEntity> for HelperTokenTO {
@@ -1197,6 +1211,9 @@ impl From<&genossi_dao::helper_token::HelperTokenEntity> for HelperTokenTO {
         } else {
             HelperTokenStatusTO::Open
         };
+        // ADR-2026-05-06: this default From-impl does NOT attach code/qr_svg.
+        // The handlers in genossi_rest::helper_token build their TOs inline
+        // and regenerate qr_svg on demand from `code` (the SVG is not stored).
         HelperTokenTO {
             id: entity.id,
             assembly_id: entity.assembly_id,
@@ -1206,6 +1223,8 @@ impl From<&genossi_dao::helper_token::HelperTokenEntity> for HelperTokenTO {
             revoked_at: entity.revoked_at,
             created: Some(entity.created),
             version: entity.version,
+            code: None,
+            qr_svg: None,
         }
     }
 }

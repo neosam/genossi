@@ -8896,6 +8896,34 @@ async fn test_helper_token_listing_shows_status_open_used_revoked() {
         "Open",
         "Token C must remain Open"
     );
+
+    // ADR-2026-05-06: every fresh token in the listing carries the plain-text
+    // code AND a regenerated qr_svg. Pre-update legacy rows would have NULL
+    // (None) here, but every token in this test was created post-migration.
+    for token in &tokens {
+        let memo = token["memo"].as_str().unwrap();
+        let code = token
+            .get("code")
+            .and_then(|v| v.as_str())
+            .unwrap_or_else(|| panic!("token '{}' must carry code in list response", memo));
+        assert_eq!(
+            code.len(),
+            10,
+            "token '{}' code must be 10 chars; got '{}'",
+            memo,
+            code
+        );
+        let qr = token
+            .get("qr_svg")
+            .and_then(|v| v.as_str())
+            .unwrap_or_else(|| panic!("token '{}' must carry qr_svg in list response", memo));
+        assert!(
+            qr.contains("</svg>"),
+            "token '{}' qr_svg must be SVG; got '{}'",
+            memo,
+            &qr[..40.min(qr.len())]
+        );
+    }
 }
 
 /// D-03: revoke after redeem must return 409 (already_used).
