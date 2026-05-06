@@ -7,10 +7,10 @@
 
 ## Phases
 
-- [ ] **Phase 1: Assembly-Aggregat + Audit-Hardening** — Vorstand kann Generalversammlungen anlegen, öffnen (mit Member-Universe-Snapshot) und schließen; alle Lifecycle-Operationen sind auditiert
-- [ ] **Phase 2: Helfer-Token + Session + AuthContext::Helper** — Vorstand erzeugt One-Time-Use-QR-Codes; Helfer können diese atomar einlösen und erhalten eine GV-gebundene Session
-- [ ] **Phase 3: Attendance-Aggregat + Cascade-Invalidation** — Backend liefert reduzierte Helfer-Member-View, idempotente Anwesenheits-Toggles und Live-Stats; GV-Schluss invalidiert Sessions
-- [ ] **Phase 4: Frontend (Component-First) mit QR-Scanner und Manual-Code-Fallback** — Vorstand und Helfer bedienen GV, QR-Erzeugung, Anwesenheit und Live-Counter über Dioxus-WASM-UI
+- [x] **Phase 1: Assembly-Aggregat + Audit-Hardening** — Vorstand kann Generalversammlungen anlegen, öffnen (mit Member-Universe-Snapshot) und schließen; alle Lifecycle-Operationen sind auditiert
+- [x] **Phase 2: Helfer-Token + Session + AuthContext::Helper** — Vorstand erzeugt One-Time-Use-QR-Codes; Helfer können diese atomar einlösen und erhalten eine GV-gebundene Session
+- [x] **Phase 3: Attendance-Aggregat + Cascade-Invalidation** — Backend liefert reduzierte Helfer-Member-View, idempotente Anwesenheits-Toggles und Live-Stats; GV-Schluss invalidiert Sessions
+- [x] **Phase 4: Frontend (Component-First) mit QR-Scanner und Manual-Code-Fallback** — Vorstand und Helfer bedienen GV, QR-Erzeugung, Anwesenheit und Live-Counter über Dioxus-WASM-UI
 - [ ] **Phase 5: Pre-GV-Generalprobe und Operations-Plan** — System ist auf realer Hardware geprobt, Vorstand geschult, Backup-Plan dokumentiert
 
 ## Phase Details
