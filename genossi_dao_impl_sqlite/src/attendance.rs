@@ -134,7 +134,7 @@ impl AttendanceDao for AttendanceDaoImpl {
                      OR (m.last_name || ' ' || m.first_name) LIKE ? COLLATE NOCASE \
                      OR CAST(m.member_number AS TEXT) LIKE ? \
                    ) \
-             ORDER BY m.last_name COLLATE NOCASE, m.first_name COLLATE NOCASE",
+             ORDER BY m.member_number ASC",
         )
         .bind(aid)
         .bind(pattern.as_deref())
