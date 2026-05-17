@@ -346,8 +346,12 @@ fn ExportTab(assembly: AssemblyTO, on_error: EventHandler<String>) -> Element {
     };
 
     let assembly_id = assembly.id;
-    let on_submit = move |evt: FormEvent| {
-        evt.prevent_default();
+    // Download trigger lives on the button's `onclick`, NOT on `<form onsubmit>`.
+    // Project-wide convention since hotfix e245013: action buttons set `r#type: "button"`
+    // and bind `onclick` directly. Even `evt.prevent_default()` inside an `onsubmit`
+    // closure can still let the page reload in Dioxus 0.6 when the closure spawns
+    // async work — the click-based path sidesteps that class of bug entirely.
+    let on_submit = move |_evt: MouseEvent| {
         if *submitting.read() {
             return;
         }
@@ -405,7 +409,7 @@ fn ExportTab(assembly: AssemblyTO, on_error: EventHandler<String>) -> Element {
             h2 { class: "text-xl font-semibold mb-2", "{i18n.t(Key::AttendanceExportHeading)}" }
             p { class: "text-sm text-gray-600 mb-6", "{i18n.t(Key::AttendanceExportSubheading)}" }
 
-            form { class: "flex flex-col gap-6", onsubmit: on_submit,
+            div { class: "flex flex-col gap-6",
 
                 // ===== Format Radio-Cards =====
                 div {
@@ -490,7 +494,8 @@ fn ExportTab(assembly: AssemblyTO, on_error: EventHandler<String>) -> Element {
                 // ===== Submit Button =====
                 div { class: "flex justify-end",
                     button {
-                        r#type: "submit",
+                        r#type: "button",
+                        onclick: on_submit,
                         class: "bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded min-h-[44px] disabled:opacity-50",
                         disabled: *submitting.read(),
                         if *submitting.read() {
