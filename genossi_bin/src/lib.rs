@@ -197,6 +197,32 @@ impl genossi_service_impl::attendance::AttendanceServiceDeps for AttendanceServi
 type AttendanceService =
     genossi_service_impl::attendance::AttendanceServiceImpl<AttendanceServiceDependencies>;
 
+// Phase 6 Plan 03 (D-13, D-DI): AttendanceExportServiceImpl wiring.
+// Four DAO/Service-deps. NO UuidService, NO AuditLogDao (D-17 — export is
+// not audited, consistent with ATTN-05). PdfGenerator + template_base are
+// non-trait fields constructed inline in RestStateImpl::new() (re-using the
+// existing `pdf_generator` + `template_storage` Arcs).
+pub struct AttendanceExportServiceDependencies;
+
+unsafe impl Send for AttendanceExportServiceDependencies {}
+unsafe impl Sync for AttendanceExportServiceDependencies {}
+
+impl genossi_service_impl::attendance_export::AttendanceExportServiceDeps
+    for AttendanceExportServiceDependencies
+{
+    type Context = Context;
+    type Transaction = Transaction;
+    type AttendanceDao = AttendanceDao;
+    type AssemblyDao = AssemblyDao;
+    type PermissionService = PermissionService;
+    type TransactionDao = TransactionDao;
+}
+
+type AttendanceExportService =
+    genossi_service_impl::attendance_export::AttendanceExportServiceImpl<
+        AttendanceExportServiceDependencies,
+    >;
+
 pub struct HelperTokenServiceDependencies;
 
 unsafe impl Send for HelperTokenServiceDependencies {}
@@ -422,6 +448,9 @@ pub struct RestStateImpl {
     // Phase 3 Plan 06: AttendanceServiceImpl exposed to REST handlers via
     // AttendanceRestState (D-23 wiring).
     attendance_service: Arc<AttendanceService>,
+    // Phase 6 Plan 03: AttendanceExportServiceImpl exposed to REST handlers via
+    // AttendanceExportRestState (D-DI wiring).
+    attendance_export_service: Arc<AttendanceExportService>,
     audit_log_dao: Arc<AuditLogDao>,
     timestamp_service: Arc<TimestampServiceType>,
     backup_dao: Arc<BackupDao>,
@@ -648,13 +677,32 @@ impl RestStateImpl {
         let attendance_dao = Arc::new(AttendanceDao::new(pool.clone()));
         let attendance_service =
             Arc::new(genossi_service_impl::attendance::AttendanceServiceImpl {
-                attendance_dao,
+                // Phase 6 Plan 03: cloned (not moved) so AttendanceExportServiceImpl
+                // below can share the same Arc.
+                attendance_dao: attendance_dao.clone(),
                 assembly_dao: assembly_dao.clone(),
                 member_dao: member_dao.clone(),
                 assembly_member_snapshot_dao,
                 permission_service: permission_service.clone(),
                 transaction_dao: transaction_dao.clone(),
             });
+
+        // Phase 6 Plan 03: AttendanceExportServiceImpl (D-01..D-18 backend).
+        // Re-uses the existing `pdf_generator` (line 585) and
+        // `template_storage` (line 583) Arcs — KEINE neue PdfGenerator::new()-
+        // Instanz und KEINE neue PathBuf::from("templates")-Literal, sonst
+        // wuerde sich der Export-Pfad vom MemberDocument/Application-Pfad
+        // unterscheiden.
+        let attendance_export_service = Arc::new(
+            genossi_service_impl::attendance_export::AttendanceExportServiceImpl {
+                transaction_dao: transaction_dao.clone(),
+                permission_service: permission_service.clone(),
+                assembly_dao: assembly_dao.clone(),
+                attendance_dao: attendance_dao.clone(),
+                pdf_generator: pdf_generator.clone(),
+                template_base: Arc::new(template_storage.base_path().to_path_buf()),
+            },
+        );
 
         // Plan 02-07: HelperTokenServiceImpl with 8 deps (HelperTokenDao,
         // AssemblyDao, AuditLogDao, PermissionService, PermissionDao,
@@ -741,6 +789,7 @@ impl RestStateImpl {
             assembly_service,
             helper_token_service,
             attendance_service,
+            attendance_export_service,
             audit_log_dao,
             timestamp_service,
             permission_service,
@@ -1227,6 +1276,16 @@ impl genossi_rest::attendance::AttendanceRestState for RestStateImpl {
 
     fn attendance_service(&self) -> Arc<Self::AttendanceService> {
         self.attendance_service.clone()
+    }
+}
+
+// Phase 6 Plan 03: bind AttendanceExportServiceImpl to the REST handlers
+// generated in genossi_rest::attendance_export.
+impl genossi_rest::attendance_export::AttendanceExportRestState for RestStateImpl {
+    type AttendanceExportService = AttendanceExportService;
+
+    fn attendance_export_service(&self) -> Arc<Self::AttendanceExportService> {
+        self.attendance_export_service.clone()
     }
 }
 
