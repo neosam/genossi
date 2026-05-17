@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
+status: milestone_complete
 last_updated: "2026-05-17T10:46:55.496Z"
 progress:
   total_phases: 6
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 34
   completed_plans: 30
-  percent: 88
+  percent: 83
 ---
 
 # State: Genossi — GV-Anwesenheits-Erfassung
@@ -28,11 +28,11 @@ progress:
 ## Current Position
 
 Phase: 06 (teilnehmerlisten-export-f-r-generalversammlungen) — EXECUTING
-Plan: 1 of 4
-**Phase:** 06 — teilnehmerlisten-export-für-generalversammlungen (CONTEXT erfasst — Planning offen)
+Plan: Not started
+**Phase:** 06
 **Plans done in Phase 06:** 0 of 0 (Phase gediscussed, noch nicht geplant)
 **Next Phase:** Phase 6 — Teilnehmerlisten-Export für Generalversammlungen
-**Status:** Executing Phase 06
+**Status:** Milestone complete
 **Progress:** [████████░░] 83% Milestone (4/6 Phasen done, 1 skipped, 1 pending)
 
 ## Phase 04 Closure Notes (2026-05-06)
