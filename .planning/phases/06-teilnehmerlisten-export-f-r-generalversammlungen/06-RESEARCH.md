@@ -996,32 +996,37 @@ async fn test_export_unknown_format_returns_400() {
 - A2: Wie viele Mitglieder hat die produktive Genossenschaft heute?
 - A3: Im OIDC-Mode — funktioniert ein direkter `<a href="/api/...">`-Klick und löst einen authentifizierten Download aus?
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **`rust_xlsxwriter` Version: 0.82 (bereits in Lock) vs 0.94/0.95 (aktuelle Stable)?**
    - What we know: 0.82 ist bereits in `Cargo.lock`, also gebaut + binär OK. 0.94/0.95 sind aktuelle Stable mit gleicher API-Form.
    - What's unclear: Gibt es seit 0.82 API-Changes, die die Service-Implementierung beeinflussen? (Schwankungen sind oft Format/Style-Erweiterungen — die Core-API `Workbook::new()` / `add_worksheet()` / `write_string()` / `save_to_buffer()` ist stabil seit ~0.40.)
    - Recommendation: **Bei 0.82 bleiben**, weil die Crate bereits in Lock ist und kein Bump-Anlass besteht. Späterer Bump (z. B. bei Sicherheits-Advisory in `zip` 2.4.2) ist trivial.
+   - **RESOLVED:** bei 0.82 bleiben. Plan 01 pinnt `rust_xlsxwriter = "0.82"` als Workspace-Dep. Späterer Bump ist trivial und nicht Phase-6-Scope.
 
 2. **`render_attendance_list` vs Generic `render_with_inputs` in `PdfGenerator`?**
    - What we know: Bestehender Pattern ist type-spezifisch (`render` für Member, `render_application` für Application).
    - What's unclear: Lohnt sich der Refactor zu generic genau jetzt?
    - Recommendation: **Pragmatisch type-spezifische Methode hinzufügen** (`render_attendance_list`), Generic-Refactor in eine spätere Phase verschieben. Erspart Risiko an bestehenden produktiven Endpoints.
+   - **RESOLVED:** type-spezifische Methode `render_attendance_list` für klare Diagnostik. Plan 02 fügt sie in `pdf_generation.rs` neben `render`/`render_application` ein. Generic-Refactor bleibt out-of-scope für Phase 6.
 
 3. **Default-Wert für `?include`-Query-Parameter?**
    - What we know: D-09 erlaubt Planner-Entscheidung. Empfehlung im CONTEXT: `all`.
    - What's unclear: Erwartung des Verbands — wollen die "alle Mitglieder mit Anwesenheits-Markierung" oder "nur die Anwesenden"?
    - Recommendation: **Default `all`** — der Verband bekommt damit eine vollständige Mitgliederliste mit Anwesenheits-Spalte; gleichzeitig ist `?include=present` ein Opt-In für die kompakte Variante.
+   - **RESOLVED:** `all` als Default. Plan 02 `ExportInclude::default() -> All`; Plan 03 `ExportIncludeQuery` `#[default] All`; Plan 04 UI selektiert "Alle Mitglieder" by default.
 
 4. **Anwesenheits-Spalte: `"ja"`/`"nein"` (CSV/XLSX) und `✓`/leer (PDF) — konsistent?**
    - What we know: D-09 lässt das offen. Excel/CSV-DE-User erwarten Textwerte.
    - What's unclear: Sortierbarkeit in Excel — `"ja"`/`"nein"` sortiert alphabetisch ("ja" vor "nein"), `1`/`0` numerisch (passender). Verband-Konvention?
    - Recommendation: **Strings `"ja"`/`"nein"` in CSV+XLSX**, Glyph `✓` in PDF. Konsistent mit Excel-DE-Konvention.
+   - **RESOLVED:** CSV/XLSX `"ja"`/`"nein"` (Plan 02 render_csv + render_xlsx Test 9/Test 11); PDF `✓`/leer (Plan 01 `templates/teilnehmerliste.typ`).
 
 5. **Frontend-Download: direkter `<a href>` vs `web-sys`-Blob-Pattern?**
    - What we know: Bestehendes Pattern in `api.rs` nutzt Blob für PDFs. Aber bei einem reinen Auth-Cookie-Setup ist `<a href>` einfacher.
    - What's unclear: Ob der `<a download>` korrekt mit dem Cookie funktioniert (Test nötig).
    - Recommendation: **Direkten Anker-Link versuchen** (3 Zeilen Code, kein wasm-bindgen), Fallback auf Blob falls problematisch.
+   - **RESOLVED:** blob-Pattern (`api::export_attendance_url` konsistent mit `render_template_pdf`). Plan 04 ruft `web-sys::fetch` -> `Response::blob()` -> `Url::create_object_url_with_blob` -> programmatischer `<a download>`-Click. Direkter `<a href>`-Pfad verworfen wegen OIDC-Cookie-Konsistenz-Risiko + bestehendem PDF-Pattern.
 
 ## Environment Availability
 
