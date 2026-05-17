@@ -12,6 +12,7 @@
 - [x] **Phase 3: Attendance-Aggregat + Cascade-Invalidation** — Backend liefert reduzierte Helfer-Member-View, idempotente Anwesenheits-Toggles und Live-Stats; GV-Schluss invalidiert Sessions
 - [x] **Phase 4: Frontend (Component-First) mit QR-Scanner und Manual-Code-Fallback** — Vorstand und Helfer bedienen GV, QR-Erzeugung, Anwesenheit und Live-Counter über Dioxus-WASM-UI
 - [~] **Phase 5: Pre-GV-Generalprobe und Operations-Plan** — **SKIPPED** (echte GV bereits erfolgreich durchgeführt; Pre-Generalprobe damit obsolet)
+- [ ] **Phase 6: Teilnehmerlisten-Export für Generalversammlungen** — Vorstand exportiert nach GV-Schluss die Teilnehmerliste in PDF/CSV/XLSX als Protokoll-Anhang
 
 ## Phase Details
 
@@ -120,11 +121,12 @@
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Assembly-Aggregat + Audit-Hardening | 0/5 | Not started | - |
-| 2. Helfer-Token + Session + AuthContext::Helper | 0/8 | Not started | - |
-| 3. Attendance-Aggregat + Cascade-Invalidation | 4/6 | In Progress|  |
-| 4. Frontend (Component-First) | 0/10 | Plans created | - |
+| 1. Assembly-Aggregat + Audit-Hardening | 5/5 | Complete | 2026-05-03 |
+| 2. Helfer-Token + Session + AuthContext::Helper | 8/8 | Complete | 2026-05-04 |
+| 3. Attendance-Aggregat + Cascade-Invalidation | 6/6 | Complete | 2026-05-04 |
+| 4. Frontend (Component-First) | 11/11 | Complete | 2026-05-06 |
 | 5. Pre-GV-Generalprobe und Operations-Plan | 0/0 | SKIPPED — GV bereits durchgeführt | 2026-05-17 |
+| 6. Teilnehmerlisten-Export für Generalversammlungen | 0/4 | Plans created | - |
 
 ## Coverage Summary
 
@@ -143,6 +145,7 @@
 - **Phase 3 vor 4:** Genossi-Konvention Backend-First; das Frontend konsumiert fertige API-Schemas aus `genossi_rest_types`
 - **Phase 4 vor 5:** Generalprobe testet das fertige System; Phase 5 ist Verifikation und Operations, keine Entwicklung
 - **Audit-CI-Hardening:** In Phase 1 gefaltet, weil die Hash-Chain bereits beim ersten Lifecycle-Vorgang Stress sieht — kein separater Vor-Phase-Aufwand nötig
+- **Phase 6 nach Phase 4 (Phase 5 SKIPPED):** Phase 6 baut auf der produktiv erprobten Datenbasis (assembly_member_snapshot + attendance) auf — read-only Aggregat ohne neue DAO-Methoden
 
 ## Hard Constraints (carry-over aus Research)
 
@@ -153,17 +156,25 @@ Diese Punkte sind nicht verhandelbar und müssen in den jeweiligen Phasen-Plans 
 - **Phase 3**: Eigenes `AttendanceMemberTO` mit nur 4 Feldern (NICHT `MemberTO` mit serde-skip); idempotenter PUT (kein POST/INSERT-Pattern); UNIQUE(assembly_id, member_id) WHERE deleted IS NULL; Cascade-Invalidation in `close_assembly`
 - **Phase 4**: Component-First (keine inline-RSX-Duplikate); Manual-Code-Eingabe muss alongside QR-Scanner landen; Y im Live-Counter explizit beschriftet („X von Y aktiven Mitgliedern"); BarcodeDetector + Polyfill; HTTPS für `getUserMedia`
 - **Phase 5**: Generalprobe ist gleichrangig mit Code-Phasen; ohne sie sind die Phasen 1–4 nicht „done done"
+- **Phase 6**: Vorstand-only via OIDC-Admin-Check (KEIN Helper-Branch); Closed-Status-Gate als expliziter 409-Conflict; `AttendanceMemberRow` 7-col Whitelist 1:1 wiederverwenden (kein neuer DAO-Call); KEINE Audit-Hashchain für Export (D-17, konsistent mit ATTN-05)
 
 ### Phase 6: Teilnehmerlisten-Export für Generalversammlungen
 
-**Goal:** [To be planned]
-**Requirements**: TBD
-**Depends on:** Phase 5
-**Plans:** 0 plans
-
-Plans:
-- [ ] TBD (run /gsd-plan-phase 6 to break down)
+**Goal:** Vorstand kann nach Schluss einer Generalversammlung die Teilnehmerliste in drei Formaten (PDF, CSV, XLSX) über REST und einen UI-Button im Vorstand-Detail-View einer geschlossenen GV exportieren. Datenbasis ist der unveränderliche Member-Universe-Snapshot aus Phase 1 plus der Anwesenheits-Stand aus Phase 3 — Phase 6 ist read-only.
+**Depends on:** Phase 3 (Datenbasis `assembly_member_snapshot` + `attendance`) und Phase 4 (UI-Hook in `assembly_details.rs`)
+**Requirements**: D-01..D-20 (siehe `phases/06-.../06-CONTEXT.md` — `phase_req_ids` ist null, die 20 Decisions sind die verbindliche Anforderungsquelle)
+**Success Criteria** (was muss WAHR sein):
+  1. `GET /api/assembly/{aid}/attendance-export/{format}` mit `format ∈ {csv, pdf, xlsx}` und `?include=all|present` liefert für geschlossene GVs die korrekten Binary-Bodies + Content-Disposition (D-01, D-14, D-15, D-16)
+  2. Aufruf gegen Status `Vorbereitung` oder `Geöffnet` liefert 409 Conflict mit `assembly_not_closed` (D-11); Helfer-Token-Aufruf liefert 403 Forbidden (D-13)
+  3. CSV-Output startet mit UTF-8-BOM `[0xEF, 0xBB, 0xBF]` und nutzt Semikolon-Delimiter (D-03); XLSX-Output ist ein gültiger ZIP-Container (D-01); PDF-Output startet mit `%PDF-`-Magic-Bytes und enthält Kopfblock + 6-Spalten-Tabelle (D-04, D-08)
+  4. KEIN Audit-Hashchain-Eintrag wird beim Export erzeugt (D-17, grep-gate auf `audited_*!` ist `== 0`); `tracing::info!` mit aid + format + include ist im Service-Layer (D-18)
+  5. Im Frontend erscheint im Vorstand-Detail-View nur bei `assembly.status == Closed` ein vierter Tab `Export` mit Format-Auswahl + Include-Toggle + reaktivem Filename-Preview + Download-Button (D-19, D-20)
+**Plans**: 4 plans
+- [ ] 06-01-PLAN.md — Workspace-Deps-Promotion (rust_xlsxwriter + csv) + Typst-Template `teilnehmerliste.typ` (D-02, D-04, D-08, D-10)
+- [ ] 06-02-PLAN.md — `AttendanceExportService` Trait + Impl + 3 Format-Writer + `PdfGenerator::render_attendance_list` + Permission-Funnel + Status-Gate (D-01, D-03..D-13, D-15..D-18)
+- [ ] 06-03-PLAN.md — REST-Handler + Router-Nest + DI-Wiring + 8 E2E-Tests (D-11, D-12, D-13, D-14, D-15, D-16, D-18)
+- [ ] 06-04-PLAN.md — Frontend `ExportTab` inline-Component + `api::export_attendance_url` + i18n (DE+EN) + Human-Verify-Checkpoint (D-09, D-15, D-19, D-20)
 
 ---
 *Roadmap created: 2026-05-02*
-*Last updated: 2026-05-03 after Phase 2 plan creation*
+*Last updated: 2026-05-17 after Phase 6 plan creation*
