@@ -1861,6 +1861,66 @@ pub async fn get_assembly_stats(
     Ok(response.json().await?)
 }
 
+/// Phase 6 (D-14, D-15, D-16): triggers attendance-list export and returns
+/// a blob URL that the caller wraps in `<a download="...">` for the browser
+/// download. Mirrors `render_template_pdf` (api.rs:506) — same fetch + .blob()
+/// + create_object_url_with_blob pattern.
+///
+/// - `format`: must be "csv" | "pdf" | "xlsx" — caller validates.
+/// - `include`: must be "all" | "present".
+///
+/// Returns the blob URL. On failure, `AppError.status` carries the HTTP
+/// status code (Some(409) | Some(403) | None for network errors) so the
+/// caller can map to a localized toast.
+pub async fn export_attendance_url(
+    config: &Config,
+    assembly_id: Uuid,
+    format: &str,
+    include: &str,
+) -> Result<String, AppError> {
+    use wasm_bindgen::JsCast;
+    use wasm_bindgen_futures::JsFuture;
+
+    let url = format!(
+        "{}/api/assembly/{}/attendance-export/{}?include={}",
+        config.backend, assembly_id, format, include
+    );
+    info!("Exporting attendance list: {url}");
+
+    let mut opts = web_sys::RequestInit::new();
+    opts.set_method("GET");
+
+    let request = web_sys::Request::new_with_str_and_init(&url, &opts)
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
+
+    let window = web_sys::window()
+        .ok_or_else(|| AppError::new(None, "Verbindungsfehler", None))?;
+    let resp_value = JsFuture::from(window.fetch_with_request(&request))
+        .await
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
+
+    let resp: web_sys::Response = resp_value
+        .dyn_into()
+        .map_err(|_| AppError::new(None, "Verbindungsfehler", None))?;
+
+    if !resp.ok() {
+        return Err(map_web_response_error(&resp).await);
+    }
+
+    let blob = JsFuture::from(resp.blob().unwrap())
+        .await
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
+
+    let blob: web_sys::Blob = blob
+        .dyn_into()
+        .map_err(|_| AppError::new(None, "Verbindungsfehler", None))?;
+
+    let blob_url = web_sys::Url::create_object_url_with_blob(&blob)
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
+
+    Ok(blob_url)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
