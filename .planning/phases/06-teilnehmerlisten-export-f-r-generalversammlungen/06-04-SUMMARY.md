@@ -204,6 +204,47 @@ Build + tests verified:
 - `cargo test --bin genossi-frontend export_tab_tests` → 3/3 green ✓
 
 ---
+
+## Task 3 Resolution (Human-Verify) — 2026-05-17
+
+Browser-Verifikation durch Vorstand-User. Zwei Issues gefunden + inline gefixt (Rule 1 Auto-Fix, scope-bounded):
+
+### Fix 1 — Download-Button reloadete die Seite (commit `c6f41fd`)
+
+**Symptom:** Klick auf Herunterladen lädt die Seite neu statt Download zu triggern.
+
+**Root cause:** ExportTab nutzte `<form onsubmit=...>` + `<button type="submit">`. In Dioxus 0.6.3 verhindert `evt.prevent_default()` im onsubmit-Handler nicht zuverlässig den Page-Reload, wenn der Handler `spawn(async move { ... })` enthält — die spawn-Closure macht den Handler effektiv asynchron, und die Navigation passiert vor dem prevent.
+
+**Fix:** Projekt-weites Pattern aus Hotfix `e245013` angewandt:
+- `<form onsubmit=on_submit>` → `<div>`
+- `button { r#type: "submit" }` → `button { r#type: "button", onclick: on_submit }`
+- Handler-Signatur: `FormEvent` → `MouseEvent`, `evt.prevent_default()` entfernt (nicht mehr nötig).
+
+3/3 ExportTab Unit-Tests grün, `cargo check` clean.
+
+### Fix 2 — anwesend-Spalte zeigt Rechteck statt Häkchen im PDF (commit `bb1be0b`)
+
+**Symptom:** PDF-Export rendert in der anwesend-Spalte einen leeren Kasten anstatt einer Markierung.
+
+**Root cause:** `templates/teilnehmerliste.typ` nutzte `[✓]` (U+2713 CHECK MARK). Das Backend bundlet aber NUR Liberation-Sans (4 Varianten) ins Binary (`fonts/Liberation*.ttf`) — keine Symbol-Fonts. Liberation Sans hat U+2713 nicht, also rendert Typst den `.notdef`-Glyph (Rechteck).
+
+**Fix:** `[✓]`/`[]` → `[ja]`/`[nein]` in beiden Template-Files (`templates/teilnehmerliste.typ` + `templates/defaults/teilnehmerliste.typ`). Zusatznutzen: alle drei Export-Formate (PDF/CSV/XLSX) verwenden jetzt konsistent „ja"/„nein" — CSV (`attendance_export.rs:280`) und XLSX (`:352`) machten das schon vorher so.
+
+Backend muss nicht neu starten — Templates werden bei jedem Export frisch vom Disk gelesen (`pdf_generation.rs:164`).
+
+### Task 3 Status
+
+**APPROVED** durch User-Bestätigung: „Jetzt ist es gut." nach beiden Fixes.
+
+| # | Task | Status | Commits |
+| - | ---- | ------ | ------- |
+| 1 | i18n keys + DE + EN | ✓ | `6ceabb3` |
+| 2 | export_attendance_url + ExportTab + helper + tests | ✓ | `eed2a81` |
+| 3 | Human-verify Closed-GV export flow | ✓ (approved + 2 fixes) | `c6f41fd`, `bb1be0b` |
+
+## Status: COMPLETED
+
+---
 *Phase: 06-teilnehmerlisten-export-f-r-generalversammlungen*
-*Status: paused at Task 3 checkpoint (2 of 3 tasks committed)*
-*Committed (so far): 2026-05-17*
+*Status: complete (3 of 3 tasks, including human-verify approval + 2 inline fixes)*
+*Committed: 2026-05-17*
