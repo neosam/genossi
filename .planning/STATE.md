@@ -2,15 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: active
-last_updated: "2026-05-17T00:00:00.000Z"
+status: Code-Phasen 1–4 ausgeliefert; Phase 5 (Pre-GV-Generalprobe) übersprungen — echte GV bereits durchgeführt. Phase 6 (CSV/PDF-Export) jetzt offen.
+last_updated: "2026-05-17T09:19:04.063Z"
 progress:
   total_phases: 6
   completed_phases: 4
-  skipped_phases: 1
   total_plans: 30
   completed_plans: 30
-  percent: 83
+  percent: 100
 ---
 
 # State: Genossi — GV-Anwesenheits-Erfassung
@@ -28,10 +27,10 @@ progress:
 
 ## Current Position
 
-**Phase:** 06 — teilnehmerlisten-export-für-generalversammlungen (PENDING — Discuss starten)
-**Plans done in Phase 06:** 0 of 0 (Phase noch nicht gediscussed/geplant)
+**Phase:** 06 — teilnehmerlisten-export-für-generalversammlungen (CONTEXT erfasst — Planning offen)
+**Plans done in Phase 06:** 0 of 0 (Phase gediscussed, noch nicht geplant)
 **Next Phase:** Phase 6 — Teilnehmerlisten-Export für Generalversammlungen
-**Status:** Code-Phasen 1–4 ausgeliefert; Phase 5 (Pre-GV-Generalprobe) übersprungen — echte GV bereits durchgeführt. Phase 6 (CSV/PDF-Export) jetzt offen.
+**Status:** Code-Phasen 1–4 ausgeliefert; Phase 5 (Pre-GV-Generalprobe) übersprungen — echte GV bereits durchgeführt. Phase 6: CONTEXT.md am 2026-05-17 erstellt (PDF + CSV + XLSX, `?include=all|present`, Status-Closed-only, Vorstand-only). Nächster Schritt: `/gsd-plan-phase 6`.
 **Progress:** [████████░░] 83% Milestone (4/6 Phasen done, 1 skipped, 1 pending)
 
 ## Phase 04 Closure Notes (2026-05-06)
@@ -124,6 +123,8 @@ Keine.
 - **ISO8601-Datetime**: `genossi_rest_types::iso8601_datetime` serde-Modul für alle TO-Datetime-Felder
 
 ## Session Continuity
+
+**Last action (2026-05-17, Phase 06 Discuss):** `/gsd-discuss-phase 6` durchgeführt — `06-CONTEXT.md` + `06-DISCUSSION-LOG.md` erstellt und committed (`30a3c2b`). 20 Implementierungsentscheidungen (D-01..D-20) erfasst: drei Export-Formate parallel (PDF via Typst, CSV semikolon/UTF-8-BOM, XLSX via rust_xlsxwriter), `?include=all|present`-Query, Status-Closed-only, Vorstand-only via OIDC, Snapshot-Daten aus `assembly_member_snapshot`, Sortierung `member_number ASC`, Endpoint `GET /api/assembly/{aid}/attendance-export/{format}`, Filename `gv-{YYYY-MM-DD}-teilnehmer.{ext}`, kein Audit-Hashchain-Eintrag. PDF-Layout minimal (Kopf mit GV-Titel + Datum + „X von Y anwesend", dann Tabelle). 6 Deferred Ideas (Sammelexport, E-Mail-Versand, Unterschriftenspalte, Logo, Multi-Sheet, Export-Audit). Nächster Schritt: `/gsd-plan-phase 6`.
 
 **Last action (2026-05-17):** Phase 5 (Pre-GV-Generalprobe) als SKIPPED markiert in ROADMAP.md und STATE.md — echte GV bereits erfolgreich mit Genossi durchgeführt; Hotfixes aus dem realen Einsatz sind bereits committed (live-counter, button types, sort by member_number, token-codes magic-link). Nächster Schritt: `/gsd-discuss-phase 6` für Teilnehmerlisten-Export (CSV/PDF an Protokoll anhängbar).
 
