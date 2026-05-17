@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-last_updated: "2026-05-17T10:35:33.677Z"
+last_updated: "2026-05-17T10:46:55.496Z"
 progress:
   total_phases: 6
   completed_phases: 4
@@ -21,16 +21,18 @@ progress:
 
 **Core Value:** Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachvollziehbar (Audit-Hashchain), mit weniger manueller Arbeit. Dieser Milestone bringt papierlose Anwesenheits-Erfassung auf der Generalversammlung.
 
-**Current Focus:** Phase 06 — teilnehmerlisten-export-für-generalversammlungen
+**Current Focus:** Phase 06 — teilnehmerlisten-export-f-r-generalversammlungen
 
 **Granularity:** coarse (5 ursprüngliche Phasen + 1 Follow-up; 1–3 Plans pro Phase)
 
 ## Current Position
 
+Phase: 06 (teilnehmerlisten-export-f-r-generalversammlungen) — EXECUTING
+Plan: 1 of 4
 **Phase:** 06 — teilnehmerlisten-export-für-generalversammlungen (CONTEXT erfasst — Planning offen)
 **Plans done in Phase 06:** 0 of 0 (Phase gediscussed, noch nicht geplant)
 **Next Phase:** Phase 6 — Teilnehmerlisten-Export für Generalversammlungen
-**Status:** Ready to execute
+**Status:** Executing Phase 06
 **Progress:** [████████░░] 83% Milestone (4/6 Phasen done, 1 skipped, 1 pending)
 
 ## Phase 04 Closure Notes (2026-05-06)
