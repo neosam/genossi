@@ -1,6 +1,9 @@
+use genossi_dao::assembly::AssemblyEntity;
+use genossi_dao::attendance::AttendanceMemberRow;
 use genossi_service::application::Application;
 use genossi_service::member::Member;
 use genossi_service::template::TemplateError;
+use genossi_service::ServiceError;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -249,6 +252,85 @@ impl PdfGenerator {
                     })
                     .collect();
                 Err(TemplateError::RenderError(Arc::from(errors.join("\n"))))
+            }
+        }
+    }
+
+    /// Render the Teilnehmerliste template (Phase 6, D-04 / D-08 / D-10) to
+    /// PDF bytes.
+    ///
+    /// Inputs:
+    ///   * `template_path` — filename relative to `template_base`, e.g.
+    ///     `"teilnehmerliste.typ"`.
+    ///   * `template_base` — root directory containing the Typst template
+    ///     (resolves `#import "_layout.typ"`).
+    ///   * `assembly` — provides `assembly.name` (-> JSON key `title`) and
+    ///     `assembly.date` (-> JSON key `date`, formatted DD.MM.YYYY).
+    ///   * `rows` — already filtered + sorted rows from
+    ///     `AttendanceDao::list_members_for_assembly` (DSGVO 7-col whitelist).
+    ///   * `present` — pre-computed count of `is_present == true` rows.
+    ///   * `total` — optional total. `Some(n)` when `include == All`
+    ///     (`n == rows.len()`); `None` when `include == Present` (the
+    ///     "X anwesend" variant in the template).
+    ///
+    /// Wraps `TemplateError` into `ServiceError::InternalError` so the
+    /// AttendanceExportServiceImpl can `?`-propagate the result. The
+    /// underlying Typst pipeline is the same as `render_application`.
+    pub fn render_attendance_list(
+        &self,
+        template_path: &str,
+        template_base: &Path,
+        assembly: &AssemblyEntity,
+        rows: &[AttendanceMemberRow],
+        present: u64,
+        total: Option<u64>,
+    ) -> Result<Vec<u8>, ServiceError> {
+        let full_path = template_base.join(template_path);
+        let source_text = std::fs::read_to_string(&full_path).map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                ServiceError::InternalError(Arc::from(format!(
+                    "template not found: {}",
+                    full_path.display()
+                )))
+            } else {
+                ServiceError::InternalError(Arc::from(format!("template io error: {}", e)))
+            }
+        })?;
+
+        let inputs = build_inputs_attendance(assembly, rows, present, total);
+
+        let world = TemplateWorld::new(
+            &source_text,
+            template_path,
+            template_base.to_path_buf(),
+            inputs,
+            &self.fonts,
+            &self.book,
+            &self.package_cache,
+        );
+
+        let result = typst::compile::<PagedDocument>(&world);
+
+        match result.output {
+            Ok(document) => {
+                let options = typst_pdf::PdfOptions::default();
+                let pdf_bytes = typst_pdf::pdf(&document, &options).map_err(|e| {
+                    ServiceError::InternalError(Arc::from(format!(
+                        "typst pdf serialisation failed: {:?}",
+                        e
+                    )))
+                })?;
+                Ok(pdf_bytes)
+            }
+            Err(diagnostics) => {
+                let errors: Vec<String> = diagnostics
+                    .iter()
+                    .map(|d| format!("{}", d.message))
+                    .collect();
+                Err(ServiceError::InternalError(Arc::from(format!(
+                    "typst compile errors: {}",
+                    errors.join("\n")
+                ))))
             }
         }
     }
@@ -503,6 +585,70 @@ impl PdfGenerator {
 
         inputs
     }
+}
+
+/// Build the Typst `sys.inputs` dict for the Teilnehmerliste template.
+///
+/// Produces two string-keyed entries:
+///   * `meta` — JSON of `{ title, date, present, total }`. `total` is
+///     serialized as null when `None` (D-10: only present-count for
+///     `include=Present`). The JSON key remains `title` because the Typst
+///     template binds to `meta.title` (the source field on the Rust side is
+///     `assembly.name`).
+///   * `rows` — JSON array of `{ member_number, first_name, last_name,
+///     salutation, title, is_present }`. `member_id` is intentionally
+///     excluded (DSGVO PII minimization — auditors get the visible 6
+///     columns, the internal ID never reaches PDF).
+fn build_inputs_attendance(
+    assembly: &AssemblyEntity,
+    rows: &[AttendanceMemberRow],
+    present: u64,
+    total: Option<u64>,
+) -> Dict {
+    let mut inputs = Dict::new();
+
+    // Format the assembly date as DD.MM.YYYY (D-15-adjacent: same Punkt-
+    // Pattern as `render_application` for visual consistency in the PDF).
+    let german_date_fmt =
+        time::format_description::parse("[day].[month].[year]").expect("static format");
+    let date_str = assembly
+        .date
+        .date()
+        .format(&german_date_fmt)
+        .unwrap_or_else(|_| "unbekannt".to_string());
+
+    let total_value = match total {
+        Some(n) => serde_json::Value::Number(serde_json::Number::from(n)),
+        None => serde_json::Value::Null,
+    };
+
+    let meta = serde_json::json!({
+        "title": assembly.name.as_ref(),
+        "date": date_str,
+        "present": present,
+        "total": total_value,
+    });
+    let meta_json = serde_json::to_string(&meta).expect("meta json serialisable");
+    inputs.insert(Str::from("meta"), Value::Str(Str::from(meta_json.as_str())));
+
+    let row_values: Vec<serde_json::Value> = rows
+        .iter()
+        .map(|r| {
+            serde_json::json!({
+                "member_number": r.member_number,
+                "first_name": r.first_name.as_ref(),
+                "last_name": r.last_name.as_ref(),
+                "salutation": r.salutation.as_ref().map(|s| s.as_ref()),
+                "title": r.title.as_ref().map(|s| s.as_ref()),
+                "is_present": r.is_present,
+            })
+        })
+        .collect();
+    let rows_json = serde_json::to_string(&serde_json::Value::Array(row_values))
+        .expect("rows json serialisable");
+    inputs.insert(Str::from("rows"), Value::Str(Str::from(rows_json.as_str())));
+
+    inputs
 }
 
 struct TemplateWorld<'a> {

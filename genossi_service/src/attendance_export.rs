@@ -51,10 +51,24 @@ impl Default for ExportInclude {
 /// Resultat des Exports — Bytes + Content-Type + Filename in einem Bundle
 /// (D-15, D-16). Der REST-Handler in Plan 03 setzt aus diesem Bundle die
 /// `Content-Type`- und `Content-Disposition`-Header der Response.
+///
+/// `Debug` ist abgeleitet, druckt aber nur die Bytes-Laenge statt der Bytes
+/// selbst — sonst wuerde `assert!(res.is_ok(), "{:?}", res)` in Unit-Tests
+/// gigantische Hex-Dumps loggen.
 pub struct AttendanceExport {
     pub bytes: Vec<u8>,
     pub content_type: &'static str,
     pub filename: String,
+}
+
+impl std::fmt::Debug for AttendanceExport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AttendanceExport")
+            .field("bytes_len", &self.bytes.len())
+            .field("content_type", &self.content_type)
+            .field("filename", &self.filename)
+            .finish()
+    }
 }
 
 #[automock(type Context=(); type Transaction = genossi_dao::MockTransaction;)]
