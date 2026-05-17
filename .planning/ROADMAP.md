@@ -170,7 +170,7 @@ Diese Punkte sind nicht verhandelbar und müssen in den jeweiligen Phasen-Plans 
   4. KEIN Audit-Hashchain-Eintrag wird beim Export erzeugt (D-17, grep-gate auf `audited_*!` ist `== 0`); `tracing::info!` mit aid + format + include ist im Service-Layer (D-18)
   5. Im Frontend erscheint im Vorstand-Detail-View nur bei `assembly.status == Closed` ein vierter Tab `Export` mit Format-Auswahl + Include-Toggle + reaktivem Filename-Preview + Download-Button (D-19, D-20)
 **Plans**: 4 plans
-- [ ] 06-01-PLAN.md — Workspace-Deps-Promotion (rust_xlsxwriter + csv) + Typst-Template `teilnehmerliste.typ` (D-02, D-04, D-08, D-10)
+- [x] 06-01-PLAN.md — Workspace-Deps-Promotion (rust_xlsxwriter + csv) + Typst-Template `teilnehmerliste.typ` (D-02, D-04, D-08, D-10)
 - [ ] 06-02-PLAN.md — `AttendanceExportService` Trait + Impl + 3 Format-Writer + `PdfGenerator::render_attendance_list` + Permission-Funnel + Status-Gate (D-01, D-03..D-13, D-15..D-18)
 - [ ] 06-03-PLAN.md — REST-Handler + Router-Nest + DI-Wiring + 8 E2E-Tests (D-11, D-12, D-13, D-14, D-15, D-16, D-18)
 - [ ] 06-04-PLAN.md — Frontend `ExportTab` inline-Component + `api::export_attendance_url` + i18n (DE+EN) + Human-Verify-Checkpoint (D-09, D-15, D-19, D-20)
