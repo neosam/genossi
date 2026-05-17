@@ -11,7 +11,7 @@
 - [x] **Phase 2: Helfer-Token + Session + AuthContext::Helper** — Vorstand erzeugt One-Time-Use-QR-Codes; Helfer können diese atomar einlösen und erhalten eine GV-gebundene Session
 - [x] **Phase 3: Attendance-Aggregat + Cascade-Invalidation** — Backend liefert reduzierte Helfer-Member-View, idempotente Anwesenheits-Toggles und Live-Stats; GV-Schluss invalidiert Sessions
 - [x] **Phase 4: Frontend (Component-First) mit QR-Scanner und Manual-Code-Fallback** — Vorstand und Helfer bedienen GV, QR-Erzeugung, Anwesenheit und Live-Counter über Dioxus-WASM-UI
-- [ ] **Phase 5: Pre-GV-Generalprobe und Operations-Plan** — System ist auf realer Hardware geprobt, Vorstand geschult, Backup-Plan dokumentiert
+- [~] **Phase 5: Pre-GV-Generalprobe und Operations-Plan** — **SKIPPED** (echte GV bereits erfolgreich durchgeführt; Pre-Generalprobe damit obsolet)
 
 ## Phase Details
 
@@ -101,8 +101,11 @@
 - [x] 04-10-PLAN.md — Verifikation: automated VERIFICATION.md + manual UAT-Checklist + Checkpoint
 **UI hint**: yes
 
-### Phase 5: Pre-GV-Generalprobe und Operations-Plan
-**Goal**: Das fertige System ist mindestens eine Woche vor der echten GV unter realistischen Bedingungen geprobt — echtes Vereinsheim oder vergleichbare Umgebung, echte Hardware (iOS Safari + Android Chrome auf Tablet/Handy), echter Drucker für QR-Codes, mehrere Test-Helfer, eine Test-GV mit ≥10 Test-Mitgliedern in der DB. Vorstand bedient das System ohne Entwickler-Beistand. Backup-Plan (Mobile-Hotspot, gedruckte Mitgliederliste, Excel-Import-Pfad) ist schriftlich dokumentiert.
+### Phase 5: Pre-GV-Generalprobe und Operations-Plan — SKIPPED
+
+> **SKIPPED 2026-05-17:** Die echte Generalversammlung wurde mit Genossi erfolgreich durchgeführt. Eine Pre-GV-Generalprobe ist damit nicht mehr sinnvoll. Operative Erkenntnisse aus dem realen Einsatz flossen direkt als Hotfixes ins Frontend zurück (commits `8e92cfd` live-counter, `e245013` r#type="button", `ed754fc` sort by member_number, sowie der token-codes-Magic-Link-Flow `3cdfbb6`). Die noch offene Tooling-Debt (`wasm-bindgen-cli@0.2.104`, `dx build --release`-Verifikation, Tailwind-Purge am Release-Artefakt) wird bei Bedarf separat ausserhalb des GSD-Phase-Tracking abgearbeitet.
+
+**Originaler Goal (zur Nachvollziehbarkeit):** Das fertige System ist mindestens eine Woche vor der echten GV unter realistischen Bedingungen geprobt — echtes Vereinsheim oder vergleichbare Umgebung, echte Hardware (iOS Safari + Android Chrome auf Tablet/Handy), echter Drucker für QR-Codes, mehrere Test-Helfer, eine Test-GV mit ≥10 Test-Mitgliedern in der DB. Vorstand bedient das System ohne Entwickler-Beistand. Backup-Plan (Mobile-Hotspot, gedruckte Mitgliederliste, Excel-Import-Pfad) ist schriftlich dokumentiert.
 **Depends on**: Phase 4 (vollständiges System inkl. UI)
 **Requirements**: (operativ — keine direkten REQ-IDs; verifiziert die Phasen 1–4 unter realen Bedingungen)
 **Success Criteria** (was muss WAHR sein):
@@ -121,7 +124,7 @@
 | 2. Helfer-Token + Session + AuthContext::Helper | 0/8 | Not started | - |
 | 3. Attendance-Aggregat + Cascade-Invalidation | 4/6 | In Progress|  |
 | 4. Frontend (Component-First) | 0/10 | Plans created | - |
-| 5. Pre-GV-Generalprobe und Operations-Plan | 0/0 | Not started | - |
+| 5. Pre-GV-Generalprobe und Operations-Plan | 0/0 | SKIPPED — GV bereits durchgeführt | 2026-05-17 |
 
 ## Coverage Summary
 
@@ -150,6 +153,16 @@ Diese Punkte sind nicht verhandelbar und müssen in den jeweiligen Phasen-Plans 
 - **Phase 3**: Eigenes `AttendanceMemberTO` mit nur 4 Feldern (NICHT `MemberTO` mit serde-skip); idempotenter PUT (kein POST/INSERT-Pattern); UNIQUE(assembly_id, member_id) WHERE deleted IS NULL; Cascade-Invalidation in `close_assembly`
 - **Phase 4**: Component-First (keine inline-RSX-Duplikate); Manual-Code-Eingabe muss alongside QR-Scanner landen; Y im Live-Counter explizit beschriftet („X von Y aktiven Mitgliedern"); BarcodeDetector + Polyfill; HTTPS für `getUserMedia`
 - **Phase 5**: Generalprobe ist gleichrangig mit Code-Phasen; ohne sie sind die Phasen 1–4 nicht „done done"
+
+### Phase 6: Teilnehmerlisten-Export für Generalversammlungen
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 5
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 6 to break down)
 
 ---
 *Roadmap created: 2026-05-02*

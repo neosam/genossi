@@ -2,14 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-last_updated: "2026-05-05T18:07:41.572Z"
+status: active
+last_updated: "2026-05-17T00:00:00.000Z"
 progress:
-  total_phases: 5
+  total_phases: 6
   completed_phases: 4
+  skipped_phases: 1
   total_plans: 30
   completed_plans: 30
-  percent: 100
+  percent: 83
 ---
 
 # State: Genossi — GV-Anwesenheits-Erfassung
@@ -21,18 +22,17 @@ progress:
 
 **Core Value:** Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachvollziehbar (Audit-Hashchain), mit weniger manueller Arbeit. Dieser Milestone bringt papierlose Anwesenheits-Erfassung auf der Generalversammlung.
 
-**Current Focus:** Phase 04 — frontend-component-first-mit-qr-scanner-und-manual-code-fall
+**Current Focus:** Phase 06 — teilnehmerlisten-export-für-generalversammlungen
 
-**Granularity:** coarse (5 Phasen, 1–3 Plans pro Phase)
+**Granularity:** coarse (5 ursprüngliche Phasen + 1 Follow-up; 1–3 Plans pro Phase)
 
 ## Current Position
 
-**Phase:** 04 — frontend-component-first-mit-qr-scanner-und-manual-code-fall (COMPLETE 2026-05-06)
-**Wave:** 5 of 5 — COMPLETE
-**Plans done in Phase 04:** 11 of 11 (04-01..04-09, 04-10) + Tailwind purge fix `bfffbe2`
-**Next Phase:** Phase 5 — Pre-GV-Generalprobe und Operations-Plan
-**Status:** Phase 04 complete — milestone code-complete (4 of 5 phases done)
-**Progress:** [██████████] 100% Phase 4 (30/30 milestone plans done)
+**Phase:** 06 — teilnehmerlisten-export-für-generalversammlungen (PENDING — Discuss starten)
+**Plans done in Phase 06:** 0 of 0 (Phase noch nicht gediscussed/geplant)
+**Next Phase:** Phase 6 — Teilnehmerlisten-Export für Generalversammlungen
+**Status:** Code-Phasen 1–4 ausgeliefert; Phase 5 (Pre-GV-Generalprobe) übersprungen — echte GV bereits durchgeführt. Phase 6 (CSV/PDF-Export) jetzt offen.
+**Progress:** [████████░░] 83% Milestone (4/6 Phasen done, 1 skipped, 1 pending)
 
 ## Phase 04 Closure Notes (2026-05-06)
 
@@ -70,6 +70,11 @@ Overall: 0% complete
 
 ## Accumulated Context
 
+### Roadmap Evolution
+
+- Phase 6 added: Teilnehmerlisten-Export für Generalversammlungen (CSV/PDF, an Protokoll anhängbar)
+- Phase 5 SKIPPED 2026-05-17: Echte GV bereits erfolgreich durchgeführt — Pre-Generalprobe damit obsolet. Erkenntnisse aus dem realen Einsatz flossen als Hotfixes ins Frontend zurück (live-counter `8e92cfd`, gv-pages button type `e245013`, sort by member_number `ed754fc`, token-codes magic-link `3cdfbb6`). Tooling-Debt (`wasm-bindgen-cli@0.2.104`, Tailwind-Purge am Release-Artefakt) wird bei Bedarf separat ausserhalb GSD abgearbeitet.
+
 ### Key Decisions (carry-over aus PROJECT.md)
 
 | Decision | Rationale | Phase |
@@ -102,8 +107,8 @@ Overall: 0% complete
 
 ### Open TODOs
 
-- Vor Phase 2 entscheiden: `tower-sessions` 0.14 → 0.15 Upgrade jetzt oder später? (HIGH-Risiko-Bewertung im Plan-Phase-Schritt)
-- In Phase 5 dokumentieren: Server-Hosting-Entscheidung für GV-Tag (lokal im Vereinsheim vs. Cloud) — beeinflusst Backup-Plan
+- (obsolet) ~~Vor Phase 2 entscheiden: `tower-sessions` 0.14 → 0.15 Upgrade jetzt oder später?~~ — Phase 2 abgeschlossen, hat sich erledigt
+- (obsolet) ~~In Phase 5 dokumentieren: Server-Hosting-Entscheidung für GV-Tag~~ — Phase 5 skipped; Production läuft via `deploy-binaries.sh` auf `shifty.nebenan-unverpackt.de`, hat sich in der realen GV bewährt
 
 ### Blockers
 
@@ -120,7 +125,9 @@ Keine.
 
 ## Session Continuity
 
-**Last action:** Plan 03-06 (REST handlers + DI-Wiring + 6 E2E tests) komplett — Phase 3 vollständig abgeschlossen. 4 attendance REST-Handler in genossi_rest/src/attendance.rs (list_members/mark_present/mark_absent/get_stats) mit lokalem map_attendance_error (PermissionDenied → 403, D-26). RestStateImpl in genossi_bin DI-gewired mit AttendanceServiceImpl + 6 Deps. 6 grüne E2E-Tests gegen real-laufenden HTTP-Server mit in-memory SQLite — alle 9 Phase-3-Requirements (ASSY-04, ASSY-06, ATTN-01..06, SYNC-02) + SC#8-Cascade-DB direkt verifiziert. 234/234 E2E-Tests grün (228 vorher + 6 neu); 4 unit-Tests + 6 E2E = 10 neue grüne Tests. 4 Task-Commits (`a553b6a`, `b72b72c`, `e39af6b`, `e90bd33`).
+**Last action (2026-05-17):** Phase 5 (Pre-GV-Generalprobe) als SKIPPED markiert in ROADMAP.md und STATE.md — echte GV bereits erfolgreich mit Genossi durchgeführt; Hotfixes aus dem realen Einsatz sind bereits committed (live-counter, button types, sort by member_number, token-codes magic-link). Nächster Schritt: `/gsd-discuss-phase 6` für Teilnehmerlisten-Export (CSV/PDF an Protokoll anhängbar).
+
+**Last action (Phase 03-06):** REST handlers + DI-Wiring + 6 E2E tests komplett — Phase 3 vollständig abgeschlossen. 4 attendance REST-Handler in genossi_rest/src/attendance.rs (list_members/mark_present/mark_absent/get_stats) mit lokalem map_attendance_error (PermissionDenied → 403, D-26). RestStateImpl in genossi_bin DI-gewired mit AttendanceServiceImpl + 6 Deps. 6 grüne E2E-Tests gegen real-laufenden HTTP-Server mit in-memory SQLite — alle 9 Phase-3-Requirements (ASSY-04, ASSY-06, ATTN-01..06, SYNC-02) + SC#8-Cascade-DB direkt verifiziert. 234/234 E2E-Tests grün (228 vorher + 6 neu); 4 unit-Tests + 6 E2E = 10 neue grüne Tests. 4 Task-Commits (`a553b6a`, `b72b72c`, `e39af6b`, `e90bd33`).
 
 **Next action:** Phase 04 plans created (10 plans across 5 waves). Run /gsd-execute-phase 04. Wave 1 (parallel): Plans 01 (Backend Helper-Endpoints) + 02 (Frontend Foundation) + 03 (api.rs + i18n). Wave 2 (parallel): Plans 04 (shared attendance) + 05 (helper login) + 06 (vorstand layout). Wave 3 (sequential): Plans 07 (routing) → 08 (vorstand pages). Wave 4: Plan 09 (helfer pages). Wave 5: Plan 10 (UAT checkpoint).
 
