@@ -1,6 +1,7 @@
 pub mod application;
 pub mod assembly;
 pub mod attendance;
+pub mod attendance_export;
 pub mod audit_log;
 pub mod audit_timestamp;
 pub mod auth;
@@ -267,6 +268,7 @@ pub trait RestStateDef:
         (path = "/api/assembly", api = assembly::ApiDoc),
         (path = "/api/assembly/{assembly_id}/helper-tokens", api = helper_token::ApiDoc),
         (path = "/api/attendance/{assembly_id}", api = attendance::ApiDoc),
+        (path = "/api/assembly/{assembly_id}/attendance-export", api = attendance_export::ApiDoc),
         (path = "/api/audit", api = audit_log::ApiDoc),
         (path = "/api/audit/timestamps", api = audit_timestamp::ApiDoc),
         (path = "/api/session", api = session_management::ApiDoc)
@@ -433,6 +435,7 @@ pub async fn create_app<
         + assembly::AssemblyRestState
         + helper_token::HelperTokenRestState
         + attendance::AttendanceRestState
+        + attendance_export::AttendanceExportRestState
         + audit_log::AuditRestState
         + audit_timestamp::TimestampRestState,
 >(
@@ -616,6 +619,14 @@ pub async fn create_app<
             "/api/attendance/{assembly_id}",
             attendance::generate_attendance_route::<RestState>(),
         )
+        // Phase 6 Plan 03 (D-14): Teilnehmerlisten-Export fuer geschlossene GVs.
+        // Mounted unter /api/assembly (nicht /api/attendance), weil der Export
+        // ein Aggregat-Operation auf der Assembly ist (Filename, Status-Gate,
+        // Permission-Funnel kommen aus dem Assembly-Kontext).
+        .nest(
+            "/api/assembly",
+            attendance_export::generate_export_route::<RestState>(),
+        )
         .nest("/api/audit", audit_log::generate_route::<RestState>())
         .nest(
             "/api/audit/timestamps",
@@ -737,6 +748,7 @@ pub async fn start_server<
         + assembly::AssemblyRestState
         + helper_token::HelperTokenRestState
         + attendance::AttendanceRestState
+        + attendance_export::AttendanceExportRestState
         + audit_log::AuditRestState
         + audit_timestamp::TimestampRestState,
 >(

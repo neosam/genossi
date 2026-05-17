@@ -22,6 +22,7 @@ pub mod test_support {
             + crate::assembly::AssemblyRestState
             + crate::helper_token::HelperTokenRestState
             + crate::attendance::AttendanceRestState
+            + crate::attendance_export::AttendanceExportRestState
             + crate::audit_log::AuditRestState
             + crate::audit_timestamp::TimestampRestState,
     >(
