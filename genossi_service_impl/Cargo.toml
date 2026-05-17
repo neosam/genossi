@@ -35,6 +35,8 @@ cmpv2 = "0.2.0"
 der = { version = "0.7", features = ["alloc", "derive", "oid"] }
 cms = { version = "0.2.3", features = ["alloc"] }
 const-oid = { version = "0.9", features = ["db"] }
+csv = { workspace = true }
+rust_xlsxwriter = { workspace = true }
 spki = "0.7"
 
 [dev-dependencies]

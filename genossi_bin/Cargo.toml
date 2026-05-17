@@ -55,7 +55,7 @@ reqwest = { version = "0.11", default-features = false, features = [
     "rustls-tls",
 ] }
 futures = "0.3"
-rust_xlsxwriter = "0.82"
+rust_xlsxwriter = { workspace = true }
 tempfile = "3"
-csv = "1.3"
+csv = { workspace = true }
 zip = "2"
