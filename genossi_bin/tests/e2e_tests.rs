@@ -9971,3 +9971,580 @@ async fn helper_logout_returns_401_without_cookie() {
         resp.status()
     );
 }
+
+// ===========================================================================
+// Phase 6 — Teilnehmerlisten-Export (D-01..D-18)
+//
+// Endpoint: GET /api/assembly/{assembly_id}/attendance-export/{format}
+// Query:    ?include=all|present (default=all)
+// ===========================================================================
+
+/// Phase 6 Plan 03 helper: create assembly with a fixed date `2026-05-15`,
+/// seed `n_members` members, open the assembly, mark the first `n_present`
+/// members present, then close the assembly.
+///
+/// Returns `(assembly_id, date_str_yyyy_mm_dd, n_present, n_total)`.
+///
+/// The date is fixed so the filename-schema test (`gv-2026-05-15-teilnehmer.{ext}`)
+/// can assert a deterministic string. Member-numbers start at 2000 to avoid
+/// collisions with other helper-seeded members in the same test binary.
+async fn create_closed_assembly_with_members(
+    client: &reqwest::Client,
+    server: &genossi_rest::test_server::test_support::TestServer,
+    n_members: usize,
+    n_present: usize,
+) -> (uuid::Uuid, String, usize, usize) {
+    assert!(
+        n_present <= n_members,
+        "create_closed_assembly_with_members: n_present {} > n_members {}",
+        n_present,
+        n_members
+    );
+
+    // 1) Seed members. member_number starts at 2000 — distinct from any other
+    //    helper-seeded numbers in this test binary.
+    let mut member_ids = Vec::with_capacity(n_members);
+    for i in 0..n_members {
+        let mut m = sample_member();
+        m.member_number = 2000 + (i as i64);
+        m.first_name = format!("ExportVorname{}", i);
+        m.last_name = format!("ExportNachname{}", i);
+        m.email = Some(format!("export{}@example.com", i));
+        let resp = client
+            .post(server.url("/api/members"))
+            .json(&m)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::OK,
+            "member create must succeed; got {}: {}",
+            resp.status(),
+            resp.text().await.unwrap_or_default()
+        );
+        let created: MemberTO = resp.json().await.unwrap();
+        member_ids.push(created.id.expect("created member must have id"));
+    }
+
+    // 2) Create assembly with fixed date 2026-05-15.
+    let create_body = serde_json::json!({
+        "name": "GV Export Test 2026",
+        "date": "2026-05-15T18:00:00.000000000Z",
+        "location": "Vereinsheim",
+    });
+    let resp = client
+        .post(server.url("/api/assembly"))
+        .json(&create_body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::CREATED,
+        "assembly create must succeed; got {}: {}",
+        resp.status(),
+        resp.text().await.unwrap_or_default()
+    );
+    let created: AssemblyTO = resp.json().await.unwrap();
+    let assembly_id = created.id;
+
+    // 3) Open assembly — seeds the assembly_member_snapshot.
+    let resp = client
+        .post(server.url(&format!("/api/assembly/{}/open", assembly_id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "assembly open must succeed; got {}",
+        resp.status()
+    );
+
+    // 4) Mark first n_present members present.
+    for mid in member_ids.iter().take(n_present) {
+        let resp = client
+            .put(server.url(&format!("/api/attendance/{}/{}", assembly_id, mid)))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::OK,
+            "mark present must succeed; got {}",
+            resp.status()
+        );
+    }
+
+    // 5) Close assembly.
+    let resp = client
+        .post(server.url(&format!("/api/assembly/{}/close", assembly_id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "assembly close must succeed; got {}",
+        resp.status()
+    );
+
+    (
+        assembly_id,
+        "2026-05-15".to_string(),
+        n_present,
+        n_members,
+    )
+}
+
+/// Phase 6 / D-04 / D-16: PDF export of a Closed assembly returns 200 with
+/// `application/pdf` Content-Type, an attachment Content-Disposition, and a
+/// body that starts with the `%PDF-` magic bytes.
+///
+/// Uses `setup_with_templates()` so the `teilnehmerliste.typ` default
+/// template is provisioned to the test-server's template directory.
+#[tokio::test]
+async fn test_export_pdf_closed_returns_pdf_magic_bytes() {
+    let server = setup_with_templates().await;
+    let client = reqwest::Client::new();
+    let (aid, _, _, _) = create_closed_assembly_with_members(&client, &server, 5, 2).await;
+
+    let resp = client
+        .get(server.url(&format!(
+            "/api/assembly/{}/attendance-export/pdf?include=all",
+            aid
+        )))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "PDF export of Closed assembly must return 200; got {}: {}",
+        resp.status(),
+        resp.text().await.unwrap_or_default()
+    );
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .expect("content-type header must be present")
+        .to_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(
+        content_type, "application/pdf",
+        "D-16: PDF Content-Type must be application/pdf"
+    );
+    let cd = resp
+        .headers()
+        .get("content-disposition")
+        .expect("content-disposition header must be present")
+        .to_str()
+        .unwrap()
+        .to_string();
+    assert!(cd.contains("filename="), "must contain filename= in CD");
+    assert!(
+        cd.contains("teilnehmer.pdf"),
+        "filename must end with teilnehmer.pdf; got '{}'",
+        cd
+    );
+    let bytes = resp.bytes().await.unwrap();
+    assert!(
+        bytes.starts_with(b"%PDF-"),
+        "expected %PDF- magic bytes, got: {:?}",
+        &bytes[..bytes.len().min(8)]
+    );
+}
+
+/// Phase 6 / D-03 / D-16: CSV export starts with UTF-8 BOM, uses semicolon
+/// delimiter, and the header row contains "Mitgliedsnummer".
+#[tokio::test]
+async fn test_export_csv_closed_starts_with_utf8_bom_and_uses_semicolon() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let (aid, _, _, _) = create_closed_assembly_with_members(&client, &server, 5, 2).await;
+
+    let resp = client
+        .get(server.url(&format!(
+            "/api/assembly/{}/attendance-export/csv?include=all",
+            aid
+        )))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "CSV export of Closed assembly must return 200; got {}: {}",
+        resp.status(),
+        resp.text().await.unwrap_or_default()
+    );
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .expect("content-type")
+        .to_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(
+        content_type, "text/csv; charset=utf-8",
+        "D-16: CSV Content-Type must be 'text/csv; charset=utf-8'"
+    );
+    let bytes = resp.bytes().await.unwrap();
+    assert!(bytes.len() >= 3, "CSV body must contain at least the BOM");
+    assert_eq!(
+        &bytes[..3],
+        &[0xEF, 0xBB, 0xBF],
+        "D-03: CSV must start with UTF-8 BOM"
+    );
+    let body = std::str::from_utf8(&bytes[3..]).unwrap();
+    let first_line = body
+        .lines()
+        .next()
+        .expect("CSV must have at least a header line");
+    assert!(
+        first_line.contains(';'),
+        "D-03: expected semicolon delimiter, got: {}",
+        first_line
+    );
+    assert!(
+        !first_line.contains(','),
+        "D-03: must NOT contain comma delimiter; got: {}",
+        first_line
+    );
+    assert!(
+        first_line.contains("Mitgliedsnummer"),
+        "CSV header row must contain 'Mitgliedsnummer'; got: {}",
+        first_line
+    );
+}
+
+/// Phase 6 / D-16: XLSX export returns the Office MIME type and a body that
+/// starts with the ZIP magic bytes `PK\x03\x04` (xlsx is a ZIP container).
+#[tokio::test]
+async fn test_export_xlsx_closed_returns_zip_magic_bytes() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let (aid, _, _, _) = create_closed_assembly_with_members(&client, &server, 3, 1).await;
+
+    let resp = client
+        .get(server.url(&format!(
+            "/api/assembly/{}/attendance-export/xlsx?include=all",
+            aid
+        )))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "XLSX export of Closed assembly must return 200; got {}: {}",
+        resp.status(),
+        resp.text().await.unwrap_or_default()
+    );
+    let content_type = resp
+        .headers()
+        .get("content-type")
+        .expect("content-type")
+        .to_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(
+        content_type,
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "D-16: XLSX Content-Type must be the Office MIME type"
+    );
+    let bytes = resp.bytes().await.unwrap();
+    assert!(
+        bytes.len() >= 4,
+        "XLSX body must be at least 4 bytes (ZIP header)"
+    );
+    assert_eq!(
+        &bytes[..4],
+        b"PK\x03\x04",
+        "XLSX must start with ZIP magic bytes; got: {:?}",
+        &bytes[..bytes.len().min(8)]
+    );
+}
+
+/// Phase 6 / D-11: GET on an Open assembly (not yet Closed) must return 409
+/// Conflict with body mentioning `assembly_not_closed`.
+#[tokio::test]
+async fn test_export_open_assembly_returns_409_conflict() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    // Open assembly (snapshot frozen but NOT closed). Re-use existing helper.
+    let (aid, _) = create_open_assembly_with_members(&client, &server, 1).await;
+
+    let resp = client
+        .get(server.url(&format!(
+            "/api/assembly/{}/attendance-export/pdf?include=all",
+            aid
+        )))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::CONFLICT,
+        "D-11: export on Open assembly must return 409; got {}",
+        resp.status()
+    );
+    let body = resp.text().await.unwrap();
+    assert!(
+        body.contains("assembly_not_closed"),
+        "D-11: 409 body must contain 'assembly_not_closed'; got: {}",
+        body
+    );
+}
+
+/// Phase 6 / D-11: GET on a Preparation assembly (created but never opened)
+/// must return 409 Conflict.
+#[tokio::test]
+async fn test_export_preparation_assembly_returns_409_conflict() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Create assembly directly without opening — status stays Preparation.
+    let create_body = serde_json::json!({
+        "name": "GV Export Preparation",
+        "date": "2026-05-15T18:00:00.000000000Z",
+        "location": "Vereinsheim",
+    });
+    let resp = client
+        .post(server.url("/api/assembly"))
+        .json(&create_body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::CREATED,
+        "assembly create must succeed"
+    );
+    let created: AssemblyTO = resp.json().await.unwrap();
+    let aid = created.id;
+
+    let resp = client
+        .get(server.url(&format!(
+            "/api/assembly/{}/attendance-export/pdf?include=all",
+            aid
+        )))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::CONFLICT,
+        "D-11: export on Preparation assembly must return 409; got {}",
+        resp.status()
+    );
+    let body = resp.text().await.unwrap();
+    assert!(
+        body.contains("assembly_not_closed"),
+        "D-11: 409 body must contain 'assembly_not_closed'; got: {}",
+        body
+    );
+}
+
+/// Phase 6 / D-14: unknown format-suffix (json) must return 400 BadRequest.
+#[tokio::test]
+async fn test_export_unknown_format_returns_400() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let (aid, _, _, _) = create_closed_assembly_with_members(&client, &server, 1, 0).await;
+
+    let resp = client
+        .get(server.url(&format!(
+            "/api/assembly/{}/attendance-export/json?include=all",
+            aid
+        )))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::BAD_REQUEST,
+        "D-14: unknown format must return 400; got {}",
+        resp.status()
+    );
+    let body = resp.text().await.unwrap();
+    assert!(
+        body.contains("unknown export format") || body.contains("json"),
+        "400 body must mention the unknown format; got: {}",
+        body
+    );
+}
+
+/// Phase 6 / D-09: `?include=present` must filter out absent members. With
+/// 5 members of whom 2 are present, the CSV body has exactly 2 data rows
+/// (after the header).
+#[tokio::test]
+async fn test_export_include_present_filters_absent_members() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let (aid, _, n_present, _) =
+        create_closed_assembly_with_members(&client, &server, 5, 2).await;
+    assert_eq!(n_present, 2, "test setup must produce exactly 2 present");
+
+    let resp = client
+        .get(server.url(&format!(
+            "/api/assembly/{}/attendance-export/csv?include=present",
+            aid
+        )))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "CSV include=present must return 200; got {}: {}",
+        resp.status(),
+        resp.text().await.unwrap_or_default()
+    );
+    let bytes = resp.bytes().await.unwrap();
+    // Skip the 3-byte BOM.
+    let body = std::str::from_utf8(&bytes[3..]).unwrap();
+    // Skip the header line, count non-empty data rows.
+    let data_lines: Vec<&str> = body.lines().skip(1).filter(|l| !l.is_empty()).collect();
+    assert_eq!(
+        data_lines.len(),
+        n_present,
+        "D-09: include=present must return exactly {} data rows; got {} — body: {:?}",
+        n_present,
+        data_lines.len(),
+        body
+    );
+}
+
+/// Phase 6 / D-15: filename schema is `gv-{YYYY-MM-DD}-teilnehmer.{ext}` for
+/// all three formats. With a fixed assembly-date 2026-05-15 the
+/// Content-Disposition header contains the expected filename for csv/pdf/xlsx.
+#[tokio::test]
+async fn test_export_filename_schema_matches_date() {
+    // setup_with_templates() so the PDF branch can find teilnehmerliste.typ.
+    let server = setup_with_templates().await;
+    let client = reqwest::Client::new();
+    let (aid, date_str, _, _) =
+        create_closed_assembly_with_members(&client, &server, 3, 0).await;
+    assert_eq!(date_str, "2026-05-15", "test setup uses fixed assembly date");
+
+    for (fmt, ext) in [("pdf", "pdf"), ("csv", "csv"), ("xlsx", "xlsx")] {
+        let resp = client
+            .get(server.url(&format!(
+                "/api/assembly/{}/attendance-export/{}?include=all",
+                aid, fmt
+            )))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::OK,
+            "{} export of Closed assembly must return 200; got {}: {}",
+            fmt,
+            resp.status(),
+            resp.text().await.unwrap_or_default()
+        );
+        let cd = resp
+            .headers()
+            .get("content-disposition")
+            .expect("content-disposition")
+            .to_str()
+            .unwrap()
+            .to_string();
+        let expected_filename = format!("gv-{}-teilnehmer.{}", date_str, ext);
+        assert!(
+            cd.contains(&expected_filename),
+            "D-15: Content-Disposition '{}' must contain expected filename '{}'",
+            cd,
+            expected_filename
+        );
+    }
+}
+
+/// Phase 6 / D-12: A post-close attendance edit MUST be reflected in the next
+/// export. The Vorstand-admin can DELETE attendance after close (ASSY-06);
+/// the export reads from the live `attendance` table, so the second export
+/// MUST return one row fewer than the first.
+#[tokio::test]
+async fn test_export_reflects_post_close_attendance_edit_d12() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    // Start with 5 members, 3 present, then close.
+    let (aid, _, n_present_initial, _) =
+        create_closed_assembly_with_members(&client, &server, 5, 3).await;
+    assert_eq!(n_present_initial, 3);
+
+    // First export — include=present must yield 3 rows.
+    let resp = client
+        .get(server.url(&format!(
+            "/api/assembly/{}/attendance-export/csv?include=present",
+            aid
+        )))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = resp.bytes().await.unwrap();
+    let body = std::str::from_utf8(&bytes[3..]).unwrap();
+    let count1 = body.lines().skip(1).filter(|l| !l.is_empty()).count();
+    assert_eq!(
+        count1, 3,
+        "first export must reflect initial 3 present rows"
+    );
+
+    // Post-close edit: DELETE all 3 present members (ASSY-06: admin may edit
+    // attendance after close). We need member-IDs — read them out of the
+    // attendance member-list endpoint, then DELETE the present ones.
+    let resp = client
+        .get(server.url(&format!("/api/attendance/{}/members", aid)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let members: Vec<AttendanceMemberTO> = resp.json().await.unwrap();
+    let present_member_ids: Vec<uuid::Uuid> = members
+        .iter()
+        .filter(|m| m.is_present)
+        .map(|m| m.member_id)
+        .collect();
+    assert_eq!(
+        present_member_ids.len(),
+        3,
+        "must find exactly 3 present members in list"
+    );
+    // Remove the first present member.
+    let mid_to_remove = present_member_ids[0];
+    let resp = client
+        .delete(server.url(&format!("/api/attendance/{}/{}", aid, mid_to_remove)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "ASSY-06: post-close DELETE attendance must succeed; got {}",
+        resp.status()
+    );
+
+    // Second export — include=present must now yield 2 rows (D-12).
+    let resp = client
+        .get(server.url(&format!(
+            "/api/assembly/{}/attendance-export/csv?include=present",
+            aid
+        )))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = resp.bytes().await.unwrap();
+    let body = std::str::from_utf8(&bytes[3..]).unwrap();
+    let count2 = body.lines().skip(1).filter(|l| !l.is_empty()).count();
+    assert_eq!(
+        count2, 2,
+        "D-12: post-close edit must be reflected in next export — expected 2 rows after removing 1 present member; got {}",
+        count2
+    );
+}

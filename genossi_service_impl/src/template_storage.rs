@@ -16,6 +16,14 @@ const DEFAULT_TEMPLATES: &[DefaultTemplate] = &[
         path: "join_confirmation.typ",
         content: include_bytes!("../../templates/defaults/join_confirmation.typ"),
     },
+    // Phase 6 (D-04, D-08, D-10): Teilnehmerlisten-Export PDF template.
+    // Required by AttendanceExportServiceImpl::export(ExportFormat::Pdf).
+    // Without this entry the PDF-Export branch fails with a "template not
+    // found" InternalError on a fresh installation.
+    DefaultTemplate {
+        path: "teilnehmerliste.typ",
+        content: include_bytes!("../../templates/defaults/teilnehmerliste.typ"),
+    },
 ];
 
 pub struct TemplateStorage {
