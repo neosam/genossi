@@ -1,6 +1,7 @@
 pub mod application;
 pub mod assembly;
 pub mod attendance;
+pub mod attendance_export;
 pub mod auth_types;
 pub mod claim_context;
 pub mod claim_utils;
