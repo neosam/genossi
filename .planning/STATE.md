@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Code-Phasen 1–4 ausgeliefert; Phase 5 (Pre-GV-Generalprobe) übersprungen — echte GV bereits durchgeführt. Phase 6 (CSV/PDF-Export) jetzt offen.
-last_updated: "2026-05-17T09:19:04.063Z"
+status: executing
+last_updated: "2026-05-17T10:35:33.677Z"
 progress:
   total_phases: 6
   completed_phases: 4
-  total_plans: 30
+  total_plans: 34
   completed_plans: 30
-  percent: 100
+  percent: 88
 ---
 
 # State: Genossi — GV-Anwesenheits-Erfassung
@@ -30,7 +30,7 @@ progress:
 **Phase:** 06 — teilnehmerlisten-export-für-generalversammlungen (CONTEXT erfasst — Planning offen)
 **Plans done in Phase 06:** 0 of 0 (Phase gediscussed, noch nicht geplant)
 **Next Phase:** Phase 6 — Teilnehmerlisten-Export für Generalversammlungen
-**Status:** Code-Phasen 1–4 ausgeliefert; Phase 5 (Pre-GV-Generalprobe) übersprungen — echte GV bereits durchgeführt. Phase 6: CONTEXT.md am 2026-05-17 erstellt (PDF + CSV + XLSX, `?include=all|present`, Status-Closed-only, Vorstand-only). Nächster Schritt: `/gsd-plan-phase 6`.
+**Status:** Ready to execute
 **Progress:** [████████░░] 83% Milestone (4/6 Phasen done, 1 skipped, 1 pending)
 
 ## Phase 04 Closure Notes (2026-05-06)
