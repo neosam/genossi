@@ -38,6 +38,6 @@
     [#r.first_name],
     [#r.at("salutation", default: "")],
     [#r.at("title", default: "")],
-    if r.is_present [✓] else [],
+    if r.is_present [ja] else [nein],
   )).flatten()
 )
