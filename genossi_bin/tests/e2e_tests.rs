@@ -13,8 +13,9 @@ use genossi_rest_types::{
     ActionTypeTO, AdminCreateApplicationRequest, ApplicationStatusTO, ApplicationTO,
     AssemblyDetailTO, AssemblyStatusTO, AssemblyTO, AttendanceMemberTO, AttendanceStatsTO,
     HelperSessionTO, MemberActionTO, MemberDocumentTO, MemberImportResultTO, MemberTO,
-    MigrationStatusTO, PublicJoinRequest, PublicJoinResponse, SalutationTO, SessionRevokeResponse,
-    UpdateApplicationRequest, UserPreferenceTO, ValidationResultTO, VerifyResponseTO,
+    MigrationStatusTO, PublicJoinRequest, PublicJoinResponse, RepaymentPhaseStatusTO,
+    RepaymentPhaseTO, SalutationTO, SessionRevokeResponse, UpdateApplicationRequest,
+    UserPreferenceTO, ValidationResultTO, VerifyResponseTO,
 };
 use reqwest::StatusCode;
 use sqlx::SqlitePool;
@@ -10546,5 +10547,460 @@ async fn test_export_reflects_post_close_attendance_edit_d12() {
         count2, 2,
         "D-12: post-close edit must be reflected in next export — expected 2 rows after removing 1 present member; got {}",
         count2
+    );
+}
+
+// =====================================================================
+// Phase 07 Plan 05: RepaymentPhase lifecycle + audit + Edit-Matrix
+// (PHAS-01..05, ROADMAP SC#1..5; Decisions D-04..D-12)
+// =====================================================================
+
+/// Helper: create a RepaymentPhase in `Preparation` and return its TO.
+async fn create_preparation_repayment_phase(
+    client: &reqwest::Client,
+    server: &genossi_rest::test_server::test_support::TestServer,
+    fiscal_year: i32,
+    share_value: i64,
+) -> RepaymentPhaseTO {
+    let body = serde_json::json!({
+        "fiscal_year": fiscal_year,
+        "share_value": share_value,
+    });
+    let response = client
+        .post(server.url("/api/repayment-phase"))
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::CREATED,
+        "create repayment-phase must return 201"
+    );
+    response.json().await.unwrap()
+}
+
+/// Phase 07 Plan 05 Test 1 — full lifecycle + audit-chain verification.
+///
+/// Covers ROADMAP SC#4 (audit chain valid after lifecycle) and SC#5
+/// (share_value correction inside Open produces an audit entry with the
+/// correct new value). Touches PHAS-01, PHAS-02 skeleton, PHAS-03 skeleton,
+/// PHAS-04, PHAS-05.
+///
+/// Sequence: create (Preparation) -> open (Open) -> update share_value
+/// (still Open, D-04: share_value editable, fiscal_year locked) -> close
+/// (Closed) -> verify `/api/audit/verify` is still valid -> verify the four
+/// distinct lifecycle processes appear in the audit log AND the share_value
+/// diff is recorded as `old=12000 -> new=13000`.
+#[tokio::test]
+async fn test_repayment_phase_lifecycle_audit_chain_intact() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // 1) Create phase (status=Preparation)
+    let phase = create_preparation_repayment_phase(&client, &server, 2026, 12000).await;
+    let phase_id = phase.id;
+    assert_eq!(phase.status, RepaymentPhaseStatusTO::Preparation);
+    assert!(
+        phase.opened_at.is_none(),
+        "fresh phase must not have opened_at set"
+    );
+    assert!(
+        phase.closed_at.is_none(),
+        "fresh phase must not have closed_at set"
+    );
+    assert_eq!(phase.fiscal_year, 2026);
+    assert_eq!(phase.share_value, 12000);
+
+    // 2) Open phase (Preparation -> Open) — PHAS-02 skeleton (no auto-fill yet)
+    let response = client
+        .post(server.url(&format!("/api/repayment-phase/{}/open", phase_id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "open should return 200");
+    let opened: RepaymentPhaseTO = response.json().await.unwrap();
+    assert_eq!(opened.status, RepaymentPhaseStatusTO::Open);
+    assert!(
+        opened.opened_at.is_some(),
+        "opened_at must be set after open"
+    );
+    assert!(
+        opened.closed_at.is_none(),
+        "closed_at must still be unset after open"
+    );
+
+    // 3) Read latest version via GET — robust against any future open-handler
+    //    response-shape drift; explicit GET is the recommended fixture pattern.
+    let response = client
+        .get(server.url(&format!("/api/repayment-phase/{}", phase_id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let opened_fresh: RepaymentPhaseTO = response.json().await.unwrap();
+    let version_v1 = opened_fresh
+        .version
+        .expect("version must be present on GET response");
+
+    // 4) PUT share_value correction in Open (D-04: share_value EDIT, fiscal_year
+    //    UNCHANGED). ROADMAP SC#5 demands this update produces an audit diff
+    //    for `share_value`.
+    let update_body = serde_json::json!({
+        "fiscal_year": 2026,
+        "share_value": 13000,
+        "version": version_v1,
+    });
+    let response = client
+        .put(server.url(&format!("/api/repayment-phase/{}", phase_id)))
+        .json(&update_body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "share_value correction in Open must return 200"
+    );
+    let updated: RepaymentPhaseTO = response.json().await.unwrap();
+    assert_eq!(updated.share_value, 13000);
+    assert_eq!(
+        updated.status,
+        RepaymentPhaseStatusTO::Open,
+        "status must stay Open after share_value correction"
+    );
+    // NOTE on version semantics: the codebase-wide convention (Assembly,
+    // RepaymentPhase, etc.) is that the Service returns the pre-update
+    // entity after `audited_update!`, so the PUT response still carries
+    // the OLD version even though the DAO has bumped the persisted version
+    // atomically (see `genossi_dao_impl_sqlite/src/repayment_phase.rs:150`
+    // and the mirror in `assembly.rs`). We verify the optimistic-locking
+    // contract end-to-end with a second PUT below.
+    //
+    // To confirm the persisted version was actually bumped, retry the same
+    // PUT with `version_v1` — it MUST now return 409 (D-07 wins over
+    // version-mismatch only if fiscal_year changes; here it doesn't, so
+    // we hit the pure version-mismatch path).
+    let stale_retry = serde_json::json!({
+        "fiscal_year": 2026,
+        "share_value": 14000,
+        "version": version_v1,
+    });
+    let stale_response = client
+        .put(server.url(&format!("/api/repayment-phase/{}", phase_id)))
+        .json(&stale_retry)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        stale_response.status(),
+        StatusCode::CONFLICT,
+        "second PUT with stale version_v1 must return 409 (proves DB version was bumped)"
+    );
+    let stale_body = stale_response.text().await.unwrap();
+    assert!(
+        stale_body.contains("Version mismatch"),
+        "stale-version conflict body should mention 'Version mismatch'; got: {}",
+        stale_body
+    );
+
+    // 5) Close phase (Open -> Closed) — PHAS-03 skeleton (no pending-entry
+    //    validation yet; will be added in Phase 8).
+    let response = client
+        .post(server.url(&format!("/api/repayment-phase/{}/close", phase_id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "close should return 200");
+    let closed: RepaymentPhaseTO = response.json().await.unwrap();
+    assert_eq!(closed.status, RepaymentPhaseStatusTO::Closed);
+    assert!(
+        closed.closed_at.is_some(),
+        "closed_at must be set after close"
+    );
+
+    // 6) Verify audit hash chain is still intact (ROADMAP SC#4).
+    let response = client
+        .get(server.url("/api/audit/verify"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let verify: VerifyResponseTO = response.json().await.unwrap();
+    assert!(
+        verify.valid,
+        "audit hash chain must be valid after RepaymentPhase lifecycle"
+    );
+    assert!(
+        verify.broken_links.is_empty(),
+        "broken_links must be empty, got {:?}",
+        verify.broken_links
+    );
+    // create + open + update + close ≥ 4 audit transactions; each writes at
+    // least one field row, so total_entries is comfortably ≥ 4.
+    assert!(
+        verify.total_entries >= 4,
+        "expected ≥4 audit entries (create+open+update+close), got {}",
+        verify.total_entries
+    );
+
+    // 7) Verify all four distinct lifecycle processes appear, and the
+    //    share_value diff `12000 -> 13000` is recorded under the update
+    //    process (ROADMAP SC#5).
+    let response = client
+        .get(server.url(&format!(
+            "/api/audit/repayment_phase/{}",
+            phase_id
+        )))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let entries: Vec<genossi_rest_types::AuditLogEntryTO> = response.json().await.unwrap();
+    let processes: std::collections::HashSet<&str> =
+        entries.iter().map(|e| e.process.as_str()).collect();
+    assert!(
+        processes.contains("repayment-phase.create"),
+        "missing repayment-phase.create; got {:?}",
+        processes
+    );
+    assert!(
+        processes.contains("repayment-phase.open"),
+        "missing repayment-phase.open; got {:?}",
+        processes
+    );
+    assert!(
+        processes.contains("repayment-phase.update"),
+        "missing repayment-phase.update; got {:?}",
+        processes
+    );
+    assert!(
+        processes.contains("repayment-phase.close"),
+        "missing repayment-phase.close; got {:?}",
+        processes
+    );
+
+    // ROADMAP SC#5: find the share_value diff under repayment-phase.update.
+    let share_value_diff = entries.iter().find(|e| {
+        e.process == "repayment-phase.update"
+            && e.field_name == "share_value"
+            && e.new_value.as_deref() == Some("13000")
+    });
+    assert!(
+        share_value_diff.is_some(),
+        "expected an audit entry for repayment-phase.update with field share_value, new_value=13000; \
+         entries with process=update were: {:?}",
+        entries
+            .iter()
+            .filter(|e| e.process == "repayment-phase.update")
+            .map(|e| (
+                e.field_name.as_str(),
+                e.old_value.as_deref(),
+                e.new_value.as_deref()
+            ))
+            .collect::<Vec<_>>()
+    );
+    let diff = share_value_diff.unwrap();
+    assert_eq!(
+        diff.old_value.as_deref(),
+        Some("12000"),
+        "share_value diff must record the pre-update value 12000"
+    );
+}
+
+/// Phase 07 Plan 05 Test 2 — Edit-Matrix D-04/D-07: changing fiscal_year
+/// while phase is Open must be atomically rejected as 409.
+#[tokio::test]
+async fn test_update_repayment_phase_fiscal_year_in_open_returns_conflict() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let phase = create_preparation_repayment_phase(&client, &server, 2026, 12000).await;
+    let phase_id = phase.id;
+
+    // Open the phase.
+    let response = client
+        .post(server.url(&format!("/api/repayment-phase/{}/open", phase_id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let opened: RepaymentPhaseTO = response.json().await.unwrap();
+    let version = opened.version.expect("version must be present");
+
+    // Try to change fiscal_year — D-04 says fiscal_year is LOCKED in Open,
+    // D-07 says the entire mutation is atomically rejected.
+    let bad_update = serde_json::json!({
+        "fiscal_year": 2027,
+        "share_value": 12000,
+        "version": version,
+    });
+    let response = client
+        .put(server.url(&format!("/api/repayment-phase/{}", phase_id)))
+        .json(&bad_update)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::CONFLICT,
+        "fiscal_year change in Open must return 409 (D-04/D-07)"
+    );
+    let body = response.text().await.unwrap();
+    assert!(
+        body.contains("fiscal_year"),
+        "conflict body should mention fiscal_year for diagnostic clarity; got: {}",
+        body
+    );
+}
+
+/// Phase 07 Plan 05 Test 3 — D-05/D-06: cannot close from Preparation.
+#[tokio::test]
+async fn test_close_repayment_phase_from_preparation_returns_conflict() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let phase = create_preparation_repayment_phase(&client, &server, 2026, 12000).await;
+
+    // Skip Open; try to close directly from Preparation.
+    let response = client
+        .post(server.url(&format!(
+            "/api/repayment-phase/{}/close",
+            phase.id
+        )))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::CONFLICT,
+        "close from Preparation must return 409 (D-05/D-06)"
+    );
+}
+
+/// Phase 07 Plan 05 Test 4 — D-06: cannot reopen from Closed (no reverse
+/// transitions).
+#[tokio::test]
+async fn test_open_repayment_phase_from_closed_returns_conflict() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let phase = create_preparation_repayment_phase(&client, &server, 2026, 12000).await;
+    let id = phase.id;
+
+    // Preparation -> Open -> Closed
+    let response = client
+        .post(server.url(&format!("/api/repayment-phase/{}/open", id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let response = client
+        .post(server.url(&format!("/api/repayment-phase/{}/close", id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Reopen from Closed -> 409.
+    let response = client
+        .post(server.url(&format!("/api/repayment-phase/{}/open", id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::CONFLICT,
+        "reopen from Closed must return 409 (D-06)"
+    );
+}
+
+/// Phase 07 Plan 05 Test 5 — D-09: cannot soft-delete a phase that is Open.
+#[tokio::test]
+async fn test_delete_repayment_phase_in_open_returns_conflict() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let phase = create_preparation_repayment_phase(&client, &server, 2026, 12000).await;
+    let id = phase.id;
+
+    // Open the phase so it is no longer in Preparation.
+    let response = client
+        .post(server.url(&format!("/api/repayment-phase/{}/open", id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // DELETE must be rejected outside of Preparation.
+    let response = client
+        .delete(server.url(&format!("/api/repayment-phase/{}", id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::CONFLICT,
+        "DELETE on Open phase must return 409 (D-09)"
+    );
+}
+
+/// Phase 07 Plan 05 Test 6 — D-11: fiscal_year out of range (1999) must
+/// return 400 with a `fiscal_year`-mentioning error body.
+#[tokio::test]
+async fn test_validation_fiscal_year_out_of_range_returns_400() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let body = serde_json::json!({
+        "fiscal_year": 1999,
+        "share_value": 12000,
+    });
+    let response = client
+        .post(server.url("/api/repayment-phase"))
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::BAD_REQUEST,
+        "fiscal_year=1999 must return 400 (D-11)"
+    );
+    let body = response.text().await.unwrap();
+    assert!(
+        body.contains("fiscal_year"),
+        "validation error body must mention fiscal_year; got: {}",
+        body
+    );
+}
+
+/// Phase 07 Plan 05 Test 7 — D-12: share_value=0 must return 400 with a
+/// `share_value`-mentioning error body.
+#[tokio::test]
+async fn test_validation_share_value_zero_returns_400() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let body = serde_json::json!({
+        "fiscal_year": 2026,
+        "share_value": 0,
+    });
+    let response = client
+        .post(server.url("/api/repayment-phase"))
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::BAD_REQUEST,
+        "share_value=0 must return 400 (D-12)"
+    );
+    let body = response.text().await.unwrap();
+    assert!(
+        body.contains("share_value"),
+        "validation error body must mention share_value; got: {}",
+        body
     );
 }
