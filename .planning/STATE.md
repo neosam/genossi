@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Anteile-Rückzahlungsphase
 status: executing
-last_updated: "2026-05-29T19:25:34.683Z"
-last_activity: 2026-05-29 -- Phase 07 planning complete
+last_updated: "2026-05-29T19:42:29.896Z"
+last_activity: 2026-05-29
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 5
-  completed_plans: 0
-  percent: 0
+  completed_plans: 1
+  percent: 20
 ---
 
 # State: Genossi — v1.1 Anteile-Rückzahlungsphase
@@ -22,16 +22,16 @@ progress:
 
 **Core Value:** Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachvollziehbar (Audit-Hashchain), mit weniger manueller Arbeit.
 
-**Current Focus:** v1.1 — Anteile-Rückzahlungsphase (6 Phasen, 30 Requirements). Erste Phase: `Phase 7: RepaymentPhase Backend (Foundation)`.
+**Current Focus:** Phase 07 — repaymentphase-backend-foundation
 
 **Granularity:** coarse (6 Phasen, Backend-First → Service-Logik → Integrationen → Frontend)
 
 ## Current Position
 
-Phase: Phase 7 (Context gathered — ready for planning)
-Plan: —
+Phase: 07 (repaymentphase-backend-foundation) — EXECUTING
+Plan: 2 of 5
 Status: Ready to execute
-Last activity: 2026-05-29 -- Phase 07 planning complete
+Last activity: 2026-05-29
 
 ## Closure Snapshot (v1.0, 2026-05-29)
 
@@ -74,6 +74,7 @@ Overall: 0% complete
 | Phase 03 P04 | 8min | 2 tasks | 3 files |
 | Phase 03 P05 | ~13 min | 2 tasks | 4 files |
 | Phase 03 P06 | ~15 min | 3 tasks | 5 files |
+| Phase 07 P01 | 5min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -102,6 +103,10 @@ Overall: 0% complete
 | Plan 03-06: Stats-Endpoint registriert als separater `Router::nest("/api/assembly/{assembly_id}", attendance::generate_stats_route())` neben `assembly::generate_route()` unter `/api/assembly`. Axum erlaubt mehrere `.nest`-Aufrufe mit unterschiedlich-spezifischen Pfad-Prefixes. Pattern für cross-namespace-Endpoints, deren Implementation in einem anderen Service als der Pfad-Namespace lebt. | Phase 3, Plan 06 |
 | Plan 03-06: `assembly_member_snapshot_dao` jetzt Arc-shared via `.clone()` zwischen AssemblyServiceImpl und AttendanceServiceImpl — exakt EIN DAO pro Prozess (Mirror des helper_token_dao-Sharing-Patterns von Plan 05). | Phase 3, Plan 06 |
 | Plan 03-06: Hash-chain-Burst-Test reduziert von 100 auf 40 Toggles — global `api_rate_layer` cap (60 burst, 1/sec refill) hätte 100 Toggles + 4 surrounding REST calls als 429 Too Many Requests gedrosselt. ATTN-05-Invariante (count_before == count_after) ist unabhängig von der Burst-Größe; 40 reicht für volle Verifikation. | Phase 3, Plan 06 |
+| Plan 07-01: i64-Cent-Konvention für `share_value` etabliert — neue Pattern-Vorlage für Phase 8 `RepaymentEntry.amount`, Phase 9 MemberAction-Cascade und Phase 11 Export-Multiplikation; SQLite INTEGER ist 8-Byte → Rust i64; Validierung `> 0` ohne Obergrenze (D-12) | Phase 7, Plan 01 |
+| Plan 07-01: KEIN UNIQUE-Constraint auf `fiscal_year` (D-08) — mehrere RepaymentPhases pro Geschäftsjahr in beliebigen Statuskombinationen explizit erlaubt (Q1+Q4-Phasen, Korrektur-Phasen, parallele Vorbereitung+Closed). Frontend (Phase 12) sortiert per `fiscal_year DESC, created DESC` zur Auffindbarkeit. | Phase 7, Plan 01 |
+| Plan 07-01: Audit-fields-Reihenfolge `fiscal_year/share_value/status/opened_at/closed_at` ist frozen (T-07-01-01 Hash-Chain-Konsistenz) — Plan 03 Service-Tests müssen diese Reihenfolge per Unit-Test einfrieren, weil spätere Reihenfolge-Änderung historische Audit-Einträge brechen würde. | Phase 7, Plan 01 |
+| Plan 07-01: `opened_at`/`closed_at` als optionale Spalten persistiert (D-13) — NICHT nur im Audit-Log, analog `assembly.opened_at`/`closed_at`. Begründung: Phase 11 Filename-Schema und Audit-Lesbarkeit. Audit-Log erfasst diese Felder zusätzlich automatisch via Diff. | Phase 7, Plan 01 |
 | One-Time-Use-QR pro Helfer | Verhindert Token-Weitergabe an Unbefugte | Phase 2 |
 | Helfer-Memo-Name = Freitext, kein Identitäts-Anker | Reine UX-Hilfe für Vorstand beim Drucken | Phase 2 |
 | GV-Status final nach Schluss; Vorstand-Korrekturen ohne Re-Open | Vermeidet Status-Pingpong, hält Audit-Story einfach | Phase 1 |

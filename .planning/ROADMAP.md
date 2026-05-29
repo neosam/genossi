@@ -50,7 +50,7 @@ Use `/gsd-plan-phase 7` to start execution of the first phase.
 **Plans:** 5 plans
 
 Plans:
-- [ ] 07-01-PLAN.md — Migration + DAO-Trait + Entity + Auditable (Wave 1)
+- [x] 07-01-PLAN.md — Migration + DAO-Trait + Entity + Auditable (Wave 1)
 - [ ] 07-02-PLAN.md — SQLite-DAO-Impl mit Optimistic Locking (Wave 2)
 - [ ] 07-03-PLAN.md — Service-Trait + Impl mit Edit-Matrix, Validation, Audit-Macros (Wave 3)
 - [ ] 07-04-PLAN.md — REST-Handler + OpenAPI + TOs + DI-Wiring (Wave 4)
