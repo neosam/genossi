@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: milestone_complete
-last_updated: "2026-05-17T10:46:55.496Z"
+status: completed
+last_updated: "2026-05-29T16:54:39.843Z"
 progress:
   total_phases: 6
   completed_phases: 5
   total_plans: 34
-  completed_plans: 30
-  percent: 83
+  completed_plans: 34
+  percent: 100
 ---
 
 # State: Genossi — GV-Anwesenheits-Erfassung
@@ -32,7 +32,7 @@ Plan: Not started
 **Phase:** 06
 **Plans done in Phase 06:** 0 of 0 (Phase gediscussed, noch nicht geplant)
 **Next Phase:** Phase 6 — Teilnehmerlisten-Export für Generalversammlungen
-**Status:** Milestone complete
+**Status:** v1.0 milestone complete
 **Progress:** [████████░░] 83% Milestone (4/6 Phasen done, 1 skipped, 1 pending)
 
 ## Phase 04 Closure Notes (2026-05-06)
@@ -114,6 +114,18 @@ Overall: 0% complete
 ### Blockers
 
 Keine.
+
+## Deferred Items
+
+Items acknowledged and deferred at milestone close on 2026-05-29:
+
+| Category | Item | Status | Note |
+|----------|------|--------|------|
+| uat_gap | 02-HUMAN-UAT.md | partial (2 pending scenarios) | Phase 02 — HLPR-05 + AuthContext::Helper-Pipeline-Wiring; in Phase 3 (Cascade-Invalidation SC#8) end-to-end implementiert; durch echte GV produktiv verifiziert |
+| uat_gap | 04-UAT-CHECKLIST.md | unknown (0 pending) | Phase 04 — Status nicht final gesetzt; UAT wurde operativ durch echte GV abgeschlossen (Hotfixes 8e92cfd, e245013, ed754fc, 3cdfbb6) |
+| verification_gap | 02-VERIFICATION.md | human_needed | Phase 02 BLOCKER-04 — validate_code_format Unicode-Lookalike-Bug; im Milestone-Audit als bekannte Spec-Divergenz dokumentiert (kein Security-Bug); Decision pending |
+
+Details siehe `.planning/v1.0-MILESTONE-AUDIT.md` und `.planning/MILESTONES.md`.
 
 ### Skills / Conventions to Apply
 

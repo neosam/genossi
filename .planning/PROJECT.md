@@ -2,7 +2,7 @@
 
 ## What This Is
 
-Mitgliederverwaltungs-Software für Genossenschaften. Ersetzt manuelle Excel-Listen durch eine REST-API mit Dioxus-WASM-Frontend, sodass Vorstände Mitgliederdaten verbandskonform pflegen, Anträge bearbeiten, Dokumente erzeugen und Audit-Spuren hinterlegen können. Ist heute produktiv im Einsatz; der nächste Meilenstein bringt papierlose Anwesenheits-Erfassung auf der Generalversammlung.
+Mitgliederverwaltungs-Software für Genossenschaften, produktiv im Einsatz. Ersetzt manuelle Excel-Listen durch eine REST-API mit Dioxus-WASM-Frontend, sodass Vorstände Mitgliederdaten verbandskonform pflegen, Anträge bearbeiten, Dokumente erzeugen und Audit-Spuren hinterlegen können. Mit dem v1.0-Milestone (GV-Anwesenheits-Erfassung, shipped 2026-05-29) ist papierlose Anwesenheits-Erfassung auf der Generalversammlung implementiert und auf einer echten Generalversammlung produktiv erprobt.
 
 ## Core Value
 
@@ -13,6 +13,8 @@ Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachv
 ### Validated
 
 <!-- Aus Codebase abgeleitet — bereits ausgeliefert und in Nutzung. -->
+
+**Bestehende Plattform (vor v1.0):**
 
 - ✓ Mitglieder-CRUD mit Soft-Delete und Versions-basiertem optimistischem Locking — existing
 - ✓ Mitglieder-Aktionen (`MemberAction`) für Lebenszyklus-Ereignisse am Mitglied — existing
@@ -28,83 +30,120 @@ Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachv
 - ✓ Nextcloud-Export für Vorstands-Zugänglichkeit (kein Backup; Backup läuft separat über Restic) — existing
 - ✓ OpenAPI/Swagger-UI für API-Dokumentation — existing
 - ✓ Sicherheits-Quick-Fixes: panik-freies serde_json, restriktives CORS, strukturierte Auth-Logs — existing (commit `7600e3c`)
-- ✓ Vorstand kann eine Generalversammlung als eigene Entität anlegen (Datum, Titel, Status, Lifecycle Preparation→Open→Closed) inkl. atomarem Member-Universe-Snapshot beim Open — validated in Phase 1: assembly-aggregat-audit-hardening (ASSY-01, ASSY-02, ASSY-03, ASSY-05, ASSY-07)
+
+**v1.0 GV-Anwesenheits-Erfassung (shipped 2026-05-29):**
+
+- ✓ Vorstand kann eine GV als eigene Entität anlegen (Datum, Titel, Status Vorbereitung→Offen→Geschlossen) inkl. atomarem Member-Universe-Snapshot beim Öffnen — v1.0 (ASSY-01, ASSY-02, ASSY-03, ASSY-05, ASSY-07)
+- ✓ Vorstand kann pro Helfer einen einmalig nutzbaren QR-Token mit Memo-Namen erzeugen; QR + 8–12-Zeichen-Klartext-Code via Crockford-Alphabet + SHA256-Hash — v1.0 (HLPR-01)
+- ✓ Helfer kann sich per QR-Scan via BarcodeDetector + ZXing-Polyfill einloggen — v1.0 (HLPR-02 atomic redeem mit UPDATE...RETURNING)
+- ✓ Helfer kann alternativ Manual-Code-Eingabe (HLPR-03) verwenden — iOS-Safari-Fallback verifiziert in produktiver GV
+- ✓ Token ist One-Time-Use — Race-Test mit `tokio::join!` zeigt exakt einen Erfolg + einen Fehler — v1.0 (HLPR-04)
+- ✓ Helfer-Session ist an `assembly.closed_at` gebunden — Cascade-Invalidation beim GV-Schluss invalidiert alle Sessions — v1.0 (HLPR-05 via Phase-3 SC#8)
+- ✓ Vorstand sieht Token-Liste mit Memo + Status (offen/eingelöst); offene Token revokebar — v1.0 (HLPR-06)
+- ✓ Token-Erzeugung im Audit-Hashchain (Memo, Erzeuger, Timestamp, GV-Bezug); `token_hash` ausgeschlossen — v1.0 (HLPR-07)
+- ✓ Helfer-Mitgliederliste DSGVO-konform reduziert (Mitgliedsnummer, Name, Titel, Anrede) — strenge 7-Feld-Whitelist auf REST + DAO + PII-Guard-Test — v1.0 (ATTN-01)
+- ✓ Substring-Suche auf Name oder Mitgliedsnummer (LIKE COLLATE NOCASE) — v1.0 (ATTN-02)
+- ✓ Anwesenheits-Toggle idempotent — UPSERT `ON CONFLICT DO UPDATE`, fünfmaliges PUT erzeugt genau 1 Row — v1.0 (ATTN-03, ATTN-04)
+- ✓ Anwesenheits-Markierungen werden bewusst NICHT in der Audit-Hashchain protokolliert — Grep-Gate `audited_*!` ist `0` — v1.0 (ATTN-05)
+- ✓ Vorstand-OIDC-Zugang zu Helfer-View ohne QR — `check_assembly_access` akzeptiert beide Auth-Pfade — v1.0 (ATTN-06)
+- ✓ Live-Counter „X von Y anwesend" mit explizit beschriftetem Y (Member-Universe-Snapshot); Refresh-Polling alle 5s — v1.0 (SYNC-01)
+- ✓ Doppel-Markierung idempotent durch atomarem SQLite-UPSERT — v1.0 (SYNC-02, ASSY-04)
+- ✓ Vorstand kann nach GV-Schluss Anwesenheits-Einträge ergänzen/entfernen ohne Status-Wechsel — v1.0 (ASSY-06)
+- ✓ Teilnehmerlisten-Export in PDF (Typst) / CSV (Semikolon + UTF-8-BOM) / XLSX (rust_xlsxwriter) für geschlossene GVs; Vorstand-only, read-only, kein Audit-Eintrag — v1.0 (Phase 6, D-01..D-20)
+- ✓ Helfer-Magic-Link via persistierter Code-Spalte — Helfer mit ausgedruckter Karte tippt nichts mehr (ADR-2026-05-06)
 
 ### Active
 
-<!-- Aktueller Milestone: GV-Anwesenheits-Erfassung. Hypothesen bis ausgeliefert. -->
+<!-- Kandidaten für den nächsten Milestone — Seeds in .planning/seeds/ -->
 
-- [ ] Vorstand kann pro Helfer einen einmalig nutzbaren QR-Code erzeugen — mit einem freien Text-Namen als Memo (z. B. „Anna", „Bernd"); beim ersten Scan wird der QR-Code atomar verbraucht und eine Helfer-Session daran gebunden
-- [ ] Helfer kann sich per QR-Code-Scan ODER manueller Code-Eingabe (8–12 Zeichen, alphanumerisch) in eine zeitlich begrenzte Helfer-Session einloggen, gültig bis zum Schließen der GV
-- [ ] Helfer-Ansicht zeigt eine reduzierte Mitgliederliste (nur Mitgliedsnummer, Name, Titel, Anrede)
-- [ ] Helfer kann in der Liste suchen und Mitglieder als anwesend markieren oder austragen — Markierung idempotent (Doppel-Klick erzeugt keinen Fehler)
-- [ ] Vorstand kann die Helfer-Ansicht ohne QR-Code direkt aus seiner regulären Anmeldung heraus öffnen, um zu unterstützen
-- [ ] Vorstand sieht einen Live-Counter „X von Y anwesend" während der GV (Y = Member-Universe-Snapshot zum Zeitpunkt des GV-Öffnens, nicht volatil)
-- [ ] GV-Ergebnis (Anzahl Anwesender + Anwesenheits-Liste) bleibt nach GV-Schluss persistent für Protokoll und Statistik
-- [ ] Helfer-Sessions werden beim Schließen der GV automatisch ungültig
-- [ ] Vorstand kann auch nach GV-Schluss noch Anwesenheits-Einträge korrigieren (z. B. nachgemeldete Anwesenheiten); GV selbst bleibt geschlossen
+- [ ] Anteils-Datenmodell am Member (`share_count: i32`, auditiert) — Voraussetzung für Auszahlungsphase
+- [ ] Rückzahlungsphase / Auszahlungsgruppe mit Auto-Befüllung aus Vorjahres-Austritten + manueller Ergänzung — Trigger: nach v1.0-Milestone-Close, vor GV 2027 (siehe Seed `anteile-und-rueckzahlungsphase.md`)
+- [ ] Integration mit Template-System für IBAN-Abfrage und Auszahlungs-Anschreiben
 
 ### Out of Scope
 
-<!-- Bewusste Grenzen für diesen Milestone. -->
+<!-- Bewusste Grenzen, weiterhin gültig. -->
 
-- Stimmrechte, Vollmachten, Beschlussfähigkeits-Berechnung — eigenständiges Feature mit deutlich höherer Komplexität (Vollmachts-Daten, Stimmgewichte, Quorum-Regeln); rein anwesend/nicht-anwesend reicht für Protokoll
+- Stimmrechte, Vollmachten, Beschlussfähigkeits-Berechnung — eigenständiges Feature mit deutlich höherer Komplexität (Vollmachts-Daten, Stimmgewichte, Quorum-Regeln); für v1.0 reichte rein anwesend/nicht-anwesend für das Protokoll
 - Audit-Hashchain-Eintrag pro Anwesenheits-Markierung — vom User explizit ausgeschlossen, weil das Anhakeln nicht verbandskonform protokolliert werden muss (Assembly-Lifecycle und QR-Token-Erzeugung BLEIBEN auditiert)
-- Offline-Modus — Helfer brauchen Netzwerk; Synchronisation/Conflict-Resolution würde den Scope sprengen
-- Live-Push zwischen Helfern (SSE/WebSocket) — Synchronisation nur bei Refresh/Suche; kein Doppel-Abhaken-Schutz erforderlich
-- Re-Open einer geschlossenen GV — Lifecycle ist final; Korrekturen erfolgen via Vorstands-Edit auf der geschlossenen GV, ohne Status-Wechsel
-- Stimmgewichts-Anzeige oder Anteils-Daten in der Helfer-Ansicht — Helfer-View bleibt bewusst minimal
-- Identitäts-Verifikation per QR-Code für Mitglieder (Self-Check-in) — verbandsrechtlich heikel, Helfer-Sichtkontakt zum Mitglied weiterhin erforderlich
-- Native Mobile-App — Web-First, Helfer nutzen Browser auf Tablet/Laptop/Handy
+- Offline-Modus — Helfer brauchen Netzwerk; in der realen GV bestätigt
+- Live-Push zwischen Helfern (SSE/WebSocket) — Refresh-Sync hat sich auf der realen GV als ausreichend bewiesen
+- Re-Open einer geschlossenen GV — Lifecycle final; Korrekturen via Vorstand-Edit ohne Status-Wechsel (ASSY-06)
+- Stimmgewichts-Anzeige oder Anteils-Daten in der Helfer-Ansicht — Helfer-View bleibt bewusst minimal (DSGVO)
+- Identitäts-Verifikation per QR-Code für Mitglieder (Self-Check-in) — verbandsrechtlich heikel
+- Native Mobile-App — Web-First, in der realen GV mit Browser auf Tablet/Handy bestätigt
+- Anteils-Übertragung Genosse → Genosse (statt Rücknahme durch Genossenschaft) — bisher nicht angefragt, nur Rücknahme/Auszahlung im nächsten Milestone-Scope
+- Anteils-Klassen oder einzeln-erfasste Anteile mit Nummerierung — explizit verworfen, ganze Anteile reichen
 
 ## Context
 
+**Produktiver Stand (Stand 2026-05-29):**
+- Echte Generalversammlung im Mai 2026 mit Genossi durchgeführt
+- Production-Deployment via `deploy-binaries.sh` auf `shifty.nebenan-unverpackt.de`
+- Hotfixes aus dem Live-Betrieb sind im Repo: `8e92cfd` (live-counter), `e245013` (button type), `ed754fc` (sort by member_number), `3cdfbb6` (token-codes magic-link), `c6f41fd` (form→div Reload-Bug), `bb1be0b` (✓→ja/nein im PDF)
+
 **Technische Umgebung:**
 - Rust 2021 Workspace mit getrennten Crates für DAO/Service/REST/Binary plus Dioxus-WASM-Frontend
+- ~150k LOC Rust (workspace, ohne vendored deps)
 - SQLite via SQLx, Migrations in `migrations/sqlite/`, BLOB-UUIDs, ISO8601-Timestamps
 - Axum 0.8 + Utoipa-OpenAPI, Tokio 1.35
 - Auth: axum-oidc gegen Nextcloud, tower-sessions, tower-cookies
 - Frontend: Dioxus 0.6.3, Tailwind, Component-First (`genossi-frontend/src/component/`)
 - Nix-Toolchain via `flake.nix`
 
-**Bestehende Muster, die das GV-Feature aufgreifen wird:**
+**Bekannte Tech-Debt-Posten aus v1.0:**
+
+- Phase 02 `validate_code_format` Unicode-Lookalike (`c as u8` truncation) — bekannte Spec-Divergenz, kein Security-Bug, Decision pending
+- Phase 02 FK-Constraints ohne `PRAGMA foreign_keys=ON` im Production-Pool — Fix beim Pool-Setup
+- Phase 04 `dx build --release` Tooling-Debt (`wasm-bindgen-cli@0.2.104`) — Production deployt erfolgreich, Release-Build lokal nicht verifizierbar
+- REQUIREMENTS.md-Checkbox-Drift wurde bei v1.0-Close synchronisiert
+
+Details siehe `.planning/milestones/v1.0-MILESTONE-AUDIT.md`.
+
+**Bestehende Muster (für nächste Milestones aufgreifbar):**
 - Entity-Struktur: `id` (UUID/BLOB), `created`, `deleted` (Option), `version` (UUID, optimistic locking)
 - DAO-Pattern: Trait-Definition + SQLite-Impl, Minimal-Interface (`create`, `update`, `dump_all`, `find_by_id`)
 - Service-Pattern: Trait + `*Impl`-Struct, Permission-Context-Enforcement
-- Audit-Macros: `audited_create!`, `audited_update!`, `audited_delete!` — werden für die GV-Anwesenheit explizit NICHT benötigt
-- REST-Pattern: Axum-Handler + Utoipa-Schemas, ISO8601 datetime serde
+- Audit-Macros: `audited_create!`, `audited_update!`, `audited_delete!` für auditpflichtige Entitäten (Member/MemberAction/MemberDocument/Application/Assembly/HelperToken)
+- Assembly-Member-Snapshot als Composite-PK-Tabelle ohne Audit (Pattern für stabile historische Zustände)
+- Anwesenheits-Toggle ohne Audit, ohne Optimistic-Locking (Pattern für hochfrequente Operationen)
+- Cascade-Invalidation: `close_assembly` → `list_session_ids_for_assembly` → pool-loop `delete_session` mit `tracing::warn!` (Pattern für Lifecycle-Cleanup)
+- Component-First Frontend: Shared Components (AttendanceList/Search/LiveCounter/ConnectionBanner) zwischen Helfer- und Vorstand-Pages — ATTN-06-Pattern
+- DSGVO-Whitelist mit 3-Verteidigungslinien: Struct-Whitelist + Doc-Verbot + Konversions-Pfad-Kontrolle
 
 **Parallel-System:**
-- `openspec/changes/` enthält ein eigenständiges Spec-Workflow-System für ältere Änderungen; GSD wird parallel für den GV-Milestone verwendet, nicht als Ersatz
-
-**Bekannte Verbesserungs-Areas (aus `.planning/codebase/CONCERNS.md`):**
-- Tech-Debt-Backlog wurde am 2026-05-02 frisch gemappt (516 Zeilen Findings) und sollte bei Phase-Planung berücksichtigt werden, ohne den GV-Milestone zu blockieren
+- `openspec/changes/` enthält ein eigenständiges Spec-Workflow-System; GSD wird parallel verwendet, nicht als Ersatz
 
 ## Constraints
 
-- **Tech stack**: Rust + Axum + SQLx + SQLite Backend, Dioxus WASM Frontend — keine Sprachwechsel oder DB-Wechsel im Scope dieses Milestones
-- **Architektur**: Layered DAO/Service/REST muss eingehalten werden; neue Entitäten implementieren bestehende Trait-Patterns — Why: Konsistenz mit gemappter Codebase, Testbarkeit
-- **Frontend**: Component-First-Prinzip — keine inline-RSX-Duplikate; identische UI-Bausteine wandern in `genossi-frontend/src/component/` — Why: gelernte Lektion, in `CLAUDE.md` und Memory festgeschrieben
-- **Security**: Helfer-QR-Codes sind One-Time-Use; nach Scan invalid — Why: kein unkontrollierter Zugriff auf Mitgliederdaten, auch wenn der QR-Code weitergegeben wird
-- **Datenschutz**: Helfer sehen nur Mitgliedsnummer, Name, Titel, Anrede — Why: minimale Datenexposition, DSGVO-konforme Helfer-Funktion
-- **Audit-Pflicht**: Bestehende auditierte Entitäten (Member, MemberAction, MemberDocument, Application) müssen weiterhin Audit-Macros verwenden; neue GV-Entitäten benötigen das **nicht**
-- **Verbandskonformität**: Genossenschaftsverband akzeptiert Excel-Listen ungern — Software muss als Ersatz so funktionieren, dass das Protokoll der GV nachvollziehbar Anwesenheits-Zahlen ausweist
+- **Tech stack:** Rust + Axum + SQLx + SQLite Backend, Dioxus WASM Frontend — keine Sprachwechsel oder DB-Wechsel
+- **Architektur:** Layered DAO/Service/REST muss eingehalten werden; neue Entitäten implementieren bestehende Trait-Patterns — Konsistenz mit gemappter Codebase, Testbarkeit
+- **Frontend:** Component-First-Prinzip — keine inline-RSX-Duplikate; identische UI-Bausteine wandern in `genossi-frontend/src/component/` — gelernte Lektion, in `CLAUDE.md` und Memory festgeschrieben
+- **Security:** Bearer-Tokens (Helfer-QR/Code) sind One-Time-Use, kein Identitätsnachweis; Helfer prüfen Mitglied physisch
+- **Datenschutz:** Helfer-View bleibt minimal (Mitgliedsnummer, Name, Titel, Anrede); strenger DSGVO-Whitelist-Pattern
+- **Audit-Pflicht:** Bestehende auditierte Entitäten (Member/MemberAction/MemberDocument/Application/Assembly/HelperToken) müssen Audit-Macros verwenden; Anwesenheit ohne Audit
+- **Verbandskonformität:** Software muss als Excel-Ersatz verbandskonformes Protokoll-Material erzeugen
+- **Production-Deployment:** `shifty.nebenan-unverpackt.de` via `deploy-binaries.sh`; Backup-Strategie via Restic, NextCloud nur Zugänglichkeit
 
 ## Key Decisions
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| GV als eigene Entität (`Assembly`) statt globalem Zustand | Mehrere GVs pro Jahr, Historie für Protokoll-Export, klare Lifecycle-Grenzen | — Pending |
-| Anwesenheit als Join-Tabelle (`AssemblyAttendance`) statt Member-Flag | Saubere Mehrfach-GV-Historie, kein Datenverlust bei nächster GV | — Pending |
-| One-Time-Use-QR-Codes pro Helfer | Verhindert Weitergabe des Zugangs an Unbefugte, ohne Helfer-Identität fest zu binden | — Pending |
-| Helfer-Name als Freitext-Memo am QR-Code | Vorstand kann beim Anlegen sehen „QR für Anna" / „QR für Bernd"; rein UI-Hilfe, kein Identitäts-Anker, kein Audit-Bezug | — Pending |
-| GV-Status final nach Schluss; Vorstand-Korrekturen ohne Re-Open | Vermeidet Status-Pingpong-Komplexität (Helfer-Sessions, Counter-Refresh) und hält die Audit-Story einfach; Korrekturen sind seltene Edge-Cases und brauchen kein Re-Open-Feature | — Pending |
-| Manual-Code-Fallback (8–12 alphanumerische Zeichen) zusätzlich zu QR-Scan | iOS-Safari Camera-Permission-Quirks und PWA-Edge-Cases bekannt — ein arbeitsunfähiger Helfer auf der echten GV ist Worst-Case; Fallback-Aufwand klein | — Pending |
-| Atomarer One-Time-Token-Redeem via SQL `UPDATE ... WHERE used_at IS NULL RETURNING` | Verhindert Race-Condition zwischen zwei parallelen Scans; SELECT-then-UPDATE wäre lückenhaft | — Pending |
-| Member-Universe-Snapshot beim GV-Öffnen | Y im Live-Counter „X von Y" muss stabil sein; Late-Joins/Austritte während GV dürfen das Protokoll nicht verfälschen | — Pending |
-| Sync zwischen Helfern nur bei Refresh, kein Live-Push | Doppel-Abhaken ist akzeptables Risiko (idempotente Anwesend-Markierung); keine SSE/WebSocket-Komplexität nötig | — Pending |
-| Anwesenheit ohne Audit-Hashchain | Genossenschaftsverband fordert nur Anwesenheits-Anzahl im Protokoll, nicht den Vorgang des Abhakens | — Pending |
-| Helfer-View auch für Vorstand zugänglich (ohne QR) | Vorstand will im Notfall am gleichen UI mithelfen können; vermeidet UI-Duplikat | — Pending |
+| GV als eigene Entität (`Assembly`) statt globalem Zustand | Mehrere GVs pro Jahr, Historie für Protokoll-Export, klare Lifecycle-Grenzen | ✓ Good (v1.0) — bewährt in produktiver GV |
+| Anwesenheit als Join-Tabelle (`Attendance`) statt Member-Flag | Saubere Mehrfach-GV-Historie, kein Datenverlust bei nächster GV | ✓ Good (v1.0) |
+| One-Time-Use-QR-Tokens pro Helfer | Verhindert Weitergabe des Zugangs an Unbefugte | ✓ Good (v1.0) |
+| Helfer-Name als Freitext-Memo am Token | Vorstand sieht beim Anlegen „QR für Anna"; rein UI-Hilfe, kein Identitäts-Anker | ✓ Good (v1.0) |
+| GV-Status final nach Schluss; Vorstand-Korrekturen ohne Re-Open (ASSY-06) | Vermeidet Status-Pingpong, hält Audit-Story einfach | ✓ Good (v1.0) |
+| Manual-Code-Fallback (8–12 alphanumerisch Crockford) zusätzlich zu QR | iOS-Safari Camera-Quirks bekannt; Worst-Case auf echter GV vermeiden | ✓ Good (v1.0) — Helfer-Magic-Link via ADR-2026-05-06 noch besser |
+| Atomarer Token-Redeem via SQL `UPDATE ... WHERE used_at IS NULL RETURNING` | Verhindert Race-Condition zwischen parallelen Scans | ✓ Good (v1.0) — Race-Test im E2E deterministisch grün |
+| Member-Universe-Snapshot beim GV-Öffnen | Stabiles Y im Live-Counter, Late-Joins/Austritte verfälschen Protokoll nicht | ✓ Good (v1.0) |
+| Sync zwischen Helfern nur bei Refresh, kein Live-Push | Doppel-Abhaken über Idempotenz abgefangen; keine SSE/WebSocket-Komplexität | ✓ Good (v1.0) — auf realer GV bestätigt |
+| Anwesenheit ohne Audit-Hashchain | Verband fordert nur Anzahl-Anwesende im Protokoll | ✓ Good (v1.0) |
+| Helfer-View auch für Vorstand zugänglich (ohne QR) | Vorstand will im Notfall mithelfen, kein UI-Duplikat | ✓ Good (v1.0) — ATTN-06 Component-Reuse-Pattern |
+| Helfer-Token-Code-Persistenz (Reversal von „one-time-display") | Vorstand-UX: Re-Display ohne Revoke+Anlegen; Helfer-Magic-Link via persistierter Spalte | ✓ Good (v1.0) — ADR-2026-05-06 |
+| Phase 5 SKIPPED statt Pre-GV-Generalprobe | Echte GV bereits durchgeführt; Pre-Generalprobe obsolet, Hotfixes lieferten echte Erkenntnisse zurück | ✓ Good (v1.0) |
+| Drei Export-Formate parallel (PDF/CSV/XLSX) statt einer | Buchhaltung und Verband konsumieren unterschiedlich; ein einziger DAO-Call genügt für alle drei | ✓ Good (v1.0) — Phase 6 D-01 |
+| Inline ExportTab statt extrahierte Component | Nur eine Seite betroffen; Component-First gilt erst ab Duplikation | ✓ Good (v1.0) — Phase 6 D-20 |
 
 ## Evolution
 
@@ -179,4 +218,5 @@ bestehende admin-only Listing-Route `GET /api/assembly/{id}/helper-tokens`).
   Projekt führt nur Forward-Migrationen.
 
 ---
-*Last updated: 2026-05-06 — ADR-2026-05-06 (helfer-token code persistence)*
+
+*Last updated: 2026-05-29 after v1.0 milestone close*
