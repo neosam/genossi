@@ -54,7 +54,7 @@ Plans:
 - [x] 07-02-PLAN.md — SQLite-DAO-Impl mit Optimistic Locking (Wave 2)
 - [x] 07-03-PLAN.md — Service-Trait + Impl mit Edit-Matrix, Validation, Audit-Macros (Wave 3)
 - [x] 07-04-PLAN.md — REST-Handler + OpenAPI + TOs + DI-Wiring (Wave 4)
-- [ ] 07-05-PLAN.md — E2E-Tests: Lifecycle + Audit-Chain + 6 Negative-Paths (Wave 5)
+- [x] 07-05-PLAN.md — E2E-Tests: Lifecycle + Audit-Chain + 6 Negative-Paths (Wave 5)
 
 #### Phase 8: RepaymentEntry + Auto-Befüllung
 
