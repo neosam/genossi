@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Anteile-Rückzahlungsphase
 status: executing
-stopped_at: Completed 07-03-PLAN.md
-last_updated: "2026-05-29T20:07:19.972Z"
+stopped_at: Completed 07-04-PLAN.md
+last_updated: "2026-05-29T20:24:39.338Z"
 last_activity: 2026-05-29
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 5
-  completed_plans: 3
-  percent: 60
+  completed_plans: 4
+  percent: 80
 ---
 
 # State: Genossi — v1.1 Anteile-Rückzahlungsphase
@@ -30,7 +30,7 @@ progress:
 ## Current Position
 
 Phase: 07 (repaymentphase-backend-foundation) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Last activity: 2026-05-29
 
@@ -78,6 +78,7 @@ Overall: 0% complete
 | Phase 07 P01 | 5min | 2 tasks | 3 files |
 | Phase 07 P02 | 3min | 1 tasks | 2 files |
 | Phase 07 P03 | 9min | 2 tasks | 4 files |
+| Phase 07 P04 | 8min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -117,6 +118,11 @@ Overall: 0% complete
 | Plan 07-03: Edit-Matrix-Check (D-04) wird BEVOR Version-Check ausgeführt — atomare D-07-Ablehnung liefert semantisch klarere Fehlermeldung (`"Cannot change fiscal_year: phase is Open (D-04/D-07)"`) als generisches `"Version mismatch"`. Test 6 verifiziert mit Mock-update().times(0): no-write on D-07 violation. | Phase 7, Plan 03 |
 | Plan 07-03: Audit-Disziplin-Grep-Gate als Pre-Merge-Check für T-07-03-01 Repudiation-Defense — Filter `grep -v '^//' | grep -v '^*'` (Doc-Comments + Doc-Comment-Continuations) verhindert Self-Invalidation des Gates durch Anti-Pattern-Erwähnung in Kommentaren. 0 direkte DAO-create/update außerhalb `audited_*!`-Macros verifiziert; jede Schreibroute durch Audit-Hashchain garantiert. | Phase 7, Plan 03 |
 | Plan 07-03: Phase-8-TODOs als Code-Kommentare in `open_`/`close_repayment_phase` — PHAS-02 Auto-Befüllung der RepaymentEntries in `open_repayment_phase`; PHAS-03 Pending-Entry-Validation in `close_repayment_phase`. Anker für Phase 8, damit Erweiterungspunkte sofort gefunden werden — verhindert Wiederholung der Plan-7-Codebase-Suche bei Phase-8-Start. | Phase 7, Plan 03 |
+| Plan 07-04: REST-Pfad Singular `/api/repayment-phase` (D-14) — konsistent mit `/api/member`, `/api/assembly`, `/api/application`; OpenAPI-Tag bleibt Plural `RepaymentPhases` (Convention für Tag-Names). Frontend (Phase 12) muss diesen Pfad nutzen. | Phase 7, Plan 04 |
+| Plan 07-04: Keine lokalen `map_*_error`-Override im REST-Layer — globales `From<ServiceError> for RestError` in `genossi_rest/src/lib.rs:97-113` reicht für Phase 7 (ValidationError → 400, EntityNotFound → 404, Conflict → 409, PermissionDenied → 401). Phase 3 Plan 06 hatte einen lokalen Override für 403-Mapping in Attendance; Phase 7 ist Vorstand-only ohne Helper-Differenzierung — kein 403-Bedarf. | Phase 7, Plan 04 |
+| Plan 07-04: Minimale REST-Validatoren (`validate_create_*`/`validate_update_*` als `Ok(())`-Stubs) — strukturelle Pflicht durch serde-Deserialisierung, Range-Checks (D-11/D-12) im Service-Layer; Pattern-Anker für strukturelle Pflichtfeld-Erweiterungen ohne Code-Refactor. Distinkt von `genossi_rest/src/assembly.rs:28-104`, die aufwändigere Validation hat (256-Zeichen-Limits auf String-Feldern, `name`-empty-Check). Phase 7 hat nur zwei numerische Felder; serde reicht. | Phase 7, Plan 04 |
+| Plan 07-04: 5-Deps-DI für RepaymentPhaseServiceImpl (statt 10+ Deps wie Assembly): RepaymentPhaseDao + AuditLogDao + PermissionService + UuidService + TransactionDao. Phase 7 ist signifikant simpler als Assembly (kein Snapshot, kein Helper-Token-Cascade, kein Member-Permission-Dao). Etabliert das "simpler-than-Assembly"-Pattern für Phase 8 RepaymentEntry. | Phase 7, Plan 04 |
+| Plan 07-04: `audit_log_dao.clone()` geteilt mit allen audited Services (Member, Assembly, Application, RepaymentPhase) — gleiche Hash-Chain pro Prozess (T-07-04-05 Repudiation-Mitigation). Plan 05 E2E `/api/audit/verify` wird die Chain-Konsistenz über alle 5 RepaymentPhase-Lifecycle-Events (create/update/open/close/delete) und die existierende Member/Assembly/Application-Spur verifizieren. | Phase 7, Plan 04 |
 | One-Time-Use-QR pro Helfer | Verhindert Token-Weitergabe an Unbefugte | Phase 2 |
 | Helfer-Memo-Name = Freitext, kein Identitäts-Anker | Reine UX-Hilfe für Vorstand beim Drucken | Phase 2 |
 | GV-Status final nach Schluss; Vorstand-Korrekturen ohne Re-Open | Vermeidet Status-Pingpong, hält Audit-Story einfach | Phase 1 |
@@ -159,11 +165,13 @@ Details siehe `.planning/v1.0-MILESTONE-AUDIT.md` und `.planning/MILESTONES.md`.
 
 ## Session Continuity
 
+**Last action (2026-05-29, Phase 07 Plan 04):** Plan `07-04-PLAN.md` ausgeführt — REST-Layer + DI-Wiring für RepaymentPhase. 4 neue TOs in `genossi_rest_types/src/lib.rs` (RepaymentPhaseTO/StatusTO/CreateRequest/UpdateRequest mit ISO8601-Datetime-Serde + utoipa-ToSchema, +210 LOC), neue Datei `genossi_rest/src/repayment_phase.rs` (414 LOC) mit RepaymentPhaseRestState-Trait + 7 Handlern (list/create/get/update/delete/open/close) + generate_route + ApiDoc + 3 Smoke-Tests, Modul-Decl + OpenAPI-Nest + Router-Mount + Trait-Bounds in `genossi_rest/src/lib.rs`, Trait-Bound-Erweiterung in `test_server.rs`, vollständige DI-Wiring in `genossi_bin/src/lib.rs` (type-Alias + 5-Deps-Struct + Service-Konstruktion + Self-Field + RestState-Impl, +53 LOC). 7 OpenAPI-Pfade unter Tag `RepaymentPhases` registriert. `cargo build` + `cargo build --tests -p genossi_bin` grün. Tests: 28/28 in genossi_rest_types (4 davon neu), 59/59 in genossi_rest (3 davon neu). 3 Task-Commits (`00a1134` feat TOs, `a0c212f` feat REST-Layer, `5d05c44` feat DI-Wiring). PHAS-01 + PHAS-04 sind REST-vollständig; PHAS-05 (Audit-Macros greifen) ist im REST-Layer-Pass-Through erfüllt. Nächster Schritt: Plan 07-05 (E2E-Tests).
+
 **Last action (2026-05-29, Phase 07 Plan 03):** Plan `07-03-PLAN.md` ausgeführt — `RepaymentPhaseService`-Trait in `genossi_service/src/repayment_phase.rs` (7 Methoden create/update/open/close/delete/get/get_all + DTOs + #[automock]) und `RepaymentPhaseServiceImpl` in `genossi_service_impl/src/repayment_phase.rs` (5 Prozesskonstanten, `validate_phase_fields`-Helper, Edit-Matrix D-04 mit atomarer fiscal_year-Lock in Open D-07, Lifecycle-Guards D-05/D-06, Soft-Delete-Guard D-09, Field-Validation D-11/D-12, Optimistic-Locking, alle Schreiboperationen via `audited_*!`-Macros) angelegt. Audit-Disziplin-Grep-Gate (T-07-03-01 Mitigation) verifiziert: 0 direkte DAO-create/update außerhalb Macros. 4 Service-Trait-Tests + 13 Service-Impl-Tests grün (17 neue Tests gesamt). Workspace-Build clean (nur pre-existing Warnings). Commits `771c8d5` (feat 266 LOC) + `963f17b` (feat 1108 LOC). Nächster Schritt: Plan 07-04 (REST-Handler).
 
 **Last action (2026-05-29, Phase 07 Plan 02):** Plan `07-02-PLAN.md` ausgeführt — `RepaymentPhaseDaoImpl` (SQLite-Impl des Plan-01-Traits) angelegt mit `RepaymentPhaseDb`-Row, `TryFrom` mit guarded i32-Cast (T-07-02-05), `dump_all`/`create`/`update` inkl. Pre-Exists-Check + Optimistic-Locking via `rows_affected == 0 → ConflictError("Version mismatch")`. ORDER BY ist `fiscal_year DESC, created DESC` (Phase-7-spezifisch). `parse_datetime` via `use crate::assembly::parse_datetime` reused (kein Duplikat). 4 grüne Tokio-Integrationstests gegen in-memory SQLite. Modul-Decl in `genossi_dao_impl_sqlite/src/lib.rs` alphabetisch eingefügt. Commit `6f6bf0f` (feat: 367 LOC added).
 
-**Stopped At:** Completed 07-03-PLAN.md
+**Stopped At:** Completed 07-04-PLAN.md
 **Resume File:** None
 
 **Last action (2026-05-17, Phase 06 Discuss):** `/gsd-discuss-phase 6` durchgeführt — `06-CONTEXT.md` + `06-DISCUSSION-LOG.md` erstellt und committed (`30a3c2b`). 20 Implementierungsentscheidungen (D-01..D-20) erfasst: drei Export-Formate parallel (PDF via Typst, CSV semikolon/UTF-8-BOM, XLSX via rust_xlsxwriter), `?include=all|present`-Query, Status-Closed-only, Vorstand-only via OIDC, Snapshot-Daten aus `assembly_member_snapshot`, Sortierung `member_number ASC`, Endpoint `GET /api/assembly/{aid}/attendance-export/{format}`, Filename `gv-{YYYY-MM-DD}-teilnehmer.{ext}`, kein Audit-Hashchain-Eintrag. PDF-Layout minimal (Kopf mit GV-Titel + Datum + „X von Y anwesend", dann Tabelle). 6 Deferred Ideas (Sammelexport, E-Mail-Versand, Unterschriftenspalte, Logo, Multi-Sheet, Export-Audit). Nächster Schritt: `/gsd-plan-phase 6`.
@@ -174,16 +182,25 @@ Details siehe `.planning/v1.0-MILESTONE-AUDIT.md` und `.planning/MILESTONES.md`.
 
 **Next action:** Phase 04 plans created (10 plans across 5 waves). Run /gsd-execute-phase 04. Wave 1 (parallel): Plans 01 (Backend Helper-Endpoints) + 02 (Frontend Foundation) + 03 (api.rs + i18n). Wave 2 (parallel): Plans 04 (shared attendance) + 05 (helper login) + 06 (vorstand layout). Wave 3 (sequential): Plans 07 (routing) → 08 (vorstand pages). Wave 4: Plan 09 (helfer pages). Wave 5: Plan 10 (UAT checkpoint).
 
-**Files written this session (Plan 07-03):**
+**Files written this session (Plan 07-04):**
+
+- `genossi_rest_types/src/lib.rs` (MOD — +210 LOC: RepaymentPhaseStatusTO + bidirektionale From-Impls + RepaymentPhaseTO + From<&RepaymentPhase>-Impl + CreateRepaymentPhaseRequest + UpdateRepaymentPhaseRequest + 4 Unit-Tests in mod repayment_phase_to_tests)
+- `genossi_rest/src/repayment_phase.rs` (NEW — 414 LOC: RepaymentPhaseRestState-Trait + 7 Handler mit #[utoipa::path] + 2 Validator-Stubs + generate_route + ApiDoc + 3 Smoke-Tests)
+- `genossi_rest/src/lib.rs` (MOD — pub mod repayment_phase + OpenAPI nest + Router .nest + Trait-Bounds auf create_app + start_server)
+- `genossi_rest/src/test_server.rs` (MOD — Trait-Bound RepaymentPhaseRestState auf start_test_server für Plan 05)
+- `genossi_bin/src/lib.rs` (MOD — +53 LOC: type-Alias RepaymentPhaseDao + RepaymentPhaseService + RepaymentPhaseServiceDependencies + 5-Deps-Impl + Self-Field + Service-Konstruktion + RestState-Impl)
+- `.planning/phases/07-repaymentphase-backend-foundation/07-04-SUMMARY.md` (NEW)
+- `.planning/STATE.md` (MOD — diese Aktualisierung)
+- `.planning/ROADMAP.md` (MOD — Phase 7 Plan-Progress aktualisiert)
+- `.planning/REQUIREMENTS.md` (MOD — PHAS-01, PHAS-04 als REST-complete markiert)
+
+**Files written previous session (Plan 07-03):**
 
 - `genossi_service/src/repayment_phase.rs` (NEW — RepaymentPhase Domain-Typ + RepaymentPhaseSubmission/Update DTOs + #[automock] RepaymentPhaseService-Trait mit 7 Methoden + 4 Unit-Tests, 266 LOC)
 - `genossi_service/src/lib.rs` (MOD — `pub mod repayment_phase;` alphabetisch zwischen `permission` und `session`)
 - `genossi_service_impl/src/repayment_phase.rs` (NEW — RepaymentPhaseServiceImpl + 5 Prozesskonstanten + validate_phase_fields-Helper + 7 Service-Methoden mit Edit-Matrix/Lifecycle-Guards/Audit-Macros + 4 Hand-rolled Mocks + 13 Unit-Tests, 1108 LOC)
 - `genossi_service_impl/src/lib.rs` (MOD — `pub mod repayment_phase;` alphabetisch zwischen `permission` und `rfc3161`)
 - `.planning/phases/07-repaymentphase-backend-foundation/07-03-SUMMARY.md` (NEW)
-- `.planning/STATE.md` (MOD — diese Aktualisierung)
-- `.planning/ROADMAP.md` (MOD — Phase 7 Plan-Progress aktualisiert)
-- `.planning/REQUIREMENTS.md` (MOD — PHAS-01, PHAS-04, PHAS-05 als Service-complete markiert)
 
 ---
 *State initialized: 2026-05-02*
@@ -197,3 +214,4 @@ Details siehe `.planning/v1.0-MILESTONE-AUDIT.md` und `.planning/MILESTONES.md`.
 *Phase 07 Plan 01 completed: 2026-05-29*
 *Phase 07 Plan 02 completed: 2026-05-29*
 *Phase 07 Plan 03 completed: 2026-05-29*
+*Phase 07 Plan 04 completed: 2026-05-29*
