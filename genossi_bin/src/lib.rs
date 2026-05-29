@@ -173,6 +173,32 @@ impl genossi_service_impl::assembly::AssemblyServiceDeps for AssemblyServiceDepe
 type AssemblyService =
     genossi_service_impl::assembly::AssemblyServiceImpl<AssemblyServiceDependencies>;
 
+// Phase 7 Plan 04 (D-DI): RepaymentPhaseServiceImpl wiring. Five deps —
+// kein Snapshot/MemberDao/HelperTokenDao/PermissionDao (Phase 7 ist simpler
+// als Assembly; PATTERNS §10 Minimal-Deps-Liste).
+type RepaymentPhaseDao = genossi_dao_impl_sqlite::repayment_phase::RepaymentPhaseDaoImpl;
+
+pub struct RepaymentPhaseServiceDependencies;
+
+unsafe impl Send for RepaymentPhaseServiceDependencies {}
+unsafe impl Sync for RepaymentPhaseServiceDependencies {}
+
+impl genossi_service_impl::repayment_phase::RepaymentPhaseServiceDeps
+    for RepaymentPhaseServiceDependencies
+{
+    type Context = Context;
+    type Transaction = Transaction;
+    type RepaymentPhaseDao = RepaymentPhaseDao;
+    type AuditLogDao = AuditLogDao;
+    type PermissionService = PermissionService;
+    type UuidService = UuidService;
+    type TransactionDao = TransactionDao;
+}
+
+type RepaymentPhaseService = genossi_service_impl::repayment_phase::RepaymentPhaseServiceImpl<
+    RepaymentPhaseServiceDependencies,
+>;
+
 type HelperTokenDao = genossi_dao_impl_sqlite::helper_token::HelperTokenDaoImpl;
 type AttendanceDao = genossi_dao_impl_sqlite::attendance::AttendanceDaoImpl;
 
@@ -444,6 +470,8 @@ pub struct RestStateImpl {
     static_document_service: Arc<StaticDocumentServiceType>,
     application_service: Arc<ApplicationService>,
     assembly_service: Arc<AssemblyService>,
+    // Phase 7 Plan 04: RepaymentPhase backend foundation.
+    repayment_phase_service: Arc<RepaymentPhaseService>,
     helper_token_service: Arc<HelperTokenService>,
     // Phase 3 Plan 06: AttendanceServiceImpl exposed to REST handlers via
     // AttendanceRestState (D-23 wiring).
@@ -670,6 +698,20 @@ impl RestStateImpl {
             permission_dao: permission_dao.clone(),
         });
 
+        // Phase 7 Plan 04: RepaymentPhaseServiceImpl wiring (5 deps).
+        // Shares the same `audit_log_dao` Arc as all other audited services
+        // (T-07-04-05 mitigation: single hash chain across the workspace).
+        let repayment_phase_dao = Arc::new(RepaymentPhaseDao::new(pool.clone()));
+        let repayment_phase_service = Arc::new(
+            genossi_service_impl::repayment_phase::RepaymentPhaseServiceImpl {
+                repayment_phase_dao,
+                audit_log_dao: audit_log_dao.clone(),
+                permission_service: permission_service.clone(),
+                uuid_service: uuid_service.clone(),
+                transaction_dao: transaction_dao.clone(),
+            },
+        );
+
         // Phase 3 Plan 06 (D-23): AttendanceServiceImpl with 6 deps —
         // AttendanceDao, AssemblyDao, MemberDao, AssemblyMemberSnapshotDao,
         // PermissionService, TransactionDao. No UuidService, no AuditLogDao
@@ -787,6 +829,7 @@ impl RestStateImpl {
             member_document_service,
             application_service,
             assembly_service,
+            repayment_phase_service,
             helper_token_service,
             attendance_service,
             attendance_export_service,
@@ -1260,6 +1303,16 @@ impl genossi_rest::assembly::AssemblyRestState for RestStateImpl {
 
     fn assembly_service(&self) -> Arc<Self::AssemblyService> {
         self.assembly_service.clone()
+    }
+}
+
+// Phase 7 Plan 04: bind RepaymentPhaseServiceImpl to the REST handlers
+// generated in genossi_rest::repayment_phase.
+impl genossi_rest::repayment_phase::RepaymentPhaseRestState for RestStateImpl {
+    type RepaymentPhaseService = RepaymentPhaseService;
+
+    fn repayment_phase_service(&self) -> Arc<Self::RepaymentPhaseService> {
+        self.repayment_phase_service.clone()
     }
 }
 
