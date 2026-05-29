@@ -1141,6 +1141,124 @@ pub struct UpdateAssemblyRequest {
 }
 
 // ============================================================================
+// Phase 7: RepaymentPhase TOs (PHAS-01..PHAS-05)
+// ============================================================================
+//
+// Mirrors `RepaymentPhase` from `genossi_service::repayment_phase` and follows
+// the AssemblyTO pattern (Z. 1005-1141): bidirektionale Status-From-Impls,
+// ISO8601-Datetime-Serde auf allen Optional-Timestamps, version als Option mit
+// skip_if_none, Pflichtfelder `fiscal_year: i32` und `share_value: i64` (Cent).
+//
+// **KEIN `RepaymentPhaseDetailTO`** (Phase 7 hat keinen Snapshot — `get_*`
+// liefert direkt `RepaymentPhase`).
+// **KEIN `status`-Feld in `UpdateRepaymentPhaseRequest`** (D-02: Lifecycle-
+// Transitionen gehen ausschließlich über `POST /open` und `POST /close`).
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub enum RepaymentPhaseStatusTO {
+    Preparation,
+    Open,
+    Closed,
+}
+
+impl From<&genossi_dao::repayment_phase::RepaymentPhaseStatus> for RepaymentPhaseStatusTO {
+    fn from(s: &genossi_dao::repayment_phase::RepaymentPhaseStatus) -> Self {
+        use genossi_dao::repayment_phase::RepaymentPhaseStatus;
+        match s {
+            RepaymentPhaseStatus::Preparation => RepaymentPhaseStatusTO::Preparation,
+            RepaymentPhaseStatus::Open => RepaymentPhaseStatusTO::Open,
+            RepaymentPhaseStatus::Closed => RepaymentPhaseStatusTO::Closed,
+        }
+    }
+}
+
+impl From<&RepaymentPhaseStatusTO> for genossi_dao::repayment_phase::RepaymentPhaseStatus {
+    fn from(s: &RepaymentPhaseStatusTO) -> Self {
+        use genossi_dao::repayment_phase::RepaymentPhaseStatus;
+        match s {
+            RepaymentPhaseStatusTO::Preparation => RepaymentPhaseStatus::Preparation,
+            RepaymentPhaseStatusTO::Open => RepaymentPhaseStatus::Open,
+            RepaymentPhaseStatusTO::Closed => RepaymentPhaseStatus::Closed,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct RepaymentPhaseTO {
+    #[schema(example = "123e4567-e89b-12d3-a456-426614174000")]
+    pub id: Uuid,
+    #[schema(example = 2026)]
+    pub fiscal_year: i32,
+    #[schema(example = 12000)]
+    pub share_value: i64,
+    pub status: RepaymentPhaseStatusTO,
+    #[serde(
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    pub opened_at: Option<time::PrimitiveDateTime>,
+    #[serde(
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    pub closed_at: Option<time::PrimitiveDateTime>,
+    #[serde(
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    pub created: Option<time::PrimitiveDateTime>,
+    #[serde(
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    pub deleted: Option<time::PrimitiveDateTime>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub version: Option<Uuid>,
+}
+
+impl From<&genossi_service::repayment_phase::RepaymentPhase> for RepaymentPhaseTO {
+    fn from(p: &genossi_service::repayment_phase::RepaymentPhase) -> Self {
+        Self {
+            id: p.id,
+            fiscal_year: p.fiscal_year,
+            share_value: p.share_value,
+            status: RepaymentPhaseStatusTO::from(&p.status),
+            opened_at: p.opened_at,
+            closed_at: p.closed_at,
+            created: Some(p.created),
+            deleted: p.deleted,
+            version: Some(p.version),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct CreateRepaymentPhaseRequest {
+    #[schema(example = 2026)]
+    pub fiscal_year: i32,
+    #[schema(example = 12000)]
+    pub share_value: i64,
+}
+
+/// Update body for `PUT /api/repayment-phase/{id}`.
+///
+/// **KEIN `status`-Feld** (D-02: Status-Übergänge laufen ausschließlich über
+/// die dedizierten Action-Endpoints `POST /open` / `POST /close`).
+/// `version` ist Pflicht (Optimistic Locking).
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct UpdateRepaymentPhaseRequest {
+    #[schema(example = 2026)]
+    pub fiscal_year: i32,
+    #[schema(example = 12000)]
+    pub share_value: i64,
+    pub version: Uuid,
+}
+
+// ============================================================================
 // Phase 2: Helper Token TOs (HLPR-01..HLPR-07)
 // ============================================================================
 
@@ -1564,6 +1682,98 @@ mod assembly_request_tests {
         let parsed: UpdateAssemblyRequest = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.name, "GV");
         assert_eq!(parsed.version, version);
+    }
+}
+
+#[cfg(test)]
+mod repayment_phase_to_tests {
+    use super::*;
+    use genossi_dao::repayment_phase::RepaymentPhaseStatus;
+
+    fn make_domain() -> genossi_service::repayment_phase::RepaymentPhase {
+        let date = time::Date::from_calendar_date(2026, time::Month::May, 29).unwrap();
+        let datetime = time::PrimitiveDateTime::new(date, time::Time::MIDNIGHT);
+        genossi_service::repayment_phase::RepaymentPhase {
+            id: Uuid::new_v4(),
+            fiscal_year: 2026,
+            share_value: 12000,
+            status: RepaymentPhaseStatus::Preparation,
+            opened_at: None,
+            closed_at: None,
+            created: datetime,
+            deleted: None,
+            version: Uuid::new_v4(),
+        }
+    }
+
+    #[test]
+    fn test_repayment_phase_status_to_roundtrip() {
+        // DAO -> TO -> DAO must produce the same enum value for all 3 variants.
+        for status in [
+            RepaymentPhaseStatus::Preparation,
+            RepaymentPhaseStatus::Open,
+            RepaymentPhaseStatus::Closed,
+        ] {
+            let to = RepaymentPhaseStatusTO::from(&status);
+            let back: RepaymentPhaseStatus = (&to).into();
+            assert_eq!(back, status, "roundtrip must preserve {:?}", status);
+        }
+    }
+
+    #[test]
+    fn test_repayment_phase_to_from_domain() {
+        // Each of the 9 RepaymentPhaseTO fields must mirror the domain type
+        // verbatim; `created` and `version` are wrapped in Some(...) per the
+        // AssemblyTO precedent for optional-on-the-wire fields.
+        let domain = make_domain();
+        let to = RepaymentPhaseTO::from(&domain);
+        assert_eq!(to.id, domain.id);
+        assert_eq!(to.fiscal_year, domain.fiscal_year);
+        assert_eq!(to.share_value, domain.share_value);
+        assert_eq!(to.status, RepaymentPhaseStatusTO::Preparation);
+        assert_eq!(to.opened_at, domain.opened_at);
+        assert_eq!(to.closed_at, domain.closed_at);
+        assert_eq!(to.created, Some(domain.created));
+        assert_eq!(to.deleted, domain.deleted);
+        assert_eq!(to.version, Some(domain.version));
+    }
+
+    #[test]
+    fn test_create_repayment_phase_request_serde() {
+        // Minimal JSON with exactly the two required fields must deserialize.
+        let json = r#"{"fiscal_year":2026,"share_value":12000}"#;
+        let parsed: CreateRepaymentPhaseRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.fiscal_year, 2026);
+        assert_eq!(parsed.share_value, 12000);
+
+        // Re-serialize and verify the shape is structurally equivalent.
+        let serialized = serde_json::to_string(&parsed).unwrap();
+        let reparsed: CreateRepaymentPhaseRequest = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(reparsed.fiscal_year, 2026);
+        assert_eq!(reparsed.share_value, 12000);
+    }
+
+    #[test]
+    fn test_update_repayment_phase_request_requires_version() {
+        // `version: Uuid` is non-optional — JSON without it must fail to
+        // deserialize. Guards the optimistic-locking contract on PUT.
+        let json = r#"{"fiscal_year":2026,"share_value":12000}"#;
+        let result: Result<UpdateRepaymentPhaseRequest, _> = serde_json::from_str(json);
+        assert!(
+            result.is_err(),
+            "UpdateRepaymentPhaseRequest must require version field"
+        );
+
+        // With version, deserialization must succeed.
+        let version = Uuid::new_v4();
+        let json_with = format!(
+            r#"{{"fiscal_year":2026,"share_value":12000,"version":"{}"}}"#,
+            version
+        );
+        let parsed: UpdateRepaymentPhaseRequest = serde_json::from_str(&json_with).unwrap();
+        assert_eq!(parsed.version, version);
+        assert_eq!(parsed.fiscal_year, 2026);
+        assert_eq!(parsed.share_value, 12000);
     }
 }
 
