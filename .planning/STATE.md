@@ -3,14 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Anteile-Rückzahlungsphase
 status: executing
-last_updated: "2026-05-29T19:50:17.753Z"
+stopped_at: Completed 07-03-PLAN.md
+last_updated: "2026-05-29T20:07:19.972Z"
 last_activity: 2026-05-29
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 5
-  completed_plans: 2
-  percent: 40
+  completed_plans: 3
+  percent: 60
 ---
 
 # State: Genossi — v1.1 Anteile-Rückzahlungsphase
@@ -29,7 +30,7 @@ progress:
 ## Current Position
 
 Phase: 07 (repaymentphase-backend-foundation) — EXECUTING
-Plan: 3 of 5
+Plan: 4 of 5
 Status: Ready to execute
 Last activity: 2026-05-29
 
@@ -76,6 +77,7 @@ Overall: 0% complete
 | Phase 03 P06 | ~15 min | 3 tasks | 5 files |
 | Phase 07 P01 | 5min | 2 tasks | 3 files |
 | Phase 07 P02 | 3min | 1 tasks | 2 files |
+| Phase 07 P03 | 9min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -111,6 +113,10 @@ Overall: 0% complete
 | Plan 07-02: `parse_datetime` via `use crate::assembly::parse_datetime` statt Duplikation — `pub(crate)`-Helper aus Plan 1 ist bereits Cross-Modul-shared (Pattern aus `assembly_member_snapshot`). Spart 17 LOC bei reiner String-Parser-Coupling ohne Domain-Coupling. | Phase 7, Plan 02 |
 | Plan 07-02: `RepaymentPhaseDaoImpl::new` akzeptiert `Arc<SqlitePool>` (nicht `SqlitePool` wie im Plan-Text) — folgt etabliertem `AssemblyDaoImpl`-Pattern; Plan 03 (Service-Wiring in `genossi_bin`) erwartet diese Signatur. | Phase 7, Plan 02 |
 | Plan 07-02: Pre-Exists-Check (`SELECT COUNT(*) ... WHERE id = ? AND deleted IS NULL`) **vor** UPDATE trennt `NotFound` von `ConflictError` sauber — ohne Pre-Check würde `rows_affected == 0` in beiden Fällen (missing id + version-mismatch) `ConflictError` feuern, was zwei distinkte Error-Semantiken vermischt; T-07-02-03 Mitigation. | Phase 7, Plan 02 |
+| Plan 07-03: Inline-Field-Validator (`validate_phase_fields`) statt Erweiterung von `validation.rs` — `validation.rs` ist anderer Concern (Mitglieder-Konsistenzberichte); für 2-Feld-Entities (`fiscal_year`/`share_value`) wäre eigener Service-Stub Overkill. Pattern-Anker aus PATTERNS.md §5. | Phase 7, Plan 03 |
+| Plan 07-03: Edit-Matrix-Check (D-04) wird BEVOR Version-Check ausgeführt — atomare D-07-Ablehnung liefert semantisch klarere Fehlermeldung (`"Cannot change fiscal_year: phase is Open (D-04/D-07)"`) als generisches `"Version mismatch"`. Test 6 verifiziert mit Mock-update().times(0): no-write on D-07 violation. | Phase 7, Plan 03 |
+| Plan 07-03: Audit-Disziplin-Grep-Gate als Pre-Merge-Check für T-07-03-01 Repudiation-Defense — Filter `grep -v '^//' | grep -v '^*'` (Doc-Comments + Doc-Comment-Continuations) verhindert Self-Invalidation des Gates durch Anti-Pattern-Erwähnung in Kommentaren. 0 direkte DAO-create/update außerhalb `audited_*!`-Macros verifiziert; jede Schreibroute durch Audit-Hashchain garantiert. | Phase 7, Plan 03 |
+| Plan 07-03: Phase-8-TODOs als Code-Kommentare in `open_`/`close_repayment_phase` — PHAS-02 Auto-Befüllung der RepaymentEntries in `open_repayment_phase`; PHAS-03 Pending-Entry-Validation in `close_repayment_phase`. Anker für Phase 8, damit Erweiterungspunkte sofort gefunden werden — verhindert Wiederholung der Plan-7-Codebase-Suche bei Phase-8-Start. | Phase 7, Plan 03 |
 | One-Time-Use-QR pro Helfer | Verhindert Token-Weitergabe an Unbefugte | Phase 2 |
 | Helfer-Memo-Name = Freitext, kein Identitäts-Anker | Reine UX-Hilfe für Vorstand beim Drucken | Phase 2 |
 | GV-Status final nach Schluss; Vorstand-Korrekturen ohne Re-Open | Vermeidet Status-Pingpong, hält Audit-Story einfach | Phase 1 |
@@ -153,9 +159,11 @@ Details siehe `.planning/v1.0-MILESTONE-AUDIT.md` und `.planning/MILESTONES.md`.
 
 ## Session Continuity
 
-**Last action (2026-05-29, Phase 07 Plan 02):** Plan `07-02-PLAN.md` ausgeführt — `RepaymentPhaseDaoImpl` (SQLite-Impl des Plan-01-Traits) angelegt mit `RepaymentPhaseDb`-Row, `TryFrom` mit guarded i32-Cast (T-07-02-05), `dump_all`/`create`/`update` inkl. Pre-Exists-Check + Optimistic-Locking via `rows_affected == 0 → ConflictError("Version mismatch")`. ORDER BY ist `fiscal_year DESC, created DESC` (Phase-7-spezifisch). `parse_datetime` via `use crate::assembly::parse_datetime` reused (kein Duplikat). 4 grüne Tokio-Integrationstests gegen in-memory SQLite. Modul-Decl in `genossi_dao_impl_sqlite/src/lib.rs` alphabetisch eingefügt. Commit `6f6bf0f` (feat: 367 LOC added). Nächster Schritt: Plan 07-03 (Service-Impl).
+**Last action (2026-05-29, Phase 07 Plan 03):** Plan `07-03-PLAN.md` ausgeführt — `RepaymentPhaseService`-Trait in `genossi_service/src/repayment_phase.rs` (7 Methoden create/update/open/close/delete/get/get_all + DTOs + #[automock]) und `RepaymentPhaseServiceImpl` in `genossi_service_impl/src/repayment_phase.rs` (5 Prozesskonstanten, `validate_phase_fields`-Helper, Edit-Matrix D-04 mit atomarer fiscal_year-Lock in Open D-07, Lifecycle-Guards D-05/D-06, Soft-Delete-Guard D-09, Field-Validation D-11/D-12, Optimistic-Locking, alle Schreiboperationen via `audited_*!`-Macros) angelegt. Audit-Disziplin-Grep-Gate (T-07-03-01 Mitigation) verifiziert: 0 direkte DAO-create/update außerhalb Macros. 4 Service-Trait-Tests + 13 Service-Impl-Tests grün (17 neue Tests gesamt). Workspace-Build clean (nur pre-existing Warnings). Commits `771c8d5` (feat 266 LOC) + `963f17b` (feat 1108 LOC). Nächster Schritt: Plan 07-04 (REST-Handler).
 
-**Stopped At:** Completed 07-02-PLAN.md
+**Last action (2026-05-29, Phase 07 Plan 02):** Plan `07-02-PLAN.md` ausgeführt — `RepaymentPhaseDaoImpl` (SQLite-Impl des Plan-01-Traits) angelegt mit `RepaymentPhaseDb`-Row, `TryFrom` mit guarded i32-Cast (T-07-02-05), `dump_all`/`create`/`update` inkl. Pre-Exists-Check + Optimistic-Locking via `rows_affected == 0 → ConflictError("Version mismatch")`. ORDER BY ist `fiscal_year DESC, created DESC` (Phase-7-spezifisch). `parse_datetime` via `use crate::assembly::parse_datetime` reused (kein Duplikat). 4 grüne Tokio-Integrationstests gegen in-memory SQLite. Modul-Decl in `genossi_dao_impl_sqlite/src/lib.rs` alphabetisch eingefügt. Commit `6f6bf0f` (feat: 367 LOC added).
+
+**Stopped At:** Completed 07-03-PLAN.md
 **Resume File:** None
 
 **Last action (2026-05-17, Phase 06 Discuss):** `/gsd-discuss-phase 6` durchgeführt — `06-CONTEXT.md` + `06-DISCUSSION-LOG.md` erstellt und committed (`30a3c2b`). 20 Implementierungsentscheidungen (D-01..D-20) erfasst: drei Export-Formate parallel (PDF via Typst, CSV semikolon/UTF-8-BOM, XLSX via rust_xlsxwriter), `?include=all|present`-Query, Status-Closed-only, Vorstand-only via OIDC, Snapshot-Daten aus `assembly_member_snapshot`, Sortierung `member_number ASC`, Endpoint `GET /api/assembly/{aid}/attendance-export/{format}`, Filename `gv-{YYYY-MM-DD}-teilnehmer.{ext}`, kein Audit-Hashchain-Eintrag. PDF-Layout minimal (Kopf mit GV-Titel + Datum + „X von Y anwesend", dann Tabelle). 6 Deferred Ideas (Sammelexport, E-Mail-Versand, Unterschriftenspalte, Logo, Multi-Sheet, Export-Audit). Nächster Schritt: `/gsd-plan-phase 6`.
@@ -166,17 +174,16 @@ Details siehe `.planning/v1.0-MILESTONE-AUDIT.md` und `.planning/MILESTONES.md`.
 
 **Next action:** Phase 04 plans created (10 plans across 5 waves). Run /gsd-execute-phase 04. Wave 1 (parallel): Plans 01 (Backend Helper-Endpoints) + 02 (Frontend Foundation) + 03 (api.rs + i18n). Wave 2 (parallel): Plans 04 (shared attendance) + 05 (helper login) + 06 (vorstand layout). Wave 3 (sequential): Plans 07 (routing) → 08 (vorstand pages). Wave 4: Plan 09 (helfer pages). Wave 5: Plan 10 (UAT checkpoint).
 
-**Files written this session (Plan 06):**
+**Files written this session (Plan 07-03):**
 
-- `genossi_rest/src/attendance.rs` (NEW — 4 Handler + AttendanceRestState-Trait + 2 Router-Builder + map_attendance_error + ApiDoc + 4 Unit-Tests)
-- `genossi_rest/src/lib.rs` (MOD — `pub mod attendance` + ApiDoc-nest + 2 `.nest()` für `/api/attendance/{aid}` und `/api/assembly/{aid}` stats + AttendanceRestState-Bound auf create_app/start_server)
-- `genossi_rest/src/test_server.rs` (MOD — AttendanceRestState-Bound auf start_test_server)
-- `genossi_bin/src/lib.rs` (MOD — type alias AttendanceDao + AttendanceServiceDependencies + AttendanceService + RestStateImpl.attendance_service Field + RestStateImpl::new() Construction + impl AttendanceRestState)
-- `genossi_bin/tests/e2e_tests.rs` (MOD — 4 neue Imports + create_open_assembly_with_members Helper + 6 E2E-Tests)
-- `.planning/phases/03-attendance-aggregat-cascade-invalidation/03-06-SUMMARY.md` (NEW)
+- `genossi_service/src/repayment_phase.rs` (NEW — RepaymentPhase Domain-Typ + RepaymentPhaseSubmission/Update DTOs + #[automock] RepaymentPhaseService-Trait mit 7 Methoden + 4 Unit-Tests, 266 LOC)
+- `genossi_service/src/lib.rs` (MOD — `pub mod repayment_phase;` alphabetisch zwischen `permission` und `session`)
+- `genossi_service_impl/src/repayment_phase.rs` (NEW — RepaymentPhaseServiceImpl + 5 Prozesskonstanten + validate_phase_fields-Helper + 7 Service-Methoden mit Edit-Matrix/Lifecycle-Guards/Audit-Macros + 4 Hand-rolled Mocks + 13 Unit-Tests, 1108 LOC)
+- `genossi_service_impl/src/lib.rs` (MOD — `pub mod repayment_phase;` alphabetisch zwischen `permission` und `rfc3161`)
+- `.planning/phases/07-repaymentphase-backend-foundation/07-03-SUMMARY.md` (NEW)
 - `.planning/STATE.md` (MOD — diese Aktualisierung)
-- `.planning/ROADMAP.md` (MOD — Phase 3 als COMPLETE markiert)
-- `.planning/REQUIREMENTS.md` (MOD — alle 9 Phase-3-Requirements als END-TO-END-VERIFIED markiert)
+- `.planning/ROADMAP.md` (MOD — Phase 7 Plan-Progress aktualisiert)
+- `.planning/REQUIREMENTS.md` (MOD — PHAS-01, PHAS-04, PHAS-05 als Service-complete markiert)
 
 ---
 *State initialized: 2026-05-02*
@@ -189,3 +196,4 @@ Details siehe `.planning/v1.0-MILESTONE-AUDIT.md` und `.planning/MILESTONES.md`.
 *Phase 03 COMPLETE: 2026-05-04*
 *Phase 07 Plan 01 completed: 2026-05-29*
 *Phase 07 Plan 02 completed: 2026-05-29*
+*Phase 07 Plan 03 completed: 2026-05-29*
