@@ -20,6 +20,7 @@ pub mod test_support {
             + crate::public_stats::PublicStatsState
             + crate::application::ApplicationRestState
             + crate::assembly::AssemblyRestState
+            + crate::repayment_phase::RepaymentPhaseRestState
             + crate::helper_token::HelperTokenRestState
             + crate::attendance::AttendanceRestState
             + crate::attendance_export::AttendanceExportRestState
