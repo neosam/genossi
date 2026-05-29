@@ -80,7 +80,7 @@ Each task was committed atomically:
 1. **Task 1: Migration `repayment_phase` Tabelle** — `b28cf91` (feat)
 2. **Task 2: DAO-Modul + Status enum + Entity + Auditable + Trait + 7 Unit-Tests + lib.rs-Decl** — `a8f38fe` (feat)
 
-**Plan metadata:** _TBD_ (final docs commit after SUMMARY + STATE updates)
+**Plan metadata:** `0cfb8b3` (docs: complete plan — SUMMARY + STATE + ROADMAP + REQUIREMENTS)
 
 ## Files Created/Modified
 
