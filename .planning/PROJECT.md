@@ -8,6 +8,30 @@ Mitgliederverwaltungs-Software für Genossenschaften, produktiv im Einsatz. Erse
 
 Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachvollziehbar (Audit-Hashchain), und mit weniger manueller Arbeit bei wiederkehrenden Vorgängen wie Anträgen, Dokumenten und Generalversammlungen.
 
+## Current Milestone: v1.1 Anteile-Rückzahlungsphase
+
+**Goal:** Ersetzt die Excel-Liste für Anteils-Auszahlungen — Vorstand verwaltet Rückzahlungsphasen direkt in Genossi, schreibt Mitglieder per Massenmail an und exportiert auszahlbare Beträge als PDF zur Online-Banking-Übernahme.
+
+**Target features:**
+
+- `RepaymentPhase`-Entität pro Geschäftsjahr (Lifecycle angelegt → offen → abgeschlossen; `fiscal_year`, `share_value`)
+- `RepaymentEntry`-Entität pro Mitglied (Status offen → angeschrieben → ausbezahlt; mehrere Einträge pro Mitglied+Phase erlaubt)
+- Auto-Befüllung der Phase aus Vorjahres-Austritten (`exit_date` im `fiscal_year`)
+- Manuelles Hinzufügen für Teil-Abtretungen und verspätet gemeldete Austritte
+- Status-Toggle "angeschrieben" manuell durch Vorstand
+- Status-Toggle "ausbezahlt" erzeugt automatisch `MemberAction::Verkauf` mit negativem `shares_change` (über bestehende Audit-Pipeline)
+- Massenmail-Anbindung an bestehende Mail-Pipeline (analog Mitgliederliste-Pattern); Template kann aktuellen Auszahlungs-Wert pro Mitglied referenzieren
+- PDF-Export der Auszahlungsliste **vor** Phasen-Abschluss (Online-Banking-Übernahme)
+- CSV-Export für Buchhaltung
+- Frontend: shared `RepaymentEntryList`-Component, Phase-Lifecycle-Page, Eintrag-Bearbeiten-Page
+
+**Key context:**
+
+- Datenmodell teilweise schon vorhanden: `Member.current_shares`, `Member.shares_at_joining`, `MemberAction::Verkauf` mit `shares_change` existieren — keine Member-Migration nötig
+- Brief-Anschreiben bleiben manuell (out of scope für diesen Milestone)
+- SEPA pain.001 XML out of scope — PDF genügt für Banking-Vorlage
+- Trigger: spätestens vor GV 2027, da Anteilswerte für GJ 2026 dann berechnet werden
+
 ## Requirements
 
 ### Validated
@@ -54,11 +78,16 @@ Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachv
 
 ### Active
 
-<!-- Kandidaten für den nächsten Milestone — Seeds in .planning/seeds/ -->
+<!-- v1.1 Anteile-Rückzahlungsphase — Detaillierte REQ-IDs siehe .planning/REQUIREMENTS.md -->
 
-- [ ] Anteils-Datenmodell am Member (`share_count: i32`, auditiert) — Voraussetzung für Auszahlungsphase
-- [ ] Rückzahlungsphase / Auszahlungsgruppe mit Auto-Befüllung aus Vorjahres-Austritten + manueller Ergänzung — Trigger: nach v1.0-Milestone-Close, vor GV 2027 (siehe Seed `anteile-und-rueckzahlungsphase.md`)
-- [ ] Integration mit Template-System für IBAN-Abfrage und Auszahlungs-Anschreiben
+- [ ] `RepaymentPhase`-Entität (DAO/Service/REST/Frontend) mit Lifecycle angelegt → offen → abgeschlossen, `fiscal_year` + `share_value`
+- [ ] `RepaymentEntry`-Entität mit Status offen → angeschrieben → ausbezahlt; mehrere Einträge pro Mitglied+Phase
+- [ ] Auto-Befüllung der Phase aus Vorjahres-Austritten, manuelles Hinzufügen
+- [ ] "ausbezahlt"-Toggle erzeugt automatisch `MemberAction::Verkauf` mit negativem `shares_change` (audited)
+- [ ] Massenmail-Anbindung mit Auszahlungs-Wert als Template-Variable
+- [ ] PDF-Export der Auszahlungsliste (vor Phasen-Abschluss verfügbar) für Online-Banking
+- [ ] CSV-Export für Buchhaltung
+- [ ] Frontend: shared `RepaymentEntryList`-Component, Phase-Lifecycle-Page, Eintrag-Bearbeiten-Page
 
 ### Out of Scope
 
@@ -72,8 +101,12 @@ Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachv
 - Stimmgewichts-Anzeige oder Anteils-Daten in der Helfer-Ansicht — Helfer-View bleibt bewusst minimal (DSGVO)
 - Identitäts-Verifikation per QR-Code für Mitglieder (Self-Check-in) — verbandsrechtlich heikel
 - Native Mobile-App — Web-First, in der realen GV mit Browser auf Tablet/Handy bestätigt
-- Anteils-Übertragung Genosse → Genosse (statt Rücknahme durch Genossenschaft) — bisher nicht angefragt, nur Rücknahme/Auszahlung im nächsten Milestone-Scope
+- Anteils-Übertragung Genosse → Genosse (statt Rücknahme durch Genossenschaft) — bisher nicht angefragt, nur Rücknahme/Auszahlung im v1.1-Scope
 - Anteils-Klassen oder einzeln-erfasste Anteile mit Nummerierung — explizit verworfen, ganze Anteile reichen
+- Brief-Anschreiben für Auszahlungen — Vorstand erzeugt manuell; Massenmail-Automatik nur für E-Mail (v1.1)
+- SEPA pain.001 XML / direkter Banking-Sammelüberweisung-Upload — out of scope; PDF reicht für Online-Banking-Vorlage (v1.1)
+- Steuerliche Berechnung der Auszahlungen (Kapitalertragsteuer etc.) — Buchhaltung verarbeitet das separat (v1.1)
+- Member-`share_count`-Migration / Excel-Import der Anteile — bereits in `Member.current_shares` vorhanden, keine Migration nötig (v1.1)
 
 ## Context
 
@@ -219,4 +252,4 @@ bestehende admin-only Listing-Route `GET /api/assembly/{id}/helper-tokens`).
 
 ---
 
-*Last updated: 2026-05-29 after v1.0 milestone close*
+*Last updated: 2026-05-29 after v1.1 milestone open (Anteile-Rückzahlungsphase)*

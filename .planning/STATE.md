@@ -1,15 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-status: completed
-last_updated: "2026-05-29T16:54:39.843Z"
+milestone: v1.1
+milestone_name: Anteile-Rückzahlungsphase
+status: planning
+last_updated: "2026-05-29T18:04:19.561Z"
+last_activity: 2026-05-29
 progress:
-  total_phases: 6
-  completed_phases: 5
-  total_plans: 34
-  completed_plans: 34
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # State: Genossi — GV-Anwesenheits-Erfassung
@@ -27,9 +28,10 @@ progress:
 
 ## Current Position
 
-**Status:** v1.0 milestone complete (shipped 2026-05-29, tag `v1.0` lokal — Push manuell)
-**Progress:** [██████████] 100% v1.0 (5/6 Phasen done, 1 SKIPPED, 34/34 plans, 22/22 requirements satisfied)
-**Next Phase:** TBD — `/gsd-new-milestone` startet die nächste Iteration
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-05-29 — Milestone v1.1 started
 
 ## Closure Snapshot (v1.0, 2026-05-29)
 
