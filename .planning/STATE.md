@@ -6,32 +6,32 @@ status: planning
 last_updated: "2026-05-29T18:04:19.561Z"
 last_activity: 2026-05-29
 progress:
-  total_phases: 0
+  total_phases: 6
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
   percent: 0
 ---
 
-# State: Genossi — GV-Anwesenheits-Erfassung
+# State: Genossi — v1.1 Anteile-Rückzahlungsphase
 
 **Initialized:** 2026-05-02
-**Last Updated:** 2026-05-02 (roadmap creation)
+**Last Updated:** 2026-05-29 (v1.1 milestone planning)
 
 ## Project Reference
 
-**Core Value:** Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachvollziehbar (Audit-Hashchain), mit weniger manueller Arbeit. Dieser Milestone bringt papierlose Anwesenheits-Erfassung auf der Generalversammlung.
+**Core Value:** Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachvollziehbar (Audit-Hashchain), mit weniger manueller Arbeit.
 
-**Current Focus:** v1.0 shipped (2026-05-29) — planning next milestone (Kandidat: Auszahlungs-/Anteils-Feature, siehe `.planning/seeds/`)
+**Current Focus:** v1.1 — Anteile-Rückzahlungsphase (6 Phasen, 30 Requirements). Erste Phase: `Phase 7: RepaymentPhase Backend (Foundation)`.
 
-**Granularity:** coarse (5 active + 1 SKIPPED Phasen für v1.0; nächster Milestone TBD)
+**Granularity:** coarse (6 Phasen, Backend-First → Service-Logik → Integrationen → Frontend)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: Phase 7 (Not started — defining plans)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-05-29 — Milestone v1.1 started
+Status: Roadmap approved, ready for /gsd-plan-phase 7
+Last activity: 2026-05-29 — v1.1 milestone opened, roadmap created
 
 ## Closure Snapshot (v1.0, 2026-05-29)
 

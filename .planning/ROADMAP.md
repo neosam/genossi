@@ -5,9 +5,9 @@
 ## Milestones
 
 - ✅ **v1.0 GV-Anwesenheits-Erfassung** — Phasen 1-6 (Phase 5 SKIPPED) — shipped 2026-05-29
-- 📋 **Next Milestone** — siehe `.planning/seeds/` für Kandidaten (z.B. Anteile-Rückzahlungsphase)
+- 📋 **v1.1 Anteile-Rückzahlungsphase** — Phasen 7-12 — in planning (started 2026-05-29)
 
-Use `/gsd-new-milestone` to start the next iteration (questioning → research → requirements → roadmap).
+Use `/gsd-plan-phase 7` to start execution of the first phase.
 
 ## Phases
 
@@ -28,11 +28,89 @@ Use `/gsd-new-milestone` to start the next iteration (questioning → research �
 
 </details>
 
-### 📋 Next Milestone (TBD)
+### 📋 v1.1 Anteile-Rückzahlungsphase (Phases 7-12)
 
-To be defined via `/gsd-new-milestone`. Candidate seeds in `.planning/seeds/`:
+**Milestone goal:** Ersetzt die Excel-Liste für Anteils-Auszahlungen — Vorstand verwaltet Rückzahlungsphasen direkt in Genossi, schreibt Mitglieder per Massenmail an und exportiert auszahlbare Beträge als PDF zur Online-Banking-Übernahme.
 
-- `anteile-und-rueckzahlungsphase.md` — Anteils-Datenmodell am Member + Rückzahlungsphase mit Auto-Befüllung aus Vorjahres-Austritten; Trigger: nach v1.0-Milestone-Close, vor GV 2027
+**Build order:** Backend-First → Service-Logik → Integrationen (Mail, Export) → Frontend. Folgt Genossi-Konvention.
+
+#### Phase 7: RepaymentPhase Backend (Foundation)
+
+**Goal:** RepaymentPhase als auditpflichtiges Aggregat mit Lifecycle `Vorbereitung → Offen → Abgeschlossen` ohne Auto-Befüllung (kommt in Phase 8).
+
+**Requirements:** PHAS-01, PHAS-04, PHAS-05 (vollständig), PHAS-02 + PHAS-03 (Status-Übergänge ohne Auto-Befüllung/Close-Validation — werden in Phase 8 vollständig).
+
+**Success criteria:**
+1. Migration legt `repayment_phase`-Tabelle an (BLOB-UUID, `fiscal_year INTEGER NOT NULL`, `share_value INTEGER NOT NULL` in Cent, `status TEXT NOT NULL`, `created`, `deleted`, `version`)
+2. DAO + SQLite-Impl + Service-Trait + Impl mit `Auditable`-Implementierung; `audited_create!` und `audited_update!` greifen
+3. REST-Handler für create/get/list/update/open/close registriert in OpenAPI (`/api/repayment-phase`)
+4. E2E-Test: create → open → close-Lifecycle erfolgreich; Audit-Chain via `/api/audit/verify` bleibt valide
+5. `share_value`-Korrektur in `Offen`-Status erzeugt genau einen Audit-Eintrag pro Feld-Änderung; `fiscal_year` ist nach `Offen` read-only
+
+#### Phase 8: RepaymentEntry + Auto-Befüllung
+
+**Goal:** RepaymentEntry-Aggregat mit Auto-Befüllung beim Phase-Öffnen, manueller Ergänzung, und Status-Toggle `offen ↔ angeschrieben` (ohne `ausbezahlt` — kommt in Phase 9).
+
+**Requirements:** ENTR-01, ENTR-02, ENTR-03, ENTR-04, ENTR-05, ENTR-06 + Vervollständigung von PHAS-02 (Auto-Befüllung) und PHAS-03 (Close-Validation gegen pending Entries).
+
+**Success criteria:**
+1. Migration legt `repayment_entry`-Tabelle an (kein Composite-PK, eigene UUID; `member_id`, `phase_id`, `share_count_to_pay_out INTEGER`, `status TEXT`, `created`, `deleted`, `version`)
+2. Phase-Öffnen (`open_phase`) befüllt atomar Einträge für alle Mitglieder mit `exit_date BETWEEN ? AND ?` (Geschäftsjahres-Range) — `share_count_to_pay_out = Member.current_shares`-Snapshot
+3. Manuelles `create_entry` über REST funktioniert; mehrere Einträge pro Mitglied+Phase im selben State verifiziert durch Integration-Test
+4. Status-Toggle `offen ↔ angeschrieben` ist multi-select-fähig (Batch-Endpoint); Audit-Eintrag pro Toggle
+5. `close_phase` (PHAS-03) blockt mit 409 Conflict wenn mindestens ein Eintrag nicht `ausbezahlt` ODER `deleted IS NULL` ist — E2E-Test deckt Negative-Path
+
+#### Phase 9: Auszahlungs-Buchung (atomisch + auditiert)
+
+**Goal:** `ausbezahlt`-Toggle erzeugt atomar `MemberAction::Verkauf` und reduziert `Member.current_shares`; ist final und audit-konsistent.
+
+**Requirements:** PAYO-01, PAYO-02, PAYO-03, PAYO-04.
+
+**Success criteria:**
+1. `mark_paid_out`-Service-Methode führt in einer Transaktion: `audited_create!` für `MemberAction::Verkauf` mit `shares_change=-N` + `audited_update!` für `Member.current_shares -= N` + `RepaymentEntry.status = ausbezahlt`
+2. Validation: `current_shares < share_count_to_pay_out` blockt mit `ServiceError::ValidationError` (E2E-Test deckt Negative-Path)
+3. Audit-Chain-Verification über `/api/audit/verify` zeigt MemberAction- und RepaymentEntry-Audit-Einträge in gleicher `transaction_id` gegroupt
+4. Status `ausbezahlt` ist final — Toggle-Back-Versuch über REST liefert 409 Conflict
+5. Race-Test mit `tokio::join!` auf zwei parallele `mark_paid_out`-Calls auf dem gleichen Eintrag: genau einer geht durch, der andere `Conflict`
+
+#### Phase 10: Massenmail-Anbindung + Template-Variablen
+
+**Goal:** Vorstand kann mehrere RepaymentEntries gleichzeitig anschreiben; Mail-Templates haben Zugriff auf Auszahlungs-Wert.
+
+**Requirements:** MAIL-01, MAIL-02, MAIL-03, MAIL-04.
+
+**Success criteria:**
+1. Bulk-Mail-Endpoint `POST /api/repayment-phase/{id}/send-mail` akzeptiert Liste von Entry-IDs + Template-ID; per OIDC auf Vorstand limitiert
+2. minijinja-Template-Engine löst `{{ payout_amount }}` (= `share_count_to_pay_out × phase.share_value`, in Euro mit 2 Nachkommastellen), `{{ share_count }}`, `{{ fiscal_year }}` korrekt auf (Unit-Test mit Sample-Template)
+3. Pro versendeter Mail wird ein `MemberDocument` mit Template-Referenz erzeugt (`audited_create!`); ein Bulk-Versand an N Empfänger erzeugt N MemberDocuments
+4. SMTP-Fehler bei einzelnem Empfänger → MemberDocument-Status `failed`, übrige Empfänger werden weiterhin verarbeitet (kein All-or-Nothing); E2E-Test mit MockSmtp
+
+#### Phase 11: Export (PDF + CSV)
+
+**Goal:** Vorstand exportiert Auszahlungsliste als PDF (Online-Banking-Vorlage) und CSV (Buchhaltung), für offene **und** geschlossene Phasen.
+
+**Requirements:** EXPO-01, EXPO-02, EXPO-03, EXPO-04, EXPO-05.
+
+**Success criteria:**
+1. Typst-Template `auszahlungsliste.typ` in `DEFAULT_TEMPLATES`; Repeat-Header-Tabelle mit Mitgliedsnummer, Name, IBAN, share_count, Betrag, Verwendungszweck
+2. REST-Endpoint `GET /api/repayment-phase/{id}/export/{format}?include=open|all|paid` liefert PDF, CSV; Filename-Schema `auszahlung-{fiscal_year}-{include}.{ext}`
+3. CSV-Export: Semikolon-Separator, UTF-8-BOM, sortiert nach `member_number ASC`; verifiziert mit Sample-Roundtrip durch LibreOffice/Excel-Importpfad (manuell in UAT)
+4. Export-Service hat `0` `audited_*!`-Aufrufe (Grep-Gate im Test); Vorstand-only via OIDC, `Helper`-Auth liefert 403
+5. 6+ E2E-Tests decken: PDF-Erfolg, CSV-Erfolg, 403 ohne Vorstand-Auth, 400 unbekanntes Format, jede `include`-Filter-Variante (`open`/`all`/`paid`), Cross-Check zwischen PDF-Inhalt und CSV-Inhalt (gleiche Einträge)
+
+#### Phase 12: Frontend (Component-First)
+
+**Goal:** Vorstand verwaltet RepaymentPhases im Browser; UI ist component-first und konsistent mit bestehendem Vorstand-Layout.
+
+**Requirements:** UI-01, UI-02, UI-03, UI-04, UI-05, UI-06.
+
+**Success criteria:**
+1. Page `/repayment-phases` zeigt Liste aller Phasen mit Status + fiscal_year + share_value + Anzahl-Einträge; sortierbar; Create-Modal verfügbar
+2. Page `/repayment-phases/{id}` zeigt 3-Tab-Layout (Stammdaten, Einträge, Export); Lifecycle-Aktionen (öffnen/schließen) sichtbar je nach Status
+3. `RepaymentEntryList`-Component existiert in `genossi-frontend/src/component/`; nutzt multi-select, Status-Filter, sortierbar nach Mitgliedsnummer/Status; Component-First-Anker (Grep-Gate gegen inline-RSX-Duplikate in `page/`)
+4. Manuelles Add-Entry-Modal mit Mitglied-Picker (Substring-Suche auf Name/Mitgliedsnummer)
+5. `ausbezahlt`-Toggle hat Confirm-Dialog mit Warnung „irreversibel, audit-pflichtig, reduziert current_shares"; Backend-Validation-Fehler (PAYO-03) wird im Frontend als Toast angezeigt
+6. Massenmail-Aktion im Tabellen-Header funktioniert (multi-select → Template-Picker → Versenden); UAT-Checkliste durchgeklickt mit echtem SMTP-Account auf Staging
 
 ## Progress
 
@@ -44,8 +122,14 @@ To be defined via `/gsd-new-milestone`. Candidate seeds in `.planning/seeds/`:
 | 4. Frontend (Component-First) + QR + Manual-Code-Fallback       | v1.0      | 11/11          | Complete                | 2026-05-06 |
 | 5. Pre-GV-Generalprobe und Operations-Plan                      | v1.0      | 0/0            | SKIPPED (GV produktiv)  | 2026-05-17 |
 | 6. Teilnehmerlisten-Export für Generalversammlungen             | v1.0      | 4/4            | Complete                | 2026-05-17 |
+| 7. RepaymentPhase Backend (Foundation)                          | v1.1      | 0/?            | Pending                 | —          |
+| 8. RepaymentEntry + Auto-Befüllung                              | v1.1      | 0/?            | Pending                 | —          |
+| 9. Auszahlungs-Buchung (atomisch + auditiert)                   | v1.1      | 0/?            | Pending                 | —          |
+| 10. Massenmail-Anbindung + Template-Variablen                   | v1.1      | 0/?            | Pending                 | —          |
+| 11. Export (PDF + CSV)                                          | v1.1      | 0/?            | Pending                 | —          |
+| 12. Frontend (Component-First)                                  | v1.1      | 0/?            | Pending                 | —          |
 
 ---
 
 *Roadmap created: 2026-05-02*
-*Last updated: 2026-05-29 after v1.0 milestone close*
+*Last updated: 2026-05-29 after v1.1 milestone open (Anteile-Rückzahlungsphase, 6 Phasen)*

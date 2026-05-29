@@ -83,45 +83,51 @@
 
 ## Traceability
 
-Wird beim Roadmap-Generation in Step 10 befüllt.
-
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PHAS-01 | TBD | Pending |
-| PHAS-02 | TBD | Pending |
-| PHAS-03 | TBD | Pending |
-| PHAS-04 | TBD | Pending |
-| PHAS-05 | TBD | Pending |
-| ENTR-01 | TBD | Pending |
-| ENTR-02 | TBD | Pending |
-| ENTR-03 | TBD | Pending |
-| ENTR-04 | TBD | Pending |
-| ENTR-05 | TBD | Pending |
-| ENTR-06 | TBD | Pending |
-| PAYO-01 | TBD | Pending |
-| PAYO-02 | TBD | Pending |
-| PAYO-03 | TBD | Pending |
-| PAYO-04 | TBD | Pending |
-| MAIL-01 | TBD | Pending |
-| MAIL-02 | TBD | Pending |
-| MAIL-03 | TBD | Pending |
-| MAIL-04 | TBD | Pending |
-| EXPO-01 | TBD | Pending |
-| EXPO-02 | TBD | Pending |
-| EXPO-03 | TBD | Pending |
-| EXPO-04 | TBD | Pending |
-| EXPO-05 | TBD | Pending |
-| UI-01 | TBD | Pending |
-| UI-02 | TBD | Pending |
-| UI-03 | TBD | Pending |
-| UI-04 | TBD | Pending |
-| UI-05 | TBD | Pending |
-| UI-06 | TBD | Pending |
+| PHAS-01 | Phase 7 | Pending |
+| PHAS-02 | Phase 8 | Pending |
+| PHAS-03 | Phase 8 | Pending |
+| PHAS-04 | Phase 7 | Pending |
+| PHAS-05 | Phase 7 | Pending |
+| ENTR-01 | Phase 8 | Pending |
+| ENTR-02 | Phase 8 | Pending |
+| ENTR-03 | Phase 8 | Pending |
+| ENTR-04 | Phase 8 | Pending |
+| ENTR-05 | Phase 8 | Pending |
+| ENTR-06 | Phase 8 | Pending |
+| PAYO-01 | Phase 9 | Pending |
+| PAYO-02 | Phase 9 | Pending |
+| PAYO-03 | Phase 9 | Pending |
+| PAYO-04 | Phase 9 | Pending |
+| MAIL-01 | Phase 10 | Pending |
+| MAIL-02 | Phase 10 | Pending |
+| MAIL-03 | Phase 10 | Pending |
+| MAIL-04 | Phase 10 | Pending |
+| EXPO-01 | Phase 11 | Pending |
+| EXPO-02 | Phase 11 | Pending |
+| EXPO-03 | Phase 11 | Pending |
+| EXPO-04 | Phase 11 | Pending |
+| EXPO-05 | Phase 11 | Pending |
+| UI-01 | Phase 12 | Pending |
+| UI-02 | Phase 12 | Pending |
+| UI-03 | Phase 12 | Pending |
+| UI-04 | Phase 12 | Pending |
+| UI-05 | Phase 12 | Pending |
+| UI-06 | Phase 12 | Pending |
 
 **Coverage:**
 - v1 requirements: 30 total
-- Mapped to phases: 0 (TBD beim Roadmapping)
-- Unmapped: 30 ⚠️ (wird bei Roadmap-Approval geschlossen)
+- Mapped to phases: 30
+- Unmapped: 0 ✓
+
+**Phase distribution:**
+- Phase 7 (RepaymentPhase Backend): 3 (PHAS-01, PHAS-04, PHAS-05)
+- Phase 8 (RepaymentEntry + Auto-Befüllung): 8 (ENTR-01..06 + PHAS-02 + PHAS-03)
+- Phase 9 (Auszahlungs-Buchung): 4 (PAYO-01..04)
+- Phase 10 (Massenmail): 4 (MAIL-01..04)
+- Phase 11 (Export): 5 (EXPO-01..05)
+- Phase 12 (Frontend): 6 (UI-01..06)
 
 ---
 *Requirements defined: 2026-05-29*
