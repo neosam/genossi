@@ -84,6 +84,8 @@ Each task was committed atomically:
 
 1. **Task 1: SQLite-DAO-Impl + 4 Tests + Modul-Decl** — `6f6bf0f` (feat)
 
+**Plan metadata:** `b1c7083` (docs: complete plan — SUMMARY + STATE + ROADMAP)
+
 ## Files Created/Modified
 
 - `genossi_dao_impl_sqlite/src/repayment_phase.rs` — RepaymentPhaseDaoImpl + RepaymentPhaseDb + TryFrom + DAO-Impl + 4 Tests (NEW, 366 LOC)
