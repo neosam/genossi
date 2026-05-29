@@ -12,6 +12,7 @@ pub mod member_action;
 pub mod member_document;
 pub mod member_import;
 pub mod permission;
+pub mod repayment_phase;
 pub mod session;
 pub mod template;
 pub mod timestamp;
