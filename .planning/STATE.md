@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Anteile-Rückzahlungsphase
 status: executing
-last_updated: "2026-05-29T19:42:29.896Z"
+last_updated: "2026-05-29T19:50:17.753Z"
 last_activity: 2026-05-29
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 5
-  completed_plans: 1
-  percent: 20
+  completed_plans: 2
+  percent: 40
 ---
 
 # State: Genossi — v1.1 Anteile-Rückzahlungsphase
@@ -29,7 +29,7 @@ progress:
 ## Current Position
 
 Phase: 07 (repaymentphase-backend-foundation) — EXECUTING
-Plan: 2 of 5
+Plan: 3 of 5
 Status: Ready to execute
 Last activity: 2026-05-29
 
@@ -75,6 +75,7 @@ Overall: 0% complete
 | Phase 03 P05 | ~13 min | 2 tasks | 4 files |
 | Phase 03 P06 | ~15 min | 3 tasks | 5 files |
 | Phase 07 P01 | 5min | 2 tasks | 3 files |
+| Phase 07 P02 | 3min | 1 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -107,6 +108,9 @@ Overall: 0% complete
 | Plan 07-01: KEIN UNIQUE-Constraint auf `fiscal_year` (D-08) — mehrere RepaymentPhases pro Geschäftsjahr in beliebigen Statuskombinationen explizit erlaubt (Q1+Q4-Phasen, Korrektur-Phasen, parallele Vorbereitung+Closed). Frontend (Phase 12) sortiert per `fiscal_year DESC, created DESC` zur Auffindbarkeit. | Phase 7, Plan 01 |
 | Plan 07-01: Audit-fields-Reihenfolge `fiscal_year/share_value/status/opened_at/closed_at` ist frozen (T-07-01-01 Hash-Chain-Konsistenz) — Plan 03 Service-Tests müssen diese Reihenfolge per Unit-Test einfrieren, weil spätere Reihenfolge-Änderung historische Audit-Einträge brechen würde. | Phase 7, Plan 01 |
 | Plan 07-01: `opened_at`/`closed_at` als optionale Spalten persistiert (D-13) — NICHT nur im Audit-Log, analog `assembly.opened_at`/`closed_at`. Begründung: Phase 11 Filename-Schema und Audit-Lesbarkeit. Audit-Log erfasst diese Felder zusätzlich automatisch via Diff. | Phase 7, Plan 01 |
+| Plan 07-02: `parse_datetime` via `use crate::assembly::parse_datetime` statt Duplikation — `pub(crate)`-Helper aus Plan 1 ist bereits Cross-Modul-shared (Pattern aus `assembly_member_snapshot`). Spart 17 LOC bei reiner String-Parser-Coupling ohne Domain-Coupling. | Phase 7, Plan 02 |
+| Plan 07-02: `RepaymentPhaseDaoImpl::new` akzeptiert `Arc<SqlitePool>` (nicht `SqlitePool` wie im Plan-Text) — folgt etabliertem `AssemblyDaoImpl`-Pattern; Plan 03 (Service-Wiring in `genossi_bin`) erwartet diese Signatur. | Phase 7, Plan 02 |
+| Plan 07-02: Pre-Exists-Check (`SELECT COUNT(*) ... WHERE id = ? AND deleted IS NULL`) **vor** UPDATE trennt `NotFound` von `ConflictError` sauber — ohne Pre-Check würde `rows_affected == 0` in beiden Fällen (missing id + version-mismatch) `ConflictError` feuern, was zwei distinkte Error-Semantiken vermischt; T-07-02-03 Mitigation. | Phase 7, Plan 02 |
 | One-Time-Use-QR pro Helfer | Verhindert Token-Weitergabe an Unbefugte | Phase 2 |
 | Helfer-Memo-Name = Freitext, kein Identitäts-Anker | Reine UX-Hilfe für Vorstand beim Drucken | Phase 2 |
 | GV-Status final nach Schluss; Vorstand-Korrekturen ohne Re-Open | Vermeidet Status-Pingpong, hält Audit-Story einfach | Phase 1 |
@@ -149,6 +153,11 @@ Details siehe `.planning/v1.0-MILESTONE-AUDIT.md` und `.planning/MILESTONES.md`.
 
 ## Session Continuity
 
+**Last action (2026-05-29, Phase 07 Plan 02):** Plan `07-02-PLAN.md` ausgeführt — `RepaymentPhaseDaoImpl` (SQLite-Impl des Plan-01-Traits) angelegt mit `RepaymentPhaseDb`-Row, `TryFrom` mit guarded i32-Cast (T-07-02-05), `dump_all`/`create`/`update` inkl. Pre-Exists-Check + Optimistic-Locking via `rows_affected == 0 → ConflictError("Version mismatch")`. ORDER BY ist `fiscal_year DESC, created DESC` (Phase-7-spezifisch). `parse_datetime` via `use crate::assembly::parse_datetime` reused (kein Duplikat). 4 grüne Tokio-Integrationstests gegen in-memory SQLite. Modul-Decl in `genossi_dao_impl_sqlite/src/lib.rs` alphabetisch eingefügt. Commit `6f6bf0f` (feat: 367 LOC added). Nächster Schritt: Plan 07-03 (Service-Impl).
+
+**Stopped At:** Completed 07-02-PLAN.md
+**Resume File:** None
+
 **Last action (2026-05-17, Phase 06 Discuss):** `/gsd-discuss-phase 6` durchgeführt — `06-CONTEXT.md` + `06-DISCUSSION-LOG.md` erstellt und committed (`30a3c2b`). 20 Implementierungsentscheidungen (D-01..D-20) erfasst: drei Export-Formate parallel (PDF via Typst, CSV semikolon/UTF-8-BOM, XLSX via rust_xlsxwriter), `?include=all|present`-Query, Status-Closed-only, Vorstand-only via OIDC, Snapshot-Daten aus `assembly_member_snapshot`, Sortierung `member_number ASC`, Endpoint `GET /api/assembly/{aid}/attendance-export/{format}`, Filename `gv-{YYYY-MM-DD}-teilnehmer.{ext}`, kein Audit-Hashchain-Eintrag. PDF-Layout minimal (Kopf mit GV-Titel + Datum + „X von Y anwesend", dann Tabelle). 6 Deferred Ideas (Sammelexport, E-Mail-Versand, Unterschriftenspalte, Logo, Multi-Sheet, Export-Audit). Nächster Schritt: `/gsd-plan-phase 6`.
 
 **Last action (2026-05-17):** Phase 5 (Pre-GV-Generalprobe) als SKIPPED markiert in ROADMAP.md und STATE.md — echte GV bereits erfolgreich mit Genossi durchgeführt; Hotfixes aus dem realen Einsatz sind bereits committed (live-counter, button types, sort by member_number, token-codes magic-link). Nächster Schritt: `/gsd-discuss-phase 6` für Teilnehmerlisten-Export (CSV/PDF an Protokoll anhängbar).
@@ -178,3 +187,5 @@ Details siehe `.planning/v1.0-MILESTONE-AUDIT.md` und `.planning/MILESTONES.md`.
 *Phase 03 Plan 05 completed: 2026-05-04*
 *Phase 03 Plan 06 completed: 2026-05-04*
 *Phase 03 COMPLETE: 2026-05-04*
+*Phase 07 Plan 01 completed: 2026-05-29*
+*Phase 07 Plan 02 completed: 2026-05-29*

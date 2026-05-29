@@ -47,11 +47,11 @@ Use `/gsd-plan-phase 7` to start execution of the first phase.
 4. E2E-Test: create → open → close-Lifecycle erfolgreich; Audit-Chain via `/api/audit/verify` bleibt valide
 5. `share_value`-Korrektur in `Offen`-Status erzeugt genau einen Audit-Eintrag pro Feld-Änderung; `fiscal_year` ist nach `Offen` read-only
 
-**Plans:** 5 plans
+**Plans:** 2/5 plans executed
 
 Plans:
 - [x] 07-01-PLAN.md — Migration + DAO-Trait + Entity + Auditable (Wave 1)
-- [ ] 07-02-PLAN.md — SQLite-DAO-Impl mit Optimistic Locking (Wave 2)
+- [x] 07-02-PLAN.md — SQLite-DAO-Impl mit Optimistic Locking (Wave 2)
 - [ ] 07-03-PLAN.md — Service-Trait + Impl mit Edit-Matrix, Validation, Audit-Macros (Wave 3)
 - [ ] 07-04-PLAN.md — REST-Handler + OpenAPI + TOs + DI-Wiring (Wave 4)
 - [ ] 07-05-PLAN.md — E2E-Tests: Lifecycle + Audit-Chain + 6 Negative-Paths (Wave 5)
@@ -131,7 +131,7 @@ Plans:
 | 4. Frontend (Component-First) + QR + Manual-Code-Fallback       | v1.0      | 11/11          | Complete                | 2026-05-06 |
 | 5. Pre-GV-Generalprobe und Operations-Plan                      | v1.0      | 0/0            | SKIPPED (GV produktiv)  | 2026-05-17 |
 | 6. Teilnehmerlisten-Export für Generalversammlungen             | v1.0      | 4/4            | Complete                | 2026-05-17 |
-| 7. RepaymentPhase Backend (Foundation)                          | v1.1      | 0/5            | Planning complete       | —          |
+| 7. RepaymentPhase Backend (Foundation)                          | v1.1      | 2/5            | In Progress             | —          |
 | 8. RepaymentEntry + Auto-Befüllung                              | v1.1      | 0/?            | Pending                 | —          |
 | 9. Auszahlungs-Buchung (atomisch + auditiert)                   | v1.1      | 0/?            | Pending                 | —          |
 | 10. Massenmail-Anbindung + Template-Variablen                   | v1.1      | 0/?            | Pending                 | —          |
