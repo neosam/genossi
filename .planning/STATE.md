@@ -21,19 +21,23 @@ progress:
 
 **Core Value:** Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachvollziehbar (Audit-Hashchain), mit weniger manueller Arbeit. Dieser Milestone bringt papierlose Anwesenheits-Erfassung auf der Generalversammlung.
 
-**Current Focus:** Phase 06 — teilnehmerlisten-export-f-r-generalversammlungen
+**Current Focus:** v1.0 shipped (2026-05-29) — planning next milestone (Kandidat: Auszahlungs-/Anteils-Feature, siehe `.planning/seeds/`)
 
-**Granularity:** coarse (5 ursprüngliche Phasen + 1 Follow-up; 1–3 Plans pro Phase)
+**Granularity:** coarse (5 active + 1 SKIPPED Phasen für v1.0; nächster Milestone TBD)
 
 ## Current Position
 
-Phase: 06 (teilnehmerlisten-export-f-r-generalversammlungen) — EXECUTING
-Plan: Not started
-**Phase:** 06
-**Plans done in Phase 06:** 0 of 0 (Phase gediscussed, noch nicht geplant)
-**Next Phase:** Phase 6 — Teilnehmerlisten-Export für Generalversammlungen
-**Status:** v1.0 milestone complete
-**Progress:** [████████░░] 83% Milestone (4/6 Phasen done, 1 skipped, 1 pending)
+**Status:** v1.0 milestone complete (shipped 2026-05-29, tag `v1.0` lokal — Push manuell)
+**Progress:** [██████████] 100% v1.0 (5/6 Phasen done, 1 SKIPPED, 34/34 plans, 22/22 requirements satisfied)
+**Next Phase:** TBD — `/gsd-new-milestone` startet die nächste Iteration
+
+## Closure Snapshot (v1.0, 2026-05-29)
+
+- Audit: `tech_debt` (kein Blocker; 4 deferred items in MILESTONES.md vermerkt)
+- Tests: ~927 Workspace + 239 E2E, alle grün
+- Produktiver E2E-Beweis: echte GV im Mai 2026 mit Genossi durchgeführt
+- Hotfixes aus Live-Betrieb: `8e92cfd`, `e245013`, `ed754fc`, `3cdfbb6`, `c6f41fd`, `bb1be0b`
+- Archive: `.planning/milestones/v1.0-{ROADMAP,REQUIREMENTS,MILESTONE-AUDIT}.md` + `v1.0-phases/`
 
 ## Phase 04 Closure Notes (2026-05-06)
 
