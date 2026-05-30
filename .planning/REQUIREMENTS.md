@@ -10,8 +10,8 @@
 ### RepaymentPhase Lifecycle
 
 - [x] **PHAS-01**: Vorstand kann eine `RepaymentPhase` mit `fiscal_year` und `share_value` (Cent/Decimal) anlegen — Initial-Status `Vorbereitung`
-- [x] **PHAS-02**: Vorstand kann `RepaymentPhase` öffnen (`Vorbereitung → Offen`) — beim Übergang werden Einträge automatisch befüllt (siehe ENTR-01)
-- [x] **PHAS-03**: Vorstand kann `RepaymentPhase` abschließen (`Offen → Abgeschlossen`) nur wenn alle Einträge Status `ausbezahlt` oder soft-gelöscht haben
+- [ ] **PHAS-02**: Vorstand kann `RepaymentPhase` öffnen (`Vorbereitung → Offen`) — beim Übergang werden Einträge automatisch befüllt (siehe ENTR-01)
+- [ ] **PHAS-03**: Vorstand kann `RepaymentPhase` abschließen (`Offen → Abgeschlossen`) nur wenn alle Einträge Status `ausbezahlt` oder soft-gelöscht haben
 - [x] **PHAS-04**: Vorstand kann `share_value` in `Offen`-Status korrigieren — Änderung über `audited_update!` (eigener Audit-Eintrag pro Korrektur)
 - [x] **PHAS-05**: `RepaymentPhase` ist auditpflichtig — `audited_create!` beim Anlegen, `audited_update!` für Lifecycle-Übergänge und `share_value`-Korrekturen
 
@@ -86,8 +86,8 @@
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | PHAS-01 | Phase 7 | Complete |
-| PHAS-02 | Phase 8 | Complete |
-| PHAS-03 | Phase 8 | Complete |
+| PHAS-02 | Phase 7 (Skeleton: state-machine + audit-trail) + Phase 8 (full: auto-fill on open) | Skeleton |
+| PHAS-03 | Phase 7 (Skeleton: state-machine + audit-trail) + Phase 8 (full: pending-entry validation) | Skeleton |
 | PHAS-04 | Phase 7 | Complete |
 | PHAS-05 | Phase 7 | Complete |
 | ENTR-01 | Phase 8 | Pending |
