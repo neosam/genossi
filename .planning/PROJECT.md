@@ -252,4 +252,4 @@ bestehende admin-only Listing-Route `GET /api/assembly/{id}/helper-tokens`).
 
 ---
 
-*Last updated: 2026-05-29 after v1.1 milestone open (Anteile-Rückzahlungsphase)*
+*Last updated: 2026-05-30 after Phase 7 (RepaymentPhase Backend Foundation) complete — DAO/Service/REST/E2E für `RepaymentPhase`, 5/5 Plans grün, 255/255 E2E. PHAS-01/04/05 vollständig, PHAS-02/03 Skeleton (full impl in Phase 8).*
