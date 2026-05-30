@@ -40,7 +40,14 @@ Phase 8 liefert das auditpflichtige `RepaymentEntry`-Aggregat auf Basis der in P
 
 - **D-01:** `fiscal_year` definiert als **Kalenderjahr 1.1.–31.12.**: SQL-Filter `exit_date BETWEEN {fiscal_year}-01-01 AND {fiscal_year}-12-31`. Begründung: deutsche Genossenschaften nutzen überwiegend Kalenderjahr als GJ; einfachste Semantik; abweichende GJs sind nicht angefragt. Bei Bedarf nachzuziehen über zusätzliche Phase-Felder.
 - **D-02:** **Strikter Member-Filter** für Auto-Fill: `deleted IS NULL AND exit_date BETWEEN ? AND ? AND current_shares > 0`. Member mit 0 Anteilen werden ausgeschlossen (verhindert leere Einträge, die in Phase 9 sowieso `ValidationError` werfen würden). `Member.status` wird NICHT zusätzlich gefiltert — Ausgeschiedene haben oft Status != `Normal` nach `exit_date`, und genau die sind die Zielgruppe.
-- **D-03:** **N einzelne `audited_create!`-Calls** pro RepaymentEntry, alle in derselben Transaktion wie der Phase-Status-Übergang. Audit-Hash-Chain enthält jeden Eintrag mit allen Feldern; gemeinsame `transaction_id` gruppiert sie als Folge des Phase-Open-Akts. Pattern-konsistent mit Member-/MemberAction-Audit; nicht analog zu Assembly-Member-Snapshot (das ist „Daten, kein Lifecycle-Event" — RepaymentEntries sind sehr wohl Lifecycle-Events, weil Phase 9 daran cascade-bucht).
+- **D-03:** **N einzelne `audited_create!`-Calls** pro RepaymentEntry, alle in derselben DB-Transaktion wie der Phase-Status-Übergang. Audit-Hash-Chain enthält jeden Eintrag mit allen Feldern; Pattern-konsistent mit Member-/MemberAction-Audit.
+  - **KLARSTELLUNG (Revision Iteration 1 — W-06):** Die Audit-Macro-Konvention (verified per Read auf `genossi_service_impl/src/audit_log.rs:65`) generiert **pro `audited_create!`-Call** eine NEUE `transaction_id` via `uuid_fn()`. N Aufrufe = N transaction_ids. Eine "gemeinsame transaction_id für den Phase-Open-Akt" ist OHNE Macro-Refactor NICHT erreichbar.
+  - **Pragmatischer Identifikations-Pfad:** Die N RepaymentEntry-Einträge werden als Folge des Phase-Open-Akts identifiziert über:
+    1. Gemeinsamer `process`-String: alle N Calls verwenden `REPAYMENT_PHASE_PROCESS_OPEN = "repayment-phase.open"` (identisch zum `audited_update!` des Phase-Status-Übergangs)
+    2. Zeitgleicher `timestamp`-Range: alle Einträge liegen in derselben DB-Commit-Sekunde (Single-Transaction-Atomarität)
+    3. Identische `entity_type = "repayment_entry"` + gemeinsamer `phase_id`-Wert in jedem Entry
+  - **Audit-Query-Konvention für Phase-Open-Block-Lookup:** `GROUP BY (process, timestamp_minute, entity_type)` filtert nach `process = 'repayment-phase.open' AND entity_type = 'repayment_entry'`; sortiert nach `timestamp` ASC gibt die N Entry-Creations + den 1 Phase-Update in lesbarer Reihenfolge zurück.
+  - Anti-Pattern: kein Manual-Hash-Chain-Hack, kein audited_create-Macro-Variante mit shared transaction_id (würde Macro-API ausweiten ohne klaren Nutzen). Phase 9 bekommt die transaction_id-Verkettung MemberAction ↔ RepaymentEntry-Update automatisch, weil EIN `audited_update!`-Call innerhalb desselben Macro-Aufrufs konsistent eine transaction_id verwendet.
 - **D-04:** **Auto-Fill läuft genau einmal beim Phase-Open**, keine erneute Re-Fill-Action. Nachträglich gemeldete Austritte werden per `POST /api/repayment-entry` manuell hinzugefügt (ENTR-02). Vermeidet implizite Side-Effects nach Open; klare Audit-Story: ein Phase-Open-Block enthält genau das, was zum Zeitpunkt T existierte. Soft-Delete + Neu-Anlage der Phase ist der Escape-Hatch für massiv fehlerhaftes Auto-Fill.
 
 ### Status-Lifecycle & Toggle-API (ENTR-06 / PAYO-04 vorbereiten)
@@ -127,8 +134,8 @@ Phase 8 liefert das auditpflichtige `RepaymentEntry`-Aggregat auf Basis der in P
 
 ### Audit-Infrastruktur (Phase-7-Pattern, in Phase 8 wiederverwendet)
 - `genossi_dao/src/auditable.rs` — `Auditable`-Trait-Definition; `RepaymentEntryEntity` muss implementieren (`entity_type() = "repayment_entry"`, `entity_id()`, `audit_fields()` für `member_id`, `phase_id`, `share_count_to_pay_out`, `status`)
-- `genossi_service_impl/src/audit_macros.rs` — `audited_create!` (beim manuellen POST + N-fach beim Auto-Fill in `open_phase`), `audited_update!` (PUT, Batch-Toggle, Soft-Delete via D-08-Pattern)
-- `genossi_service_impl/src/audit_log.rs` — Hash-Chain-Berechnung (NICHT manuell re-implementieren — Anti-Pattern in ARCHITECTURE.md)
+- `genossi_service_impl/src/audit_macros.rs` — `audited_create!` (beim manuellen POST + N-fach beim Auto-Fill in `open_phase`), `audited_update!` (PUT, Batch-Toggle, Soft-Delete via D-08-Pattern). **REAL signatures (verified): `audited_create!` 6 Args, `audited_update!` 7 Args, `audited_delete!` 6 Args (lädt entity intern)**.
+- `genossi_service_impl/src/audit_log.rs` — Hash-Chain-Berechnung (NICHT manuell re-implementieren — Anti-Pattern in ARCHITECTURE.md). **Wichtig: `build_create_entries` ruft `uuid_fn()` pro Call → neue transaction_id pro audited_create! (siehe D-03 Klarstellung)**.
 - `CLAUDE.md` §"Audit Log System" — 4-Schritt-Checkliste für neue auditierte Entities
 
 ### MemberAction-Coupling (Phase 9 vorbereitet, hier nur Schema-Awareness)
@@ -138,10 +145,11 @@ Phase 8 liefert das auditpflichtige `RepaymentEntry`-Aggregat auf Basis der in P
 - `genossi_service_impl/src/macros.rs` — `gen_service_impl!` Macro für Service-Boilerplate
 - `genossi_service_impl/src/validation.rs` — `ValidationService` für `share_count_to_pay_out`-Range (vs. `Member.current_shares`)
 - `genossi_service/src/permission.rs` — `Authentication<Context>` für OIDC-Vorstand-Check; alle Endpoints sind admin-only (analog Phase 7 + ADMIN_PRIVILEGE-Pattern aus `assembly.rs:50`)
+- **Imports-Konvention (verified per Phase-7-Pattern in `repayment_phase.rs:28-37`):** `ServiceError` + `ValidationFailureItem` aus `genossi_service` importieren — **NICHT aus `genossi_dao`** (dort nicht definiert).
 
 ### REST-Layer-Patterns
-- `genossi_rest/src/lib.rs` — Router-Registration; `.merge(repayment_entry::generate_route())` ergänzen
-- `genossi_rest_types/src/lib.rs` — neuer `RepaymentEntryTO` + `From<&RepaymentEntryEntity>` + Utoipa-Schema-Derive; **`RepaymentEntryBatchStatusRequest`-TO** und **`CloseConflictResponse`-TO** mit `pending_member_numbers`-Field (D-15)
+- `genossi_rest/src/lib.rs` — Router-Registration; `.merge(repayment_entry::generate_route())` ergänzen. **Member-Route ist PLURAL `/api/members` (verified Z. 559)** — E2E-Helper müssen entsprechend posten.
+- `genossi_rest_types/src/lib.rs` — neuer `RepaymentEntryTO` + `From<&RepaymentEntryEntity>` + Utoipa-Schema-Derive; **`RepaymentEntryBatchStatusRequest`-TO**, **`CloseConflictResponse`-TO** mit `pending_member_numbers`-Field (D-15), **`BatchFailureResponse`-TO** mit `failure_index`/`failure_id`/`failure_reason` (D-08 — strukturierter Body)
 - `genossi_rest/src/assembly.rs:142,224,279,315` — `#[utoipa::path]`-Annotation-Patterns für POST/PUT/POST(action) inkl. Response-Doc und Schema (insbesondere 409-Response-Doc)
 - `genossi_rest/src/repayment_phase.rs` — Phase-7-Handler als Anker; Phase-8 fügt `repayment_entry.rs` als neuen Sub-Router daneben
 
@@ -188,7 +196,7 @@ Phase 8 liefert das auditpflichtige `RepaymentEntry`-Aggregat auf Basis der in P
 - **`genossi_rest/src/lib.rs`** — `.merge(repayment_entry::generate_route())` ergänzen; OpenAPI-Schema-Registry erweitern.
 - **`genossi_service/src/lib.rs`** und **`genossi_service_impl/src/lib.rs`** — `pub mod repayment_entry;` Modul-Deklaration + selektives Re-Export von `RepaymentEntryServiceImpl`/`MockRepaymentEntryServiceImpl`.
 - **`genossi_dao/src/lib.rs`** + **`genossi_dao_impl_sqlite/src/lib.rs`** — analog Modul-Deklarationen.
-- **`genossi_rest_types/src/lib.rs`** — `RepaymentEntryTO` + `RepaymentEntryCreateRequest` + `RepaymentEntryUpdateRequest` + `BatchStatusRequest` + `CloseConflictResponse` + Utoipa-Schema-Derives.
+- **`genossi_rest_types/src/lib.rs`** — `RepaymentEntryTO` + `RepaymentEntryCreateRequest` + `RepaymentEntryUpdateRequest` + `BatchStatusRequest` + `CloseConflictResponse` + `BatchFailureResponse` (W-05) + Utoipa-Schema-Derives.
 - **Migration** in `migrations/sqlite/`: nächste Sequenz-Nummer nach `20260529190437_create_repayment_phase_table.sql`. Planner setzt finale Datum-Sequenz (vermutlich `20260530…_create_repayment_entry_table.sql`).
 
 </code_context>
@@ -200,7 +208,7 @@ Phase 8 liefert das auditpflichtige `RepaymentEntry`-Aggregat auf Basis der in P
 - **Mitgliedsnummern (nicht UUIDs/Names) im 409-Body** (D-15) — Vorstand denkt in Mitgliedsnummern, nicht in UUIDs. Phase-12-Frontend kann mit der Liste sofort ein Toast oder einen Filter auf die Tabelle setzen. Max 20 mit `+N weitere`-Annotation reicht für den Use-Case (typische Genossenschaft hat <100 Austritte/Jahr).
 - **`PaidOut` als 3-Wert-Enum schon in Phase 8** (D-05) — Vermeidet die Phase-9-Migration und ist verbandskonform sauber: Status-String-Konvention bleibt stabil über Milestones hinweg.
 - **All-or-nothing Batch-Toggle** (D-08) — Gegenpol zum Phase-10-Mail-Best-Effort. Begründet, weil Status-Toggle eine atomare State-Machine-Transition ist, kein I/O-Resilience-Problem.
-- **N einzelne `audited_create!` statt Batch** (D-03) — Bewusst andere Wahl als Assembly-Member-Snapshot, weil RepaymentEntries Lifecycle-Träger sind (Phase-9-Cascade hängt direkt an entity_id+version) — nicht „nur Daten".
+- **N einzelne `audited_create!` statt Batch** (D-03) — Bewusst andere Wahl als Assembly-Member-Snapshot, weil RepaymentEntries Lifecycle-Träger sind (Phase-9-Cascade hängt direkt an entity_id+version) — nicht „nur Daten". Identifikation via gemeinsamer `process`-String + Timestamp-Range (siehe D-03 Klarstellung).
 
 </specifics>
 
@@ -216,6 +224,7 @@ Phase 8 liefert das auditpflichtige `RepaymentEntry`-Aggregat auf Basis der in P
 - **DB-Unique-Index auf `(phase_id, member_id, status='Open')`** — würde ENTR-03 brechen (mehrere Einträge pro Mitglied+Phase erlaubt). Nicht.
 - **PUT-Body-Status-Toggle vs. dedizierter Sub-Endpoint** — Phase 7 D-02 sagt „Lifecycle-Transition via Action-Endpoint, kein Status im PUT-Body". Phase 8 erlaubt Status im PUT (Open↔Contacted) **zusätzlich** zum Batch-Endpoint, weil Einzel-Toggle ergonomischer ist. Planner-Discretion ob das explizit dokumentiert wird oder ob nur Batch geht.
 - **Max-Batch-Size für Batch-Toggle** — DoS-Schutz, Planner-Discretion
+- **Shared-transaction-id für Auto-Fill-Block** — würde Audit-Macro-API erweitern (`audited_create_with_tx_id!`-Variante oder TxScope-Wrapper); bewusst NICHT in Phase 8, weil pragmatischer `(process, timestamp)`-Pfad ausreicht (D-03 Klarstellung). Reopen wenn echter Audit-Query-Use-Case auftaucht.
 
 ### Reviewed Todos (not folded)
 Keine — `gsd-sdk query todo.match-phase 8` lieferte keine Matches (nicht ausgeführt; keine pending Todos im System).
@@ -226,3 +235,4 @@ Keine — `gsd-sdk query todo.match-phase 8` lieferte keine Matches (nicht ausge
 
 *Phase: 8-repaymententry-auto-bef-llung*
 *Context gathered: 2026-05-30*
+*Revised: 2026-05-30 (Iteration 1 — D-03 Klarstellung, audit_macros-Signaturen, Plural-Member-Route, strukturierter Batch-Conflict-Body)*

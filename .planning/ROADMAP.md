@@ -69,6 +69,25 @@ Plans:
 4. Status-Toggle `offen ↔ angeschrieben` ist multi-select-fähig (Batch-Endpoint); Audit-Eintrag pro Toggle
 5. `close_phase` (PHAS-03) blockt mit 409 Conflict wenn mindestens ein Eintrag nicht `ausbezahlt` ODER `deleted IS NULL` ist — E2E-Test deckt Negative-Path
 
+**Plans:** 6 plans
+
+Plans:
+**Wave 1**
+- [ ] 08-01-PLAN.md — Migration + DAO-Trait + Entity + Auditable (Wave 1)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 08-02-PLAN.md — SQLite-DAO-Impl mit Optimistic Locking + Pre-Exists-Check (Wave 2)
+- [ ] 08-03-PLAN.md — Service-Trait + Impl mit Validation, Edit-Matrix, Batch-Tx (Wave 2)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [ ] 08-04-PLAN.md — RepaymentPhase-Service-Erweiterung: Auto-Fill + Pending-Validation (Wave 3)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+- [ ] 08-05-PLAN.md — REST-Handler + TOs + Router + DI-Wiring (Wave 4)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+- [ ] 08-06-PLAN.md — E2E-Tests: Auto-Fill + manueller CRUD + Batch + Close-Validation + Audit-Chain (Wave 5)
+
 #### Phase 9: Auszahlungs-Buchung (atomisch + auditiert)
 
 **Goal:** `ausbezahlt`-Toggle erzeugt atomar `MemberAction::Verkauf` und reduziert `Member.current_shares`; ist final und audit-konsistent.
@@ -132,7 +151,7 @@ Plans:
 | 5. Pre-GV-Generalprobe und Operations-Plan                      | v1.0      | 0/0            | SKIPPED (GV produktiv)  | 2026-05-17 |
 | 6. Teilnehmerlisten-Export für Generalversammlungen             | v1.0      | 4/4            | Complete                | 2026-05-17 |
 | 7. RepaymentPhase Backend (Foundation)                          | v1.1      | 4/5 | In Progress|  |
-| 8. RepaymentEntry + Auto-Befüllung                              | v1.1      | 0/?            | Pending                 | —          |
+| 8. RepaymentEntry + Auto-Befüllung                              | v1.1      | 0/6            | In Planning             | —          |
 | 9. Auszahlungs-Buchung (atomisch + auditiert)                   | v1.1      | 0/?            | Pending                 | —          |
 | 10. Massenmail-Anbindung + Template-Variablen                   | v1.1      | 0/?            | Pending                 | —          |
 | 11. Export (PDF + CSV)                                          | v1.1      | 0/?            | Pending                 | —          |
@@ -141,4 +160,4 @@ Plans:
 ---
 
 *Roadmap created: 2026-05-02*
-*Last updated: 2026-05-29 after Phase 7 plans created (5 plans across 5 waves)*
+*Last updated: 2026-05-30 after Phase 8 plans created (6 plans across 5 waves)*
