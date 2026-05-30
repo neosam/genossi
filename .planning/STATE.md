@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Anteile-Rückzahlungsphase
-status: verifying
+status: ready_to_plan
 stopped_at: Completed 07-05-PLAN.md
 last_updated: "2026-05-29T20:38:34.430Z"
 last_activity: 2026-05-29
 progress:
   total_phases: 6
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 5
   completed_plans: 5
-  percent: 100
+  percent: 33
 ---
 
 # State: Genossi — v1.1 Anteile-Rückzahlungsphase
@@ -29,10 +29,10 @@ progress:
 
 ## Current Position
 
-Phase: 07 (repaymentphase-backend-foundation) — EXECUTING
-Plan: 5 of 5
-Status: Phase complete — ready for verification
-Last activity: 2026-05-29
+Phase: 8
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-05-30
 
 ## Closure Snapshot (v1.0, 2026-05-29)
 
