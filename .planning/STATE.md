@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Anteile-Rückzahlungsphase
 status: executing
-stopped_at: Completed 08-06-PLAN.md (Phase 8 complete — ready for verification)
-last_updated: "2026-05-31T06:16:42.154Z"
-last_activity: 2026-05-31 -- Phase 08 execution started
+stopped_at: Completed 08-07-PLAN.md (gap-closure CR-01 Re-Read fix in RepaymentEntryServiceImpl)
+last_updated: "2026-05-31T06:30:06.143Z"
+last_activity: 2026-05-31
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 15
-  completed_plans: 11
-  percent: 73
+  completed_plans: 12
+  percent: 80
 ---
 
 # State: Genossi — v1.1 Anteile-Rückzahlungsphase
@@ -30,9 +30,9 @@ progress:
 ## Current Position
 
 Phase: 08 (repaymententry-auto-bef-llung) — EXECUTING
-Plan: 1 of 10
-Status: Executing Phase 08
-Last activity: 2026-05-31 -- Phase 08 execution started
+Plan: 2 of 10
+Status: Ready to execute
+Last activity: 2026-05-31
 
 ## Closure Snapshot (v1.0, 2026-05-29)
 
@@ -86,6 +86,7 @@ Overall: 0% complete
 | Phase 08 P04 | 12min | 1 tasks | 2 files |
 | Phase 08 P05 | ~10min | 3 tasks | 5 files |
 | Phase 08 P06 | 9min | 1 tasks | 1 files |
+| Phase 08 P07 | 9min | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -187,6 +188,15 @@ Details siehe `.planning/v1.0-MILESTONE-AUDIT.md` und `.planning/MILESTONES.md`.
 - **ISO8601-Datetime**: `genossi_rest_types::iso8601_datetime` serde-Modul für alle TO-Datetime-Felder
 
 ## Session Continuity
+
+**Last action (2026-05-31, Phase 08 Plan 07 — gap-closure Wave 1):** Plan `08-07-PLAN.md` ausgeführt — CR-01-Bugfix in `RepaymentEntryServiceImpl`. Beide Methoden `update_repayment_entry` (Z. 266) und `batch_toggle_status` (Z. 444) lesen jetzt nach `audited_update!` die Entity per `find_by_id(id, tx.clone())` erneut, um die vom DAO frisch generierte version-UUID an den Client zurückzuliefern. Pattern 1:1 wörtlich aus `MemberServiceImpl::update` (member.rs:343-348) übernommen. Re-Read läuft in derselben Transaction (single-snapshot-Konsistenz, T-08-07-01 Mitigation). 2 neue Regression-Tests verifizieren das Verhalten dauerhaft: `test_update_repayment_entry_rereads_after_audited_update_returns_new_version` (asserted result.version == version_b nach Re-Read) und `test_batch_toggle_status_rereads_each_entry_returns_new_versions` (asserted per-entry v1_new/v2_new statt v1_old/v2_old). 3 bestehende Tests (`test_update_entry_status_open_to_contacted_succeeds`, `..._contacted_to_open_succeeds`, `test_batch_toggle_success`) auf `mockall::Sequence` umgestellt, sodass das Mock pro Iteration sauber zwischen pre-update entity (Status Open, ersten 2 Calls = pre-load + audit-macro-load) und post-update entity (neuer Status + neue Version, 3. Call = Re-Read) unterscheidet. 21/21 RepaymentEntry-Tests grün (19 alte + 2 neue); 265/265 service_impl-lib-Tests grün; keine Regressionen. Audit-Disziplin-Grep-Gate bleibt 0 (keine direkten DAO.update-Calls außerhalb der `audited_*!`-Macros). 2 Commits: `ee44b26` (test: RED-failing tests), `2c0f503` (fix: Re-Read + adapt 3 tests). Zwei kleine Plan-Konsistenz-Klarstellungen dokumentiert (1: Plan-Acceptance-Criterion zu strikt für create/get-Pfade — effektive Compliance via präziseren Greps verifiziert; 2: CR-01-Marker-Konvention für grep-Match). Nächster Schritt: Plan 08-08 (RepaymentPhaseServiceImpl — analoger Fix, parallele Wave-1-Task).
+
+**Files written this session (Plan 08-07):**
+
+- `genossi_service_impl/src/repayment_entry.rs` (MOD — +131 LOC -24 LOC: Re-Read-Block in update_repayment_entry + batch_toggle_status, 2 neue Regression-Tests, 3 bestehende Tests auf mockall::Sequence umgestellt)
+- `.planning/phases/08-repaymententry-auto-bef-llung/08-07-SUMMARY.md` (NEW)
+- `.planning/STATE.md` (MOD — diese Aktualisierung; Plan auf 2 of 10 fortgeschritten)
+- `.planning/ROADMAP.md` (MOD — Phase 8 Plan-Progress via roadmap.update-plan-progress)
 
 **Last action (2026-05-31, Phase 08 Plan 06):** Plan `08-06-PLAN.md` ausgeführt — 15 E2E-Tests + 2 Helper am Ende von `genossi_bin/tests/e2e_tests.rs` ergänzt (+680 LOC -24 LOC). Helper `create_member_with_exit_date` ist 3-stufig (POST Member → POST Austritt-MemberAction → GET Member zur Re-Load) weil `recalc_dates()` (member.rs:288) die Single Source of Truth für `exit_date` ist — ein bloßes `MemberTO.exit_date` im POST wird durch `compute_dates()` (member_action.rs:160-169) auf None zurückgesetzt wenn keine Austritt-Action existiert. Helper `create_open_repayment_phase` wrapt Phase-7-`create_preparation_repayment_phase` + POST `/open` (triggert Auto-Fill). 15 Tests: 4 Auto-Fill (PHAS-02/ENTR-01: triggers, 0-members, no-exit-date, outside-FY), 3 Manual-Create (ENTR-02/D-11: happy, phase-not-open 409, share-exceeds 400), 2 Update (ENTR-04/06/D-05/D-06: Open→Contacted, PaidOut 409), 1 Delete (ENTR-05: soft-delete + GET 404), 2 Batch-Toggle (D-07/D-08: happy, PaidOut-Target 400), 2 Close-Validation (PHAS-03/D-14/D-15: pending 409 mit pending_count+member_number, 0-Entry erlaubt), 1 Audit-Hashchain (verify.valid=true nach Lifecycle). 270 grüne E2E-Tests (255 Phase-7-Baseline + 15 Phase-8 neu); kein Regress. Zwei Deviations: Rule-1-Bugs im Test-Setup — (1) Helper-Setup nutzte fälschlich `MemberTO.exit_date` statt Austritt-Action (5 Tests rot, alle "auto-fill produces 0 entries"); (2) `test_manual_add_entry_happy_path` nutzte `share_count_to_pay_out=2` aber sample_member.shares_at_joining=1 → Service rejected mit 400 (Service-Konvention current_shares=shares_at_joining beim Create). Beide gefixt im selben Commit. Production-Code unverändert. Commit `677eab1` (test, +680 -24). Phase 8 ist Plan-vollständig (6/6); ROADMAP zeigt "Complete"; alle 8 Requirements ENTR-01..06 + PHAS-02 + PHAS-03 als E2E-verifiziert markiert. Nächster Schritt: `/gsd-verify-phase 08`.
 
