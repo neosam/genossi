@@ -17,6 +17,7 @@ pub mod member_action;
 pub mod member_document;
 pub mod permission;
 pub mod public_stats;
+pub mod repayment_entry;
 pub mod repayment_phase;
 pub mod session;
 pub mod session_management;
@@ -268,6 +269,7 @@ pub trait RestStateDef:
         (path = "/api/applications", api = application::ApiDoc),
         (path = "/api/assembly", api = assembly::ApiDoc),
         (path = "/api/repayment-phase", api = repayment_phase::ApiDoc),
+        (path = "/api/repayment-entry", api = repayment_entry::ApiDoc),
         (path = "/api/assembly/{assembly_id}/helper-tokens", api = helper_token::ApiDoc),
         (path = "/api/attendance/{assembly_id}", api = attendance::ApiDoc),
         (path = "/api/assembly/{assembly_id}/attendance-export", api = attendance_export::ApiDoc),
@@ -436,6 +438,7 @@ pub async fn create_app<
         + application::ApplicationRestState
         + assembly::AssemblyRestState
         + repayment_phase::RepaymentPhaseRestState
+        + repayment_entry::RepaymentEntryRestState
         + helper_token::HelperTokenRestState
         + attendance::AttendanceRestState
         + attendance_export::AttendanceExportRestState
@@ -611,6 +614,10 @@ pub async fn create_app<
             repayment_phase::generate_route::<RestState>(),
         )
         .nest(
+            "/api/repayment-entry",
+            repayment_entry::generate_route::<RestState>(),
+        )
+        .nest(
             "/api/assembly/{assembly_id}/helper-tokens",
             helper_token::generate_route::<RestState>(),
         )
@@ -754,6 +761,7 @@ pub async fn start_server<
         + application::ApplicationRestState
         + assembly::AssemblyRestState
         + repayment_phase::RepaymentPhaseRestState
+        + repayment_entry::RepaymentEntryRestState
         + helper_token::HelperTokenRestState
         + attendance::AttendanceRestState
         + attendance_export::AttendanceExportRestState
