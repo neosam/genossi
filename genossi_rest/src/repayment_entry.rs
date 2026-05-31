@@ -293,6 +293,65 @@ pub async fn batch_toggle_status<RestState: RestStateDef + RepaymentEntryRestSta
     )
 }
 
+// Phase 9 (PAYO-01 / D-07): Action-Endpoint fuer atomare Auszahlungs-Cascade.
+// Pattern-Anker: open_repayment_phase (Phase 7) — kein Request-Body, kein
+// Version-Body-Feld; Concurrency-Defense laeuft ueber Entry-Status-Guard +
+// Version-Check im DAO-UPDATE (siehe 09-RESEARCH Frage 1). Single-only:
+// KEINE Batch-Variante (Cascade ist sicherheitskritisch/irreversibel,
+// Confirm-Dialog UI-05 ist pro Eintrag konzipiert; Batch deferred zu Phase 12).
+#[instrument(skip(rest_state))]
+#[utoipa::path(
+    post,
+    tag = "RepaymentEntries",
+    path = "/{id}/mark-paid-out",
+    params(("id" = Uuid, Path, description = "RepaymentEntry ID")),
+    responses(
+        (status = 200,
+         description = "Entry marked as PaidOut. Cascade: MemberAction::Verkauf created with \
+                       shares_change=-N (where N=share_count_to_pay_out), Member.current_shares \
+                       reduced by N, Member.action_count incremented by 1. All three writes commit \
+                       in a single SQLite transaction with shared audit-process \
+                       'repayment-entry.mark-paid-out'. Final per PAYO-04 (no toggle-back).",
+         body = RepaymentEntryTO),
+        (status = 400,
+         description = "Validation Error (PAYO-03): Member.current_shares < entry.share_count_to_pay_out. \
+                       Response body lists field='share_count_to_pay_out' with both values."),
+        (status = 401, description = "Unauthorized (missing or invalid admin auth)"),
+        (status = 404, description = "Entry not found or soft-deleted (checked before any write)"),
+        (status = 409,
+         description = "Conflict: entry status is not Open/Contacted (PAYO-04 — PaidOut is final), \
+                       OR phase status is not Open (Defense-in-Depth), \
+                       OR concurrent race produced version-mismatch on the entry update \
+                       (loser of tokio::join! race per SC #5)."),
+        (status = 500,
+         description = "Internal consistency error: Re-Read after audited_update! returned None \
+                       (Phase-8 BL-01 pattern — same-Tx invariant broken; should never happen \
+                       in correctly-functioning DAO layer)."),
+    ),
+)]
+pub async fn mark_paid_out<RestState: RestStateDef + RepaymentEntryRestState>(
+    rest_state: State<RestState>,
+    Extension(context): Extension<Context>,
+    Path(id): Path<Uuid>,
+) -> Response {
+    error_handler(
+        (async {
+            let auth = crate::extract_auth_context(Some(context))?;
+            let entry = rest_state
+                .repayment_entry_service()
+                .mark_paid_out(id, auth)
+                .await?;
+            let to = RepaymentEntryTO::from(&entry);
+            Ok(Response::builder()
+                .status(200)
+                .header("Content-Type", "application/json")
+                .body(Body::new(serde_json::to_string(&to)?))
+                .unwrap())
+        })
+        .await,
+    )
+}
+
 /// Generate the Axum router for `/api/repayment-entry`.
 ///
 /// **WICHTIG (T-08-05-02):** `/batch-status` MUSS VOR `/{id}` deklariert
@@ -313,6 +372,15 @@ pub fn generate_route<RestState: RestStateDef + RepaymentEntryRestState>() -> Ro
                 .put(update_repayment_entry::<RestState>)
                 .delete(delete_repayment_entry::<RestState>),
         )
+        // Phase 9 (PAYO-01 / D-07): Single-only Action-Endpoint fuer atomare
+        // Auszahlungs-Cascade. KEINE Batch-Variante (deferred zu Phase 12 —
+        // Cascade ist sicherheitskritisch/irreversibel + UI-05 Confirm-Dialog
+        // ist pro Eintrag konzipiert).
+        // Reihenfolge ist hier egal (Axum matcht nach Pfad-Spezifitaet —
+        // `/{id}/mark-paid-out` ist spezifischer als `/{id}`), aber Konvention
+        // setzt Action-Endpoints ans Ende. Vorbild: repayment_phase.rs::generate_route
+        // mit `.route("/{id}/open", ...)` / `.route("/{id}/close", ...)`.
+        .route("/{id}/mark-paid-out", post(mark_paid_out::<RestState>))
 }
 
 #[derive(OpenApi)]
@@ -324,6 +392,8 @@ pub fn generate_route<RestState: RestStateDef + RepaymentEntryRestState>() -> Ro
         update_repayment_entry,
         delete_repayment_entry,
         batch_toggle_status,
+        // Phase 9 (PAYO-01):
+        mark_paid_out,
     ),
     components(schemas(
         RepaymentEntryTO,
