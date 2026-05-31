@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Anteile-Rückzahlungsphase
-status: verifying
+status: ready_to_plan
 stopped_at: Completed 10.08-e2e-bulk-mail-und-audit-chain plan (Phase 10 complete)
 last_updated: "2026-05-31T18:11:00.000Z"
 last_activity: 2026-05-31
 progress:
   total_phases: 6
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 28
   completed_plans: 28
-  percent: 100
+  percent: 83
 ---
 
 # State: Genossi — v1.1 Anteile-Rückzahlungsphase
@@ -29,9 +29,9 @@ progress:
 
 ## Current Position
 
-Phase: 10 (massenmail-anbindung-template-variablen) — EXECUTING
-Plan: 8 of 8
-Status: Phase complete — ready for verification
+Phase: 11
+Plan: Not started
+Status: Ready to plan
 Last activity: 2026-05-31
 
 ## Closure Snapshot (v1.0, 2026-05-29)
