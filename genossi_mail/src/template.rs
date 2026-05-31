@@ -115,6 +115,117 @@ pub fn validate_template(
     }
 }
 
+/// Phase 10 D-04 (MAIL-02): merge per-recipient repayment-context into a base context.
+///
+/// Adds three variables to a minijinja context that the Worker pre-computed from
+/// RepaymentEntry aggregation + RepaymentPhase lookup:
+/// - `payout_amount`: German-localized euro string, format "X,YZ" (e.g. "60,00").
+/// - `share_count`: total share count being paid out (i32).
+/// - `fiscal_year`: phase.fiscal_year (i32, e.g. 2026).
+///
+/// The base context (typically produced by `member_to_template_context`) is
+/// preserved verbatim. The three new fields are appended; if base happens to
+/// contain a clashing name, the new value wins (Phase 10 accepts that — the
+/// worker only calls this for repayment-flagged jobs).
+///
+/// D-13 strict opt-in: if the worker does NOT call this helper (D-05 edge-case
+/// where a member has 0 Open/Contacted entries), templates that reference
+/// `payout_amount`/`share_count`/`fiscal_year` without `{% if %}`-guards will
+/// fail render under strict-env → triggers `mark_recipient_failed`.
+///
+/// Implementation note: `context! { ..base, ... }`-spread is not supported by
+/// minijinja 2.19; we round-trip `base` through `serde_json` into a `BTreeMap`,
+/// insert the three new fields, and convert back via `Value::from_serialize`.
+pub fn merge_repayment_context(
+    base: Value,
+    payout_amount: &str,
+    share_count: i32,
+    fiscal_year: i32,
+) -> Value {
+    use std::collections::BTreeMap;
+
+    // Step 1: convert base Value into a BTreeMap<String, serde_json::Value>.
+    let base_json: serde_json::Value =
+        serde_json::to_value(&base).unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+    let mut map: BTreeMap<String, serde_json::Value> = match base_json {
+        serde_json::Value::Object(obj) => obj.into_iter().collect(),
+        _ => BTreeMap::new(),
+    };
+
+    // Step 2: insert the 3 new fields (overwrites base if name clashes).
+    map.insert(
+        "payout_amount".to_string(),
+        serde_json::Value::String(payout_amount.to_string()),
+    );
+    map.insert(
+        "share_count".to_string(),
+        serde_json::Value::Number(serde_json::Number::from(share_count)),
+    );
+    map.insert(
+        "fiscal_year".to_string(),
+        serde_json::Value::Number(serde_json::Number::from(fiscal_year)),
+    );
+
+    // Step 3: convert the merged map back into a minijinja Value.
+    Value::from_serialize(&map)
+}
+
+/// Phase 10 D-14 (additive, Planner-Discretion): probe-render templates against
+/// both Member-context AND a dummy Repayment-context. Catches references like
+/// `{{ payout_amount }}` without `{% if %}`-guards before the worker actually
+/// sends mails — fail-fast in REST validation.
+///
+/// Used by the REST send-bulk endpoint when `SendBulkMailRequest.repayment_phase_id`
+/// is `Some` (call-site wired in a later plan; the helper is available now so
+/// tests can be added next to the rest of the template helpers).
+pub fn validate_template_with_repayment(
+    subject: &str,
+    body: &str,
+    members: &[MemberEntity],
+) -> Result<(), Vec<String>> {
+    // First: pure-member probe (existing behavior + same error format).
+    validate_template(subject, body, members)?;
+
+    // Then: probe with merged repayment context (dummy values).
+    let mut errors = Vec::new();
+    let env = strict_env();
+    let subject_tmpl = match env.template_from_str(subject) {
+        Ok(t) => t,
+        Err(e) => {
+            errors.push(format!("Subject syntax error: {}", e));
+            return Err(errors);
+        }
+    };
+    let body_tmpl = match env.template_from_str(body) {
+        Ok(t) => t,
+        Err(e) => {
+            errors.push(format!("Body syntax error: {}", e));
+            return Err(errors);
+        }
+    };
+    for member in members {
+        let base = member_to_template_context(member);
+        let merged = merge_repayment_context(base, "0,00", 0, 2026);
+        if let Err(e) = subject_tmpl.render(&merged) {
+            errors.push(format!(
+                "Subject render error with repayment context for member #{}: {}",
+                member.member_number, e
+            ));
+        }
+        if let Err(e) = body_tmpl.render(&merged) {
+            errors.push(format!(
+                "Body render error with repayment context for member #{}: {}",
+                member.member_number, e
+            ));
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
 pub fn render_footer(template_str: &str, sender_name: &str) -> Result<String, TemplateError> {
     let ctx = context! {
         sender_name => sender_name,
@@ -453,8 +564,15 @@ mod tests {
         let member = make_member("Max", "Mustermann");
         let base = member_to_template_context(&member);
         // NOTE: DO NOT call merge_repayment_context here — simulating D-05 edge-case
-        // where member has 0 Open/Contacted entries in the phase
-        let template = "{% if payout_amount %}Auszahlung: {{ payout_amount }} EUR{% endif %}Ende";
+        // where member has 0 Open/Contacted entries in the phase.
+        //
+        // D-13 strict opt-in pattern: under minijinja `UndefinedBehavior::Strict`,
+        // `{% if payout_amount %}` on a NOT-present variable still errors (strict
+        // does not treat undefined as falsy in boolean context). The idiomatic
+        // guard is `{% if payout_amount is defined %}` — template authors MUST
+        // use that form to opt into the soft-render path.
+        let template =
+            "{% if payout_amount is defined %}Auszahlung: {{ payout_amount }} EUR{% endif %}Ende";
         let result = render_template(template, &base).unwrap();
         assert_eq!(result, "Ende");
     }
@@ -485,7 +603,8 @@ mod tests {
         let base = member_to_template_context(&member);
         let merged = merge_repayment_context(base, "60,00", 3, 2026);
         // Both base fields (first_name/last_name) AND new fields are accessible
-        let template = "Hallo {{ first_name }} {{ last_name }}, Auszahlung: {{ payout_amount }} EUR";
+        let template =
+            "Hallo {{ first_name }} {{ last_name }}, Auszahlung: {{ payout_amount }} EUR";
         let result = render_template(template, &merged).unwrap();
         assert!(
             result.contains("Anna Schmidt"),
@@ -495,6 +614,61 @@ mod tests {
         assert!(
             result.contains("60,00 EUR"),
             "Repayment vars must be added: got {}",
+            result
+        );
+    }
+
+    // ============================================================
+    // Phase 10 D-14: validate_template_with_repayment tests
+    // ============================================================
+
+    #[test]
+    fn test_validate_template_with_repayment_catches_missing_guard() {
+        let member = make_member("Max", "Mustermann");
+        // D-14 fail-fast: a template that references payout_amount WITHOUT a
+        // `{% if ... is defined %}` guard fails the first (member-only) probe-
+        // render — `validate_template_with_repayment` propagates that Err, so
+        // the REST send-bulk endpoint can reject the template BEFORE the worker
+        // sends a single mail. This is exactly the guard D-14 wants to enforce.
+        let result = validate_template_with_repayment(
+            "Subject",
+            "Auszahlung: {{ payout_amount }} EUR",
+            std::slice::from_ref(&member),
+        );
+        assert!(
+            result.is_err(),
+            "Template missing the `is defined`-guard must be caught in REST validation (D-14 fail-fast)"
+        );
+        let errors = result.unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.contains("payout_amount") || e.to_lowercase().contains("undefined")),
+            "Error must reference the missing variable, got: {:?}",
+            errors
+        );
+
+        // Negative path: a syntax error still fails.
+        let result2 = validate_template_with_repayment(
+            "Subject",
+            "{{ payout_amount } EUR", // syntax error: missing closing brace
+            std::slice::from_ref(&member),
+        );
+        assert!(result2.is_err(), "Syntax errors must still surface as Err");
+    }
+
+    #[test]
+    fn test_validate_template_with_repayment_passes_for_guarded_template() {
+        let member = make_member("Max", "Mustermann");
+        // Guarded template renders fine for member-only AND merged-repayment contexts.
+        let result = validate_template_with_repayment(
+            "Subject",
+            "{% if payout_amount is defined %}Auszahlung: {{ payout_amount }} EUR{% endif %} Hallo {{ first_name }}",
+            std::slice::from_ref(&member),
+        );
+        assert!(
+            result.is_ok(),
+            "Guarded template must validate: {:?}",
             result
         );
     }
