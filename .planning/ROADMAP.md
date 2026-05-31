@@ -111,7 +111,7 @@ Plans:
 
 Plans:
 **Wave 1**
-- [ ] 09-01-PLAN.md — Backend-Cascade-Foundation: mark_paid_out-Trait + Impl + 6 Unit-Tests + TestMemberActionDao-Mock + compute_migration_status pub
+- [x] 09-01-PLAN.md — Backend-Cascade-Foundation: mark_paid_out-Trait + Impl + 6 Unit-Tests + TestMemberActionDao-Mock + compute_migration_status pub
 
 **Wave 2** *(blocked on 09-01 completion)*
 - [ ] 09-02-PLAN.md — REST-Handler POST /api/repayment-entry/{id}/mark-paid-out + OpenAPI (5 Status-Codes)

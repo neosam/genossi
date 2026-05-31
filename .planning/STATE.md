@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Anteile-Rückzahlungsphase
 status: executing
-stopped_at: Phase 9 context gathered
-last_updated: "2026-05-31T10:05:17.554Z"
-last_activity: 2026-05-31 -- Phase 09 planning complete
+stopped_at: "Phase 9 Plan 01 complete (T1: b25512c + T2: 1afd1fb)"
+last_updated: "2026-05-31T10:25:02.564Z"
+last_activity: 2026-05-31
 progress:
   total_phases: 6
   completed_phases: 2
   total_plans: 20
-  completed_plans: 15
-  percent: 75
+  completed_plans: 16
+  percent: 80
 ---
 
 # State: Genossi — v1.1 Anteile-Rückzahlungsphase
@@ -23,16 +23,16 @@ progress:
 
 **Core Value:** Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachvollziehbar (Audit-Hashchain), mit weniger manueller Arbeit.
 
-**Current Focus:** Phase 08 — repaymententry-auto-bef-llung
+**Current Focus:** Phase 09 — auszahlungs-buchung-atomisch-auditiert
 
 **Granularity:** coarse (6 Phasen, Backend-First → Service-Logik → Integrationen → Frontend)
 
 ## Current Position
 
-Phase: 9
-Plan: Not started
+Phase: 09 (auszahlungs-buchung-atomisch-auditiert) — EXECUTING
+Plan: 2 of 5
 Status: Ready to execute
-Last activity: 2026-05-31 -- Phase 09 planning complete
+Last activity: 2026-05-31
 
 ## Closure Snapshot (v1.0, 2026-05-29)
 
@@ -90,6 +90,7 @@ Overall: 0% complete
 | Phase 08 P08 | 7min | 1 tasks | 1 files |
 | Phase 08 P09 | 8min | 2 tasks | 3 files |
 | Phase 08 P10 | 5min | 1 tasks | 1 files |
+| Phase 09 P01 | 9min | 2 tasks tasks | 3 files files |
 
 ## Accumulated Context
 
@@ -270,8 +271,8 @@ Details siehe `.planning/v1.0-MILESTONE-AUDIT.md` und `.planning/MILESTONES.md`.
 
 **Last action (2026-05-29, Phase 07 Plan 02):** Plan `07-02-PLAN.md` ausgeführt — `RepaymentPhaseDaoImpl` (SQLite-Impl des Plan-01-Traits) angelegt mit `RepaymentPhaseDb`-Row, `TryFrom` mit guarded i32-Cast (T-07-02-05), `dump_all`/`create`/`update` inkl. Pre-Exists-Check + Optimistic-Locking via `rows_affected == 0 → ConflictError("Version mismatch")`. ORDER BY ist `fiscal_year DESC, created DESC` (Phase-7-spezifisch). `parse_datetime` via `use crate::assembly::parse_datetime` reused (kein Duplikat). 4 grüne Tokio-Integrationstests gegen in-memory SQLite. Modul-Decl in `genossi_dao_impl_sqlite/src/lib.rs` alphabetisch eingefügt. Commit `6f6bf0f` (feat: 367 LOC added).
 
-**Stopped At:** Phase 9 context gathered
-**Resume File:** .planning/phases/09-auszahlungs-buchung-atomisch-auditiert/09-CONTEXT.md
+**Stopped At:** Phase 9 Plan 01 complete (T1: b25512c + T2: 1afd1fb)
+**Resume File:** None
 
 **Last action (2026-05-17, Phase 06 Discuss):** `/gsd-discuss-phase 6` durchgeführt — `06-CONTEXT.md` + `06-DISCUSSION-LOG.md` erstellt und committed (`30a3c2b`). 20 Implementierungsentscheidungen (D-01..D-20) erfasst: drei Export-Formate parallel (PDF via Typst, CSV semikolon/UTF-8-BOM, XLSX via rust_xlsxwriter), `?include=all|present`-Query, Status-Closed-only, Vorstand-only via OIDC, Snapshot-Daten aus `assembly_member_snapshot`, Sortierung `member_number ASC`, Endpoint `GET /api/assembly/{aid}/attendance-export/{format}`, Filename `gv-{YYYY-MM-DD}-teilnehmer.{ext}`, kein Audit-Hashchain-Eintrag. PDF-Layout minimal (Kopf mit GV-Titel + Datum + „X von Y anwesend", dann Tabelle). 6 Deferred Ideas (Sammelexport, E-Mail-Versand, Unterschriftenspalte, Logo, Multi-Sheet, Export-Audit). Nächster Schritt: `/gsd-plan-phase 6`.
 
