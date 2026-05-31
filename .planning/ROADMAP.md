@@ -76,7 +76,7 @@ Plans:
 - [x] 08-01-PLAN.md — Migration + DAO-Trait + Entity + Auditable (Wave 1)
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 08-02-PLAN.md — SQLite-DAO-Impl mit Optimistic Locking + Pre-Exists-Check (Wave 2)
+- [x] 08-02-PLAN.md — SQLite-DAO-Impl mit Optimistic Locking + Pre-Exists-Check (Wave 2)
 - [ ] 08-03-PLAN.md — Service-Trait + Impl mit Validation, Edit-Matrix, Batch-Tx (Wave 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*

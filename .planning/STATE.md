@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Anteile-Rückzahlungsphase
 status: executing
-stopped_at: Completed 08-01-PLAN.md
-last_updated: "2026-05-31T03:59:51.288Z"
+stopped_at: Completed 08-02-PLAN.md
+last_updated: "2026-05-31T04:06:57.942Z"
 last_activity: 2026-05-31
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 11
-  completed_plans: 6
-  percent: 55
+  completed_plans: 7
+  percent: 64
 ---
 
 # State: Genossi — v1.1 Anteile-Rückzahlungsphase
@@ -30,7 +30,7 @@ progress:
 ## Current Position
 
 Phase: 08 (repaymententry-auto-bef-llung) — EXECUTING
-Plan: 2 of 6
+Plan: 3 of 6
 Status: Ready to execute
 Last activity: 2026-05-31
 
@@ -81,6 +81,7 @@ Overall: 0% complete
 | Phase 07 P04 | 8min | 3 tasks | 5 files |
 | Phase 07 P05 | 5min | 1 task | 1 file |
 | Phase 08 P01 | 6min | 2 tasks | 3 files |
+| Phase 08 P02 | 4min | 1 task | 2 files |
 
 ## Accumulated Context
 
@@ -133,6 +134,9 @@ Overall: 0% complete
 | Plan 08-01: `find_by_phase_id` als DAO-Default-Impl über `dump_all` + In-Memory-Filter (statt SQL-WHERE im SQLite-Sub-DAO) — Phase-7-Konvention für Domain-Filter (`count_active`, `find_by_member_number`); SQL-Index-Optimization (`idx_repayment_entry_phase`) liegt in der Migration und Plan 02 kann optional `dump_all` mit SQL-WHERE überschreiben, ohne Trait-API-Breaking-Change. | Phase 8, Plan 01 |
 | Plan 08-01: CHECK(share_count_to_pay_out > 0) auf Schema-Ebene zusätzlich zur Service-Layer-Validation (D-11.3) — Defense-in-Depth gegen Daten-Korruption durch direkte DB-Zugriffe (Migrations, manuelle Korrekturen, künftige Service-Bypass-Bugs). T-08-01-03-Mitigation. | Phase 8, Plan 01 |
 | Plan 08-01: KEIN UNIQUE-Constraint auf (member_id, phase_id) — ENTR-03 erlaubt mehrere Einträge pro Mitglied+Phase (Teil-Abtretungen, Korrekturen nach Erst-Auto-Fill, mehrstufige Auszahlungen). Phase 9 fängt den Sum-Check beim `mark_paid_out` über `Member.current_shares` ab — kein DB-Constraint nötig. | Phase 8, Plan 01 |
+| Plan 08-02: ORDER BY `created ASC, id ASC` (mit id-Tie-Breaker) statt nur `created` — Tests mit gleicher Sekunde-Anlage waeren sonst nicht-deterministisch. Plan-Acceptance forderte nur `created ASC`; id-Tie-Breaker ist additive Praezisierung. Pattern-Vorlage fuer kuenftige DAO-dump_all-Sortierungen mit Test-Isolation. | Phase 8, Plan 02 |
+| Plan 08-02: `format_dt`-Helper lokal in `repayment_entry.rs` dupliziert — Phase-7-`repayment_phase.rs::format_dt` ist `fn` (privat), nicht `pub(crate)`. `parse_datetime` aus `crate::assembly` wird reused (ist `pub(crate)`); fuer `format_dt` waere ein Refactor in `crate::dt_helpers` ein Rule-4-Architektur-Change. Tech-Debt-Notiz fuer Folge-Phasen. | Phase 8, Plan 02 |
+| Plan 08-02: Pre-Exists-Check (`SELECT COUNT(*) WHERE id = ? AND deleted IS NULL`) vor UPDATE in `RepaymentEntryDaoImpl` — Phase-7-Plan-07-02-D-03-Pattern 1:1 uebernommen; trennt `NotFound` von `ConflictError("Version mismatch")` und mitigatet T-08-02-03 (soft-deleted-leak) zusaetzlich zur UPDATE WHERE deleted IS NULL-Klausel. | Phase 8, Plan 02 |
 | One-Time-Use-QR pro Helfer | Verhindert Token-Weitergabe an Unbefugte | Phase 2 |
 | Helfer-Memo-Name = Freitext, kein Identitäts-Anker | Reine UX-Hilfe für Vorstand beim Drucken | Phase 2 |
 | GV-Status final nach Schluss; Vorstand-Korrekturen ohne Re-Open | Vermeidet Status-Pingpong, hält Audit-Story einfach | Phase 1 |
@@ -175,6 +179,8 @@ Details siehe `.planning/v1.0-MILESTONE-AUDIT.md` und `.planning/MILESTONES.md`.
 
 ## Session Continuity
 
+**Last action (2026-05-31, Phase 08 Plan 02):** Plan `08-02-PLAN.md` ausgeführt — SQLite-Impl des `RepaymentEntryDao`-Traits aus Plan 08-01 angelegt (`genossi_dao_impl_sqlite/src/repayment_entry.rs`, 419 LOC: `RepaymentEntryDb` mit i64-Storage, `TryFrom` mit guarded `i32::try_from` für `share_count_to_pay_out` als T-08-02-02-Mitigation, `RepaymentEntryDaoImpl::new(Arc<SqlitePool>)`, lokales `format_dt`, `dump_all`/`create`/`update` mit Pre-Exists-Check + Optimistic-Locking via `UPDATE...WHERE id=? AND version=? AND deleted IS NULL`). 6 Tokio-Tests grün gegen in-memory SQLite (`test_create_and_find_repayment_entry`, `test_update_repayment_entry_with_version_mismatch_returns_conflict`, `test_update_repayment_entry_unknown_id_returns_not_found`, `test_update_repayment_entry_succeeds_then_version_changes`, `test_dump_all_returns_sorted_entries`, `test_find_by_phase_id_filters_correctly`). `parse_datetime` aus `crate::assembly` reused; `format_dt` lokal kopiert (Phase-7-`format_dt` ist private fn, Tech-Debt-Notiz). ORDER BY `created ASC, id ASC` mit id-Tie-Breaker für Test-Determinismus. Modul-Decl in `genossi_dao_impl_sqlite/src/lib.rs` alphabetisch vor `repayment_phase` eingefügt. `cargo build --workspace` grün (nur pre-existing Warnings). Commit `69e3135` (feat, 1 task, 2 files). Nächster Schritt: Plan 08-03 (Service-Trait `RepaymentEntryService` + `RepaymentEntryServiceImpl`).
+
 **Last action (2026-05-29, Phase 07 Plan 05):** Plan `07-05-PLAN.md` ausgeführt — 7 E2E-Tests + Helper-Function `create_preparation_repayment_phase` in `genossi_bin/tests/e2e_tests.rs` (+458 LOC). Lifecycle-Test (`test_repayment_phase_lifecycle_audit_chain_intact`) verifiziert ROADMAP SC#4 (Audit-Hashchain `valid=true` mit `broken_links=[]` und `total_entries >= 4` nach create→open→update→close) und SC#5 (expliziter Feld-Diff-Check: `field_name="share_value"`, `old_value=Some("12000")`, `new_value=Some("13000")` unter Process `"repayment-phase.update"`); plus alle 4 distinkten Audit-Prozesse verifiziert. 6 Negative-Path-Tests prüfen D-04/D-07 (fiscal_year-Change in Open → 409), D-05/D-06 (close from Preparation → 409), D-06 (reopen from Closed → 409), D-09 (DELETE in Open → 409), D-11 (fiscal_year=1999 → 400 mit "fiscal_year"-Substring), D-12 (share_value=0 → 400 mit "share_value"-Substring). 255/255 E2E-Tests grün (Baseline 248 + 7 = 255). Eine Deviation: Direkte Version-Bump-Assertion `version != version_v1` musste durch Stale-Retry-Pattern ersetzt werden — die codebase-weite Service-Konvention (Assembly, RepaymentPhase, Member) gibt nach `audited_update!` die LOKALE entity mit alter Version zurück; DAO bumpt die DB-Version atomar, propagiert sie aber nicht. Test verifiziert die DB-Konsistenz end-to-end via 2. PUT mit alter Version → 409 "Version mismatch". Architekt-Korrektur wäre Rule-4-Change; tech-debt für Folge-Phase markiert. Phase 7 ist abgeschlossen und verifikations-vollständig — alle 5 Plans done, alle 5 ROADMAP-SC verifiziert. Commit `6aa4ff2` (test, +458 LOC). Nächster Schritt: Phase-7-Verification (`/gsd-verify-phase 07`) und/oder Start Phase 8 (RepaymentEntries + Auto-Befüllung).
 
 **Last action (2026-05-29, Phase 07 Plan 04):** Plan `07-04-PLAN.md` ausgeführt — REST-Layer + DI-Wiring für RepaymentPhase. 4 neue TOs in `genossi_rest_types/src/lib.rs` (RepaymentPhaseTO/StatusTO/CreateRequest/UpdateRequest mit ISO8601-Datetime-Serde + utoipa-ToSchema, +210 LOC), neue Datei `genossi_rest/src/repayment_phase.rs` (414 LOC) mit RepaymentPhaseRestState-Trait + 7 Handlern (list/create/get/update/delete/open/close) + generate_route + ApiDoc + 3 Smoke-Tests, Modul-Decl + OpenAPI-Nest + Router-Mount + Trait-Bounds in `genossi_rest/src/lib.rs`, Trait-Bound-Erweiterung in `test_server.rs`, vollständige DI-Wiring in `genossi_bin/src/lib.rs` (type-Alias + 5-Deps-Struct + Service-Konstruktion + Self-Field + RestState-Impl, +53 LOC). 7 OpenAPI-Pfade unter Tag `RepaymentPhases` registriert. `cargo build` + `cargo build --tests -p genossi_bin` grün. Tests: 28/28 in genossi_rest_types (4 davon neu), 59/59 in genossi_rest (3 davon neu). 3 Task-Commits (`00a1134` feat TOs, `a0c212f` feat REST-Layer, `5d05c44` feat DI-Wiring). PHAS-01 + PHAS-04 sind REST-vollständig; PHAS-05 (Audit-Macros greifen) ist im REST-Layer-Pass-Through erfüllt. Nächster Schritt: Plan 07-05 (E2E-Tests).
@@ -183,7 +189,7 @@ Details siehe `.planning/v1.0-MILESTONE-AUDIT.md` und `.planning/MILESTONES.md`.
 
 **Last action (2026-05-29, Phase 07 Plan 02):** Plan `07-02-PLAN.md` ausgeführt — `RepaymentPhaseDaoImpl` (SQLite-Impl des Plan-01-Traits) angelegt mit `RepaymentPhaseDb`-Row, `TryFrom` mit guarded i32-Cast (T-07-02-05), `dump_all`/`create`/`update` inkl. Pre-Exists-Check + Optimistic-Locking via `rows_affected == 0 → ConflictError("Version mismatch")`. ORDER BY ist `fiscal_year DESC, created DESC` (Phase-7-spezifisch). `parse_datetime` via `use crate::assembly::parse_datetime` reused (kein Duplikat). 4 grüne Tokio-Integrationstests gegen in-memory SQLite. Modul-Decl in `genossi_dao_impl_sqlite/src/lib.rs` alphabetisch eingefügt. Commit `6f6bf0f` (feat: 367 LOC added).
 
-**Stopped At:** Completed 08-01-PLAN.md
+**Stopped At:** Completed 08-02-PLAN.md
 **Resume File:** None
 
 **Last action (2026-05-17, Phase 06 Discuss):** `/gsd-discuss-phase 6` durchgeführt — `06-CONTEXT.md` + `06-DISCUSSION-LOG.md` erstellt und committed (`30a3c2b`). 20 Implementierungsentscheidungen (D-01..D-20) erfasst: drei Export-Formate parallel (PDF via Typst, CSV semikolon/UTF-8-BOM, XLSX via rust_xlsxwriter), `?include=all|present`-Query, Status-Closed-only, Vorstand-only via OIDC, Snapshot-Daten aus `assembly_member_snapshot`, Sortierung `member_number ASC`, Endpoint `GET /api/assembly/{aid}/attendance-export/{format}`, Filename `gv-{YYYY-MM-DD}-teilnehmer.{ext}`, kein Audit-Hashchain-Eintrag. PDF-Layout minimal (Kopf mit GV-Titel + Datum + „X von Y anwesend", dann Tabelle). 6 Deferred Ideas (Sammelexport, E-Mail-Versand, Unterschriftenspalte, Logo, Multi-Sheet, Export-Audit). Nächster Schritt: `/gsd-plan-phase 6`.
@@ -194,7 +200,16 @@ Details siehe `.planning/v1.0-MILESTONE-AUDIT.md` und `.planning/MILESTONES.md`.
 
 **Next action:** Phase 7 ist abgeschlossen. Run `/gsd-verify-phase 07` für die Phase-Verifikation, oder direkt `/gsd-discuss-phase 8` für den Phase-8-Start (RepaymentEntry + Auto-Befüllung). Code-Anker für Phase 8 existieren als TODO-Kommentare in `genossi_service_impl/src/repayment_phase.rs::open_repayment_phase` (PHAS-02) und `close_repayment_phase` (PHAS-03).
 
-**Files written this session (Plan 07-05):**
+**Files written this session (Plan 08-02):**
+
+- `genossi_dao_impl_sqlite/src/repayment_entry.rs` (NEW — 419 LOC: Imports, RepaymentEntryDb, TryFrom-Impl mit guarded i32-Cast, RepaymentEntryDaoImpl + new(), lokales format_dt, dump_all/create/update mit Pre-Exists-Check + Optimistic-Locking, 6 Tokio-Tests im mod tests)
+- `genossi_dao_impl_sqlite/src/lib.rs` (MOD — +1 LOC: pub mod repayment_entry; alphabetisch vor pub mod repayment_phase;)
+- `.planning/phases/08-repaymententry-auto-bef-llung/08-02-SUMMARY.md` (NEW)
+- `.planning/STATE.md` (MOD — diese Aktualisierung)
+- `.planning/ROADMAP.md` (MOD — Phase 8 Plan-Progress 2/6)
+- `.planning/REQUIREMENTS.md` (MOD — ENTR-01 markiert als persistence-complete)
+
+**Files written previous session (Plan 07-05):**
 
 - `genossi_bin/tests/e2e_tests.rs` (MOD — +458 LOC: RepaymentPhaseTO + RepaymentPhaseStatusTO Imports, `create_preparation_repayment_phase`-Helper, 7 neue E2E-Tests am Datei-Ende für Lifecycle + Audit-Chain + Edit-Matrix + Validation)
 - `.planning/phases/07-repaymentphase-backend-foundation/07-05-SUMMARY.md` (NEW)
@@ -237,3 +252,5 @@ Details siehe `.planning/v1.0-MILESTONE-AUDIT.md` und `.planning/MILESTONES.md`.
 *Phase 07 Plan 04 completed: 2026-05-29*
 *Phase 07 Plan 05 completed: 2026-05-29*
 *Phase 07 COMPLETE: 2026-05-29*
+*Phase 08 Plan 01 completed: 2026-05-31*
+*Phase 08 Plan 02 completed: 2026-05-31*
