@@ -38,6 +38,27 @@ struct MemberDocumentDb {
     created: String,
     deleted: Option<String>,
     version: Vec<u8>,
+    // Phase 10 D-07: optional mail-tracking columns. NULL for legacy documents.
+    template_id: Option<Vec<u8>>,
+    mail_recipient_id: Option<Vec<u8>>,
+    status: Option<String>,
+}
+
+/// Parse an optional UUID from a `Vec<u8>` blob. NULL stays None;
+/// invalid bytes become `DaoError::ParseError`.
+///
+/// Local helper mirroring the Phase-10 convention used in
+/// `genossi_mail/src/dao_sqlite.rs::parse_optional_uuid` — duplicated rather
+/// than re-exported to keep the genossi_dao_impl_sqlite crate boundary clean.
+fn parse_optional_uuid(value: &Option<Vec<u8>>) -> Result<Option<Uuid>, DaoError> {
+    match value {
+        Some(bytes) => {
+            Ok(Some(Uuid::from_slice(bytes).map_err(|e| {
+                DaoError::ParseError(Arc::from(e.to_string()))
+            })?))
+        }
+        None => Ok(None),
+    }
 }
 
 impl TryFrom<&MemberDocumentDb> for MemberDocumentEntity {
@@ -55,6 +76,9 @@ impl TryFrom<&MemberDocumentDb> for MemberDocumentEntity {
             created: parse_datetime(&db.created)?,
             deleted: db.deleted.as_ref().map(|d| parse_datetime(d)).transpose()?,
             version: Uuid::from_slice(&db.version)?,
+            template_id: parse_optional_uuid(&db.template_id)?,
+            mail_recipient_id: parse_optional_uuid(&db.mail_recipient_id)?,
+            status: db.status.as_deref().map(Arc::from),
         })
     }
 }
@@ -79,7 +103,8 @@ impl MemberDocumentDao for MemberDocumentDaoImpl {
     ) -> Result<Arc<[MemberDocumentEntity]>, DaoError> {
         let rows = sqlx::query_as::<_, MemberDocumentDb>(
             "SELECT id, member_id, document_type, description, file_name, mime_type, \
-             relative_path, created, deleted, version \
+             relative_path, created, deleted, version, \
+             template_id, mail_recipient_id, status \
              FROM member_document ORDER BY created",
         )
         .fetch_all(tx.tx.lock().await.as_mut())
@@ -112,11 +137,16 @@ impl MemberDocumentDao for MemberDocumentDaoImpl {
         let file_name = entity.file_name.to_string();
         let mime_type = entity.mime_type.to_string();
         let relative_path = entity.relative_path.to_string();
+        // Phase 10 D-07: persist the 3 optional mail-tracking columns.
+        let template_id = entity.template_id.map(|u| u.as_bytes().to_vec());
+        let mail_recipient_id = entity.mail_recipient_id.map(|u| u.as_bytes().to_vec());
+        let status = entity.status.as_deref().map(String::from);
 
         sqlx::query(
             "INSERT INTO member_document (id, member_id, document_type, description, file_name, \
-             mime_type, relative_path, created, version) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             mime_type, relative_path, created, version, \
+             template_id, mail_recipient_id, status) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(id)
         .bind(member_id)
@@ -127,6 +157,9 @@ impl MemberDocumentDao for MemberDocumentDaoImpl {
         .bind(relative_path)
         .bind(created)
         .bind(version)
+        .bind(template_id)
+        .bind(mail_recipient_id)
+        .bind(status)
         .execute(tx.tx.lock().await.as_mut())
         .await
         .map_err(|e| DaoError::DatabaseError(Arc::from(e.to_string())))?;
@@ -148,6 +181,13 @@ impl MemberDocumentDao for MemberDocumentDaoImpl {
         let file_name = entity.file_name.to_string();
         let mime_type = entity.mime_type.to_string();
         let relative_path = entity.relative_path.to_string();
+        // Phase 10 D-07: persist updates to the 3 optional mail-tracking columns
+        // (e.g. retry-flow flipping status sent→failed). Worker writes via Final-
+        // State `audited_create!` (Plan 10.06), but D-08 demands update-path
+        // coverage so Auditable diff sees changes if any future code calls update.
+        let template_id = entity.template_id.map(|u| u.as_bytes().to_vec());
+        let mail_recipient_id = entity.mail_recipient_id.map(|u| u.as_bytes().to_vec());
+        let status = entity.status.as_deref().map(String::from);
 
         let deleted = match entity.deleted {
             Some(dt) => {
@@ -175,7 +215,8 @@ impl MemberDocumentDao for MemberDocumentDaoImpl {
 
         let rows_affected = sqlx::query(
             "UPDATE member_document SET document_type = ?, description = ?, file_name = ?, \
-             mime_type = ?, relative_path = ?, deleted = ?, version = ? \
+             mime_type = ?, relative_path = ?, deleted = ?, version = ?, \
+             template_id = ?, mail_recipient_id = ?, status = ? \
              WHERE id = ? AND version = ? AND deleted IS NULL",
         )
         .bind(document_type)
@@ -185,6 +226,9 @@ impl MemberDocumentDao for MemberDocumentDaoImpl {
         .bind(relative_path)
         .bind(deleted)
         .bind(new_version)
+        .bind(template_id)
+        .bind(mail_recipient_id)
+        .bind(status)
         .bind(id)
         .bind(old_version)
         .execute(tx.tx.lock().await.as_mut())
@@ -338,7 +382,10 @@ mod tests {
             found.mail_recipient_id.is_none(),
             "mail_recipient_id NULL bleibt None nach roundtrip"
         );
-        assert!(found.status.is_none(), "status NULL bleibt None nach roundtrip");
+        assert!(
+            found.status.is_none(),
+            "status NULL bleibt None nach roundtrip"
+        );
 
         tx.commit().await.unwrap();
     }

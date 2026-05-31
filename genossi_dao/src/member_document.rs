@@ -18,6 +18,11 @@ pub struct MemberDocumentEntity {
     pub created: time::PrimitiveDateTime,
     pub deleted: Option<time::PrimitiveDateTime>,
     pub version: Uuid,
+    // Phase 10 D-07 (MAIL-03/04): optional fields for repayment-mail tracking.
+    // Legacy MemberDocuments (JoinDeclaration etc.) keep NULL in these columns.
+    pub template_id: Option<Uuid>,
+    pub mail_recipient_id: Option<Uuid>,
+    pub status: Option<Arc<str>>,
 }
 
 impl crate::auditable::Auditable for MemberDocumentEntity {
@@ -30,6 +35,11 @@ impl crate::auditable::Auditable for MemberDocumentEntity {
     }
 
     fn audit_fields(&self) -> Vec<(&'static str, Option<String>)> {
+        // FROZEN ORDER (Hash-Chain-Konsistenz, Phase-7-Lektion):
+        // Existing fields stay at indices 0-5 — modifying their order would break
+        // historical audit replay. Phase-10 fields appended at indices 6-8.
+        // member_id, document_type, description, file_name, mime_type, relative_path,
+        // template_id, mail_recipient_id, status
         vec![
             ("member_id", Some(self.member_id.to_string())),
             ("document_type", Some(self.document_type.to_string())),
@@ -40,6 +50,15 @@ impl crate::auditable::Auditable for MemberDocumentEntity {
             ("file_name", Some(self.file_name.to_string())),
             ("mime_type", Some(self.mime_type.to_string())),
             ("relative_path", Some(self.relative_path.to_string())),
+            (
+                "template_id",
+                self.template_id.as_ref().map(|u| u.to_string()),
+            ),
+            (
+                "mail_recipient_id",
+                self.mail_recipient_id.as_ref().map(|u| u.to_string()),
+            ),
+            ("status", self.status.as_ref().map(|s| s.to_string())),
         ]
     }
 }
@@ -139,6 +158,10 @@ mod tests {
             created: datetime,
             deleted: None,
             version: Uuid::new_v4(),
+            // Phase 10: legacy fixture has all 3 mail-tracking fields NULL.
+            template_id: None,
+            mail_recipient_id: None,
+            status: None,
         }
     }
 
@@ -149,9 +172,11 @@ mod tests {
 
     #[test]
     fn test_auditable_fields_count() {
+        // Phase 10 D-07: extended from 6 to 9 fields (template_id, mail_recipient_id,
+        // status appended at indices 6-8). Existing indices 0-5 unchanged (FROZEN-Order).
         let entity = make_document();
         let fields = entity.audit_fields();
-        assert_eq!(fields.len(), 6);
+        assert_eq!(fields.len(), 9);
         let field_names: Vec<&str> = fields.iter().map(|(name, _)| *name).collect();
         assert!(!field_names.contains(&"id"));
         assert!(!field_names.contains(&"version"));

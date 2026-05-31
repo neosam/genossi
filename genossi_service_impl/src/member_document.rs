@@ -128,6 +128,12 @@ impl<Deps: MemberDocumentServiceDeps> MemberDocumentService for MemberDocumentSe
             created: time::PrimitiveDateTime::new(now.date(), now.time()),
             deleted: None,
             version: self.uuid_service.new_v4().await,
+            // Phase 10: regular Vorstand-uploaded documents have no mail-tracking
+            // metadata; the mail worker (Plan 10.06) will set these fields when
+            // creating MemberDocuments for sent repayment mails.
+            template_id: None,
+            mail_recipient_id: None,
+            status: None,
         };
 
         let doc_entity: genossi_dao::member_document::MemberDocumentEntity = (&new_doc).into();

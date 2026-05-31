@@ -51,6 +51,10 @@ pub enum DocumentType {
     JoinConfirmation,
     ShareIncrease,
     Other,
+    // Phase 10 D-09: persistent anchor for repayment-mail send events.
+    // Non-singleton (multiple mails per member allowed); no Typst template
+    // (the mail body itself is the artifact, no PDF generation).
+    RepaymentMail,
 }
 
 impl DocumentType {
@@ -60,6 +64,7 @@ impl DocumentType {
             DocumentType::JoinConfirmation => "join_confirmation",
             DocumentType::ShareIncrease => "share_increase",
             DocumentType::Other => "other",
+            DocumentType::RepaymentMail => "repayment_mail",
         }
     }
 
@@ -69,6 +74,7 @@ impl DocumentType {
             "join_confirmation" => Some(DocumentType::JoinConfirmation),
             "share_increase" => Some(DocumentType::ShareIncrease),
             "other" => Some(DocumentType::Other),
+            "repayment_mail" => Some(DocumentType::RepaymentMail),
             _ => None,
         }
     }
@@ -81,12 +87,15 @@ impl DocumentType {
     }
 
     /// Returns the Typst template path for document types that support generation.
-    /// Returns `None` for types without a template mapping (e.g. `Other`, `ShareIncrease`).
+    /// Returns `None` for types without a template mapping (e.g. `Other`, `ShareIncrease`,
+    /// `RepaymentMail`).
     pub fn template_path(&self) -> Option<&str> {
         match self {
             DocumentType::JoinConfirmation => Some("join_confirmation.typ"),
             DocumentType::JoinDeclaration => Some("join_declaration.typ"),
-            _ => None,
+            DocumentType::ShareIncrease => None,
+            DocumentType::Other => None,
+            DocumentType::RepaymentMail => None,
         }
     }
 }
@@ -103,6 +112,12 @@ pub struct MemberDocument {
     pub created: time::PrimitiveDateTime,
     pub deleted: Option<time::PrimitiveDateTime>,
     pub version: Uuid,
+    // Phase 10 D-07 (MAIL-03/04): optional mail-tracking fields mirrored from
+    // MemberDocumentEntity so service-layer code can construct full audited
+    // documents without falling back to the DAO entity directly.
+    pub template_id: Option<Uuid>,
+    pub mail_recipient_id: Option<Uuid>,
+    pub status: Option<Arc<str>>,
 }
 
 impl From<&MemberDocumentEntity> for MemberDocument {
@@ -119,6 +134,9 @@ impl From<&MemberDocumentEntity> for MemberDocument {
             created: entity.created,
             deleted: entity.deleted,
             version: entity.version,
+            template_id: entity.template_id,
+            mail_recipient_id: entity.mail_recipient_id,
+            status: entity.status.clone(),
         }
     }
 }
@@ -136,6 +154,9 @@ impl From<&MemberDocument> for MemberDocumentEntity {
             created: doc.created,
             deleted: doc.deleted,
             version: doc.version,
+            template_id: doc.template_id,
+            mail_recipient_id: doc.mail_recipient_id,
+            status: doc.status.clone(),
         }
     }
 }
