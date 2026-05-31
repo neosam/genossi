@@ -1259,6 +1259,158 @@ pub struct UpdateRepaymentPhaseRequest {
 }
 
 // ============================================================================
+// Phase 8: RepaymentEntry TOs (ENTR-02..ENTR-06)
+// ============================================================================
+//
+// Mirrors `RepaymentEntry` from `genossi_service::repayment_entry` and follows
+// the RepaymentPhaseTO pattern (Z. 1144-1259): bidirektionale Status-From-Impls,
+// ISO8601-Datetime-Serde auf Optional-Timestamps, version als Option mit
+// skip_if_none.
+//
+// **PUT-Body (`UpdateRepaymentEntryRequest`)** ist Optional-Field-based
+// (D-12): share_count_to_pay_out und status sind beide Option, nur `version`
+// ist Pflicht. PaidOut als Target-Status liefert 409 — durchgesetzt im
+// Service-Layer (Plan 03), nicht hier.
+//
+// **CloseConflictResponse** + **BatchFailureResponse** sind strukturierte
+// 409-Body-Formalisierungen für die JSON-in-Arc<str>-Conflicts, die der
+// Service-Layer aus Plan 03 (batch_toggle_status) und Plan 04
+// (close_repayment_phase pending-validation) liefert.
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub enum RepaymentEntryStatusTO {
+    Open,
+    Contacted,
+    PaidOut,
+}
+
+impl From<&genossi_dao::repayment_entry::RepaymentEntryStatus> for RepaymentEntryStatusTO {
+    fn from(s: &genossi_dao::repayment_entry::RepaymentEntryStatus) -> Self {
+        use genossi_dao::repayment_entry::RepaymentEntryStatus as S;
+        match s {
+            S::Open => RepaymentEntryStatusTO::Open,
+            S::Contacted => RepaymentEntryStatusTO::Contacted,
+            S::PaidOut => RepaymentEntryStatusTO::PaidOut,
+        }
+    }
+}
+
+impl From<&RepaymentEntryStatusTO> for genossi_dao::repayment_entry::RepaymentEntryStatus {
+    fn from(s: &RepaymentEntryStatusTO) -> Self {
+        use genossi_dao::repayment_entry::RepaymentEntryStatus as S;
+        match s {
+            RepaymentEntryStatusTO::Open => S::Open,
+            RepaymentEntryStatusTO::Contacted => S::Contacted,
+            RepaymentEntryStatusTO::PaidOut => S::PaidOut,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct RepaymentEntryTO {
+    #[schema(example = "123e4567-e89b-12d3-a456-426614174000")]
+    pub id: Uuid,
+    #[schema(example = "123e4567-e89b-12d3-a456-426614174000")]
+    pub member_id: Uuid,
+    #[schema(example = "123e4567-e89b-12d3-a456-426614174000")]
+    pub phase_id: Uuid,
+    #[schema(example = 5)]
+    pub share_count_to_pay_out: i32,
+    pub status: RepaymentEntryStatusTO,
+    #[serde(
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    pub created: Option<time::PrimitiveDateTime>,
+    #[serde(
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    pub deleted: Option<time::PrimitiveDateTime>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub version: Option<Uuid>,
+}
+
+impl From<&genossi_service::repayment_entry::RepaymentEntry> for RepaymentEntryTO {
+    fn from(e: &genossi_service::repayment_entry::RepaymentEntry) -> Self {
+        Self {
+            id: e.id,
+            member_id: e.member_id,
+            phase_id: e.phase_id,
+            share_count_to_pay_out: e.share_count_to_pay_out,
+            status: RepaymentEntryStatusTO::from(&e.status),
+            created: Some(e.created),
+            deleted: e.deleted,
+            version: Some(e.version),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct CreateRepaymentEntryRequest {
+    pub phase_id: Uuid,
+    pub member_id: Uuid,
+    #[schema(example = 5)]
+    pub share_count_to_pay_out: i32,
+}
+
+/// Update body for `PUT /api/repayment-entry/{id}`.
+///
+/// Optional-Field-Pattern (D-12): Felder, die nicht im Body stehen, bleiben
+/// unverändert. `version` ist Pflicht (Optimistic Locking).
+/// Edit-Matrix (D-05/D-06/ENTR-04) wird im Service-Layer durchgesetzt:
+/// - PaidOut als Target-Status → 409
+/// - share_count_to_pay_out-Edit nur wenn entry.status ∈ {Open, Contacted}
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct UpdateRepaymentEntryRequest {
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub share_count_to_pay_out: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub status: Option<RepaymentEntryStatusTO>,
+    pub version: Uuid,
+}
+
+/// Request body for `POST /api/repayment-entry/batch-status`.
+///
+/// All-or-nothing-Semantik (D-08): erster Fehler → komplette Tx rollt
+/// zurück + 409 mit strukturiertem `BatchFailureResponse`-Body.
+/// PaidOut als `target_status` → 400 ValidationError (D-07).
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct BatchStatusRequest {
+    pub entry_ids: Vec<Uuid>,
+    pub target_status: RepaymentEntryStatusTO,
+}
+
+/// 409-Response-Body für `POST /api/repayment-phase/{id}/close` wenn pending
+/// Entries existieren (PHAS-03 / D-15). Der Service-Layer (Plan 04) emittiert
+/// genau dieses JSON-Schema im `ServiceError::Conflict(Arc<str>)`-Body; der
+/// REST-Layer reicht den Body 1:1 als 409-Response durch.
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct CloseConflictResponse {
+    pub error: String,
+    pub pending_count: usize,
+    /// Up to 20 member numbers; longer lists end with "+N weitere" as suffix entry.
+    pub pending_member_numbers: Vec<String>,
+}
+
+/// 409-Response-Body für `POST /api/repayment-entry/batch-status` wenn ein
+/// Entry in der Mitte der Batch fehlschlägt (D-08, W-05 — strukturierter
+/// Body). Der Service-Layer (Plan 03) emittiert exakt dieses JSON-Schema im
+/// `ServiceError::Conflict(Arc<str>)`-Body; der REST-Layer reicht den Body
+/// 1:1 als 409-Response durch. Frontend kann dies direkt deserialisieren.
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct BatchFailureResponse {
+    /// Zero-based index of the failing entry in the original BatchStatusRequest.entry_ids list.
+    pub failure_index: usize,
+    /// UUID of the failing entry (string form for JSON-portability).
+    pub failure_id: String,
+    /// Human-readable reason (e.g., "source status is 'PaidOut', expected Open or Contacted").
+    pub failure_reason: String,
+}
+
+// ============================================================================
 // Phase 2: Helper Token TOs (HLPR-01..HLPR-07)
 // ============================================================================
 
@@ -1774,6 +1926,131 @@ mod repayment_phase_to_tests {
         assert_eq!(parsed.version, version);
         assert_eq!(parsed.fiscal_year, 2026);
         assert_eq!(parsed.share_value, 12000);
+    }
+}
+
+#[cfg(test)]
+mod repayment_entry_to_tests {
+    use super::*;
+
+    fn make_domain_entry() -> genossi_service::repayment_entry::RepaymentEntry {
+        let date = time::Date::from_calendar_date(2026, time::Month::May, 31).unwrap();
+        let datetime = time::PrimitiveDateTime::new(date, time::Time::MIDNIGHT);
+        genossi_service::repayment_entry::RepaymentEntry {
+            id: Uuid::new_v4(),
+            member_id: Uuid::new_v4(),
+            phase_id: Uuid::new_v4(),
+            share_count_to_pay_out: 5,
+            status: genossi_dao::repayment_entry::RepaymentEntryStatus::Open,
+            created: datetime,
+            deleted: None,
+            version: Uuid::new_v4(),
+        }
+    }
+
+    #[test]
+    fn test_repayment_entry_status_to_roundtrip() {
+        use genossi_dao::repayment_entry::RepaymentEntryStatus as S;
+        for status in [S::Open, S::Contacted, S::PaidOut] {
+            let to = RepaymentEntryStatusTO::from(&status);
+            let back: S = (&to).into();
+            assert_eq!(back, status, "roundtrip must preserve {:?}", status);
+        }
+    }
+
+    #[test]
+    fn test_repayment_entry_to_from_domain() {
+        // Each of the 8 RepaymentEntryTO fields must mirror the domain type
+        // verbatim; `created` and `version` are wrapped in Some(...) per the
+        // RepaymentPhaseTO precedent for optional-on-the-wire fields.
+        let domain = make_domain_entry();
+        let to = RepaymentEntryTO::from(&domain);
+        assert_eq!(to.id, domain.id);
+        assert_eq!(to.member_id, domain.member_id);
+        assert_eq!(to.phase_id, domain.phase_id);
+        assert_eq!(to.share_count_to_pay_out, 5);
+        assert!(matches!(to.status, RepaymentEntryStatusTO::Open));
+        assert_eq!(to.created, Some(domain.created));
+        assert_eq!(to.deleted, domain.deleted);
+        assert_eq!(to.version, Some(domain.version));
+    }
+
+    #[test]
+    fn test_create_repayment_entry_request_serde() {
+        let phase_id = Uuid::new_v4();
+        let member_id = Uuid::new_v4();
+        let req = CreateRepaymentEntryRequest {
+            phase_id,
+            member_id,
+            share_count_to_pay_out: 3,
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        let back: CreateRepaymentEntryRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.share_count_to_pay_out, 3);
+        assert_eq!(back.phase_id, phase_id);
+        assert_eq!(back.member_id, member_id);
+    }
+
+    #[test]
+    fn test_update_repayment_entry_request_optional_fields() {
+        // share_count_to_pay_out + status sind Optional; version ist Pflicht.
+        // JSON ohne version muss fehlschlagen.
+        let json_no_version = r#"{"share_count_to_pay_out":3}"#;
+        let result: Result<UpdateRepaymentEntryRequest, _> = serde_json::from_str(json_no_version);
+        assert!(
+            result.is_err(),
+            "UpdateRepaymentEntryRequest must require version field"
+        );
+
+        // Nur version → share_count_to_pay_out + status bleiben None.
+        let json = r#"{"version":"00000000-0000-0000-0000-000000000000"}"#;
+        let req: UpdateRepaymentEntryRequest = serde_json::from_str(json).unwrap();
+        assert!(req.share_count_to_pay_out.is_none());
+        assert!(req.status.is_none());
+        assert_eq!(req.version, Uuid::nil());
+    }
+
+    #[test]
+    fn test_batch_status_request_serde() {
+        let req = BatchStatusRequest {
+            entry_ids: vec![Uuid::new_v4(), Uuid::new_v4()],
+            target_status: RepaymentEntryStatusTO::Contacted,
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        let back: BatchStatusRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.entry_ids.len(), 2);
+        assert!(matches!(back.target_status, RepaymentEntryStatusTO::Contacted));
+    }
+
+    #[test]
+    fn test_close_conflict_response_serializes_with_pending_numbers() {
+        let resp = CloseConflictResponse {
+            error: "Cannot close phase: 3 entries are not paid out and not deleted.".into(),
+            pending_count: 3,
+            pending_member_numbers: vec!["1".into(), "5".into(), "+1 weitere".into()],
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains("\"pending_count\":3"));
+        assert!(json.contains("\"pending_member_numbers\""));
+        assert!(json.contains("weitere"));
+    }
+
+    #[test]
+    fn test_batch_failure_response_serde() {
+        // W-05: structured 409-body for batch-toggle failures
+        let failing_id = Uuid::new_v4();
+        let resp = BatchFailureResponse {
+            failure_index: 1,
+            failure_id: failing_id.to_string(),
+            failure_reason: "source status is 'PaidOut', expected Open or Contacted".into(),
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains("\"failure_index\":1"));
+        assert!(json.contains("\"failure_id\""));
+        assert!(json.contains("\"failure_reason\""));
+        let back: BatchFailureResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.failure_index, 1);
+        assert_eq!(back.failure_id, failing_id.to_string());
     }
 }
 
