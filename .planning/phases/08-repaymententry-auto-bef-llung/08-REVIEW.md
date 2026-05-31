@@ -10,10 +10,10 @@ files_reviewed_list:
   - genossi_rest_types/src/lib.rs
   - genossi_bin/tests/e2e_tests.rs
 findings:
-  blocker: 1
+  blocker: 0
   warning: 5
   info: 3
-  total: 9
+  total: 8
 status: issues_found
 ---
 
@@ -35,6 +35,8 @@ Daneben WARNINGs zu Test-Tiefe (D-08-All-or-Nothing-Daten-Rollback wird im neuen
 ## Blocker Issues
 
 ### BL-01: Re-Read mappt internen Konsistenzfehler auf 404 — widerspricht eigenem Kommentar
+
+**Status: RESOLVED (2026-05-31)** — Behoben durch Commits `bc022bf` (Code-Fix) + `87539bb` (Negativtests). Alle sechs Re-Read-Sites mappen die strukturell-unmögliche `None`-Verzweigung jetzt auf `ServiceError::InternalError` (→ HTTP 500) statt `EntityNotFound` (→ HTTP 404). Zwei neue Unit-Tests (`test_update_repayment_entry_rereads_none_yields_internal_error`, `test_update_repayment_phase_rereads_none_yields_internal_error`) verifizieren das Verhalten via mockall-Sequence (Re-Read → `Ok(None)`). Alle 23/26 lib-Tests grün.
 
 **Files:**
 - `genossi_service_impl/src/repayment_entry.rs:275, 480`
