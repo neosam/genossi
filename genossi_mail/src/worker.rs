@@ -716,6 +716,120 @@ mod tests {
         );
     }
 
+    // -------------------------------------------------------------------------
+    // Phase 10 D-10 / D-11: build_member_document_entity helper tests
+    // -------------------------------------------------------------------------
+
+    /// Helper: build a minimal MailJob for entity-construction tests.
+    fn make_test_job(subject: &str, template_id: Option<uuid::Uuid>) -> MailJob {
+        MailJob {
+            id: uuid::Uuid::new_v4(),
+            created: sample_datetime(),
+            deleted: None,
+            version: uuid::Uuid::new_v4(),
+            subject: Arc::from(subject),
+            body: Arc::from("body"),
+            status: Arc::from("running"),
+            total_count: 1,
+            sent_count: 0,
+            failed_count: 0,
+            reply_to_inbound_mail_id: None,
+            template_id,
+            repayment_phase_id: None,
+        }
+    }
+
+    /// build_member_document_entity (helper) — happy-path send success.
+    /// status='sent', description=subject, template_id propagates, recipient_id set.
+    #[test]
+    fn test_build_member_document_entity_status_sent() {
+        let tpl_id = uuid::Uuid::new_v4();
+        let job = make_test_job("Auszahlung GJ 2026", Some(tpl_id));
+        let mid = uuid::Uuid::new_v4();
+        let rid = uuid::Uuid::new_v4();
+
+        let entity = build_member_document_entity(&job, mid, rid, true, "");
+
+        assert_eq!(entity.member_id, mid, "member_id must round-trip");
+        assert_eq!(
+            entity.status.as_deref(),
+            Some("sent"),
+            "send_result_ok=true => status='sent'"
+        );
+        assert_eq!(
+            entity.description.as_deref(),
+            Some("Auszahlung GJ 2026"),
+            "description=job.subject on success"
+        );
+        assert_eq!(
+            entity.template_id,
+            Some(tpl_id),
+            "template_id must propagate from job (MAIL-03 / D-12)"
+        );
+        assert_eq!(
+            entity.mail_recipient_id,
+            Some(rid),
+            "mail_recipient_id must equal recipient_id (D-07)"
+        );
+        assert_eq!(
+            &*entity.document_type, "repayment_mail",
+            "document_type must be 'repayment_mail' for Phase 10"
+        );
+        assert!(entity.deleted.is_none(), "new entity must not be soft-deleted");
+        assert_eq!(&*entity.file_name, "", "no file on disk for repayment mails");
+        assert_eq!(
+            &*entity.relative_path, "",
+            "no path on disk for repayment mails"
+        );
+    }
+
+    /// build_member_document_entity (helper) — fail-path with truncation.
+    /// status='failed', description='{subject} [FAILED: {trunc}]' with 200 char cap.
+    #[test]
+    fn test_build_member_document_entity_status_failed_with_truncation() {
+        let job = make_test_job("Subj", None);
+        let mid = uuid::Uuid::new_v4();
+        let rid = uuid::Uuid::new_v4();
+        // 300-char error (> ERROR_TRUNCATION_LIMIT=200)
+        let long_err: String = std::iter::repeat('x').take(300).collect();
+
+        let entity = build_member_document_entity(&job, mid, rid, false, &long_err);
+
+        assert_eq!(
+            entity.status.as_deref(),
+            Some("failed"),
+            "send_result_ok=false => status='failed'"
+        );
+        let desc = entity.description.as_deref().unwrap();
+        assert!(
+            desc.contains("[FAILED:"),
+            "failed description must contain '[FAILED:' suffix, got: {}",
+            desc
+        );
+        assert!(
+            desc.starts_with("Subj"),
+            "description must start with the job subject, got: {}",
+            desc
+        );
+        // Length budget: subject ("Subj"=4) + " [FAILED: " (10) + truncated err (<=200) + "]" (1)
+        // = at most 215 chars.
+        let max_len = "Subj".len() + " [FAILED: ".len() + ERROR_TRUNCATION_LIMIT + "]".len();
+        assert!(
+            desc.chars().count() <= max_len,
+            "description must not exceed {} chars (got {}): {}",
+            max_len,
+            desc.chars().count(),
+            desc
+        );
+        // The truncated portion must contain at most 200 x's
+        let x_count = desc.chars().filter(|c| *c == 'x').count();
+        assert_eq!(
+            x_count, ERROR_TRUNCATION_LIMIT,
+            "exactly {} 'x' chars from the 300-char error must survive truncation, got {}",
+            ERROR_TRUNCATION_LIMIT, x_count
+        );
+    }
+
     /// Verify that a non-reply mail does NOT include In-Reply-To headers.
     #[test]
     fn non_reply_mail_has_no_in_reply_to_header() {
