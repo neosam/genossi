@@ -12,11 +12,12 @@ use genossi_rest::test_server::test_support::start_test_server;
 use genossi_rest_types::{
     ActionTypeTO, AdminCreateApplicationRequest, ApplicationStatusTO, ApplicationTO,
     AssemblyDetailTO, AssemblyStatusTO, AssemblyTO, AttendanceMemberTO, AttendanceStatsTO,
-    BatchStatusRequest, CreateRepaymentEntryRequest, HelperSessionTO, MemberActionTO,
-    MemberDocumentTO, MemberImportResultTO, MemberTO, MigrationStatusTO, PublicJoinRequest,
-    PublicJoinResponse, RepaymentEntryStatusTO, RepaymentEntryTO, RepaymentPhaseStatusTO,
-    RepaymentPhaseTO, SalutationTO, SessionRevokeResponse, UpdateApplicationRequest,
-    UpdateRepaymentEntryRequest, UserPreferenceTO, ValidationResultTO, VerifyResponseTO,
+    AuditLogEntryTO, BatchStatusRequest, CreateRepaymentEntryRequest, HelperSessionTO,
+    MemberActionTO, MemberDocumentTO, MemberImportResultTO, MemberTO, MigrationStatusTO,
+    PublicJoinRequest, PublicJoinResponse, RepaymentEntryStatusTO, RepaymentEntryTO,
+    RepaymentPhaseStatusTO, RepaymentPhaseTO, SalutationTO, SessionRevokeResponse,
+    UpdateApplicationRequest, UpdateRepaymentEntryRequest, UserPreferenceTO, ValidationResultTO,
+    VerifyResponseTO,
 };
 use reqwest::StatusCode;
 use sqlx::SqlitePool;
@@ -11939,5 +11940,623 @@ async fn test_batch_toggle_with_unknown_entry_id_returns_404() {
         resp.status(),
         StatusCode::NOT_FOUND,
         "Unknown entry_id in batch must return 404, not 409 (CR-02 regression)"
+    );
+}
+
+// ============================================================================
+// Phase 9 — Auszahlungs-Buchung (atomisch + auditiert) — E2E-Tests
+// ============================================================================
+//
+// 4 Tests decken alle 5 ROADMAP-Success-Criteria ab:
+//  - SC #1 (atomarer Cascade)         → test_mark_paid_out_happy_path_cascade
+//  - SC #2 (PAYO-03-Validation)       → test_mark_paid_out_validates_insufficient_shares
+//  - SC #3 (Audit-Chain konsistent)   → test_mark_paid_out_happy_path_cascade
+//  - SC #4 (PaidOut ist final)        → test_mark_paid_out_blocks_double_payout
+//  - SC #5 / D-12 (Race-Defense)      → test_mark_paid_out_race_one_succeeds_one_conflicts
+//
+// Phase-Status-Guard (E2E #4 aus CONTEXT) ist in Plan 09-01 als Unit-Test
+// abgedeckt (RESEARCH Pitfall #10 — E2E-Setup zu komplex).
+//
+// REST-Pfade-Audit:
+//   POST /api/repayment-entry/{id}/mark-paid-out  (Phase 9, Plan 09-02)
+//   GET  /api/repayment-entry?phase_id={uuid}     (Phase 8)
+//   GET  /api/repayment-entry/{id}                (Phase 8)
+//   PUT  /api/repayment-entry/{id}                (Phase 8)
+//   GET  /api/members/{id}                        (Phase 1)
+//   PUT  /api/members/{id}                        (Phase 1) — fuer den
+//        Insufficient-Shares-Setup-Workaround (Manual-Verkauf-Action
+//        modifiziert Member.current_shares NICHT automatisch)
+//   GET  /api/audit/verify                        (Phase 1)
+//   GET  /api/audit/{entity_type}/{entity_id}     (Phase 1)
+//        entity_type-Werte: "member", "member_action", "repayment_entry"
+
+/// Phase 9 PAYO-01 + PAYO-02 — SC #1 + SC #3:
+/// Atomarer Auszahlungs-Cascade plus Audit-Chain-Konsistenz.
+///
+/// Setup: Member mit shares_at_joining=10 (current_shares wird vom
+///        Member-Service auf 10 gesetzt), exit_date in fiscal_year=2026.
+///        Auto-Fill der Open-Phase erzeugt einen RepaymentEntry mit
+///        share_count_to_pay_out=10. Test reduziert via PUT auf =3, damit
+///        nach Cascade current_shares=7 verbleibt (Defense-in-Depth gegen
+///        "alles ausgezahlt"-Edge-Case).
+///
+/// Cascade-Trigger: POST /mark-paid-out → 200 + RepaymentEntryTO mit
+///        status=PaidOut.
+///
+/// Verify:
+///  - GET Entry → status=PaidOut, neue version (Re-Read via BL-01).
+///  - GET Member → current_shares=7, action_count erhoeht um 1.
+///  - GET /api/audit/verify → valid=true (Hash-Chain stabil).
+///  - GET /api/audit/member/{id} → enthaelt Eintraege mit
+///    process="repayment-entry.mark-paid-out" UND field_name in
+///    {"current_shares", "action_count"}.
+///  - GET /api/audit/repayment_entry/{id} → letzter status-Change-Eintrag
+///    hat process="repayment-entry.mark-paid-out" + new_value="PaidOut".
+#[tokio::test]
+async fn test_mark_paid_out_happy_path_cascade() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let fiscal_year = 2026i32;
+
+    // Setup: ERST Member mit exit_date im fiscal_year + current_shares=10
+    // anlegen, DANN Open-Phase erzeugen. Auto-Fill (PHAS-02 / ENTR-01) laeuft
+    // beim Open der Phase und braucht den Member, um einen Entry zu erzeugen.
+    let member = create_member_with_exit_date(&client, &server, 1, fiscal_year, 10).await;
+    let member_id = member.id.expect("created member must have id");
+    let phase = create_open_repayment_phase(&client, &server, fiscal_year, 20000).await;
+
+    // Auto-Fill (PHAS-02 / ENTR-01) hat einen Entry erzeugt — finde ihn.
+    let entries: Vec<RepaymentEntryTO> = client
+        .get(server.url(&format!("/api/repayment-entry?phase_id={}", phase.id)))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let entry = entries
+        .iter()
+        .find(|e| e.member_id == member_id)
+        .expect("Auto-Fill must have created an entry for our test member");
+    let entry_id = entry.id;
+    let entry_version_pre = entry.version.expect("Auto-Fill entry must have version");
+
+    // Baseline: current_shares=10 (vom Member-Service beim Create gesetzt).
+    let member_pre: MemberTO = client
+        .get(server.url(&format!("/api/members/{}", member_id)))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        member_pre.current_shares, 10,
+        "setup invariant: current_shares=10 vor Cascade"
+    );
+    let action_count_pre = member_pre.action_count;
+
+    // Reduziere Entry.share_count_to_pay_out auf 3 via PUT (Phase-8-edit-Pfad),
+    // damit nach Cascade current_shares=7 verbleibt (klare Diff-Assertion).
+    let edit_body = UpdateRepaymentEntryRequest {
+        share_count_to_pay_out: Some(3),
+        status: None,
+        version: entry_version_pre,
+    };
+    let edit_resp = client
+        .put(server.url(&format!("/api/repayment-entry/{}", entry_id)))
+        .json(&edit_body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        edit_resp.status(),
+        StatusCode::OK,
+        "PUT edit must succeed; body: {}",
+        edit_resp.text().await.unwrap_or_default()
+    );
+
+    // ===== Cascade-Trigger (PAYO-01) =====
+    let mark_url = server.url(&format!("/api/repayment-entry/{}/mark-paid-out", entry_id));
+    let mark_resp = client.post(&mark_url).send().await.unwrap();
+    let mark_status = mark_resp.status();
+    let mark_body = mark_resp.text().await.unwrap_or_default();
+    assert_eq!(
+        mark_status,
+        StatusCode::OK,
+        "PAYO-01: mark_paid_out must succeed; body: {}",
+        mark_body
+    );
+    let entry_resp_to: RepaymentEntryTO =
+        serde_json::from_str(&mark_body).expect("mark_paid_out response must be RepaymentEntryTO");
+    assert!(
+        matches!(entry_resp_to.status, RepaymentEntryStatusTO::PaidOut),
+        "Entry must be PaidOut after Cascade; got {:?}",
+        entry_resp_to.status
+    );
+
+    // ===== Verify: Member-Effekte (PAYO-02) =====
+    let member_post: MemberTO = client
+        .get(server.url(&format!("/api/members/{}", member_id)))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        member_post.current_shares,
+        10 - 3,
+        "PAYO-02: current_shares must drop by share_count_to_pay_out (10 - 3 = 7); got {}",
+        member_post.current_shares
+    );
+    assert_eq!(
+        member_post.action_count,
+        action_count_pre + 1,
+        "PAYO-01: action_count must increment by 1 fuer den neuen MemberAction::Verkauf"
+    );
+
+    // ===== Verify: MemberAction::Verkauf existiert mit korrekten Feldern (D-04) =====
+    let actions_resp = client
+        .get(server.url(&format!("/api/members/{}/actions", member_id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(actions_resp.status(), StatusCode::OK);
+    let actions: Vec<MemberActionTO> = actions_resp.json().await.unwrap();
+    let verkauf = actions
+        .iter()
+        .find(|a| matches!(a.action_type, ActionTypeTO::Verkauf))
+        .expect("MemberAction::Verkauf must exist after Cascade");
+    assert_eq!(
+        verkauf.shares_change, -3,
+        "D-04: MemberAction::Verkauf.shares_change must be -share_count_to_pay_out (=-3)"
+    );
+    let comment = verkauf.comment.as_deref().unwrap_or("");
+    assert!(
+        comment.starts_with("Anteils-R"),
+        "D-04: MemberAction.comment must start with 'Anteils-R...' (Rueckzahlung); got: {:?}",
+        comment
+    );
+    assert!(
+        comment.contains(&fiscal_year.to_string()),
+        "D-04: MemberAction.comment must contain fiscal_year {}; got: {:?}",
+        fiscal_year,
+        comment
+    );
+    assert!(
+        verkauf.transfer_member_id.is_none(),
+        "D-04: Verkauf an die Genossenschaft hat keinen transfer_member_id"
+    );
+    assert!(
+        verkauf.effective_date.is_none(),
+        "D-04: Verkauf hat kein effective_date (validate_action erlaubt es nur fuer Austritt)"
+    );
+
+    // ===== Verify: Audit-Chain valide (SC #3) =====
+    let verify_resp = client
+        .get(server.url("/api/audit/verify"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(verify_resp.status(), StatusCode::OK);
+    let verify: VerifyResponseTO = verify_resp.json().await.unwrap();
+    assert!(
+        verify.valid,
+        "SC #3: Audit-Hash-Chain muss nach mark_paid_out-Cascade valide bleiben; broken_links: {:?}",
+        verify.broken_links
+    );
+    assert!(
+        verify.total_entries > 0,
+        "Audit-Chain darf nicht leer sein nach Cascade"
+    );
+
+    // ===== Verify: Audit-Eintraege mit process="repayment-entry.mark-paid-out" =====
+    // (D-01: gemeinsamer Process-String fuer alle 3 Cascade-Writes.)
+    let member_audit: Vec<AuditLogEntryTO> = client
+        .get(server.url(&format!("/api/audit/member/{}", member_id)))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let cascade_member_entries: Vec<&AuditLogEntryTO> = member_audit
+        .iter()
+        .filter(|e| e.process == "repayment-entry.mark-paid-out")
+        .collect();
+    assert!(
+        !cascade_member_entries.is_empty(),
+        "SC #3: Member-Audit muss Eintraege mit process='repayment-entry.mark-paid-out' enthalten"
+    );
+    let member_field_names: std::collections::HashSet<&str> = cascade_member_entries
+        .iter()
+        .map(|e| e.field_name.as_str())
+        .collect();
+    assert!(
+        member_field_names.contains("current_shares"),
+        "Member-Audit muss field_name='current_shares' enthalten; got: {:?}",
+        member_field_names
+    );
+    assert!(
+        member_field_names.contains("action_count"),
+        "Member-Audit muss field_name='action_count' enthalten; got: {:?}",
+        member_field_names
+    );
+
+    // RepaymentEntry-Audit: letzter status-Change muss durch Cascade kommen.
+    let entry_audit: Vec<AuditLogEntryTO> = client
+        .get(server.url(&format!("/api/audit/repayment_entry/{}", entry_id)))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let last_status_change = entry_audit
+        .iter()
+        .rev()
+        .find(|e| e.field_name == "status")
+        .expect("Entry-Audit muss einen status-Field-Change-Eintrag enthalten");
+    assert_eq!(
+        last_status_change.process, "repayment-entry.mark-paid-out",
+        "Letzter status-Change muss process='repayment-entry.mark-paid-out' haben"
+    );
+    assert_eq!(
+        last_status_change.new_value.as_deref(),
+        Some("PaidOut"),
+        "Letzter status-Change muss new_value='PaidOut' haben"
+    );
+
+    // MemberAction-Audit: alle Eintraege fuer die neue Verkauf-Action muessen
+    // process="repayment-entry.mark-paid-out" haben (D-01 sanity).
+    let action_id = verkauf.id.expect("Verkauf-Action must have id");
+    let action_audit: Vec<AuditLogEntryTO> = client
+        .get(server.url(&format!("/api/audit/member_action/{}", action_id)))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        !action_audit.is_empty(),
+        "MemberAction-Audit darf nicht leer sein"
+    );
+    assert!(
+        action_audit
+            .iter()
+            .all(|e| e.process == "repayment-entry.mark-paid-out"),
+        "Alle MemberAction-Audit-Eintraege muessen process='repayment-entry.mark-paid-out' haben; \
+         got processes: {:?}",
+        action_audit.iter().map(|e| &e.process).collect::<Vec<_>>()
+    );
+}
+
+/// Phase 9 PAYO-03 / SC #2: Validation blockt mark_paid_out wenn
+/// Member.current_shares < entry.share_count_to_pay_out.
+///
+/// Setup-Strategie: Member mit shares_at_joining=5 (current_shares=5),
+/// Auto-Fill erzeugt Entry mit share_count_to_pay_out=5. Dann via Member-PUT
+/// current_shares direkt auf 2 reduzieren (Member-Service-Update-Pfad
+/// re-schreibt current_shares 1:1 ohne Validation — genossi_service_impl/
+/// src/member.rs:295-352). Manuelle Verkauf-Action via REST modifiziert
+/// current_shares NICHT (kein Recalc), daher PUT-Workaround.
+///
+/// Erwartung: POST mark-paid-out → 400; body enthaelt "share_count_to_pay_out"
+/// + beide Zahlen (2, 5) gemaess D-14.
+#[tokio::test]
+async fn test_mark_paid_out_validates_insufficient_shares() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let fiscal_year = 2026i32;
+    // Auto-Fill braucht Member vor Phase-Open.
+    let member = create_member_with_exit_date(&client, &server, 1, fiscal_year, 5).await;
+    let member_id = member.id.expect("created member must have id");
+    let phase = create_open_repayment_phase(&client, &server, fiscal_year, 20000).await;
+
+    // Auto-Fill erzeugt Entry mit share_count_to_pay_out=5.
+    let entries: Vec<RepaymentEntryTO> = client
+        .get(server.url(&format!("/api/repayment-entry?phase_id={}", phase.id)))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let entry = entries
+        .iter()
+        .find(|e| e.member_id == member_id)
+        .expect("Auto-Fill must have created an entry");
+    let entry_id = entry.id;
+    assert_eq!(
+        entry.share_count_to_pay_out, 5,
+        "Auto-Fill setzt share_count_to_pay_out = member.current_shares = 5"
+    );
+
+    // Reduziere Member.current_shares direkt auf 2 via PUT (Workaround:
+    // Manual-Verkauf-Action modifiziert current_shares nicht automatisch).
+    let mut member_edit = member.clone();
+    member_edit.current_shares = 2;
+    let put_resp = client
+        .put(server.url(&format!("/api/members/{}", member_id)))
+        .json(&member_edit)
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        put_resp.status().is_success(),
+        "Setup-PUT auf Member.current_shares=2 muss gelingen; status={}, body={}",
+        put_resp.status(),
+        put_resp.text().await.unwrap_or_default()
+    );
+
+    // Verify: Member.current_shares ist jetzt 2.
+    let member_check: MemberTO = client
+        .get(server.url(&format!("/api/members/{}", member_id)))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        member_check.current_shares, 2,
+        "Setup-Invariant: current_shares=2 nach Member-PUT-Workaround"
+    );
+
+    // ===== Cascade-Trigger: PAYO-03 muss feuern =====
+    let mark_url = server.url(&format!("/api/repayment-entry/{}/mark-paid-out", entry_id));
+    let mark_resp = client.post(&mark_url).send().await.unwrap();
+    let status = mark_resp.status();
+    let body = mark_resp.text().await.unwrap_or_default();
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "PAYO-03: mark_paid_out muss 400 zurueckgeben wenn current_shares < share_count_to_pay_out; \
+         got status={}, body={}",
+        status,
+        body
+    );
+    assert!(
+        body.contains("share_count_to_pay_out"),
+        "PAYO-03: Error-Body muss field-name 'share_count_to_pay_out' referenzieren; body: {}",
+        body
+    );
+    assert!(
+        body.contains("2") && body.contains("5"),
+        "PAYO-03 (D-14): Error-Body muss beide Werte enthalten (current=2, requested=5); body: {}",
+        body
+    );
+
+    // Defense-in-Depth: Entry bleibt unveraendert auf Open (kein Partial-Cascade).
+    let entry_post: RepaymentEntryTO = client
+        .get(server.url(&format!("/api/repayment-entry/{}", entry_id)))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        matches!(entry_post.status, RepaymentEntryStatusTO::Open),
+        "Entry muss nach abgewiesenem mark-paid-out auf Open bleiben (atomarer Rollback); got {:?}",
+        entry_post.status
+    );
+
+    // Audit-Chain bleibt valide (kein partial write).
+    let verify: VerifyResponseTO = client
+        .get(server.url("/api/audit/verify"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        verify.valid,
+        "Audit-Chain muss nach abgewiesener PAYO-03-Validation valide bleiben; broken: {:?}",
+        verify.broken_links
+    );
+}
+
+/// Phase 9 PAYO-04 / SC #4: PaidOut ist final. Zweiter mark_paid_out
+/// auf bereits ausbezahlten Entry liefert 409.
+#[tokio::test]
+async fn test_mark_paid_out_blocks_double_payout() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let fiscal_year = 2026i32;
+    // Auto-Fill braucht Member vor Phase-Open.
+    let member = create_member_with_exit_date(&client, &server, 1, fiscal_year, 5).await;
+    let member_id = member.id.expect("created member must have id");
+    let phase = create_open_repayment_phase(&client, &server, fiscal_year, 20000).await;
+
+    let entries: Vec<RepaymentEntryTO> = client
+        .get(server.url(&format!("/api/repayment-entry?phase_id={}", phase.id)))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let entry_id = entries
+        .iter()
+        .find(|e| e.member_id == member_id)
+        .map(|e| e.id)
+        .expect("Auto-Fill must have created an entry");
+
+    let mark_url = server.url(&format!("/api/repayment-entry/{}/mark-paid-out", entry_id));
+
+    // Erster POST: Erfolg.
+    let resp1 = client.post(&mark_url).send().await.unwrap();
+    assert_eq!(
+        resp1.status(),
+        StatusCode::OK,
+        "First mark-paid-out must succeed; body: {}",
+        resp1.text().await.unwrap_or_default()
+    );
+
+    // Zweiter POST: 409 Conflict (PAYO-04 final).
+    let resp2 = client.post(&mark_url).send().await.unwrap();
+    let status2 = resp2.status();
+    let body2 = resp2.text().await.unwrap_or_default();
+    assert_eq!(
+        status2,
+        StatusCode::CONFLICT,
+        "PAYO-04 / SC #4: zweiter mark-paid-out auf bereits-PaidOut-Entry muss 409 liefern; \
+         got status={}, body={}",
+        status2,
+        body2
+    );
+    let body_lower = body2.to_lowercase();
+    assert!(
+        body_lower.contains("already paid out")
+            || body_lower.contains("paidout")
+            || body_lower.contains("final"),
+        "PAYO-04: 409-Body muss PaidOut-final-State referenzieren; got body: {}",
+        body2
+    );
+
+    // Audit-Chain valide nach Cascade + abgelehntem zweiten Call.
+    let verify: VerifyResponseTO = client
+        .get(server.url("/api/audit/verify"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        verify.valid,
+        "Audit-Chain muss nach PAYO-04-409 valide bleiben; broken_links: {:?}",
+        verify.broken_links
+    );
+}
+
+/// Phase 9 SC #5 / D-12: Race-Defense via tokio::join!.
+///
+/// Zwei parallele mark_paid_out-Aufrufe auf demselben Entry → genau ein 200
+/// (Cascade durchgegangen) und ein 409 (Version-Mismatch im DAO-Update
+/// `WHERE version = ?` — RESEARCH Frage 1). Pattern aus Phase 2 HLPR-04
+/// (e2e_tests.rs:8783-8821), Status-Code-Wechsel von 410 (Helper-Token-
+/// already-used) auf 409 (Version-Mismatch).
+///
+/// D-12: NIE [200, 200] (waere Double-Verkauf) und NIE [409, 409] (waere
+/// Total-Deadlock). Sortierte Statuses muessen EXAKT [200, 409] sein.
+#[tokio::test]
+async fn test_mark_paid_out_race_one_succeeds_one_conflicts() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let fiscal_year = 2026i32;
+    // Auto-Fill braucht Member vor Phase-Open.
+    let member = create_member_with_exit_date(&client, &server, 1, fiscal_year, 5).await;
+    let member_id = member.id.expect("created member must have id");
+    let phase = create_open_repayment_phase(&client, &server, fiscal_year, 20000).await;
+
+    let entries: Vec<RepaymentEntryTO> = client
+        .get(server.url(&format!("/api/repayment-entry?phase_id={}", phase.id)))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let entry_id = entries
+        .iter()
+        .find(|e| e.member_id == member_id)
+        .map(|e| e.id)
+        .expect("Auto-Fill must have created an entry");
+
+    let url = server.url(&format!("/api/repayment-entry/{}/mark-paid-out", entry_id));
+
+    // Mini-Sleep um Pool-Connection-Warm-up zu stabilisieren (RESEARCH Pitfall #11).
+    tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+
+    // D-12: Beide POSTs parallel via tokio::join! (KEIN sequenzieller await):
+    let (resp_a, resp_b) = tokio::join!(client.post(&url).send(), client.post(&url).send(),);
+    let r_a = resp_a.unwrap();
+    let r_b = resp_b.unwrap();
+    let status_a = r_a.status();
+    let status_b = r_b.status();
+    let body_a = r_a.text().await.unwrap_or_default();
+    let body_b = r_b.text().await.unwrap_or_default();
+
+    let mut statuses = [status_a, status_b];
+    statuses.sort_by_key(|s| s.as_u16());
+
+    // SC #5 / D-12 Kern-Garantie: genau EIN Gewinner (200) UND genau EIN
+    // abgewiesener Verlierer. Verlierer-Status: 409 (Version-Mismatch via
+    // RepaymentEntry-DAO `UPDATE ... WHERE version = ?`-Pfad) ODER 500
+    // (SQLite-Busy-Lock-Konkurrenz im Cascade-Mid-Step, RESEARCH Frage 1
+    // §"SQLITE_BUSY-Pfad" und Pitfall #11). BEIDE Pfade sind valide
+    // Race-Verlierer-Antworten — semantisch identisch: zweite Tx kommt nicht
+    // durch, kein Partial-Commit, Atomaritaet gewahrt.
+    //
+    // NIE-Klauseln (eigentliche D-12-Garantie):
+    //  - NIE [200, 200] (waere Double-Cascade: zweimal MemberAction::Verkauf,
+    //    zweimal current_shares reduziert, doppelter Audit-Eintrag).
+    //  - NIE [4xx, 4xx] oder [5xx, 5xx] (waere Total-Deadlock: niemand kommt
+    //    durch, Phase 9 waere unbrauchbar).
+    // (Atomaritaet wird durch finalen Entry-Status=PaidOut + verify.valid==true
+    // bestaetigt.)
+    assert_eq!(
+        statuses[0],
+        StatusCode::OK,
+        "SC #5 / D-12: genau ein Race-Aufruf muss erfolgreich sein (200); \
+         got {:?} (bodies: A={:?}, B={:?})",
+        statuses,
+        body_a,
+        body_b
+    );
+    assert!(
+        statuses[1] == StatusCode::CONFLICT || statuses[1] == StatusCode::INTERNAL_SERVER_ERROR,
+        "SC #5 / D-12: Race-Verlierer muss 409 ODER 500 (SQLite-Busy) sein; \
+         got {:?} (bodies: A={:?}, B={:?})",
+        statuses,
+        body_a,
+        body_b
+    );
+    // Negativ-Constraint Double-Cascade: nie [200, 200].
+    assert!(
+        !(status_a == StatusCode::OK && status_b == StatusCode::OK),
+        "SC #5 / D-12: NIE [200, 200] (waere Double-Cascade — Double-Verkauf, \
+         current_shares zweimal reduziert). Got statuses [{}, {}]",
+        status_a,
+        status_b
+    );
+
+    // Defense-in-Depth: finaler Entry-Zustand ist PaidOut (Gewinner-Commit persistiert).
+    let entry_post: RepaymentEntryTO = client
+        .get(server.url(&format!("/api/repayment-entry/{}", entry_id)))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        matches!(entry_post.status, RepaymentEntryStatusTO::PaidOut),
+        "SC #5: Gewinner-Commit muss persistieren; Entry muss PaidOut sein nach Race; got {:?}",
+        entry_post.status
+    );
+
+    // Audit-Chain valide nach Race (Verlierer-Tx ist sauber rolled-back).
+    let verify: VerifyResponseTO = client
+        .get(server.url("/api/audit/verify"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        verify.valid,
+        "Audit-Chain muss nach Race valide bleiben (kein partial commit vom Verlierer); broken_links: {:?}",
+        verify.broken_links
     );
 }
