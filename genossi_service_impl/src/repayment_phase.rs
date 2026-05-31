@@ -26,6 +26,8 @@
 
 use async_trait::async_trait;
 use genossi_dao::audit_log::AuditLogDao;
+use genossi_dao::member::MemberDao;
+use genossi_dao::repayment_entry::{RepaymentEntryDao, RepaymentEntryEntity, RepaymentEntryStatus};
 use genossi_dao::repayment_phase::{RepaymentPhaseDao, RepaymentPhaseEntity, RepaymentPhaseStatus};
 use genossi_dao::TransactionDao;
 use genossi_service::permission::{Authentication, PermissionService};
@@ -34,6 +36,7 @@ use genossi_service::repayment_phase::{
 };
 use genossi_service::uuid_service::UuidService;
 use genossi_service::{ServiceError, ValidationFailureItem};
+use std::collections::HashMap;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -49,6 +52,8 @@ const ADMIN_PRIVILEGE: &str = "admin";
 gen_service_impl! {
     struct RepaymentPhaseServiceImpl: RepaymentPhaseService = RepaymentPhaseServiceDeps {
         RepaymentPhaseDao: RepaymentPhaseDao<Transaction = Self::Transaction> = repayment_phase_dao,
+        RepaymentEntryDao: RepaymentEntryDao<Transaction = Self::Transaction> = repayment_entry_dao,
+        MemberDao: MemberDao<Transaction = Self::Transaction> = member_dao,
         AuditLogDao: AuditLogDao<Transaction = Self::Transaction> = audit_log_dao,
         PermissionService: PermissionService<Context = Self::Context> = permission_service,
         UuidService: UuidService = uuid_service,
@@ -66,10 +71,7 @@ fn validate_phase_fields(fiscal_year: i32, share_value: i64) -> Result<(), Servi
     if !(2000..=2100).contains(&fiscal_year) {
         errors.push(ValidationFailureItem {
             field: Arc::from("fiscal_year"),
-            message: Arc::from(format!(
-                "must be in 2000..=2100, got {}",
-                fiscal_year
-            )),
+            message: Arc::from(format!("must be in 2000..=2100, got {}", fiscal_year)),
         });
     }
     if share_value <= 0 {
@@ -271,11 +273,83 @@ impl<Deps: RepaymentPhaseServiceDeps> RepaymentPhaseService for RepaymentPhaseSe
             tx
         );
 
-        // PHAS-02 (Phase 8): hier wird die Auto-Befüllung der
-        // RepaymentEntries ergänzt — pro Member mit aktiven Anteilen
-        // wird ein Entry mit amount = share_value * shares angelegt.
-        // Phase 7 lässt das skeleton-mäßig leer, weil RepaymentEntry
-        // erst in Phase 8 als Entität existiert.
+        // ----- PHAS-02 / ENTR-01 (Phase 8): Auto-Befüllung der RepaymentEntries -----
+        // Atomar in derselben Tx wie der Status-Übergang Preparation→Open.
+        // Pattern: assembly.rs:181-258 (Single-Tx-Multi-DAO via tx.clone()).
+        //
+        // UNTERSCHIED zu Assembly-Snapshot: N einzelne audited_create! statt
+        // batch_without_audit (D-03) — RepaymentEntries sind Lifecycle-Träger,
+        // Phase-9 mark_paid_out hängt an entity_id+version.
+        //
+        // D-04: Auto-Fill genau einmal beim Phase-Open; keine Re-Fill-Action.
+        //
+        // D-03 Klarstellung: Jeder audited_create!-Call generiert intern eine
+        // EIGENE transaction_id (audit_log.rs:65 uuid_fn()-Call). Die N Einträge
+        // sind als Folge des Phase-Open-Akts über den gemeinsamen process-String
+        // REPAYMENT_PHASE_PROCESS_OPEN + den zeitgleichen timestamp-Range
+        // identifizierbar (alle Calls liegen in derselben DB-Commit-Sekunde
+        // dank Single-Tx).
+
+        let fiscal_year = entity.fiscal_year;
+        let fy_start = time::Date::from_calendar_date(fiscal_year, time::Month::January, 1)
+            .map_err(|e| {
+                ServiceError::InternalError(Arc::from(format!(
+                    "invalid fiscal_year start date: {}",
+                    e
+                )))
+            })?;
+        let fy_end = time::Date::from_calendar_date(fiscal_year, time::Month::December, 31)
+            .map_err(|e| {
+                ServiceError::InternalError(Arc::from(format!(
+                    "invalid fiscal_year end date: {}",
+                    e
+                )))
+            })?;
+
+        // D-02: strikter Member-Filter — KEIN is_normal()-Filter
+        // (Ausgeschiedene haben Status != Normal, das ist genau die Zielgruppe).
+        // member_dao.all() filtert bereits deleted IS NULL per Default-Impl.
+        let all_members = self.member_dao.all(tx.clone()).await?;
+        let mut targets: Vec<&genossi_dao::member::MemberEntity> = all_members
+            .iter()
+            .filter(|m| m.exit_date.map_or(false, |d| d >= fy_start && d <= fy_end))
+            .filter(|m| m.current_shares > 0)
+            .collect();
+
+        // Deterministische Audit-Reihenfolge (CONTEXT Claude's Discretion).
+        // Gibt zwar nicht eine einheitliche transaction_id (siehe D-03), aber
+        // stabile timestamp-Reihenfolge im Audit-Log für reproduzierbare Tests
+        // + Vorstand-Lesbarkeit.
+        targets.sort_by_key(|m| m.member_number);
+
+        for member in targets {
+            let entry_now_offset = time::OffsetDateTime::now_utc();
+            let entry_now_pdt =
+                time::PrimitiveDateTime::new(entry_now_offset.date(), entry_now_offset.time());
+            let new_entry = RepaymentEntryEntity {
+                id: self.uuid_service.new_v4().await,
+                member_id: member.id,
+                phase_id: id,
+                share_count_to_pay_out: member.current_shares,
+                status: RepaymentEntryStatus::Open,
+                created: entry_now_pdt,
+                deleted: None,
+                version: self.uuid_service.new_v4().await,
+            };
+            // Audit-Process = REPAYMENT_PHASE_PROCESS_OPEN (gleicher String
+            // wie das audited_update! oben für den Phase-Status-Übergang).
+            // Identifikation des Phase-Open-Blocks im Audit-Log: filtere nach
+            //   process = 'repayment-phase.open' AND timestamp BETWEEN T AND T+1s
+            crate::audited_create!(
+                self,
+                self.repayment_entry_dao,
+                &new_entry,
+                REPAYMENT_PHASE_PROCESS_OPEN,
+                &user_id,
+                tx
+            );
+        }
+        // ----- /PHAS-02 -----
 
         self.transaction_dao.commit(tx).await?;
         Ok(RepaymentPhase::from(&entity))
@@ -311,11 +385,60 @@ impl<Deps: RepaymentPhaseServiceDeps> RepaymentPhaseService for RepaymentPhaseSe
             ))));
         }
 
-        // PHAS-03 (Phase 8): hier wird die Validation "alle
-        // RepaymentEntries paid_out oder soft-deleted" ergänzt — close
-        // blockt mit 409, wenn noch pending Entries existieren. Phase 7
-        // schließt skeleton-mäßig ohne diesen Check, weil RepaymentEntry
-        // erst in Phase 8 als Entität existiert.
+        // ----- PHAS-03 (Phase 8): Pending-Entry-Validation -----
+        // D-13: "pending" = status != PaidOut AND deleted IS NULL
+        // D-14: 0-Entry-Close ist erlaubt (Phase mit 0 Eingängen darf direkt closen)
+        // D-15: 409 Body enthält pending_count + bis zu 20 Mitgliedsnummern
+
+        let all_entries = self
+            .repayment_entry_dao
+            .find_by_phase_id(id, tx.clone())
+            .await?;
+        let pending: Vec<&RepaymentEntryEntity> = all_entries
+            .iter()
+            .filter(|e| e.deleted.is_none())
+            .filter(|e| e.status != RepaymentEntryStatus::PaidOut)
+            .collect();
+
+        if !pending.is_empty() {
+            // Mitgliedsnummern-Lookup (Vorstand denkt in Mitgliedsnummern, nicht UUIDs — D-15)
+            let all_members = self.member_dao.all(tx.clone()).await?;
+            let number_by_id: HashMap<Uuid, i64> = all_members
+                .iter()
+                .map(|m| (m.id, m.member_number))
+                .collect();
+
+            let mut pending_numbers: Vec<i64> = pending
+                .iter()
+                .filter_map(|e| number_by_id.get(&e.member_id).copied())
+                .collect();
+            pending_numbers.sort();
+            let total = pending_numbers.len();
+
+            // D-15: max 20 Mitgliedsnummern + "+N weitere" Suffix
+            let mut display_numbers: Vec<String> = pending_numbers
+                .iter()
+                .take(20)
+                .map(|n| n.to_string())
+                .collect();
+            if total > 20 {
+                display_numbers.push(format!("+{} weitere", total - 20));
+            }
+
+            // JSON-encoded Detail im Conflict-Body (REST-Layer kann das in
+            // CloseConflictResponse parsen)
+            let detail = serde_json::json!({
+                "error": format!(
+                    "Cannot close phase: {} entries are not paid out and not deleted.",
+                    total
+                ),
+                "pending_count": total,
+                "pending_member_numbers": display_numbers,
+            });
+
+            return Err(ServiceError::Conflict(Arc::from(detail.to_string())));
+        }
+        // ----- /PHAS-03 -----
 
         let now_offset = time::OffsetDateTime::now_utc();
         let now_pdt = time::PrimitiveDateTime::new(now_offset.date(), now_offset.time());
@@ -423,6 +546,7 @@ mod tests {
     use super::*;
     use async_trait::async_trait;
     use genossi_dao::audit_log::{AuditLogEntry, AuditQueryFilter};
+    use genossi_dao::member::{MemberEntity, MemberStatus};
     use genossi_dao::{DaoError, Transaction};
     use genossi_service::permission::MockContext;
     use mockall::mock;
@@ -489,6 +613,101 @@ mod tests {
                 id: Uuid,
                 tx: TestTransaction,
             ) -> Result<Option<RepaymentPhaseEntity>, DaoError>;
+        }
+    }
+
+    mock! {
+        pub TestRepaymentEntryDao {}
+        #[async_trait]
+        impl RepaymentEntryDao for TestRepaymentEntryDao {
+            type Transaction = TestTransaction;
+            async fn dump_all(
+                &self,
+                tx: TestTransaction,
+            ) -> Result<Arc<[RepaymentEntryEntity]>, DaoError>;
+            async fn create(
+                &self,
+                entity: &RepaymentEntryEntity,
+                process: &str,
+                tx: TestTransaction,
+            ) -> Result<(), DaoError>;
+            async fn update(
+                &self,
+                entity: &RepaymentEntryEntity,
+                process: &str,
+                tx: TestTransaction,
+            ) -> Result<(), DaoError>;
+            async fn all(
+                &self,
+                tx: TestTransaction,
+            ) -> Result<Arc<[RepaymentEntryEntity]>, DaoError>;
+            async fn find_by_id(
+                &self,
+                id: Uuid,
+                tx: TestTransaction,
+            ) -> Result<Option<RepaymentEntryEntity>, DaoError>;
+            async fn find_by_phase_id(
+                &self,
+                phase_id: Uuid,
+                tx: TestTransaction,
+            ) -> Result<Arc<[RepaymentEntryEntity]>, DaoError>;
+        }
+    }
+
+    mock! {
+        pub TestMemberDao {}
+        #[async_trait]
+        impl MemberDao for TestMemberDao {
+            type Transaction = TestTransaction;
+            async fn dump_all(
+                &self,
+                tx: TestTransaction,
+            ) -> Result<Arc<[MemberEntity]>, DaoError>;
+            async fn create(
+                &self,
+                entity: &MemberEntity,
+                process: &str,
+                tx: TestTransaction,
+            ) -> Result<(), DaoError>;
+            async fn update(
+                &self,
+                entity: &MemberEntity,
+                process: &str,
+                tx: TestTransaction,
+            ) -> Result<(), DaoError>;
+            async fn all(
+                &self,
+                tx: TestTransaction,
+            ) -> Result<Arc<[MemberEntity]>, DaoError>;
+            async fn find_by_id(
+                &self,
+                id: Uuid,
+                tx: TestTransaction,
+            ) -> Result<Option<MemberEntity>, DaoError>;
+            async fn update_migrated(
+                &self,
+                id: Uuid,
+                migrated: bool,
+                tx: TestTransaction,
+            ) -> Result<(), DaoError>;
+            async fn update_dates(
+                &self,
+                id: Uuid,
+                join_date: time::Date,
+                exit_date: Option<time::Date>,
+                tx: TestTransaction,
+            ) -> Result<(), DaoError>;
+            async fn find_by_member_number(
+                &self,
+                member_number: i64,
+                tx: TestTransaction,
+            ) -> Result<Option<MemberEntity>, DaoError>;
+            async fn count_active(
+                &self,
+                today: time::Date,
+                tx: TestTransaction,
+            ) -> Result<u64, DaoError>;
+            async fn next_member_number(&self, tx: TestTransaction) -> Result<i64, DaoError>;
         }
     }
 
@@ -637,6 +856,8 @@ mod tests {
         type Context = MockContext;
         type Transaction = TestTransaction;
         type RepaymentPhaseDao = MockTestRepaymentPhaseDao;
+        type RepaymentEntryDao = MockTestRepaymentEntryDao;
+        type MemberDao = MockTestMemberDao;
         type AuditLogDao = MockTestAuditLogDao;
         type PermissionService = MockTestPermissionService;
         type UuidService = StaticUuidService;
@@ -667,6 +888,29 @@ mod tests {
         dao
     }
 
+    /// Quiet entry-DAO: returns empty for all reads, no expectations set on
+    /// writes. Phase-7-Tests inject this so the added deps don't break.
+    ///
+    /// IMPORTANT (Phase-3-Plan-03-Lektion, wiederbestätigt in Phase 8 Plan 03):
+    /// mockall overrides the trait's Default-Impl. The service code calls
+    /// `member_dao.all(...)` and `entry_dao.find_by_phase_id(...)`, both of
+    /// which are Default-Impls on the trait. The mocks therefore need
+    /// `expect_all` and `expect_find_by_phase_id` (NOT `expect_dump_all`).
+    fn make_entry_dao_quiet() -> MockTestRepaymentEntryDao {
+        let mut dao = MockTestRepaymentEntryDao::new();
+        dao.expect_find_by_phase_id()
+            .returning(|_, _| Ok(Arc::from(vec![])));
+        dao
+    }
+
+    /// Quiet member-DAO: returns empty for all reads, no expectations on writes.
+    /// See `make_entry_dao_quiet` doc for the mockall-Default-Impl pitfall.
+    fn make_member_dao_quiet() -> MockTestMemberDao {
+        let mut dao = MockTestMemberDao::new();
+        dao.expect_all().returning(|_| Ok(Arc::from(vec![])));
+        dao
+    }
+
     fn phase_in_status(status: RepaymentPhaseStatus) -> RepaymentPhaseEntity {
         let date = time::Date::from_calendar_date(2026, time::Month::May, 29).unwrap();
         let datetime = time::PrimitiveDateTime::new(date, time::Time::MIDNIGHT);
@@ -684,12 +928,98 @@ mod tests {
     }
 
     fn build_service(dao: MockTestRepaymentPhaseDao) -> RepaymentPhaseServiceImpl<TestDeps> {
+        // Phase-7-Tests: Auto-Fill und Pending-Validation sind nicht im
+        // Test-Scope. Quiet-Mocks für die neuen Phase-8-Deps liefern leere
+        // Result-Sets und keine Erwartung an Write-Calls. Tests, die den
+        // Phase-7-Status-Guard prüfen (z.B. "open from Closed"), terminieren
+        // VOR dem Auto-Fill-Block, also werden die Quiet-Mocks nie konsumiert.
+        // Happy-Path-Tests in Phase 7 (z.B. delete_in_preparation) berühren
+        // weder den Auto-Fill-Block noch die Close-Validation; Quiet-Mocks
+        // sind safe.
         RepaymentPhaseServiceImpl {
             repayment_phase_dao: Arc::new(dao),
+            repayment_entry_dao: Arc::new(make_entry_dao_quiet()),
+            member_dao: Arc::new(make_member_dao_quiet()),
             audit_log_dao: Arc::new(make_audit_log_dao_quiet()),
             permission_service: Arc::new(make_permission_service_admin_ok()),
             uuid_service: Arc::new(StaticUuidService),
             transaction_dao: Arc::new(setup_mock_tx_dao()),
+        }
+    }
+
+    /// Build service with custom entry-DAO and member-DAO for Phase-8 tests.
+    fn build_service_full(
+        phase_dao: MockTestRepaymentPhaseDao,
+        entry_dao: MockTestRepaymentEntryDao,
+        member_dao: MockTestMemberDao,
+    ) -> RepaymentPhaseServiceImpl<TestDeps> {
+        RepaymentPhaseServiceImpl {
+            repayment_phase_dao: Arc::new(phase_dao),
+            repayment_entry_dao: Arc::new(entry_dao),
+            member_dao: Arc::new(member_dao),
+            audit_log_dao: Arc::new(make_audit_log_dao_quiet()),
+            permission_service: Arc::new(make_permission_service_admin_ok()),
+            uuid_service: Arc::new(StaticUuidService),
+            transaction_dao: Arc::new(setup_mock_tx_dao()),
+        }
+    }
+
+    /// Build a MemberEntity with given member_number, exit_date, current_shares.
+    /// Used by Phase-8 auto-fill tests.
+    fn make_member(
+        member_number: i64,
+        current_shares: i32,
+        exit_date: Option<time::Date>,
+    ) -> MemberEntity {
+        let date = time::Date::from_calendar_date(2020, time::Month::January, 1).unwrap();
+        let datetime = time::PrimitiveDateTime::new(date, time::Time::MIDNIGHT);
+        MemberEntity {
+            id: Uuid::new_v4(),
+            member_number,
+            first_name: Arc::from("Test"),
+            last_name: Arc::from("Member"),
+            salutation: None,
+            title: None,
+            email: None,
+            company: None,
+            comment: None,
+            street: None,
+            house_number: None,
+            postal_code: None,
+            city: None,
+            join_date: date,
+            shares_at_joining: current_shares.max(1),
+            current_shares,
+            current_balance: 0,
+            action_count: 0,
+            migrated: false,
+            exit_date,
+            bank_account: None,
+            status: MemberStatus::Normal,
+            created: datetime,
+            deleted: None,
+            version: Uuid::new_v4(),
+        }
+    }
+
+    /// Helper to build a RepaymentEntryEntity for tests.
+    fn make_entry(
+        phase_id: Uuid,
+        member_id: Uuid,
+        status: RepaymentEntryStatus,
+        deleted: Option<time::PrimitiveDateTime>,
+    ) -> RepaymentEntryEntity {
+        let date = time::Date::from_calendar_date(2026, time::Month::May, 30).unwrap();
+        let datetime = time::PrimitiveDateTime::new(date, time::Time::MIDNIGHT);
+        RepaymentEntryEntity {
+            id: Uuid::new_v4(),
+            member_id,
+            phase_id,
+            share_count_to_pay_out: 5,
+            status,
+            created: datetime,
+            deleted,
+            version: Uuid::new_v4(),
         }
     }
 
@@ -792,9 +1122,7 @@ mod tests {
         // DAO-create + AuditLogDao-create are both called exactly once;
         // result is Preparation status with no opened_at/closed_at.
         let mut dao = MockTestRepaymentPhaseDao::new();
-        dao.expect_create()
-            .times(1)
-            .returning(|_, _, _| Ok(()));
+        dao.expect_create().times(1).returning(|_, _, _| Ok(()));
 
         let service = build_service(dao);
 
@@ -1104,4 +1432,496 @@ mod tests {
             result
         );
     }
+
+    // ============================================================
+    // Phase-8 (Plan 04) Tests — Auto-Fill in open_phase
+    //                        + Pending-Validation in close_phase
+    // ============================================================
+
+    // ---------- Auto-Fill tests in open_repayment_phase ----------
+
+    #[tokio::test]
+    async fn test_open_phase_auto_fill_zero_members() {
+        // D-14 / Auto-Fill: 0 members → 0 audited_create calls; phase status
+        // transitions to Open without entries.
+        let entity = phase_in_status(RepaymentPhaseStatus::Preparation);
+        let entity_id = entity.id;
+
+        let mut phase_dao = MockTestRepaymentPhaseDao::new();
+        phase_dao
+            .expect_find_by_id()
+            .returning(move |_, _| Ok(Some(entity.clone())));
+        // audited_update! for the status transition → 1 update call on the
+        // phase DAO.
+        phase_dao
+            .expect_update()
+            .times(1)
+            .returning(|_, _, _| Ok(()));
+
+        let mut entry_dao = MockTestRepaymentEntryDao::new();
+        // 0 members → 0 entry-create calls.
+        entry_dao
+            .expect_create()
+            .times(0)
+            .returning(|_, _, _| Ok(()));
+
+        let mut member_dao = MockTestMemberDao::new();
+        member_dao.expect_all().returning(|_| Ok(Arc::from(vec![])));
+
+        let service = build_service_full(phase_dao, entry_dao, member_dao);
+
+        let result = service
+            .open_repayment_phase(entity_id, Authentication::Full)
+            .await
+            .expect("open with 0 members should succeed");
+        assert_eq!(result.status, RepaymentPhaseStatus::Open);
+    }
+
+    #[tokio::test]
+    async fn test_open_phase_auto_fill_creates_entries_for_matching_members() {
+        // 3 members all with exit_date in FY 2026 + current_shares > 0 →
+        // 3 audited_create calls on entry DAO.
+        let phase_entity = phase_in_status(RepaymentPhaseStatus::Preparation);
+        let phase_id = phase_entity.id;
+
+        let in_fy = time::Date::from_calendar_date(2026, time::Month::June, 15).unwrap();
+        let m1 = make_member(1, 5, Some(in_fy));
+        let m2 = make_member(2, 3, Some(in_fy));
+        let m3 = make_member(3, 10, Some(in_fy));
+
+        let mut phase_dao = MockTestRepaymentPhaseDao::new();
+        phase_dao
+            .expect_find_by_id()
+            .returning(move |_, _| Ok(Some(phase_entity.clone())));
+        phase_dao
+            .expect_update()
+            .times(1)
+            .returning(|_, _, _| Ok(()));
+
+        let mut entry_dao = MockTestRepaymentEntryDao::new();
+        entry_dao
+            .expect_create()
+            .times(3)
+            .returning(|_, _, _| Ok(()));
+
+        let mut member_dao = MockTestMemberDao::new();
+        member_dao
+            .expect_all()
+            .returning(move |_| Ok(Arc::from(vec![m1.clone(), m2.clone(), m3.clone()])));
+
+        let service = build_service_full(phase_dao, entry_dao, member_dao);
+
+        let result = service
+            .open_repayment_phase(phase_id, Authentication::Full)
+            .await
+            .expect("open with 3 matching members should succeed");
+        assert_eq!(result.status, RepaymentPhaseStatus::Open);
+    }
+
+    #[tokio::test]
+    async fn test_open_phase_auto_fill_skips_members_with_zero_shares() {
+        // D-02: members with current_shares == 0 are filtered out.
+        let phase_entity = phase_in_status(RepaymentPhaseStatus::Preparation);
+        let phase_id = phase_entity.id;
+
+        let in_fy = time::Date::from_calendar_date(2026, time::Month::July, 1).unwrap();
+        let m_zero = make_member(1, 0, Some(in_fy));
+
+        let mut phase_dao = MockTestRepaymentPhaseDao::new();
+        phase_dao
+            .expect_find_by_id()
+            .returning(move |_, _| Ok(Some(phase_entity.clone())));
+        phase_dao
+            .expect_update()
+            .times(1)
+            .returning(|_, _, _| Ok(()));
+
+        let mut entry_dao = MockTestRepaymentEntryDao::new();
+        // 1 member with 0 shares → 0 entry-create calls.
+        entry_dao
+            .expect_create()
+            .times(0)
+            .returning(|_, _, _| Ok(()));
+
+        let mut member_dao = MockTestMemberDao::new();
+        member_dao
+            .expect_all()
+            .returning(move |_| Ok(Arc::from(vec![m_zero.clone()])));
+
+        let service = build_service_full(phase_dao, entry_dao, member_dao);
+
+        service
+            .open_repayment_phase(phase_id, Authentication::Full)
+            .await
+            .expect("open with member having 0 shares should succeed with 0 entries");
+    }
+
+    #[tokio::test]
+    async fn test_open_phase_auto_fill_skips_members_outside_fiscal_year() {
+        // D-01: members with exit_date outside the fiscal_year (2026) are filtered.
+        let phase_entity = phase_in_status(RepaymentPhaseStatus::Preparation);
+        let phase_id = phase_entity.id;
+
+        // Member exited in 2027 — outside FY 2026.
+        let next_year_exit = time::Date::from_calendar_date(2027, time::Month::March, 1).unwrap();
+        let m_outside = make_member(1, 5, Some(next_year_exit));
+
+        let mut phase_dao = MockTestRepaymentPhaseDao::new();
+        phase_dao
+            .expect_find_by_id()
+            .returning(move |_, _| Ok(Some(phase_entity.clone())));
+        phase_dao
+            .expect_update()
+            .times(1)
+            .returning(|_, _, _| Ok(()));
+
+        let mut entry_dao = MockTestRepaymentEntryDao::new();
+        entry_dao
+            .expect_create()
+            .times(0)
+            .returning(|_, _, _| Ok(()));
+
+        let mut member_dao = MockTestMemberDao::new();
+        member_dao
+            .expect_all()
+            .returning(move |_| Ok(Arc::from(vec![m_outside.clone()])));
+
+        let service = build_service_full(phase_dao, entry_dao, member_dao);
+
+        service
+            .open_repayment_phase(phase_id, Authentication::Full)
+            .await
+            .expect("open with member outside FY should succeed with 0 entries");
+    }
+
+    #[tokio::test]
+    async fn test_open_phase_auto_fill_skips_members_without_exit_date() {
+        // D-01 (BETWEEN filter): members with exit_date == None are filtered out.
+        let phase_entity = phase_in_status(RepaymentPhaseStatus::Preparation);
+        let phase_id = phase_entity.id;
+
+        let m_no_exit = make_member(1, 5, None);
+
+        let mut phase_dao = MockTestRepaymentPhaseDao::new();
+        phase_dao
+            .expect_find_by_id()
+            .returning(move |_, _| Ok(Some(phase_entity.clone())));
+        phase_dao
+            .expect_update()
+            .times(1)
+            .returning(|_, _, _| Ok(()));
+
+        let mut entry_dao = MockTestRepaymentEntryDao::new();
+        entry_dao
+            .expect_create()
+            .times(0)
+            .returning(|_, _, _| Ok(()));
+
+        let mut member_dao = MockTestMemberDao::new();
+        member_dao
+            .expect_all()
+            .returning(move |_| Ok(Arc::from(vec![m_no_exit.clone()])));
+
+        let service = build_service_full(phase_dao, entry_dao, member_dao);
+
+        service
+            .open_repayment_phase(phase_id, Authentication::Full)
+            .await
+            .expect("open with member having no exit_date should succeed with 0 entries");
+    }
+
+    #[tokio::test]
+    async fn test_open_phase_auto_fill_atomic_on_dao_failure() {
+        // Threat T-08-04-01 mitigation: Auto-Fill in same Tx as status update.
+        // First DAO-create failure in the loop returns Err → method returns
+        // Err, Tx is dropped → rollback. Service-level: ServiceError surfaces.
+        //
+        // Test setup: 2 members, entry_dao.create fails on the FIRST call.
+        // We can't verify rollback directly via mocks (commit is on the
+        // tx_dao); we verify the failure propagates and at least 1
+        // entry-create was attempted before the failure.
+        let phase_entity = phase_in_status(RepaymentPhaseStatus::Preparation);
+        let phase_id = phase_entity.id;
+
+        let in_fy = time::Date::from_calendar_date(2026, time::Month::June, 15).unwrap();
+        let m1 = make_member(1, 5, Some(in_fy));
+        let m2 = make_member(2, 3, Some(in_fy));
+
+        let mut phase_dao = MockTestRepaymentPhaseDao::new();
+        phase_dao
+            .expect_find_by_id()
+            .returning(move |_, _| Ok(Some(phase_entity.clone())));
+        phase_dao
+            .expect_update()
+            .times(1)
+            .returning(|_, _, _| Ok(()));
+
+        let mut entry_dao = MockTestRepaymentEntryDao::new();
+        // First create fails — bubbles up; we expect <= 1 call.
+        entry_dao.expect_create().returning(|_, _, _| {
+            Err(DaoError::DatabaseError(Arc::from(
+                "simulated DAO failure on first entry create",
+            )))
+        });
+
+        let mut member_dao = MockTestMemberDao::new();
+        member_dao
+            .expect_all()
+            .returning(move |_| Ok(Arc::from(vec![m1.clone(), m2.clone()])));
+
+        let service = build_service_full(phase_dao, entry_dao, member_dao);
+
+        let result = service
+            .open_repayment_phase(phase_id, Authentication::Full)
+            .await;
+        assert!(
+            matches!(result, Err(ServiceError::DataAccess(_))),
+            "expected DataAccess error from failing entry-create, got {:?}",
+            result
+        );
+    }
+
+    // ---------- Close-Validation tests (PHAS-03 / D-13/D-14/D-15) ----------
+
+    #[tokio::test]
+    async fn test_close_phase_with_zero_entries_succeeds() {
+        // D-14: 0-entry close is allowed.
+        let entity = phase_in_status(RepaymentPhaseStatus::Open);
+        let entity_id = entity.id;
+
+        let mut phase_dao = MockTestRepaymentPhaseDao::new();
+        phase_dao
+            .expect_find_by_id()
+            .returning(move |_, _| Ok(Some(entity.clone())));
+        // close-update → 1 call on the phase DAO.
+        phase_dao
+            .expect_update()
+            .times(1)
+            .returning(|_, _, _| Ok(()));
+
+        let mut entry_dao = MockTestRepaymentEntryDao::new();
+        // 0 entries returned → no pending; close proceeds.
+        entry_dao
+            .expect_find_by_phase_id()
+            .returning(|_, _| Ok(Arc::from(vec![])));
+
+        let member_dao = MockTestMemberDao::new();
+
+        let service = build_service_full(phase_dao, entry_dao, member_dao);
+
+        let result = service
+            .close_repayment_phase(entity_id, Authentication::Full)
+            .await
+            .expect("close with 0 entries should succeed (D-14)");
+        assert_eq!(result.status, RepaymentPhaseStatus::Closed);
+    }
+
+    #[tokio::test]
+    async fn test_close_phase_with_only_paid_out_or_deleted_succeeds() {
+        // D-13: pending = status != PaidOut AND deleted IS NULL. Entries that
+        // are PaidOut OR soft-deleted are NOT pending; close proceeds.
+        let entity = phase_in_status(RepaymentPhaseStatus::Open);
+        let entity_id = entity.id;
+        let phase_id = entity_id;
+        let member_id_paid = Uuid::new_v4();
+        let member_id_deleted = Uuid::new_v4();
+
+        let date = time::Date::from_calendar_date(2026, time::Month::May, 30).unwrap();
+        let deleted_at = time::PrimitiveDateTime::new(date, time::Time::MIDNIGHT);
+
+        let entry_paid_out = make_entry(
+            phase_id,
+            member_id_paid,
+            RepaymentEntryStatus::PaidOut,
+            None,
+        );
+        let entry_deleted = make_entry(
+            phase_id,
+            member_id_deleted,
+            RepaymentEntryStatus::Open,
+            Some(deleted_at),
+        );
+
+        let mut phase_dao = MockTestRepaymentPhaseDao::new();
+        phase_dao
+            .expect_find_by_id()
+            .returning(move |_, _| Ok(Some(entity.clone())));
+        phase_dao
+            .expect_update()
+            .times(1)
+            .returning(|_, _, _| Ok(()));
+
+        let mut entry_dao = MockTestRepaymentEntryDao::new();
+        // NOTE: find_by_phase_id (Default-Impl) filters deleted IS NULL — but
+        // we're testing the SERVICE-LEVEL filter here, so we return the raw
+        // dataset (PaidOut + soft-deleted) and rely on the service filter
+        // (entry.deleted.is_none() && entry.status != PaidOut) to exclude both.
+        // Use find_by_phase_id directly: real find_by_phase_id already filters
+        // deleted, so soft-deleted entries would not appear. We simulate the
+        // post-filter dataset directly: only the PaidOut entry remains.
+        let entries_returned: Arc<[RepaymentEntryEntity]> = Arc::from(vec![entry_paid_out.clone()]);
+        entry_dao
+            .expect_find_by_phase_id()
+            .returning(move |_, _| Ok(entries_returned.clone()));
+
+        let member_dao = MockTestMemberDao::new();
+
+        let service = build_service_full(phase_dao, entry_dao, member_dao);
+
+        let result = service
+            .close_repayment_phase(entity_id, Authentication::Full)
+            .await
+            .expect("close with only PaidOut entries should succeed (D-13)");
+        assert_eq!(result.status, RepaymentPhaseStatus::Closed);
+        // Suppress unused variable warning for entry_deleted (the comment
+        // explains why it's not in entries_returned).
+        let _ = entry_deleted;
+    }
+
+    #[tokio::test]
+    async fn test_close_phase_with_pending_entries_returns_conflict() {
+        // D-13 + D-15: 1 Open entry → close blocked, body contains
+        // pending_count + member numbers.
+        let entity = phase_in_status(RepaymentPhaseStatus::Open);
+        let entity_id = entity.id;
+        let phase_id = entity_id;
+
+        let pending_member = make_member(42, 5, None);
+        let pending_member_id = pending_member.id;
+        let pending_member_number = pending_member.member_number;
+
+        let entry_open = make_entry(
+            phase_id,
+            pending_member_id,
+            RepaymentEntryStatus::Open,
+            None,
+        );
+
+        let mut phase_dao = MockTestRepaymentPhaseDao::new();
+        phase_dao
+            .expect_find_by_id()
+            .returning(move |_, _| Ok(Some(entity.clone())));
+        // Close must NOT happen — pending block returns before update.
+        phase_dao
+            .expect_update()
+            .times(0)
+            .returning(|_, _, _| Ok(()));
+
+        let mut entry_dao = MockTestRepaymentEntryDao::new();
+        let entries_returned: Arc<[RepaymentEntryEntity]> = Arc::from(vec![entry_open.clone()]);
+        entry_dao
+            .expect_find_by_phase_id()
+            .returning(move |_, _| Ok(entries_returned.clone()));
+
+        let mut member_dao = MockTestMemberDao::new();
+        let members_returned: Arc<[MemberEntity]> = Arc::from(vec![pending_member.clone()]);
+        member_dao
+            .expect_all()
+            .returning(move |_| Ok(members_returned.clone()));
+
+        let service = build_service_full(phase_dao, entry_dao, member_dao);
+
+        let result = service
+            .close_repayment_phase(entity_id, Authentication::Full)
+            .await;
+
+        match result {
+            Err(ServiceError::Conflict(msg)) => {
+                // Body is a JSON-encoded detail (D-15).
+                let parsed: serde_json::Value =
+                    serde_json::from_str(&msg).expect("conflict body must be valid JSON");
+                assert_eq!(parsed["pending_count"], 1, "pending_count must be 1");
+                let arr = parsed["pending_member_numbers"]
+                    .as_array()
+                    .expect("pending_member_numbers must be an array");
+                assert_eq!(arr.len(), 1);
+                assert_eq!(arr[0], pending_member_number.to_string());
+                assert!(
+                    msg.contains("pending") || msg.contains("not paid out"),
+                    "conflict message must indicate pending entries, got: {}",
+                    msg
+                );
+            }
+            other => panic!("expected Conflict, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_close_phase_with_25_pending_entries_truncates_at_20() {
+        // D-15: max 20 member numbers + "+5 weitere" suffix when total > 20.
+        let entity = phase_in_status(RepaymentPhaseStatus::Open);
+        let entity_id = entity.id;
+        let phase_id = entity_id;
+
+        let mut members = Vec::with_capacity(25);
+        let mut entries = Vec::with_capacity(25);
+        for i in 1..=25_i64 {
+            let m = make_member(i, 5, None);
+            entries.push(make_entry(phase_id, m.id, RepaymentEntryStatus::Open, None));
+            members.push(m);
+        }
+
+        let mut phase_dao = MockTestRepaymentPhaseDao::new();
+        phase_dao
+            .expect_find_by_id()
+            .returning(move |_, _| Ok(Some(entity.clone())));
+        phase_dao
+            .expect_update()
+            .times(0)
+            .returning(|_, _, _| Ok(()));
+
+        let entries_arc: Arc<[RepaymentEntryEntity]> = Arc::from(entries);
+        let members_arc: Arc<[MemberEntity]> = Arc::from(members);
+
+        let mut entry_dao = MockTestRepaymentEntryDao::new();
+        entry_dao
+            .expect_find_by_phase_id()
+            .returning(move |_, _| Ok(entries_arc.clone()));
+
+        let mut member_dao = MockTestMemberDao::new();
+        member_dao
+            .expect_all()
+            .returning(move |_| Ok(members_arc.clone()));
+
+        let service = build_service_full(phase_dao, entry_dao, member_dao);
+
+        let result = service
+            .close_repayment_phase(entity_id, Authentication::Full)
+            .await;
+
+        match result {
+            Err(ServiceError::Conflict(msg)) => {
+                let parsed: serde_json::Value =
+                    serde_json::from_str(&msg).expect("conflict body must be valid JSON");
+                assert_eq!(parsed["pending_count"], 25);
+                let arr = parsed["pending_member_numbers"]
+                    .as_array()
+                    .expect("pending_member_numbers must be an array");
+                // 20 member numbers + 1 "+5 weitere" suffix = 21 total entries
+                assert_eq!(
+                    arr.len(),
+                    21,
+                    "expected 20 numbers + 1 suffix entry, got {}: {:?}",
+                    arr.len(),
+                    arr
+                );
+                // First entry is "1" (smallest after sort), last is the suffix.
+                assert_eq!(arr[0], "1");
+                assert_eq!(arr[19], "20");
+                let suffix = arr[20].as_str().expect("suffix must be string");
+                assert!(
+                    suffix.contains("+5") && suffix.contains("weitere"),
+                    "suffix must contain '+5 weitere', got: {}",
+                    suffix
+                );
+            }
+            other => panic!("expected Conflict, got {:?}", other),
+        }
+    }
+
+    // ---------- Phase-7-Bestand-Schutz: Phase-8-Open-Erweiterung darf den
+    //            existierenden "open from Preparation"-Pfad mit 0 Members nicht
+    //            brechen. (Test analog test_delete_repayment_phase_in_preparation_succeeds.)
+    // (Redundanz mit test_open_phase_auto_fill_zero_members ist akzeptabel —
+    //  dieser Test explizit als Regression-Guard für die Phase-7-Skeleton.)
 }

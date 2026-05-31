@@ -177,6 +177,10 @@ type AssemblyService =
 // kein Snapshot/MemberDao/HelperTokenDao/PermissionDao (Phase 7 ist simpler
 // als Assembly; PATTERNS §10 Minimal-Deps-Liste).
 type RepaymentPhaseDao = genossi_dao_impl_sqlite::repayment_phase::RepaymentPhaseDaoImpl;
+// Phase 8 Plan 04: RepaymentPhaseServiceImpl is extended with RepaymentEntryDao
+// + MemberDao deps so open_phase can auto-fill RepaymentEntries and close_phase
+// can validate pending entries in the same transaction.
+type RepaymentEntryDao = genossi_dao_impl_sqlite::repayment_entry::RepaymentEntryDaoImpl;
 
 pub struct RepaymentPhaseServiceDependencies;
 
@@ -189,6 +193,11 @@ impl genossi_service_impl::repayment_phase::RepaymentPhaseServiceDeps
     type Context = Context;
     type Transaction = Transaction;
     type RepaymentPhaseDao = RepaymentPhaseDao;
+    // Phase 8 Plan 04: open_phase auto-fills RepaymentEntries; close_phase
+    // validates pending entries — both need the entry + member DAOs in the
+    // same transaction as the status update.
+    type RepaymentEntryDao = RepaymentEntryDao;
+    type MemberDao = MemberDao;
     type AuditLogDao = AuditLogDao;
     type PermissionService = PermissionService;
     type UuidService = UuidService;
@@ -244,10 +253,9 @@ impl genossi_service_impl::attendance_export::AttendanceExportServiceDeps
     type TransactionDao = TransactionDao;
 }
 
-type AttendanceExportService =
-    genossi_service_impl::attendance_export::AttendanceExportServiceImpl<
-        AttendanceExportServiceDependencies,
-    >;
+type AttendanceExportService = genossi_service_impl::attendance_export::AttendanceExportServiceImpl<
+    AttendanceExportServiceDependencies,
+>;
 
 pub struct HelperTokenServiceDependencies;
 
@@ -698,13 +706,20 @@ impl RestStateImpl {
             permission_dao: permission_dao.clone(),
         });
 
-        // Phase 7 Plan 04: RepaymentPhaseServiceImpl wiring (5 deps).
+        // Phase 7 Plan 04: RepaymentPhaseServiceImpl wiring.
+        // Phase 8 Plan 04 extends to 7 deps: added RepaymentEntryDao + MemberDao
+        // so open_phase auto-fills RepaymentEntries and close_phase validates
+        // pending entries — both atomically in the same transaction as the
+        // status update (PHAS-02, PHAS-03).
         // Shares the same `audit_log_dao` Arc as all other audited services
         // (T-07-04-05 mitigation: single hash chain across the workspace).
         let repayment_phase_dao = Arc::new(RepaymentPhaseDao::new(pool.clone()));
+        let repayment_entry_dao_for_phase = Arc::new(RepaymentEntryDao::new(pool.clone()));
         let repayment_phase_service = Arc::new(
             genossi_service_impl::repayment_phase::RepaymentPhaseServiceImpl {
                 repayment_phase_dao,
+                repayment_entry_dao: repayment_entry_dao_for_phase,
+                member_dao: member_dao.clone(),
                 audit_log_dao: audit_log_dao.clone(),
                 permission_service: permission_service.clone(),
                 uuid_service: uuid_service.clone(),
