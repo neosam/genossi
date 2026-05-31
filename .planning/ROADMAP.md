@@ -107,14 +107,14 @@ Plans:
 4. Status `ausbezahlt` ist final — Toggle-Back-Versuch über REST liefert 409 Conflict
 5. Race-Test mit `tokio::join!` auf zwei parallele `mark_paid_out`-Calls auf dem gleichen Eintrag: genau einer geht durch, der andere `Conflict`
 
-**Plans:** 5 plans across 5 waves
+**Plans:** 2/5 plans executed
 
 Plans:
 **Wave 1**
 - [x] 09-01-PLAN.md — Backend-Cascade-Foundation: mark_paid_out-Trait + Impl + 6 Unit-Tests + TestMemberActionDao-Mock + compute_migration_status pub
 
 **Wave 2** *(blocked on 09-01 completion)*
-- [ ] 09-02-PLAN.md — REST-Handler POST /api/repayment-entry/{id}/mark-paid-out + OpenAPI (5 Status-Codes)
+- [x] 09-02-PLAN.md — REST-Handler POST /api/repayment-entry/{id}/mark-paid-out + OpenAPI (5 Status-Codes)
 
 **Wave 3** *(blocked on 09-02 completion)*
 - [ ] 09-03-PLAN.md — DI-Wiring: MemberActionDao an RepaymentEntryServiceImpl in genossi_bin/src/lib.rs
@@ -176,7 +176,7 @@ Plans:
 | 6. Teilnehmerlisten-Export für Generalversammlungen             | v1.0      | 4/4            | Complete                | 2026-05-17 |
 | 7. RepaymentPhase Backend (Foundation)                          | v1.1      | 4/5 | In Progress|  |
 | 8. RepaymentEntry + Auto-Befüllung                              | v1.1      | 10/10 | Complete   | 2026-05-31 |
-| 9. Auszahlungs-Buchung (atomisch + auditiert)                   | v1.1      | 0/5 | Planned    |  |
+| 9. Auszahlungs-Buchung (atomisch + auditiert)                   | v1.1      | 2/5 | In Progress|  |
 | 10. Massenmail-Anbindung + Template-Variablen                   | v1.1      | 0/?            | Pending                 | —          |
 | 11. Export (PDF + CSV)                                          | v1.1      | 0/?            | Pending                 | —          |
 | 12. Frontend (Component-First)                                  | v1.1      | 0/?            | Pending                 | —          |
