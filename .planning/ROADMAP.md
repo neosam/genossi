@@ -117,7 +117,7 @@ Plans:
 - [x] 09-02-PLAN.md — REST-Handler POST /api/repayment-entry/{id}/mark-paid-out + OpenAPI (5 Status-Codes)
 
 **Wave 3** *(blocked on 09-02 completion)*
-- [ ] 09-03-PLAN.md — DI-Wiring: MemberActionDao an RepaymentEntryServiceImpl in genossi_bin/src/lib.rs
+- [x] 09-03-PLAN.md — DI-Wiring: MemberActionDao an RepaymentEntryServiceImpl in genossi_bin/src/lib.rs
 
 **Wave 4** *(blocked on 09-03 completion)*
 - [ ] 09-04-PLAN.md — 4 E2E-Tests: Happy-Path + PAYO-03 + PAYO-04 + Race (tokio::join!) + Audit-Chain-Verify
