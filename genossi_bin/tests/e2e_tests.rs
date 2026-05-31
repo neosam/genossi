@@ -12793,3 +12793,489 @@ async fn create_mail_template(
         .expect("mail template response must include id");
     uuid::Uuid::parse_str(id_str).expect("template id must be a valid UUID")
 }
+
+// =====================================================================
+// Phase 10 Plan 08 Task 1: 5 E2E-Tests
+// (covers ROADMAP MAIL-01..04, SC#1..4 + audit-chain + PII-safety + D-10)
+// =====================================================================
+
+/// Phase 10 SC#3 + D-12: bulk repayment-mail creates one MemberDocument per
+/// member-recipient, each with template_id, mail_recipient_id, status set.
+///
+/// Setup: RepaymentPhase(fiscal_year=2026, share_value=2000c -> 20 EUR/Anteil);
+/// 3 Members with exit_date in 2026 -> Auto-Fill creates 3 RepaymentEntries
+/// (Open status). Bulk-send with template_id + repayment_phase_id. Worker
+/// merges payout_amount/share_count/fiscal_year per recipient, attempts SMTP
+/// send (stub host:port refuses -> failed), writes 3 MemberDocuments.
+#[tokio::test]
+async fn test_bulk_repayment_mail_creates_member_documents_per_recipient() {
+    let (server, pool) = setup_with_mail_worker().await;
+    let client = reqwest::Client::new();
+
+    let phase = create_open_repayment_phase(&client, &server, 2026, 2000).await;
+    let m1 = create_member_with_exit_date(&client, &server, 101, 2026, 3).await;
+    let m2 = create_member_with_exit_date(&client, &server, 102, 2026, 5).await;
+    let m3 = create_member_with_exit_date(&client, &server, 103, 2026, 2).await;
+    // Members were created AFTER the phase was opened, so we need to re-open
+    // (close + create + open) — but actually open_repayment_phase already
+    // ran auto-fill at phase-open time over zero members. We need members
+    // present BEFORE the phase opens for auto-fill to work. Recreate flow:
+    // (handled below by closing + reopening if needed — simpler: just
+    // post-create the entries directly).
+
+    // Simpler: phase is already Open from create_open_repayment_phase. Just
+    // post RepaymentEntries manually for our 3 members so the worker can
+    // aggregate them. This mirrors what Phase 8 auto-fill would do for
+    // members that were registered before the phase was opened.
+    for m in [&m1, &m2, &m3] {
+        let resp = client
+            .post(server.url("/api/repayment-entry"))
+            .json(&serde_json::json!({
+                "phase_id": phase.id.to_string(),
+                "member_id": m.id.unwrap().to_string(),
+                "share_count_to_pay_out": m.current_shares,
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert!(
+            resp.status().is_success(),
+            "create RepaymentEntry expected 2xx, got {}: {}",
+            resp.status(),
+            resp.text().await.unwrap_or_default()
+        );
+    }
+
+    // Phase 10 D-14: bulk-send REST validates the template with the
+    // `validate_template_with_repayment` helper (probe-render against
+    // both member-only AND merged-repayment context). The pure-member
+    // probe requires `is defined`-guards on repayment vars, so the
+    // template must wrap them in `{% if ... is defined %}` blocks.
+    let subject = "Auszahlung{% if fiscal_year is defined %} GJ {{ fiscal_year }}{% endif %}";
+    let body = "Hallo {{ first_name }}{% if payout_amount is defined %}, dir werden {{ share_count }} Anteile zu insgesamt {{ payout_amount }} EUR ausbezahlt.{% endif %}";
+    let tpl_id = create_mail_template(&client, &server, "repayment-test-1", subject, body).await;
+
+    let res = client
+        .post(server.url("/api/mail/send-bulk"))
+        .json(&serde_json::json!({
+            "to_addresses": [
+                {"member_id": m1.id.unwrap().to_string(), "address": "m1@example.com"},
+                {"member_id": m2.id.unwrap().to_string(), "address": "m2@example.com"},
+                {"member_id": m3.id.unwrap().to_string(), "address": "m3@example.com"},
+            ],
+            "subject": subject,
+            "body": body,
+            "template_id": tpl_id.to_string(),
+            "repayment_phase_id": phase.id.to_string(),
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        res.status(),
+        202,
+        "SC#1: Bulk-send must accept template_id + repayment_phase_id and return 202; body: {}",
+        res.text().await.unwrap_or_default()
+    );
+
+    let body: serde_json::Value = res.json().await.unwrap();
+    let job_id_str = body["id"].as_str().expect("response must include job id");
+    let job_id = uuid::Uuid::parse_str(job_id_str).unwrap();
+
+    wait_for_mail_worker_idle(&server, job_id, std::time::Duration::from_secs(30)).await;
+
+    let docs = query_documents_by_type(&pool, "repayment_mail").await;
+    assert_eq!(
+        docs.len(),
+        3,
+        "SC#3: Expected 3 MemberDocuments (one per member-recipient); got {} (descriptions: {:?})",
+        docs.len(),
+        docs.iter()
+            .map(|d| d.description.clone())
+            .collect::<Vec<_>>()
+    );
+    for d in &docs {
+        assert!(
+            d.template_id.is_some(),
+            "D-12: All docs should have template_id"
+        );
+        assert_eq!(
+            d.template_id,
+            Some(tpl_id),
+            "MAIL-03: All docs must reference the same template_id"
+        );
+        assert!(
+            d.mail_recipient_id.is_some(),
+            "D-07: All docs should have mail_recipient_id"
+        );
+        assert!(
+            d.status.is_some(),
+            "D-09: All docs should have status set (sent|failed)"
+        );
+    }
+}
+
+/// Phase 10 SC#4: 1 broken recipient (Email syntax error) must NOT block the
+/// others. Both AddressError-fast-fail and ConnectionRefused-fail paths produce
+/// MemberDocuments; verifies "kein All-or-Nothing" via 2 distinct failure
+/// subtypes in the description text.
+#[tokio::test]
+async fn test_bulk_repayment_mail_failure_does_not_block_others() {
+    let (server, pool) = setup_with_mail_worker().await;
+    let client = reqwest::Client::new();
+
+    let phase = create_open_repayment_phase(&client, &server, 2026, 2000).await;
+    let m1 = create_member_with_exit_date(&client, &server, 201, 2026, 3).await;
+    let m2 = create_member_with_exit_date(&client, &server, 202, 2026, 5).await;
+    let m3 = create_member_with_exit_date(&client, &server, 203, 2026, 2).await;
+    for m in [&m1, &m2, &m3] {
+        let _ = client
+            .post(server.url("/api/repayment-entry"))
+            .json(&serde_json::json!({
+                "phase_id": phase.id.to_string(),
+                "member_id": m.id.unwrap().to_string(),
+                "share_count_to_pay_out": m.current_shares,
+            }))
+            .send()
+            .await
+            .unwrap();
+    }
+
+    let tpl_id = create_mail_template(
+        &client,
+        &server,
+        "repayment-test-2",
+        "Subj",
+        "Body {{ first_name }}",
+    )
+    .await;
+
+    let res = client
+        .post(server.url("/api/mail/send-bulk"))
+        .json(&serde_json::json!({
+            "to_addresses": [
+                {"member_id": m1.id.unwrap().to_string(), "address": "m1@example.com"},
+                {"member_id": m2.id.unwrap().to_string(), "address": "not-an-email"},
+                {"member_id": m3.id.unwrap().to_string(), "address": "m3@example.com"},
+            ],
+            "subject": "Subj",
+            "body": "Body {{ first_name }}",
+            "template_id": tpl_id.to_string(),
+            "repayment_phase_id": phase.id.to_string(),
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 202);
+
+    let body: serde_json::Value = res.json().await.unwrap();
+    let job_id = uuid::Uuid::parse_str(body["id"].as_str().unwrap()).unwrap();
+    wait_for_mail_worker_idle(&server, job_id, std::time::Duration::from_secs(30)).await;
+
+    let docs = query_documents_by_type(&pool, "repayment_mail").await;
+    assert_eq!(
+        docs.len(),
+        3,
+        "SC#4: All 3 recipients must produce a MemberDocument (kein All-or-Nothing); got {}",
+        docs.len()
+    );
+
+    let descs: Vec<String> = docs
+        .iter()
+        .map(|d| d.description.clone().unwrap_or_default())
+        .collect();
+    let address_fails = descs
+        .iter()
+        .filter(|s| {
+            let lower = s.to_lowercase();
+            lower.contains("invalid to address") || lower.contains("address")
+        })
+        .count();
+    let connection_fails = descs
+        .iter()
+        .filter(|s| {
+            let lower = s.to_lowercase();
+            lower.contains("connect") || lower.contains("refused") || lower.contains("io error")
+        })
+        .count();
+    assert!(
+        address_fails >= 1,
+        "SC#4: At least 1 recipient must fail via RFC5321 AddressError (broken 'not-an-email'); got descriptions: {:?}",
+        descs
+    );
+    assert!(
+        connection_fails >= 1,
+        "SC#4: At least 1 recipient must fail via SMTP connection refused (valid syntax + stub SMTP host); got descriptions: {:?}",
+        descs
+    );
+
+    // Universal: all failed docs contain the "[FAILED:" suffix
+    for desc in &descs {
+        assert!(
+            desc.contains("[FAILED:"),
+            "Each failed doc must carry the [FAILED:] suffix; got: {}",
+            desc
+        );
+    }
+}
+
+/// Phase 10 audit-chain integrity: after the worker has written MemberDocuments
+/// via the cross-crate-audit inlined helpers, GET /api/audit/verify must still
+/// return valid=true and the per-entity audit query must show the worker's
+/// process string ("repayment-mail-worker") in the entries.
+#[tokio::test]
+async fn test_bulk_repayment_mail_audit_chain_remains_valid() {
+    let (server, pool) = setup_with_mail_worker().await;
+    let client = reqwest::Client::new();
+
+    let phase = create_open_repayment_phase(&client, &server, 2026, 2000).await;
+    let m1 = create_member_with_exit_date(&client, &server, 301, 2026, 3).await;
+    let _ = client
+        .post(server.url("/api/repayment-entry"))
+        .json(&serde_json::json!({
+            "phase_id": phase.id.to_string(),
+            "member_id": m1.id.unwrap().to_string(),
+            "share_count_to_pay_out": m1.current_shares,
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    let tpl_id = create_mail_template(
+        &client,
+        &server,
+        "repayment-test-3",
+        "Subj",
+        "Body {{ first_name }}",
+    )
+    .await;
+
+    let res = client
+        .post(server.url("/api/mail/send-bulk"))
+        .json(&serde_json::json!({
+            "to_addresses": [
+                {"member_id": m1.id.unwrap().to_string(), "address": "m1@example.com"}
+            ],
+            "subject": "Subj",
+            "body": "Body {{ first_name }}",
+            "template_id": tpl_id.to_string(),
+            "repayment_phase_id": phase.id.to_string(),
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 202);
+    let body: serde_json::Value = res.json().await.unwrap();
+    let job_id = uuid::Uuid::parse_str(body["id"].as_str().unwrap()).unwrap();
+    wait_for_mail_worker_idle(&server, job_id, std::time::Duration::from_secs(30)).await;
+
+    // Audit chain must remain valid across worker writes (T-10-07-02 +
+    // T-10-06-02): worker_audit::compute_entry_hash is byte-identical to
+    // genossi_service_impl::audit_log::compute_entry_hash, so /api/audit/verify
+    // sees a continuous hash chain.
+    let verify_res = client
+        .get(server.url("/api/audit/verify"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(verify_res.status(), 200);
+    let v_body: VerifyResponseTO = verify_res.json().await.unwrap();
+    assert!(
+        v_body.valid,
+        "Audit chain must remain valid after worker MemberDocument creates; broken_links: {:?}",
+        v_body.broken_links
+    );
+
+    // Per-entity audit must include at least one entry with the worker's
+    // process string (D-11: identifies worker-source MemberDocuments).
+    let docs = query_documents_by_type(&pool, "repayment_mail").await;
+    assert_eq!(docs.len(), 1);
+    let doc_id = docs[0].id;
+    let q_res = client
+        .get(server.url(&format!("/api/audit/member_document/{}", doc_id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(q_res.status(), 200);
+    let entries: Vec<AuditLogEntryTO> = q_res.json().await.unwrap();
+    assert!(
+        !entries.is_empty(),
+        "MemberDocument must have audit entries (one per non-None audit_field)"
+    );
+    let has_worker_process = entries.iter().any(|e| e.process == "repayment-mail-worker");
+    assert!(
+        has_worker_process,
+        "Audit entries must use process='repayment-mail-worker' (D-11); processes seen: {:?}",
+        entries
+            .iter()
+            .map(|e| e.process.clone())
+            .collect::<Vec<_>>()
+    );
+}
+
+/// Phase 10 T-10-06-01 mitigation: when a send fails, the MemberDocument
+/// description must NOT leak the member's PII email address. The PII guard
+/// uses a uniquely identifiable marker email in the Member's profile and
+/// asserts it does not appear in description.
+#[tokio::test]
+async fn test_bulk_repayment_mail_pii_safe_failure_description() {
+    let (server, pool) = setup_with_mail_worker().await;
+    let client = reqwest::Client::new();
+
+    let phase = create_open_repayment_phase(&client, &server, 2026, 2000).await;
+    // Build a Member directly with an identifiable PII-marker email — we
+    // want the marker in the Member profile, not in the bulk to_address.
+    let mut pii_member = sample_member();
+    pii_member.member_number = 401;
+    pii_member.first_name = "Max".to_string();
+    pii_member.last_name = "Mueller".to_string();
+    pii_member.email = Some("private-pii@member-data.test".to_string());
+    pii_member.shares_at_joining = 3;
+    pii_member.current_shares = 3;
+    let resp = client
+        .post(server.url("/api/members"))
+        .json(&pii_member)
+        .send()
+        .await
+        .unwrap();
+    assert!(resp.status().is_success());
+    let created: MemberTO = resp.json().await.unwrap();
+    let m_id = created.id.unwrap();
+    // Post Austritt to set exit_date in fiscal_year=2026.
+    let exit_date = time::Date::from_calendar_date(2026, time::Month::June, 15).unwrap();
+    let austritt = MemberActionTO {
+        id: None,
+        member_id: m_id,
+        action_type: ActionTypeTO::Austritt,
+        date: exit_date,
+        shares_change: 0,
+        transfer_member_id: None,
+        effective_date: Some(exit_date),
+        comment: Some("PII test exit".to_string()),
+        created: None,
+        deleted: None,
+        version: None,
+    };
+    let resp = client
+        .post(server.url(&format!("/api/members/{}/actions", m_id)))
+        .json(&austritt)
+        .send()
+        .await
+        .unwrap();
+    assert!(resp.status().is_success());
+    // RepaymentEntry so the worker's repayment-context merge has data.
+    let _ = client
+        .post(server.url("/api/repayment-entry"))
+        .json(&serde_json::json!({
+            "phase_id": phase.id.to_string(),
+            "member_id": m_id.to_string(),
+            "share_count_to_pay_out": 3,
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    let tpl_id = create_mail_template(
+        &client,
+        &server,
+        "repayment-test-4",
+        "Subj",
+        "Body {{ first_name }}",
+    )
+    .await;
+
+    // Bulk-send uses a BROKEN address — RFC5321 will reject it. The Member's
+    // profile email "private-pii@member-data.test" must NOT appear in the
+    // description (worker only formats subject + truncated SMTP error).
+    let res = client
+        .post(server.url("/api/mail/send-bulk"))
+        .json(&serde_json::json!({
+            "to_addresses": [{"member_id": m_id.to_string(), "address": "not-an-email"}],
+            "subject": "Subj",
+            "body": "Body {{ first_name }}",
+            "template_id": tpl_id.to_string(),
+            "repayment_phase_id": phase.id.to_string(),
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 202);
+    let body: serde_json::Value = res.json().await.unwrap();
+    let job_id = uuid::Uuid::parse_str(body["id"].as_str().unwrap()).unwrap();
+    wait_for_mail_worker_idle(&server, job_id, std::time::Duration::from_secs(30)).await;
+
+    let docs = query_documents_by_type(&pool, "repayment_mail").await;
+    assert_eq!(docs.len(), 1);
+    let failed = &docs[0];
+    assert_eq!(
+        failed.status.as_deref(),
+        Some("failed"),
+        "PII test setup expects the doc to be in failed state"
+    );
+    let desc = failed.description.as_deref().unwrap_or("");
+    assert!(
+        !desc.contains("private-pii@member-data.test"),
+        "PII LEAK: Failed doc.description MUST NOT contain Member's profile email (T-10-06-01 mitigation); got: {}",
+        desc
+    );
+    assert!(
+        desc.contains("[FAILED:"),
+        "Failed doc must mark with [FAILED:] suffix; got: {}",
+        desc
+    );
+    assert!(
+        desc.starts_with("Subj"),
+        "Failed doc description must start with the job subject; got: {}",
+        desc
+    );
+}
+
+/// Phase 10 D-10 Defense-in-Depth: recipients without member_id (ad-hoc
+/// addresses) must NOT produce a MemberDocument — the worker only writes
+/// member-bound rows.
+///
+/// Note: the bulk-send REST handler already enforces "all recipients must
+/// have member_id" (genossi_mail/src/rest.rs:335 — TemplateValidation 400).
+/// This test verifies the REST-layer guard AND falls through to the
+/// downstream invariant: 0 MemberDocuments after the failed request.
+#[tokio::test]
+async fn test_bulk_repayment_mail_skips_ad_hoc_recipients_no_member_id() {
+    let (server, pool) = setup_with_mail_worker().await;
+    let client = reqwest::Client::new();
+    let phase = create_open_repayment_phase(&client, &server, 2026, 2000).await;
+    let tpl_id = create_mail_template(&client, &server, "repayment-test-5", "Subj", "Body").await;
+
+    let res = client
+        .post(server.url("/api/mail/send-bulk"))
+        .json(&serde_json::json!({
+            "to_addresses": [
+                {"address": "ad-hoc@example.com"}
+            ],
+            "subject": "Subj",
+            "body": "Body",
+            "template_id": tpl_id.to_string(),
+            "repayment_phase_id": phase.id.to_string(),
+        }))
+        .send()
+        .await
+        .unwrap();
+    // The REST handler rejects bulk-sends where any recipient lacks
+    // member_id (rest.rs:335-339 -> TemplateValidation -> 400). No job is
+    // ever created, so no recipient ever reaches the worker, so no
+    // MemberDocument is ever written.
+    assert_eq!(
+        res.status(),
+        400,
+        "Ad-hoc-only bulk-send must be rejected at REST layer (no member_id -> 400)"
+    );
+
+    // Give the worker a moment to confirm nothing slipped through.
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    let docs = query_documents_by_type(&pool, "repayment_mail").await;
+    assert_eq!(
+        docs.len(),
+        0,
+        "D-10 Defense-in-Depth: Ad-hoc recipient (no member_id) must NOT produce a MemberDocument; got {} docs",
+        docs.len()
+    );
+}
