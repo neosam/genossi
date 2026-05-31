@@ -26,10 +26,10 @@
 
 ### Auszahlungs-Buchung
 
-- [ ] **PAYO-01**: Status-Toggle `ausbezahlt` erzeugt atomar in einer Transaktion einen `MemberAction::Verkauf` mit `shares_change = -share_count_to_pay_out` über `audited_create!`
-- [ ] **PAYO-02**: Status-Toggle `ausbezahlt` reduziert `Member.current_shares` um `share_count_to_pay_out` atomar in derselben Transaktion
-- [ ] **PAYO-03**: Validierung: `ausbezahlt`-Toggle wird blockiert (ServiceError::ValidationError) wenn `Member.current_shares < share_count_to_pay_out`
-- [ ] **PAYO-04**: Status `ausbezahlt` ist final — kein Rücksetzen erlaubt (verhindert Audit-Verzerrung und inkonsistente `current_shares`)
+- [x] **PAYO-01**: Status-Toggle `ausbezahlt` erzeugt atomar in einer Transaktion einen `MemberAction::Verkauf` mit `shares_change = -share_count_to_pay_out` über `audited_create!`
+- [x] **PAYO-02**: Status-Toggle `ausbezahlt` reduziert `Member.current_shares` um `share_count_to_pay_out` atomar in derselben Transaktion
+- [x] **PAYO-03**: Validierung: `ausbezahlt`-Toggle wird blockiert (ServiceError::ValidationError) wenn `Member.current_shares < share_count_to_pay_out`
+- [x] **PAYO-04**: Status `ausbezahlt` ist final — kein Rücksetzen erlaubt (verhindert Audit-Verzerrung und inkonsistente `current_shares`)
 
 ### Massenmail
 
@@ -96,10 +96,10 @@
 | ENTR-04 | Phase 8 | Complete |
 | ENTR-05 | Phase 8 | Complete |
 | ENTR-06 | Phase 8 | Complete |
-| PAYO-01 | Phase 9 | Pending |
-| PAYO-02 | Phase 9 | Pending |
-| PAYO-03 | Phase 9 | Pending |
-| PAYO-04 | Phase 9 | Pending |
+| PAYO-01 | Phase 9 | Complete |
+| PAYO-02 | Phase 9 | Complete |
+| PAYO-03 | Phase 9 | Complete |
+| PAYO-04 | Phase 9 | Complete |
 | MAIL-01 | Phase 10 | Pending |
 | MAIL-02 | Phase 10 | Pending |
 | MAIL-03 | Phase 10 | Pending |
