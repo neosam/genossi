@@ -80,7 +80,7 @@ Plans:
 - [x] 08-03-PLAN.md — Service-Trait + Impl mit Validation, Edit-Matrix, Batch-Tx (Wave 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
-- [ ] 08-04-PLAN.md — RepaymentPhase-Service-Erweiterung: Auto-Fill + Pending-Validation (Wave 3)
+- [x] 08-04-PLAN.md — RepaymentPhase-Service-Erweiterung: Auto-Fill + Pending-Validation (Wave 3)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 - [ ] 08-05-PLAN.md — REST-Handler + TOs + Router + DI-Wiring (Wave 4)
