@@ -529,6 +529,10 @@ pub struct RestStateImpl {
     repayment_phase_dao: Arc<RepaymentPhaseDao>,
     repayment_entry_dao: Arc<RepaymentEntryDao>,
     mail_template_dao: Arc<MailTemplateDaoType>,
+    // Phase 10 D-11 (Plan 10.07 auto-fix Rule 3): transaction_dao is also
+    // required by start_mail_worker. The local Arc in new() is reused here
+    // (same Arc as all *ServiceImpl fields that carry transaction_dao).
+    transaction_dao: Arc<TransactionDao>,
     timestamp_service: Arc<TimestampServiceType>,
     backup_dao: Arc<BackupDao>,
     // Inbox worker dependencies
@@ -924,6 +928,7 @@ impl RestStateImpl {
             repayment_phase_dao,
             repayment_entry_dao,
             mail_template_dao,
+            transaction_dao,
             timestamp_service,
             permission_service,
             session_service,
@@ -1168,6 +1173,18 @@ impl RestStateImpl {
         let document_storage = self.document_storage.clone();
         let member_resolver = Arc::new(PoolMemberResolver::new(self.pool.clone()));
         let inbound_mail_dao = Arc::new(InboundMailDaoType::new(self.pool.clone()));
+        // Phase 10 D-11: 6 new deps for repayment-context aggregation +
+        // auditable MemberDocument-create. All DAOs are shared via
+        // Arc::clone from RestStateImpl fields (added in Task 1). The
+        // audit_log_dao is the SAME Arc that all other audited services
+        // use — this guarantees the worker contributes to the single
+        // per-process hash chain (T-10-07-02 mitigation).
+        let member_document_dao = self.member_document_dao.clone();
+        let audit_log_dao = self.audit_log_dao.clone();
+        let mail_template_dao = self.mail_template_dao.clone();
+        let repayment_entry_dao = self.repayment_entry_dao.clone();
+        let repayment_phase_dao = self.repayment_phase_dao.clone();
+        let transaction_dao = self.transaction_dao.clone();
         tokio::spawn(async move {
             genossi_mail::worker::start_mail_worker(
                 config_service,
@@ -1178,6 +1195,14 @@ impl RestStateImpl {
                 document_storage,
                 member_resolver,
                 inbound_mail_dao,
+                // Phase 10 D-11 new args (same positional order as
+                // worker.rs signature: MD, AL, MT, RE, RP, TX).
+                member_document_dao,
+                audit_log_dao,
+                mail_template_dao,
+                repayment_entry_dao,
+                repayment_phase_dao,
+                transaction_dao,
             )
             .await;
         });
