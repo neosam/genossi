@@ -90,7 +90,7 @@ Plans:
 
 **Gap-Closure (post-verification 2026-05-31)** — fixt CR-01 (stale version response) + CR-02 (404 vs 409 Batch-Toggle) + IN-04 (E2E-Coverage-Lücke); Quellen: `08-VERIFICATION.md`, `08-REVIEW.md`
 - [x] 08-07-PLAN.md — Gap CR-01: Re-Read-Pattern in `RepaymentEntryServiceImpl::update_repayment_entry` + `batch_toggle_status` (Wave 1, parallel zu 08-08)
-- [ ] 08-08-PLAN.md — Gap CR-01: Re-Read-Pattern in `RepaymentPhaseServiceImpl::create_repayment_phase` + `update_repayment_phase` + `open_repayment_phase` + `close_repayment_phase` (Wave 1, parallel zu 08-07; Phase-7-Erbe)
+- [x] 08-08-PLAN.md — Gap CR-01: Re-Read-Pattern in `RepaymentPhaseServiceImpl::create_repayment_phase` + `update_repayment_phase` + `open_repayment_phase` + `close_repayment_phase` (Wave 1, parallel zu 08-07; Phase-7-Erbe)
 - [ ] 08-09-PLAN.md — Gap CR-02: `batch_toggle_status` NotFound → 404 statt 409 + OpenAPI-Doku + `BatchFailureResponse`-Schema-Klarstellung (Wave 2, depends_on 08-07 — gleiche Datei)
 - [ ] 08-10-PLAN.md — Gap IN-04: 5 E2E-Regressionstests für CR-01-Folge-PUTs + CR-02-NotFound-Mapping (Wave 3, depends_on 08-07/08/09)
 

@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Anteile-Rückzahlungsphase
 status: executing
-stopped_at: Completed 08-07-PLAN.md (gap-closure CR-01 Re-Read fix in RepaymentEntryServiceImpl)
-last_updated: "2026-05-31T06:30:06.143Z"
+stopped_at: Completed 08-08-PLAN.md (gap-closure CR-01 Re-Read fix in RepaymentPhaseServiceImpl)
+last_updated: "2026-05-31T06:42:28.108Z"
 last_activity: 2026-05-31
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 15
-  completed_plans: 12
-  percent: 80
+  completed_plans: 13
+  percent: 87
 ---
 
 # State: Genossi — v1.1 Anteile-Rückzahlungsphase
@@ -30,7 +30,7 @@ progress:
 ## Current Position
 
 Phase: 08 (repaymententry-auto-bef-llung) — EXECUTING
-Plan: 2 of 10
+Plan: 3 of 10
 Status: Ready to execute
 Last activity: 2026-05-31
 
@@ -87,6 +87,7 @@ Overall: 0% complete
 | Phase 08 P05 | ~10min | 3 tasks | 5 files |
 | Phase 08 P06 | 9min | 1 tasks | 1 files |
 | Phase 08 P07 | 9min | 1 tasks | 1 files |
+| Phase 08 P08 | 7min | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -189,6 +190,15 @@ Details siehe `.planning/v1.0-MILESTONE-AUDIT.md` und `.planning/MILESTONES.md`.
 
 ## Session Continuity
 
+**Last action (2026-05-31, Phase 08 Plan 08 — gap-closure Wave 1, parallel to 08-07):** Plan `08-08-PLAN.md` ausgeführt — CR-01-Bugfix in `RepaymentPhaseServiceImpl`. Alle 4 Lifecycle-Methoden (`create_repayment_phase` Z. ~140, `update_repayment_phase` Z. ~232, `open_repayment_phase` Z. ~365, `close_repayment_phase` Z. ~482) lesen jetzt nach `audited_create!` / `audited_update!` die Entity per `find_by_id(id, tx.clone())` erneut, um die vom DAO frisch generierte version-UUID an den Client zurückzuliefern. Pattern 1:1 wörtlich aus `MemberServiceImpl::update` (member.rs:343-348) übernommen — gleiche Form wie der 08-07 Fix für RepaymentEntry. Für `open_repayment_phase` läuft der Re-Read NACH der Auto-Fill-Loop (nach `// ----- /PHAS-02 -----`-Markierung), VOR `transaction_dao.commit` (T-08-08-02 Mitigation: Auto-Fill-Atomarität bleibt erhalten). 2 neue Regression-Tests verifizieren das Verhalten dauerhaft: `test_update_repayment_phase_rereads_after_audited_update_returns_new_version` (asserted result.version == version_b nach Re-Read) und `test_open_repayment_phase_rereads_phase_entity_returns_new_version` (asserted result.version == version_b && result.status == Open nach Re-Read + Auto-Fill-Loop mit 0 Members). 6 bestehende Tests auf `mockall::Sequence` umgestellt (`test_create_repayment_phase_success`, `test_update_repayment_phase_share_value_change_in_open_succeeds`, `test_open_phase_auto_fill_zero_members`, `test_open_phase_auto_fill_creates_entries_for_matching_members`, `test_close_phase_with_zero_entries_succeeds`, `test_close_phase_with_only_paid_out_or_deleted_succeeds`), sodass das Mock pro Iteration sauber zwischen pre-update entity (alte Version, alte Werte) und post-update entity (neue Version, neuer Status/share_value) unterscheidet. Die anderen 11 bestehenden Tests sind nicht betroffen (Reject-Pfade mit `expect_update().times(0)` oder reine Validation-Tests). 25/25 RepaymentPhase-Tests grün (23 alte adaptiert + 2 neue); 267/267 service_impl-lib-Tests grün; keine Regressionen. Audit-Disziplin-Grep-Gate bleibt 0 (keine direkten DAO.create/update-Calls außerhalb der `audited_*!`-Macros). 2 Commits: `aba0c1e` (test: RED-failing tests), `9305eac` (fix: Re-Read in 4 Lifecycle-Methoden + adapt 6 tests). Phase-7-erbte Bug-Klasse damit vollständig beseitigt (RepaymentEntry+RepaymentPhase). Nächster Schritt: Plan 08-09 (REST 404/409 Verbesserungen, CR-02 Wave-2) oder Phase-8-Verification mit allen Gap-Closures.
+
+**Files written this session (Plan 08-08):**
+
+- `genossi_service_impl/src/repayment_phase.rs` (MOD — +221 LOC -11 LOC: Re-Read-Block in 4 Lifecycle-Methoden, 2 neue Regression-Tests, 6 bestehende Tests auf mockall::Sequence umgestellt)
+- `.planning/phases/08-repaymententry-auto-bef-llung/08-08-SUMMARY.md` (NEW)
+- `.planning/STATE.md` (MOD — diese Aktualisierung; Plan auf 3 of 10 fortgeschritten)
+- `.planning/ROADMAP.md` (MOD — Phase 8 Plan-Progress via roadmap.update-plan-progress)
+
 **Last action (2026-05-31, Phase 08 Plan 07 — gap-closure Wave 1):** Plan `08-07-PLAN.md` ausgeführt — CR-01-Bugfix in `RepaymentEntryServiceImpl`. Beide Methoden `update_repayment_entry` (Z. 266) und `batch_toggle_status` (Z. 444) lesen jetzt nach `audited_update!` die Entity per `find_by_id(id, tx.clone())` erneut, um die vom DAO frisch generierte version-UUID an den Client zurückzuliefern. Pattern 1:1 wörtlich aus `MemberServiceImpl::update` (member.rs:343-348) übernommen. Re-Read läuft in derselben Transaction (single-snapshot-Konsistenz, T-08-07-01 Mitigation). 2 neue Regression-Tests verifizieren das Verhalten dauerhaft: `test_update_repayment_entry_rereads_after_audited_update_returns_new_version` (asserted result.version == version_b nach Re-Read) und `test_batch_toggle_status_rereads_each_entry_returns_new_versions` (asserted per-entry v1_new/v2_new statt v1_old/v2_old). 3 bestehende Tests (`test_update_entry_status_open_to_contacted_succeeds`, `..._contacted_to_open_succeeds`, `test_batch_toggle_success`) auf `mockall::Sequence` umgestellt, sodass das Mock pro Iteration sauber zwischen pre-update entity (Status Open, ersten 2 Calls = pre-load + audit-macro-load) und post-update entity (neuer Status + neue Version, 3. Call = Re-Read) unterscheidet. 21/21 RepaymentEntry-Tests grün (19 alte + 2 neue); 265/265 service_impl-lib-Tests grün; keine Regressionen. Audit-Disziplin-Grep-Gate bleibt 0 (keine direkten DAO.update-Calls außerhalb der `audited_*!`-Macros). 2 Commits: `ee44b26` (test: RED-failing tests), `2c0f503` (fix: Re-Read + adapt 3 tests). Zwei kleine Plan-Konsistenz-Klarstellungen dokumentiert (1: Plan-Acceptance-Criterion zu strikt für create/get-Pfade — effektive Compliance via präziseren Greps verifiziert; 2: CR-01-Marker-Konvention für grep-Match). Nächster Schritt: Plan 08-08 (RepaymentPhaseServiceImpl — analoger Fix, parallele Wave-1-Task).
 
 **Files written this session (Plan 08-07):**
@@ -232,7 +242,7 @@ Details siehe `.planning/v1.0-MILESTONE-AUDIT.md` und `.planning/MILESTONES.md`.
 
 **Last action (2026-05-29, Phase 07 Plan 02):** Plan `07-02-PLAN.md` ausgeführt — `RepaymentPhaseDaoImpl` (SQLite-Impl des Plan-01-Traits) angelegt mit `RepaymentPhaseDb`-Row, `TryFrom` mit guarded i32-Cast (T-07-02-05), `dump_all`/`create`/`update` inkl. Pre-Exists-Check + Optimistic-Locking via `rows_affected == 0 → ConflictError("Version mismatch")`. ORDER BY ist `fiscal_year DESC, created DESC` (Phase-7-spezifisch). `parse_datetime` via `use crate::assembly::parse_datetime` reused (kein Duplikat). 4 grüne Tokio-Integrationstests gegen in-memory SQLite. Modul-Decl in `genossi_dao_impl_sqlite/src/lib.rs` alphabetisch eingefügt. Commit `6f6bf0f` (feat: 367 LOC added).
 
-**Stopped At:** Completed 08-06-PLAN.md (Phase 8 complete — ready for verification)
+**Stopped At:** Completed 08-08-PLAN.md (gap-closure CR-01 Re-Read fix in RepaymentPhaseServiceImpl)
 **Resume File:** None
 
 **Last action (2026-05-17, Phase 06 Discuss):** `/gsd-discuss-phase 6` durchgeführt — `06-CONTEXT.md` + `06-DISCUSSION-LOG.md` erstellt und committed (`30a3c2b`). 20 Implementierungsentscheidungen (D-01..D-20) erfasst: drei Export-Formate parallel (PDF via Typst, CSV semikolon/UTF-8-BOM, XLSX via rust_xlsxwriter), `?include=all|present`-Query, Status-Closed-only, Vorstand-only via OIDC, Snapshot-Daten aus `assembly_member_snapshot`, Sortierung `member_number ASC`, Endpoint `GET /api/assembly/{aid}/attendance-export/{format}`, Filename `gv-{YYYY-MM-DD}-teilnehmer.{ext}`, kein Audit-Hashchain-Eintrag. PDF-Layout minimal (Kopf mit GV-Titel + Datum + „X von Y anwesend", dann Tabelle). 6 Deferred Ideas (Sammelexport, E-Mail-Versand, Unterschriftenspalte, Logo, Multi-Sheet, Export-Audit). Nächster Schritt: `/gsd-plan-phase 6`.
@@ -302,3 +312,5 @@ Details siehe `.planning/v1.0-MILESTONE-AUDIT.md` und `.planning/MILESTONES.md`.
 *Phase 08 Plan 05 completed: 2026-05-31*
 *Phase 08 Plan 06 completed: 2026-05-31*
 *Phase 08 COMPLETE: 2026-05-31*
+*Phase 08 Plan 07 completed: 2026-05-31 (gap-closure Wave 1: CR-01 RepaymentEntry Re-Read)*
+*Phase 08 Plan 08 completed: 2026-05-31 (gap-closure Wave 1: CR-01 RepaymentPhase Re-Read)*
