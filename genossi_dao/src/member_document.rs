@@ -176,4 +176,95 @@ mod tests {
         let changes = entity.diff(&entity);
         assert!(changes.is_empty());
     }
+
+    // -------------------------------------------------------------------------
+    // Phase 10 D-07 / D-08: FROZEN-Order tests for the 3 new mail-tracking
+    // fields (template_id, mail_recipient_id, status) appended at indices 6-8.
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_member_document_audit_fields_frozen_order_with_phase10_fields_present() {
+        let now = time::OffsetDateTime::now_utc();
+        let entity = MemberDocumentEntity {
+            id: Uuid::new_v4(),
+            member_id: Uuid::new_v4(),
+            document_type: Arc::from("repayment_mail"),
+            description: Some(Arc::from("Subject")),
+            file_name: Arc::from(""),
+            mime_type: Arc::from("text/plain"),
+            relative_path: Arc::from(""),
+            created: time::PrimitiveDateTime::new(now.date(), now.time()),
+            deleted: None,
+            version: Uuid::new_v4(),
+            template_id: Some(Uuid::new_v4()),
+            mail_recipient_id: Some(Uuid::new_v4()),
+            status: Some(Arc::from("sent")),
+        };
+        let fields = entity.audit_fields();
+        assert_eq!(
+            fields.len(),
+            9,
+            "audit_fields must contain exactly 9 entries (6 existing + 3 new mail-tracking fields)"
+        );
+        let names: Vec<&str> = fields.iter().map(|(n, _)| *n).collect();
+        assert_eq!(
+            names,
+            vec![
+                "member_id",
+                "document_type",
+                "description",
+                "file_name",
+                "mime_type",
+                "relative_path",
+                "template_id",
+                "mail_recipient_id",
+                "status",
+            ],
+            "audit_fields order is FROZEN — new Phase 10 fields appended at indices 6-8"
+        );
+        assert!(fields[6].1.is_some(), "template_id must be Some when set");
+        assert!(
+            fields[7].1.is_some(),
+            "mail_recipient_id must be Some when set"
+        );
+        assert_eq!(
+            fields[8].1,
+            Some("sent".to_string()),
+            "status field must contain the literal 'sent' string"
+        );
+    }
+
+    #[test]
+    fn test_member_document_audit_fields_frozen_order_with_phase10_fields_none() {
+        // Backward-compat: existing rows have NULL in the 3 new columns.
+        // audit_fields() must still emit the 3 new entries at the end with None values,
+        // so legacy entries that referenced only the first 6 fields remain hash-chain-stable.
+        let now = time::OffsetDateTime::now_utc();
+        let entity = MemberDocumentEntity {
+            id: Uuid::new_v4(),
+            member_id: Uuid::new_v4(),
+            document_type: Arc::from("join_declaration"),
+            description: None,
+            file_name: Arc::from("file.pdf"),
+            mime_type: Arc::from("application/pdf"),
+            relative_path: Arc::from("path/file.pdf"),
+            created: time::PrimitiveDateTime::new(now.date(), now.time()),
+            deleted: None,
+            version: Uuid::new_v4(),
+            template_id: None,
+            mail_recipient_id: None,
+            status: None,
+        };
+        let fields = entity.audit_fields();
+        assert_eq!(fields.len(), 9);
+        assert_eq!(fields[6].0, "template_id");
+        assert!(
+            fields[6].1.is_none(),
+            "template_id NULL bleibt None im audit_fields"
+        );
+        assert_eq!(fields[7].0, "mail_recipient_id");
+        assert!(fields[7].1.is_none(), "mail_recipient_id NULL bleibt None");
+        assert_eq!(fields[8].0, "status");
+        assert!(fields[8].1.is_none(), "status NULL bleibt None");
+    }
 }

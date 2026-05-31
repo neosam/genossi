@@ -230,4 +230,40 @@ mod tests {
         assert!(exts.contains(&"ods"));
         assert_eq!(exts.len(), ALLOWED_FILE_TYPES.len());
     }
+
+    // -------------------------------------------------------------------------
+    // Phase 10 D-09: DocumentType::RepaymentMail variant tests
+    // RepaymentMail anchors a sent/failed mail event; non-singleton (multi-mail
+    // per member allowed), no Typst template (mail body, not document).
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_document_type_repayment_mail_as_str() {
+        assert_eq!(DocumentType::RepaymentMail.as_str(), "repayment_mail");
+    }
+
+    #[test]
+    fn test_document_type_repayment_mail_from_str() {
+        assert_eq!(
+            DocumentType::from_str("repayment_mail"),
+            Some(DocumentType::RepaymentMail)
+        );
+    }
+
+    #[test]
+    fn test_document_type_repayment_mail_is_not_singleton() {
+        assert!(
+            !DocumentType::RepaymentMail.is_singleton(),
+            "RepaymentMail must allow multiple mails per member (CONTEXT D-09)"
+        );
+    }
+
+    #[test]
+    fn test_document_type_repayment_mail_no_template_path() {
+        assert_eq!(
+            DocumentType::RepaymentMail.template_path(),
+            None,
+            "RepaymentMail has no Typst template (CONTEXT D-09)"
+        );
+    }
 }

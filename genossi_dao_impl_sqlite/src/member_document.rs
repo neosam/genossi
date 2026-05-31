@@ -199,3 +199,147 @@ impl MemberDocumentDao for MemberDocumentDaoImpl {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::TransactionDaoImpl;
+    use genossi_dao::{Transaction, TransactionDao};
+
+    /// In-memory SQLite pool with the member_document schema applied.
+    /// Mirrors the Phase-7 `repayment_entry.rs::tests::setup_db` convention:
+    /// the DDL is duplicated inline so DAO unit tests do not depend on the
+    /// migration runner.
+    ///
+    /// **Phase 10 D-07:** schema INCLUDES the 3 new mail-tracking columns
+    /// (template_id, mail_recipient_id, status) so roundtrip tests can verify
+    /// the SQLite impl persists them.
+    async fn setup_db() -> Arc<SqlitePool> {
+        let pool = SqlitePool::connect("sqlite::memory:")
+            .await
+            .expect("create in-memory db");
+
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS member_document (
+                id BLOB PRIMARY KEY NOT NULL,
+                member_id BLOB NOT NULL,
+                document_type TEXT NOT NULL,
+                description TEXT,
+                file_name TEXT NOT NULL,
+                mime_type TEXT NOT NULL,
+                relative_path TEXT NOT NULL,
+                created TEXT NOT NULL,
+                deleted TEXT,
+                version BLOB NOT NULL,
+                template_id BLOB NULL,
+                mail_recipient_id BLOB NULL,
+                status TEXT NULL
+            )",
+        )
+        .execute(&pool)
+        .await
+        .expect("create member_document table");
+
+        Arc::new(pool)
+    }
+
+    fn sample_entity_with_phase10_fields(
+        template_id: Option<Uuid>,
+        mail_recipient_id: Option<Uuid>,
+        status: Option<&str>,
+    ) -> MemberDocumentEntity {
+        let date = time::Date::from_calendar_date(2026, time::Month::June, 1).unwrap();
+        let datetime = time::PrimitiveDateTime::new(date, time::Time::MIDNIGHT);
+        MemberDocumentEntity {
+            id: Uuid::new_v4(),
+            member_id: Uuid::new_v4(),
+            document_type: Arc::from("repayment_mail"),
+            description: Some(Arc::from("Subject")),
+            file_name: Arc::from(""),
+            mime_type: Arc::from("text/plain"),
+            relative_path: Arc::from(""),
+            created: datetime,
+            deleted: None,
+            version: Uuid::new_v4(),
+            template_id,
+            mail_recipient_id,
+            status: status.map(Arc::from),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_member_document_roundtrip_with_phase10_fields_some() {
+        let pool = setup_db().await;
+        let dao = MemberDocumentDaoImpl::new(pool.clone());
+        let tx_dao = TransactionDaoImpl::new(pool);
+
+        let template_id = Uuid::new_v4();
+        let mail_recipient_id = Uuid::new_v4();
+        let entity = sample_entity_with_phase10_fields(
+            Some(template_id),
+            Some(mail_recipient_id),
+            Some("sent"),
+        );
+        let entity_id = entity.id;
+
+        let tx = tx_dao.transaction().await.unwrap();
+        dao.create(&entity, "test", tx.clone()).await.unwrap();
+
+        let found = dao
+            .find_by_id(entity_id, tx.clone())
+            .await
+            .unwrap()
+            .expect("entity must be found after create");
+        assert_eq!(found.id, entity.id);
+        assert_eq!(
+            found.template_id,
+            Some(template_id),
+            "template_id roundtrip preserved"
+        );
+        assert_eq!(
+            found.mail_recipient_id,
+            Some(mail_recipient_id),
+            "mail_recipient_id roundtrip preserved"
+        );
+        assert_eq!(
+            found.status.as_deref(),
+            Some("sent"),
+            "status roundtrip preserved"
+        );
+
+        tx.commit().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_member_document_roundtrip_with_phase10_fields_none_backward_compat() {
+        // Backward-compat: a legacy MemberDocument (e.g. JoinDeclaration) has NULL
+        // in all 3 new columns. Create + find must keep them None — no auto-fill,
+        // no spurious empty-string values for `status`.
+        let pool = setup_db().await;
+        let dao = MemberDocumentDaoImpl::new(pool.clone());
+        let tx_dao = TransactionDaoImpl::new(pool);
+
+        let entity = sample_entity_with_phase10_fields(None, None, None);
+        let entity_id = entity.id;
+
+        let tx = tx_dao.transaction().await.unwrap();
+        dao.create(&entity, "test", tx.clone()).await.unwrap();
+
+        let found = dao
+            .find_by_id(entity_id, tx.clone())
+            .await
+            .unwrap()
+            .expect("entity must be found after create");
+        assert!(
+            found.template_id.is_none(),
+            "template_id NULL bleibt None nach roundtrip"
+        );
+        assert!(
+            found.mail_recipient_id.is_none(),
+            "mail_recipient_id NULL bleibt None nach roundtrip"
+        );
+        assert!(found.status.is_none(), "status NULL bleibt None nach roundtrip");
+
+        tx.commit().await.unwrap();
+    }
+}
