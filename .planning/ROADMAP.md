@@ -77,7 +77,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 - [x] 08-02-PLAN.md — SQLite-DAO-Impl mit Optimistic Locking + Pre-Exists-Check (Wave 2)
-- [ ] 08-03-PLAN.md — Service-Trait + Impl mit Validation, Edit-Matrix, Batch-Tx (Wave 2)
+- [x] 08-03-PLAN.md — Service-Trait + Impl mit Validation, Edit-Matrix, Batch-Tx (Wave 2)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 - [ ] 08-04-PLAN.md — RepaymentPhase-Service-Erweiterung: Auto-Fill + Pending-Validation (Wave 3)
