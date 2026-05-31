@@ -595,3 +595,42 @@ pub async fn retry_job<S: MailRestState>(state: State<S>, Path(id): Path<String>
         .await,
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Phase 10 D-12 + D-03: `SendBulkMailRequest` accepts optional `template_id`
+    /// and `repayment_phase_id` as UUID-strings; both deserialize to `Option<String>`
+    /// with the exact value from the JSON payload.
+    #[test]
+    fn test_send_bulk_mail_request_serde_with_phase10_fields() {
+        let json = r#"{
+            "to_addresses": [],
+            "subject": "S",
+            "body": "B",
+            "template_id": "550e8400-e29b-41d4-a716-446655440000",
+            "repayment_phase_id": "660e8400-e29b-41d4-a716-446655440000"
+        }"#;
+        let req: SendBulkMailRequest = serde_json::from_str(json).expect("must deserialize");
+        assert_eq!(
+            req.template_id.as_deref(),
+            Some("550e8400-e29b-41d4-a716-446655440000")
+        );
+        assert_eq!(
+            req.repayment_phase_id.as_deref(),
+            Some("660e8400-e29b-41d4-a716-446655440000")
+        );
+    }
+
+    /// Phase 10 backward-compat: requests without the two new optional fields
+    /// still deserialize, and the two fields default to `None`. Ensures that
+    /// existing frontend clients (Phase 9 and earlier) do not break.
+    #[test]
+    fn test_send_bulk_mail_request_serde_without_phase10_fields_backward_compat() {
+        let json = r#"{"to_addresses": [], "subject": "S", "body": "B"}"#;
+        let req: SendBulkMailRequest = serde_json::from_str(json).expect("must deserialize");
+        assert_eq!(req.template_id, None);
+        assert_eq!(req.repayment_phase_id, None);
+    }
+}
