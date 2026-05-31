@@ -1395,11 +1395,22 @@ pub struct CloseConflictResponse {
     pub pending_member_numbers: Vec<String>,
 }
 
-/// 409-Response-Body für `POST /api/repayment-entry/batch-status` wenn ein
-/// Entry in der Mitte der Batch fehlschlägt (D-08, W-05 — strukturierter
-/// Body). Der Service-Layer (Plan 03) emittiert exakt dieses JSON-Schema im
+/// Structured body for HTTP 409 batch-toggle conflicts (D-08, W-05).
+///
+/// Used by `POST /api/repayment-entry/batch-status` to report the FIRST
+/// failing entry that triggered the all-or-nothing transaction rollback.
+/// The Service-Layer (Plan 03) emittiert exakt dieses JSON-Schema im
 /// `ServiceError::Conflict(Arc<str>)`-Body; der REST-Layer reicht den Body
 /// 1:1 als 409-Response durch. Frontend kann dies direkt deserialisieren.
+///
+/// Scope: domain-level conflicts ONLY. Examples:
+///   - Source status is not Open or Contacted (e.g. PaidOut → Contacted attempt)
+///   - Future domain conflicts that signal "request semantically rejected"
+///
+/// NOT used for: missing or soft-deleted entry_ids. Those cases yield
+/// HTTP 404 with the standard NotFound payload — aggregate-consistent with
+/// `GET/PUT/DELETE /api/repayment-entry/{id}`. See Phase 08 Gap-Closure
+/// Plan 09 / CR-02.
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct BatchFailureResponse {
     /// Zero-based index of the failing entry in the original BatchStatusRequest.entry_ids list.

@@ -261,7 +261,8 @@ pub async fn delete_repayment_entry<RestState: RestStateDef + RepaymentEntryRest
         (status = 200, description = "All entries toggled successfully", body = [RepaymentEntryTO]),
         (status = 400, description = "Validation Error (PaidOut as target_status, D-07)"),
         (status = 401, description = "Unauthorized"),
-        (status = 409, description = "Conflict — first failing entry rolled back transaction (D-08). Body matches BatchFailureResponse schema.", body = BatchFailureResponse),
+        (status = 404, description = "Not Found — at least one entry_id in the batch is missing or soft-deleted. The entire transaction is rolled back per D-08 (all-or-nothing). Aggregate-consistent with get/update/delete on /api/repayment-entry/{id}. The response body is the standard NotFound payload (NOT BatchFailureResponse)."),
+        (status = 409, description = "Conflict — first failing entry rolled back transaction (D-08). Body matches BatchFailureResponse schema. Used for domain-level conflicts ONLY (e.g. source status is 'PaidOut'); for missing/soft-deleted entries see 404.", body = BatchFailureResponse),
     ),
 )]
 pub async fn batch_toggle_status<RestState: RestStateDef + RepaymentEntryRestState>(
