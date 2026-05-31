@@ -33,8 +33,8 @@
 
 ### Massenmail
 
-- [ ] **MAIL-01**: Vorstand wählt mehrere Einträge (multi-select) und löst Massenmail aus (gleiches Pattern wie Mitgliederliste-Massenmail)
-- [ ] **MAIL-02**: Mail-Template kann `{{ payout_amount }}` referenzieren — berechnet als `share_count_to_pay_out × phase.share_value` zum Zeitpunkt des Mail-Versands
+- [x] **MAIL-01**: Vorstand wählt mehrere Einträge (multi-select) und löst Massenmail aus (gleiches Pattern wie Mitgliederliste-Massenmail)
+- [x] **MAIL-02**: Mail-Template kann `{{ payout_amount }}` referenzieren — berechnet als `share_count_to_pay_out × phase.share_value` zum Zeitpunkt des Mail-Versands
 - [ ] **MAIL-03**: Mail-Template kann `{{ share_count }}` (`share_count_to_pay_out` des Eintrags) und `{{ fiscal_year }}` der Phase referenzieren
 - [ ] **MAIL-04**: Mail-Versand erzeugt pro Empfänger ein `MemberDocument` mit Template-Referenz (bestehendes Auditpflicht-Pattern)
 
@@ -100,8 +100,8 @@
 | PAYO-02 | Phase 9 | Complete |
 | PAYO-03 | Phase 9 | Complete |
 | PAYO-04 | Phase 9 | Complete |
-| MAIL-01 | Phase 10 | Pending |
-| MAIL-02 | Phase 10 | Pending |
+| MAIL-01 | Phase 10 | Complete |
+| MAIL-02 | Phase 10 | Complete |
 | MAIL-03 | Phase 10 | Pending |
 | MAIL-04 | Phase 10 | Pending |
 | EXPO-01 | Phase 11 | Pending |
