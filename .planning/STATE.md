@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Anteile-Rückzahlungsphase
 status: executing
-stopped_at: Completed 10.06-worker-repayment-context-und-audited-create plan
-last_updated: "2026-05-31T17:34:32.531Z"
+stopped_at: Completed 10.07-genossi-bin-worker-wiring plan
+last_updated: "2026-05-31T17:47:24.405Z"
 last_activity: 2026-05-31
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 28
-  completed_plans: 26
-  percent: 93
+  completed_plans: 27
+  percent: 96
 ---
 
 # State: Genossi — v1.1 Anteile-Rückzahlungsphase
@@ -30,7 +30,7 @@ progress:
 ## Current Position
 
 Phase: 10 (massenmail-anbindung-template-variablen) — EXECUTING
-Plan: 7 of 8
+Plan: 8 of 8
 Status: Ready to execute
 Last activity: 2026-05-31
 
@@ -100,6 +100,7 @@ Overall: 0% complete
 | Phase 10 P04 | 8min | 1 tasks | 2 files |
 | Phase 10 P05 | 11min | 1 tasks | 1 files |
 | Phase 10 P06 | 30min | 2 tasks | 3 files |
+| Phase 10 P07 | 12min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -178,6 +179,9 @@ Overall: 0% complete
 | Plan 10-05: minijinja 2.19 (Workspace-Version) unterstuetzt den `context! { ..base, ... }`-Spread NICHT — Compiler-Fehler `no rules expected payout_amount ... while trying to match ..`. Plan-Entscheidungsregel `1. PRIMARY -> 2. on-fail ERSETZE komplett mit FALLBACK; kein Mischen` befolgt; `merge_repayment_context` nutzt jetzt serde_json round-trip + BTreeMap-Merge + `Value::from_serialize`. Pattern-Vorlage fuer alle kuenftigen minijinja-Multi-Source-Context-Komposition-Faelle (Worker Plan 10.06, Frontend-Phase-12 Helper-Context). | Phase 10, Plan 05 |
 | Plan 10-05: D-13 Strict-Opt-in braucht idiomatisches `{% if X is defined %}`-Guard-Pattern — minijinja `UndefinedBehavior::Strict` (D-15 unveraendert) errort auch in boolean-Context (`{% if X %}`) auf truly-missing Variablen, NICHT nur in `{{ X }}`-Substitution. Unterschied zu existing `test_null_field_conditional`: `company=None` ist IM Context als None definiert (kein Err); Phase-10-`payout_amount` ist im D-05-Edge-Case GAR NICHT im Context. Plan-Test-Spec verwendete bare `{% if payout_amount %}` — Rule-1-Fix mit erklaerendem doc-Comment dokumentiert das korrekte Pattern fuer kuenftige Template-Autoren und Phase-12-Frontend-Template-Editor. | Phase 10, Plan 05 |
 | Plan 10-05: `validate_template_with_repayment` (D-14) ist fail-fast-FIRST — ruft `validate_template` member-only ZUERST auf und propagiert dessen Err sofort. Plan-Test-Spec erwartete faelschlich `is_ok()` fuer ein guard-loses Template, was dem ausdruecklichen Funktionszweck "Catches `{{ payout_amount }}` references without `{% if %}` guards before the worker actually sends mails" widerspricht. Rule-1-Fix prueft `is_err()` plus error-message-substring; zusaetzlicher Positiv-Test fuer guarded Template. Schritt 3 INCLUDED (additiv, 30 LOC, REST-Layer in Plan 10.06 kann direkt verdrahten ohne zweiten Probe-Loop). | Phase 10, Plan 05 |
+| Plan 10-07: Option A enforced — 6 worker-relevant DAOs als persistierte `RestStateImpl`-Felder (`member_document_dao`, `repayment_phase_dao`, `repayment_entry_dao`, `mail_template_dao`, `transaction_dao` neu; `audit_log_dao` bereits vorhanden), KEINE neuen `Arc::new()` im `start_mail_worker`-Spawn-Block. `grep -c "Arc::new(MemberDocumentDao::new(self\.pool" genossi_bin/src/lib.rs` returns 0. Single-Arc-per-DAO/Process garantiert dass `audit_log_dao` den gleichen Hash-Chain-State teilt wie die audited Services (T-10-07-02 Repudiation-Mitigation). Cross-Reference: Phase-7-Plan-04-Pattern "audit_log_dao geteilt mit allen audited Services" wird hier von 1 Arc auf 6 Arcs erweitert. | Phase 10, Plan 07 |
+| Plan 10-07: Plan-Text-Claim-Verification ist Pflicht — Plan-Text behauptete `transaction_dao` existiere bereits als RestStateImpl-Feld an Z. 323, tatsaechlich war Z. 323 das `DbAssemblyStatusProbe.transaction_dao`-Hilfsstruct (mock_auth-only), und RestStateImpl hatte gar kein transaction_dao-Feld. Rule-3-Auto-Fix im Task-2-Commit ergaenzt das Feld + Struct-Literal-Init aus dem bereits existierenden lokalen Arc (Z. 547). Pattern-Anker: vor Move-vs-Clone-Refactors immer `grep -nE '^\s*field:\s*Arc<...>'` auf der ECHTEN Struct-Definition (nicht via Codebase-Map-Citation) verifizieren. | Phase 10, Plan 07 |
+| Plan 10-07: Mixed clone-styles in `new()` sind idiomatisch — Verbrauchsstellen, die das Arc weiterhin brauchen (z.B. `MemberDocumentServiceImpl { member_document_dao: member_document_dao.clone(), ... }` und `MailTemplateServiceType::new(mail_template_dao.clone())`), nutzen explizites `.clone()`. Das finale Struct-Literal in der Return-Position nutzt Rust-Shorthand (`member_document_dao,`), weil die lokale Bindung anschliessend nicht mehr lebt (terminal move). Beide Patterns koexistieren in `RestStateImpl::new()` und sind keine Code-Smell. | Phase 10, Plan 07 |
 | One-Time-Use-QR pro Helfer | Verhindert Token-Weitergabe an Unbefugte | Phase 2 |
 | Helfer-Memo-Name = Freitext, kein Identitäts-Anker | Reine UX-Hilfe für Vorstand beim Drucken | Phase 2 |
 | GV-Status final nach Schluss; Vorstand-Korrekturen ohne Re-Open | Vermeidet Status-Pingpong, hält Audit-Story einfach | Phase 1 |
@@ -331,8 +335,11 @@ Details siehe `.planning/v1.0-MILESTONE-AUDIT.md` und `.planning/MILESTONES.md`.
 
 **Last action (2026-05-29, Phase 07 Plan 02):** Plan `07-02-PLAN.md` ausgeführt — `RepaymentPhaseDaoImpl` (SQLite-Impl des Plan-01-Traits) angelegt mit `RepaymentPhaseDb`-Row, `TryFrom` mit guarded i32-Cast (T-07-02-05), `dump_all`/`create`/`update` inkl. Pre-Exists-Check + Optimistic-Locking via `rows_affected == 0 → ConflictError("Version mismatch")`. ORDER BY ist `fiscal_year DESC, created DESC` (Phase-7-spezifisch). `parse_datetime` via `use crate::assembly::parse_datetime` reused (kein Duplikat). 4 grüne Tokio-Integrationstests gegen in-memory SQLite. Modul-Decl in `genossi_dao_impl_sqlite/src/lib.rs` alphabetisch eingefügt. Commit `6f6bf0f` (feat: 367 LOC added).
 
-**Stopped At:** Completed 10.06-worker-repayment-context-und-audited-create plan
+**Stopped At:** Completed 10.07-genossi-bin-worker-wiring plan
 **Resume File:** None
+
+**Last action (2026-05-31, Phase 10 Plan 07):** Plan `10.07-genossi-bin-worker-wiring-PLAN.md` ausgeführt — `genossi_bin/src/lib.rs::RestStateImpl` um 5 neue persistierte DAO-Felder erweitert (`member_document_dao`, `repayment_phase_dao`, `repayment_entry_dao`, `mail_template_dao`, `transaction_dao`); `start_mail_worker` Spawn-Block durchgereicht 6 neue Worker-Deps via `self.X.clone()` (8 → 14 args). 2 Move-to-Clone-Konversionen in `new()` (MemberDocumentServiceImpl-init + MailTemplateServiceType::new). Eine Rule-3-Deviation: Plan-Text behauptete `transaction_dao` existiere bereits als RestStateImpl-Feld an Z. 323 — tatsaechlich war das `DbAssemblyStatusProbe.transaction_dao` (mock_auth-only). Auto-Fix ergaenzt das Feld im gleichen Commit wie das Worker-Wiring. Option A enforced: 0 neue `Arc::new(...)` im Spawn-Block; alle 6 Worker-Deps stammen aus persistenten RestStateImpl-Feldern. `cargo build --workspace` exit 0; 740/740 Workspace-lib-tests gruen; rustfmt clean; clippy 0 NEUE Warnings. Smoke-Test (`DATABASE_URL=sqlite::memory: timeout 5 cargo run --bin genossi`) bootet ohne Panic und logged "Mail worker started". 2 Task-Commits (`8f5f690` feat-Task1, `5ba4e7a` feat-Task2). Naechster Schritt: Plan 10.08 (E2E bulk-mail + audit-chain).
+
 
 **Last action (2026-05-17, Phase 06 Discuss):** `/gsd-discuss-phase 6` durchgeführt — `06-CONTEXT.md` + `06-DISCUSSION-LOG.md` erstellt und committed (`30a3c2b`). 20 Implementierungsentscheidungen (D-01..D-20) erfasst: drei Export-Formate parallel (PDF via Typst, CSV semikolon/UTF-8-BOM, XLSX via rust_xlsxwriter), `?include=all|present`-Query, Status-Closed-only, Vorstand-only via OIDC, Snapshot-Daten aus `assembly_member_snapshot`, Sortierung `member_number ASC`, Endpoint `GET /api/assembly/{aid}/attendance-export/{format}`, Filename `gv-{YYYY-MM-DD}-teilnehmer.{ext}`, kein Audit-Hashchain-Eintrag. PDF-Layout minimal (Kopf mit GV-Titel + Datum + „X von Y anwesend", dann Tabelle). 6 Deferred Ideas (Sammelexport, E-Mail-Versand, Unterschriftenspalte, Logo, Multi-Sheet, Export-Audit). Nächster Schritt: `/gsd-plan-phase 6`.
 
