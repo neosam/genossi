@@ -11,3 +11,4 @@ pub mod service;
 pub mod static_document_service;
 pub mod template;
 pub mod worker;
+pub mod worker_audit;

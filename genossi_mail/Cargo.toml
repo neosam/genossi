@@ -22,6 +22,7 @@ axum = { workspace = true }
 utoipa = { workspace = true }
 lettre = { workspace = true }
 minijinja = "2"
+sha2 = "0.10"
 async-imap = { version = "0.10", default-features = false, features = ["runtime-tokio"] }
 tokio-rustls = "0.26"
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
