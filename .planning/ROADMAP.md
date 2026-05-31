@@ -123,7 +123,7 @@ Plans:
 - [x] 09-04-PLAN.md — 4 E2E-Tests: Happy-Path + PAYO-03 + PAYO-04 + Race (tokio::join!) + Audit-Chain-Verify
 
 **Wave 5** *(blocked on 09-04 completion; NOT autonomous — human checkpoint)*
-- [ ] 09-05-PLAN.md — Requirements-Sign-off: PAYO-01..04 in REQUIREMENTS.md als [x] markieren
+- [x] 09-05-PLAN.md — Requirements-Sign-off: PAYO-01..04 in REQUIREMENTS.md als [x] markieren
 
 #### Phase 10: Massenmail-Anbindung + Template-Variablen
 

@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Anteile-Rückzahlungsphase
-status: executing
+status: ready_to_plan
 stopped_at: Plan 09-04 complete; ready for Plan 09-05 (REQUIREMENTS-Sign-off PAYO-01..04)
 last_updated: "2026-05-31T11:08:33.241Z"
 last_activity: 2026-05-31
 progress:
   total_phases: 6
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 20
   completed_plans: 19
-  percent: 95
+  percent: 50
 ---
 
 # State: Genossi — v1.1 Anteile-Rückzahlungsphase
@@ -29,9 +29,9 @@ progress:
 
 ## Current Position
 
-Phase: 09 (auszahlungs-buchung-atomisch-auditiert) — EXECUTING
-Plan: 5 of 5
-Status: Ready to execute
+Phase: 10
+Plan: Not started
+Status: Ready to plan
 Last activity: 2026-05-31
 
 ## Closure Snapshot (v1.0, 2026-05-29)
