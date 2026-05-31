@@ -42,8 +42,7 @@
 
 - [ ] **EXPO-01**: PDF-Export der Auszahlungsliste verfügbar für `Offen`- **und** `Abgeschlossen`-Phasen (vor Phasen-Abschluss verfügbar für Online-Banking-Vorlage)
 - [ ] **EXPO-02**: PDF enthält pro Eintrag: Mitgliedsnummer, Name, IBAN, `share_count_to_pay_out`, Auszahlungs-Betrag, Verwendungszweck — sortiert nach Mitgliedsnummer aufsteigend
-- [ ] **EXPO-03**: PDF/CSV-Export unterstützt Filter `?include=open|all|paid` (Default: `open` für Banking-Vorlage)
-- [ ] **EXPO-04**: CSV-Export für Buchhaltung mit Semikolon-Separator und UTF-8-BOM (analog Teilnehmerlisten-Export)
+- [ ] **EXPO-03**: PDF-Export unterstützt Filter `?include=open|all|paid` (Default: `open` für Banking-Vorlage)
 - [ ] **EXPO-05**: Export-Endpoints sind Vorstand-only (OIDC), read-only, kein Audit-Hashchain-Eintrag
 
 ### Frontend (Component-First)
@@ -60,6 +59,10 @@
 ### Brief-Anschreiben-Automatik
 
 - **BRIEF-01**: Brief-Vorlagen aus Auszahlungs-Eintrag direkt als PDF erzeugen — out of v1.1, Vorstand erzeugt manuell
+
+### CSV-Export für Buchhaltung
+
+- **EXPO-04**: CSV-Export für Buchhaltung mit Semikolon-Separator und UTF-8-BOM (analog Teilnehmerlisten-Export) — *ausgesetzt während Phase-11-Discuss (D-12): Buchhaltung kann PDF-Werte abtippen oder Frontend-View nutzen, bis konkreter Bedarf signalisiert wird. Re-Add ist additiv (neue Format-Variante + Free-Function-Renderer + REST-Whitelist um `csv`).*
 
 ### SEPA-XML-Export
 
@@ -107,7 +110,7 @@
 | EXPO-01 | Phase 11 | Pending |
 | EXPO-02 | Phase 11 | Pending |
 | EXPO-03 | Phase 11 | Pending |
-| EXPO-04 | Phase 11 | Pending |
+| EXPO-04 | v2 deferred (D-12) | Deferred |
 | EXPO-05 | Phase 11 | Pending |
 | UI-01 | Phase 12 | Pending |
 | UI-02 | Phase 12 | Pending |
@@ -117,8 +120,9 @@
 | UI-06 | Phase 12 | Pending |
 
 **Coverage:**
-- v1 requirements: 30 total
-- Mapped to phases: 30
+- v1 requirements: 30 total (29 mapped to v1.1 phases, 1 deferred to v2)
+- Mapped to phases: 29
+- Deferred (D-12, Phase-11-Discuss): EXPO-04 → v2
 - Unmapped: 0 ✓
 
 **Phase distribution:**
@@ -126,7 +130,7 @@
 - Phase 8 (RepaymentEntry + Auto-Befüllung): 8 (ENTR-01..06 + PHAS-02 + PHAS-03)
 - Phase 9 (Auszahlungs-Buchung): 4 (PAYO-01..04)
 - Phase 10 (Massenmail): 4 (MAIL-01..04)
-- Phase 11 (Export): 5 (EXPO-01..05)
+- Phase 11 (Export PDF): 4 (EXPO-01, EXPO-02, EXPO-03, EXPO-05)
 - Phase 12 (Frontend): 6 (UI-01..06)
 
 ---

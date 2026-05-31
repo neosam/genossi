@@ -158,18 +158,19 @@ Plans:
 **Wave 5** *(blocked on Wave 4)*
 - [x] 10.08-e2e-bulk-mail-und-audit-chain-PLAN.md — 5 E2E-Tests: SC#1-4 + Audit-Chain + PII-Safety + Ad-hoc-Skip
 
-#### Phase 11: Export (PDF + CSV)
+#### Phase 11: Export (PDF)
 
-**Goal:** Vorstand exportiert Auszahlungsliste als PDF (Online-Banking-Vorlage) und CSV (Buchhaltung), für offene **und** geschlossene Phasen.
+**Goal:** Vorstand exportiert Auszahlungsliste als PDF (Online-Banking-Vorlage) für offene **und** geschlossene Phasen.
 
-**Requirements:** EXPO-01, EXPO-02, EXPO-03, EXPO-04, EXPO-05.
+**Requirements:** EXPO-01, EXPO-02, EXPO-03, EXPO-05.
+
+> **Scope note (D-12):** CSV-Export (EXPO-04) wurde während Discuss-Phase nach v1.2 deferred. Re-Add ist additiv (neue Format-Variante, neuer Free-Function-Renderer, REST-Whitelist um `csv` erweitern). Phase-Slug bleibt `11-export-pdf-csv` (Pfad-Stabilität).
 
 **Success criteria:**
 1. Typst-Template `auszahlungsliste.typ` in `DEFAULT_TEMPLATES`; Repeat-Header-Tabelle mit Mitgliedsnummer, Name, IBAN, share_count, Betrag, Verwendungszweck
-2. REST-Endpoint `GET /api/repayment-phase/{id}/export/{format}?include=open|all|paid` liefert PDF, CSV; Filename-Schema `auszahlung-{fiscal_year}-{include}.{ext}`
-3. CSV-Export: Semikolon-Separator, UTF-8-BOM, sortiert nach `member_number ASC`; verifiziert mit Sample-Roundtrip durch LibreOffice/Excel-Importpfad (manuell in UAT)
-4. Export-Service hat `0` `audited_*!`-Aufrufe (Grep-Gate im Test); Vorstand-only via OIDC, `Helper`-Auth liefert 403
-5. 6+ E2E-Tests decken: PDF-Erfolg, CSV-Erfolg, 403 ohne Vorstand-Auth, 400 unbekanntes Format, jede `include`-Filter-Variante (`open`/`all`/`paid`), Cross-Check zwischen PDF-Inhalt und CSV-Inhalt (gleiche Einträge)
+2. REST-Endpoint `GET /api/repayment-phase/{id}/export/{format}?include=open|all|paid` liefert PDF (Format-Whitelist nur `pdf`; alles andere → 400); Filename-Schema `auszahlung-{fiscal_year}-{include}.pdf`
+3. Export-Service hat `0` `audited_*!`-Aufrufe (Grep-Gate im Test); Vorstand-only via OIDC, `Helper`-Auth liefert 403
+4. 6+ E2E-Tests decken: PDF-Erfolg (Happy Path), 403 ohne Vorstand-Auth, 400 unbekanntes Format (`csv` blockiert mit 400), jede `?include`-Variante (`open`/`all`/`paid`), 409 bei `RepaymentPhase` in `Vorbereitung`-Status, 404 bei unbekannter `phase_id`, leere IBAN (Member.bank_account NULL) wird als leere Spalte gerendert
 
 #### Phase 12: Frontend (Component-First)
 
@@ -199,7 +200,7 @@ Plans:
 | 8. RepaymentEntry + Auto-Befüllung                              | v1.1      | 10/10 | Complete   | 2026-05-31 |
 | 9. Auszahlungs-Buchung (atomisch + auditiert)                   | v1.1      | 4/5 | In Progress|  |
 | 10. Massenmail-Anbindung + Template-Variablen                   | v1.1      | 8/8 | Complete    | 2026-05-31 |
-| 11. Export (PDF + CSV)                                          | v1.1      | 0/?            | Pending                 | —          |
+| 11. Export (PDF)                                                | v1.1      | 0/?            | Pending                 | —          |
 | 12. Frontend (Component-First)                                  | v1.1      | 0/?            | Pending                 | —          |
 
 ---
