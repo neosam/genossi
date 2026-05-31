@@ -208,11 +208,13 @@ type RepaymentPhaseService = genossi_service_impl::repayment_phase::RepaymentPha
     RepaymentPhaseServiceDependencies,
 >;
 
-// Phase 8 Plan 05 (D-DI): RepaymentEntryServiceImpl wiring. Seven deps —
-// RepaymentEntryDao + RepaymentPhaseDao + MemberDao + AuditLogDao +
-// PermissionService + UuidService + TransactionDao. RepaymentEntryDao
-// und RepaymentPhaseDao werden Arc-shared mit RepaymentPhaseServiceImpl
-// (W-02: exakt 1 DAO-Konstruktor pro Prozess).
+// Phase 8 Plan 05 (D-DI) + Phase 9 (PAYO-01): RepaymentEntryServiceImpl wiring.
+// Eight deps — RepaymentEntryDao + RepaymentPhaseDao + MemberDao + MemberActionDao
+// (Phase 9: fuer audited_create! MemberAction::Verkauf im mark_paid_out-Cascade) +
+// AuditLogDao + PermissionService + UuidService + TransactionDao.
+// RepaymentEntryDao, RepaymentPhaseDao werden Arc-shared mit RepaymentPhaseServiceImpl;
+// MemberActionDao Arc-shared mit allen 5 bestehenden Konsumenten (W-02:
+// exakt 1 DAO-Konstruktor pro Prozess; Phase 9 ist Konsument #6).
 pub struct RepaymentEntryServiceDependencies;
 
 unsafe impl Send for RepaymentEntryServiceDependencies {}
@@ -226,6 +228,7 @@ impl genossi_service_impl::repayment_entry::RepaymentEntryServiceDeps
     type RepaymentEntryDao = RepaymentEntryDao;
     type RepaymentPhaseDao = RepaymentPhaseDao;
     type MemberDao = MemberDao;
+    type MemberActionDao = MemberActionDao;
     type AuditLogDao = AuditLogDao;
     type PermissionService = PermissionService;
     type UuidService = UuidService;
@@ -758,15 +761,18 @@ impl RestStateImpl {
                 transaction_dao: transaction_dao.clone(),
             },
         );
-        // Phase 8 Plan 05: RepaymentEntryServiceImpl with 7 deps.
+        // Phase 8 Plan 05 + Phase 9: RepaymentEntryServiceImpl with 8 deps.
         // Uses the SAME repayment_phase_dao + repayment_entry_dao + member_dao
-        // Arcs as RepaymentPhaseServiceImpl above — single DAO instance per
-        // process per W-02.
+        // + member_action_dao (Phase 9) Arcs as other services — single DAO
+        // instance per process per W-02. member_action_dao ist Konsument #6
+        // (bereits geteilt mit MemberService, MemberActionService, ValidationService,
+        // MemberImportService, ApplicationService — siehe Z. 568, 577, 604, 625, 709).
         let repayment_entry_service = Arc::new(
             genossi_service_impl::repayment_entry::RepaymentEntryServiceImpl {
                 repayment_entry_dao: repayment_entry_dao.clone(),
                 repayment_phase_dao: repayment_phase_dao.clone(),
                 member_dao: member_dao.clone(),
+                member_action_dao: member_action_dao.clone(),
                 audit_log_dao: audit_log_dao.clone(),
                 permission_service: permission_service.clone(),
                 uuid_service: uuid_service.clone(),
