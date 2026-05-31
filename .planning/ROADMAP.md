@@ -86,7 +86,7 @@ Plans:
 - [x] 08-05-PLAN.md — REST-Handler + TOs + Router + DI-Wiring (Wave 4)
 
 **Wave 5** *(blocked on Wave 4 completion)*
-- [ ] 08-06-PLAN.md — E2E-Tests: Auto-Fill + manueller CRUD + Batch + Close-Validation + Audit-Chain (Wave 5)
+- [x] 08-06-PLAN.md — E2E-Tests: Auto-Fill + manueller CRUD + Batch + Close-Validation + Audit-Chain (Wave 5)
 
 #### Phase 9: Auszahlungs-Buchung (atomisch + auditiert)
 

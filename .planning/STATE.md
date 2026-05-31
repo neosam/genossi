@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Anteile-Rückzahlungsphase
-status: executing
-stopped_at: Completed 08-05-PLAN.md
-last_updated: "2026-05-31T04:59:46.166Z"
+status: verifying
+stopped_at: Completed 08-06-PLAN.md (Phase 8 complete — ready for verification)
+last_updated: "2026-05-31T05:17:06.156Z"
 last_activity: 2026-05-31
 progress:
   total_phases: 6
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 11
-  completed_plans: 10
-  percent: 91
+  completed_plans: 11
+  percent: 100
 ---
 
 # State: Genossi — v1.1 Anteile-Rückzahlungsphase
@@ -31,7 +31,7 @@ progress:
 
 Phase: 08 (repaymententry-auto-bef-llung) — EXECUTING
 Plan: 6 of 6
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-05-31
 
 ## Closure Snapshot (v1.0, 2026-05-29)
@@ -85,6 +85,7 @@ Overall: 0% complete
 | Phase 08 P03 | 12min | 2 tasks | 4 files |
 | Phase 08 P04 | 12min | 1 tasks | 2 files |
 | Phase 08 P05 | ~10min | 3 tasks | 5 files |
+| Phase 08 P06 | 9min | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -143,6 +144,8 @@ Overall: 0% complete
 | Plan 08-05: Router-Reihenfolge `/batch-status` MUSS VOR `/{id}` deklariert werden (T-08-05-02 Mitigation) — Axum matcht in Deklarations-Reihenfolge; statische Literale müssen vor Path-Parametern stehen, sonst frisst Axum den Literal-String als Uuid-Parse-Fehler. Inline-Doc-Kommentar im `generate_route` fixiert die Invariante für künftige Endpoint-Erweiterungen. Pattern für alle künftigen `/literal` + `/{id}`-Kombinationen. | Phase 8, Plan 05 |
 | Plan 08-05: `BatchFailureResponse` + `CloseConflictResponse` als ToSchema-TOs in `genossi_rest_types` formalisiert (W-05) — Service-Layer (Plan 03 batch_toggle_status + Plan 04 close-validation) emittiert bereits exakt diese JSON-Schemas in `ServiceError::Conflict(Arc<str>)`; REST-Layer reicht den Body 1:1 als 409-Response durch. Frontend kann strukturiert deserialisieren ohne serialize-parse-serialize-Roundtrip im REST-Layer. Pattern für künftige strukturierte 409-Body-Endpunkte. | Phase 8, Plan 05 |
 | Plan 08-05: W-02 DAO-Sharing-Mitigation — `repayment_phase_dao` + `repayment_entry_dao` werden GENAU EINMAL gebaut und via `Arc::clone()` an `RepaymentPhaseServiceImpl` UND `RepaymentEntryServiceImpl` geteilt. Plan 04 hatte den move-only-Pattern (Single-Use-Variable mit `_for_phase`-Suffix), Plan 05 stellte auf Arc-Sharing um. Mirror des Phase-3-Plan-05 `helper_token_dao`-Sharing-Patterns. Grep-Gate vor Commit: exakt 1 Konstruktor pro DAO. | Phase 8, Plan 05 |
+| Plan 08-06: E2E-Helper `create_member_with_exit_date` braucht 3-Schritt-Setup (POST Member → POST Austritt-MemberAction → GET Member) — `MemberTO.exit_date` allein wird beim Member-Create durch `recalc_dates()` (member.rs:288) ueberschrieben; `compute_dates()` (member_action.rs:160-169) ist Single Source of Truth fuer `exit_date` und ermittelt es ausschliesslich aus `MemberAction::Austritt`/`Todesfall`-Actions. Vorlage fuer Phase 9 (PAYO mark-paid-out-Tests) und alle kuenftigen E2E-Tests mit echtem `exit_date`. | Phase 8, Plan 06 |
+| Plan 08-06: `test_manual_add_entry_happy_path` nutzt `share_count_to_pay_out=1` statt =2 — Member-Service setzt beim Create `current_shares = shares_at_joining` (member.rs:213-218); sample_member() hat `shares_at_joining=1`, der vom Test gesendete `current_shares=3` im MemberTO wird ignoriert. Persistiert wird `current_shares=1`, also blockt D-11.3 jeden Versuch mit `share_count_to_pay_out > 1`. Doc-Comment im Test erklaert die Service-Konvention. | Phase 8, Plan 06 |
 | One-Time-Use-QR pro Helfer | Verhindert Token-Weitergabe an Unbefugte | Phase 2 |
 | Helfer-Memo-Name = Freitext, kein Identitäts-Anker | Reine UX-Hilfe für Vorstand beim Drucken | Phase 2 |
 | GV-Status final nach Schluss; Vorstand-Korrekturen ohne Re-Open | Vermeidet Status-Pingpong, hält Audit-Story einfach | Phase 1 |
@@ -185,6 +188,16 @@ Details siehe `.planning/v1.0-MILESTONE-AUDIT.md` und `.planning/MILESTONES.md`.
 
 ## Session Continuity
 
+**Last action (2026-05-31, Phase 08 Plan 06):** Plan `08-06-PLAN.md` ausgeführt — 15 E2E-Tests + 2 Helper am Ende von `genossi_bin/tests/e2e_tests.rs` ergänzt (+680 LOC -24 LOC). Helper `create_member_with_exit_date` ist 3-stufig (POST Member → POST Austritt-MemberAction → GET Member zur Re-Load) weil `recalc_dates()` (member.rs:288) die Single Source of Truth für `exit_date` ist — ein bloßes `MemberTO.exit_date` im POST wird durch `compute_dates()` (member_action.rs:160-169) auf None zurückgesetzt wenn keine Austritt-Action existiert. Helper `create_open_repayment_phase` wrapt Phase-7-`create_preparation_repayment_phase` + POST `/open` (triggert Auto-Fill). 15 Tests: 4 Auto-Fill (PHAS-02/ENTR-01: triggers, 0-members, no-exit-date, outside-FY), 3 Manual-Create (ENTR-02/D-11: happy, phase-not-open 409, share-exceeds 400), 2 Update (ENTR-04/06/D-05/D-06: Open→Contacted, PaidOut 409), 1 Delete (ENTR-05: soft-delete + GET 404), 2 Batch-Toggle (D-07/D-08: happy, PaidOut-Target 400), 2 Close-Validation (PHAS-03/D-14/D-15: pending 409 mit pending_count+member_number, 0-Entry erlaubt), 1 Audit-Hashchain (verify.valid=true nach Lifecycle). 270 grüne E2E-Tests (255 Phase-7-Baseline + 15 Phase-8 neu); kein Regress. Zwei Deviations: Rule-1-Bugs im Test-Setup — (1) Helper-Setup nutzte fälschlich `MemberTO.exit_date` statt Austritt-Action (5 Tests rot, alle "auto-fill produces 0 entries"); (2) `test_manual_add_entry_happy_path` nutzte `share_count_to_pay_out=2` aber sample_member.shares_at_joining=1 → Service rejected mit 400 (Service-Konvention current_shares=shares_at_joining beim Create). Beide gefixt im selben Commit. Production-Code unverändert. Commit `677eab1` (test, +680 -24). Phase 8 ist Plan-vollständig (6/6); ROADMAP zeigt "Complete"; alle 8 Requirements ENTR-01..06 + PHAS-02 + PHAS-03 als E2E-verifiziert markiert. Nächster Schritt: `/gsd-verify-phase 08`.
+
+**Files written this session (Plan 08-06):**
+
+- `genossi_bin/tests/e2e_tests.rs` (MOD — +680 LOC -24 LOC: imports erweitert + 2 Helper + 15 E2E-Tests am Datei-Ende NACH Phase-7-Block)
+- `.planning/phases/08-repaymententry-auto-bef-llung/08-06-SUMMARY.md` (NEW)
+- `.planning/STATE.md` (MOD — diese Aktualisierung)
+- `.planning/ROADMAP.md` (MOD — Phase 8 Plan-Progress 6/6 Complete via roadmap.update-plan-progress)
+- `.planning/REQUIREMENTS.md` (MOD — ENTR-01..06 + PHAS-02 + PHAS-03 als E2E-verifiziert via requirements.mark-complete)
+
 **Last action (2026-05-31, Phase 08 Plan 05):** Plan `08-05-PLAN.md` ausgeführt — REST-Layer + DI-Wiring für RepaymentEntry komplett. 7 neue TOs in `genossi_rest_types/src/lib.rs` (RepaymentEntryStatusTO + RepaymentEntryTO + CreateRepaymentEntryRequest + UpdateRepaymentEntryRequest + BatchStatusRequest + CloseConflictResponse + BatchFailureResponse — letzte zwei sind strukturierte 409-Body-Formalisierungen per W-05). Neue Datei `genossi_rest/src/repayment_entry.rs` (379 LOC) mit RepaymentEntryRestState-Trait + 6 Handlern (create/list?phase_id=/get/{id}/put/{id}/delete/{id}/batch-status) + ListEntriesQuery + generate_route (mit Router-Reihenfolge-Mitigation: `/batch-status` VOR `/{id}`, T-08-05-02) + ApiDoc + 3 Smoke-Tests. Modul-Decl + OpenAPI-Nest + Router-Mount + Trait-Bounds (create_app, start_server) in `genossi_rest/src/lib.rs`; Trait-Bound auf start_test_server in `genossi_rest/src/test_server.rs`. DI-Wiring in `genossi_bin/src/lib.rs`: RepaymentEntryServiceDependencies struct mit 7 assoc-types + RepaymentEntryService type-alias + repayment_entry_service Field + Wiring (W-02 Mitigation: repayment_phase_dao + repayment_entry_dao GENAU EINMAL gebaut und via Arc::clone an beide Services geteilt — Variable repayment_entry_dao_for_phase → repayment_entry_dao umbenannt) + RestState-Impl-Bridge. `cargo build --workspace` clean (nur pre-existing warnings). 10 grüne neue Tests (7 in genossi_rest_types::repayment_entry_to_tests, 3 in genossi_rest::repayment_entry::tests); 42 grüne repayment-related Service-Tests bleiben unverändert. Drei Commits: `6bef223` (Task 1 TOs), `b8e5c14` (Task 2 REST), `00ddfc5` (Task 3 DI). Eine Deviation: Rule-3 Auto-Fix in Task 3 — Variable-Rename + Arc-Sharing-Umstellung in genossi_bin/src/lib.rs nötig, weil Plan 04 die move-Variable-Pattern verwendete und Plan 05 das DAO-Sharing braucht. Nächster Schritt: Plan 08-06 (E2E-Tests).
 
 **Files written this session (Plan 08-05):**
@@ -209,7 +222,7 @@ Details siehe `.planning/v1.0-MILESTONE-AUDIT.md` und `.planning/MILESTONES.md`.
 
 **Last action (2026-05-29, Phase 07 Plan 02):** Plan `07-02-PLAN.md` ausgeführt — `RepaymentPhaseDaoImpl` (SQLite-Impl des Plan-01-Traits) angelegt mit `RepaymentPhaseDb`-Row, `TryFrom` mit guarded i32-Cast (T-07-02-05), `dump_all`/`create`/`update` inkl. Pre-Exists-Check + Optimistic-Locking via `rows_affected == 0 → ConflictError("Version mismatch")`. ORDER BY ist `fiscal_year DESC, created DESC` (Phase-7-spezifisch). `parse_datetime` via `use crate::assembly::parse_datetime` reused (kein Duplikat). 4 grüne Tokio-Integrationstests gegen in-memory SQLite. Modul-Decl in `genossi_dao_impl_sqlite/src/lib.rs` alphabetisch eingefügt. Commit `6f6bf0f` (feat: 367 LOC added).
 
-**Stopped At:** Completed 08-05-PLAN.md
+**Stopped At:** Completed 08-06-PLAN.md (Phase 8 complete — ready for verification)
 **Resume File:** None
 
 **Last action (2026-05-17, Phase 06 Discuss):** `/gsd-discuss-phase 6` durchgeführt — `06-CONTEXT.md` + `06-DISCUSSION-LOG.md` erstellt und committed (`30a3c2b`). 20 Implementierungsentscheidungen (D-01..D-20) erfasst: drei Export-Formate parallel (PDF via Typst, CSV semikolon/UTF-8-BOM, XLSX via rust_xlsxwriter), `?include=all|present`-Query, Status-Closed-only, Vorstand-only via OIDC, Snapshot-Daten aus `assembly_member_snapshot`, Sortierung `member_number ASC`, Endpoint `GET /api/assembly/{aid}/attendance-export/{format}`, Filename `gv-{YYYY-MM-DD}-teilnehmer.{ext}`, kein Audit-Hashchain-Eintrag. PDF-Layout minimal (Kopf mit GV-Titel + Datum + „X von Y anwesend", dann Tabelle). 6 Deferred Ideas (Sammelexport, E-Mail-Versand, Unterschriftenspalte, Logo, Multi-Sheet, Export-Audit). Nächster Schritt: `/gsd-plan-phase 6`.
@@ -274,3 +287,8 @@ Details siehe `.planning/v1.0-MILESTONE-AUDIT.md` und `.planning/MILESTONES.md`.
 *Phase 07 COMPLETE: 2026-05-29*
 *Phase 08 Plan 01 completed: 2026-05-31*
 *Phase 08 Plan 02 completed: 2026-05-31*
+*Phase 08 Plan 03 completed: 2026-05-31*
+*Phase 08 Plan 04 completed: 2026-05-31*
+*Phase 08 Plan 05 completed: 2026-05-31*
+*Phase 08 Plan 06 completed: 2026-05-31*
+*Phase 08 COMPLETE: 2026-05-31*

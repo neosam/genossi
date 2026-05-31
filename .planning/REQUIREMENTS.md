@@ -86,8 +86,8 @@
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | PHAS-01 | Phase 7 | Complete |
-| PHAS-02 | Phase 7 (Skeleton: state-machine + audit-trail) + Phase 8 (full: auto-fill on open) | Skeleton |
-| PHAS-03 | Phase 7 (Skeleton: state-machine + audit-trail) + Phase 8 (full: pending-entry validation) | Skeleton |
+| PHAS-02 | Phase 7 (Skeleton: state-machine + audit-trail) + Phase 8 (full: auto-fill on open) | Complete |
+| PHAS-03 | Phase 7 (Skeleton: state-machine + audit-trail) + Phase 8 (full: pending-entry validation) | Complete |
 | PHAS-04 | Phase 7 | Complete |
 | PHAS-05 | Phase 7 | Complete |
 | ENTR-01 | Phase 8 | Complete |
