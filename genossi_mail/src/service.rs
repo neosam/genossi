@@ -914,4 +914,106 @@ mod tests {
             "expected MailServiceError::DataAccess with 'serialize failed'"
         );
     }
+
+    // Phase 10 Plan 10.03: create_job persists template_id + repayment_phase_id (D-03, D-12).
+    #[tokio::test]
+    async fn test_create_job_persists_template_id_and_repayment_phase_id() {
+        let config_mock = MockConfigService::new();
+        let mut job_dao = MockMailJobDao::new();
+        let mut recipient_dao = MockMailRecipientDao::new();
+
+        let template_id = Uuid::new_v4();
+        let phase_id = Uuid::new_v4();
+
+        // Capture the MailJob that gets persisted so we can assert on it.
+        let captured_template_id = std::sync::Arc::new(std::sync::Mutex::new(None::<Option<Uuid>>));
+        let captured_phase_id = std::sync::Arc::new(std::sync::Mutex::new(None::<Option<Uuid>>));
+        let cap_t = captured_template_id.clone();
+        let cap_p = captured_phase_id.clone();
+        job_dao.expect_create().returning(move |job| {
+            *cap_t.lock().unwrap() = Some(job.template_id);
+            *cap_p.lock().unwrap() = Some(job.repayment_phase_id);
+            Ok(())
+        });
+        recipient_dao.expect_create().times(1).returning(|_| Ok(()));
+
+        let (sd_mock, msa_mock) = empty_static_mocks();
+        let service = MailServiceImpl::new(
+            config_mock,
+            job_dao,
+            recipient_dao,
+            MockMailRecipientAttachmentDao::new(),
+            sd_mock,
+            msa_mock,
+        );
+
+        let result = service
+            .create_job(
+                "Subject",
+                "Body",
+                vec![RecipientInput {
+                    address: "a@example.com".into(),
+                    member_id: Some(Uuid::new_v4()),
+                }],
+                vec![],
+                vec![],
+                Some(template_id),
+                Some(phase_id),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result.template_id, Some(template_id));
+        assert_eq!(result.repayment_phase_id, Some(phase_id));
+        assert_eq!(
+            *captured_template_id.lock().unwrap(),
+            Some(Some(template_id)),
+            "MailJob persisted via DAO must carry template_id"
+        );
+        assert_eq!(
+            *captured_phase_id.lock().unwrap(),
+            Some(Some(phase_id)),
+            "MailJob persisted via DAO must carry repayment_phase_id"
+        );
+    }
+
+    // Phase 10 Plan 10.03: create_job with None,None keeps fields NULL (D-03, D-12 edge case).
+    #[tokio::test]
+    async fn test_create_job_with_none_template_and_phase_keeps_null() {
+        let config_mock = MockConfigService::new();
+        let mut job_dao = MockMailJobDao::new();
+        let mut recipient_dao = MockMailRecipientDao::new();
+
+        job_dao.expect_create().returning(|_| Ok(()));
+        recipient_dao.expect_create().times(1).returning(|_| Ok(()));
+
+        let (sd_mock, msa_mock) = empty_static_mocks();
+        let service = MailServiceImpl::new(
+            config_mock,
+            job_dao,
+            recipient_dao,
+            MockMailRecipientAttachmentDao::new(),
+            sd_mock,
+            msa_mock,
+        );
+
+        let result = service
+            .create_job(
+                "Subject",
+                "Body",
+                vec![RecipientInput {
+                    address: "a@example.com".into(),
+                    member_id: Some(Uuid::new_v4()),
+                }],
+                vec![],
+                vec![],
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result.template_id, None);
+        assert_eq!(result.repayment_phase_id, None);
+    }
 }
