@@ -129,7 +129,17 @@ impl<Deps: ApplicationServiceDeps> ApplicationServiceImpl<Deps> {
         };
 
         if let Err(e) = mail
-            .create_job(&subject, &body, vec![recipient], vec![], vec![])
+            .create_job(
+                &subject,
+                &body,
+                vec![recipient],
+                vec![],
+                vec![],
+                // Phase 10 (Plan 10.03): application-confirmation mail is transactional,
+                // not template/phase-driven — both stay None.
+                None,
+                None,
+            )
             .await
         {
             tracing::error!("Failed to queue confirmation mail: {:?}", e);

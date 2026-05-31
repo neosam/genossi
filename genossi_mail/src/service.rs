@@ -53,6 +53,13 @@ pub trait MailService: Send + Sync + 'static {
     /// Create a mail job with the given recipients. Returns the created job.
     /// If attachment_inputs is non-empty, recipients must contain exactly one entry.
     /// `static_document_ids` are job-level attachments delivered to every recipient.
+    ///
+    /// Phase 10:
+    /// - `template_id` (D-12): optional reference to MailTemplate used to render this job's
+    ///   subject/body. Worker (Plan 10.06) uses this to populate MemberDocument.template_id.
+    /// - `repayment_phase_id` (D-03): optional reference to RepaymentPhase. If set, the worker
+    ///   merges per-recipient payout context (payout_amount/share_count/fiscal_year) into the
+    ///   minijinja render.
     async fn create_job(
         &self,
         subject: &str,
@@ -60,6 +67,8 @@ pub trait MailService: Send + Sync + 'static {
         recipients: Vec<RecipientInput>,
         attachment_inputs: Vec<AttachmentInput>,
         static_document_ids: Vec<Uuid>,
+        template_id: Option<Uuid>,
+        repayment_phase_id: Option<Uuid>,
     ) -> Result<MailJob, MailServiceError>;
 
     /// Get all mail jobs ordered by created DESC.
@@ -238,6 +247,8 @@ impl<
         recipients: Vec<RecipientInput>,
         attachment_inputs: Vec<AttachmentInput>,
         static_document_ids: Vec<Uuid>,
+        template_id: Option<Uuid>,
+        repayment_phase_id: Option<Uuid>,
     ) -> Result<MailJob, MailServiceError> {
         if recipients.is_empty() {
             return Err(MailServiceError::DataAccess(Arc::from(
@@ -277,9 +288,9 @@ impl<
             sent_count: 0,
             failed_count: 0,
             reply_to_inbound_mail_id: None,
-            // Phase 10: real values are wired in Plan 10.03 (MailService::create_job signature).
-            template_id: None,
-            repayment_phase_id: None,
+            // Phase 10 (Plan 10.03): real values flow in via the extended create_job signature.
+            template_id,        // D-12: optional MailTemplate reference (job-wide)
+            repayment_phase_id, // D-03: optional RepaymentPhase reference (job-wide)
         };
 
         self.job_dao.create(&job).await?;
@@ -490,6 +501,8 @@ mod tests {
                 ],
                 vec![],
                 vec![],
+                None,
+                None,
             )
             .await
             .unwrap();
@@ -516,7 +529,7 @@ mod tests {
             msa_mock,
         );
         let result = service
-            .create_job("Test", "Body", vec![], vec![], vec![])
+            .create_job("Test", "Body", vec![], vec![], vec![], None, None)
             .await;
 
         assert!(matches!(result, Err(MailServiceError::DataAccess(_))));
@@ -855,6 +868,8 @@ mod tests {
                     },
                 ],
                 vec![],
+                None,
+                None,
             )
             .await
             .unwrap();
@@ -899,6 +914,8 @@ mod tests {
                     relative_path: "aaa.pdf".into(),
                 }],
                 vec![],
+                None,
+                None,
             )
             .await;
 

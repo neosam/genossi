@@ -277,6 +277,8 @@ pub async fn send_mail<S: MailRestState>(
                     }],
                     vec![],
                     vec![],
+                    None, // template_id: Phase 10 single-send is ad-hoc, no template tracking
+                    None, // repayment_phase_id: Phase 10 single-send is not bulk-repayment
                 )
                 .await?;
             let to = MailJobTO::from(&job);
@@ -385,6 +387,8 @@ pub async fn send_bulk_mail<S: MailRestState>(
                     recipients,
                     attachment_inputs,
                     static_document_ids,
+                    None, // TODO(10.04): parse body.template_id (Option<String> -> Option<Uuid>)
+                    None, // TODO(10.04): parse body.repayment_phase_id (Option<String> -> Option<Uuid>)
                 )
                 .await?;
             let to = MailJobTO::from(&job);
