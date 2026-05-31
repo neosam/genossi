@@ -3227,6 +3227,8 @@ async fn test_mail_create_bulk_job() {
             body: "Hello everyone".to_string(),
             attachment_ids: vec![],
             static_document_ids: vec![],
+            template_id: None,
+            repayment_phase_id: None,
         })
         .send()
         .await
@@ -3299,6 +3301,8 @@ async fn test_mail_send_bulk_empty_list() {
             body: "Body".to_string(),
             attachment_ids: vec![],
             static_document_ids: vec![],
+            template_id: None,
+            repayment_phase_id: None,
         })
         .send()
         .await
@@ -3356,6 +3360,8 @@ async fn test_mail_retry_job() {
             body: "Hello".to_string(),
             attachment_ids: vec![],
             static_document_ids: vec![],
+            template_id: None,
+            repayment_phase_id: None,
         })
         .send()
         .await
@@ -3534,6 +3540,8 @@ async fn test_members_not_reached_by_job() {
             body: "Einladung zur Generalversammlung".to_string(),
             attachment_ids: vec![],
             static_document_ids: vec![],
+            template_id: None,
+            repayment_phase_id: None,
         })
         .send()
         .await
@@ -3613,6 +3621,8 @@ async fn test_members_not_reached_sent_excluded() {
             body: "Test".to_string(),
             attachment_ids: vec![],
             static_document_ids: vec![],
+            template_id: None,
+            repayment_phase_id: None,
         })
         .send()
         .await
@@ -3915,6 +3925,8 @@ async fn test_mail_send_with_attachment() {
             body: "See attached".to_string(),
             attachment_ids: vec![doc_id.to_string()],
             static_document_ids: vec![],
+            template_id: None,
+            repayment_phase_id: None,
         })
         .send()
         .await
@@ -3973,6 +3985,8 @@ async fn test_mail_attachment_wrong_member() {
             body: "This should fail".to_string(),
             attachment_ids: vec![doc_id.to_string()],
             static_document_ids: vec![],
+            template_id: None,
+            repayment_phase_id: None,
         })
         .send()
         .await
@@ -4021,6 +4035,8 @@ async fn test_mail_attachments_rejected_for_multiple_recipients() {
             body: "Should fail".to_string(),
             attachment_ids: vec![doc_id.to_string()],
             static_document_ids: vec![],
+            template_id: None,
+            repayment_phase_id: None,
         })
         .send()
         .await
@@ -4078,6 +4094,8 @@ async fn test_mail_without_attachment_unchanged() {
             body: "Plain mail".to_string(),
             attachment_ids: vec![],
             static_document_ids: vec![],
+            template_id: None,
+            repayment_phase_id: None,
         })
         .send()
         .await
@@ -4562,6 +4580,8 @@ async fn test_bulk_mail_with_static_document_ids_succeeds() {
             body: "Anbei die Unterlagen.".to_string(),
             attachment_ids: vec![],
             static_document_ids: vec![doc_id],
+            template_id: None,
+            repayment_phase_id: None,
         })
         .send()
         .await
@@ -4598,6 +4618,8 @@ async fn test_bulk_mail_with_unknown_static_document_id_fails() {
             body: "Body".to_string(),
             attachment_ids: vec![],
             static_document_ids: vec![uuid::Uuid::new_v4().to_string()],
+            template_id: None,
+            repayment_phase_id: None,
         })
         .send()
         .await

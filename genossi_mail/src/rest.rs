@@ -120,6 +120,18 @@ pub struct SendBulkMailRequest {
     pub attachment_ids: Vec<String>,
     #[serde(default)]
     pub static_document_ids: Vec<String>,
+    /// Phase 10 D-12: optional reference to MailTemplate used to render this job.
+    /// Worker uses this to populate MemberDocument.template_id for audit traceability.
+    /// Must be a valid Uuid string; invalid -> 400 BadRequest.
+    #[serde(default)]
+    #[schema(example = "550e8400-e29b-41d4-a716-446655440000")]
+    pub template_id: Option<String>,
+    /// Phase 10 D-03: optional reference to RepaymentPhase. When set, the worker
+    /// merges per-recipient payout context (payout_amount/share_count/fiscal_year)
+    /// into the minijinja render. Must be a valid Uuid string; invalid -> 400 BadRequest.
+    #[serde(default)]
+    #[schema(example = "550e8400-e29b-41d4-a716-446655440000")]
+    pub repayment_phase_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
@@ -379,6 +391,26 @@ pub async fn send_bulk_mail<S: MailRestState>(
                 static_document_ids.push(parsed);
             }
 
+            // Phase 10 D-12: parse optional template_id (invalid UUID -> 400 BadRequest)
+            let template_id: Option<uuid::Uuid> = match &body.template_id {
+                Some(s) if !s.is_empty() => Some(uuid::Uuid::parse_str(s).map_err(|_| {
+                    MailServiceError::BadRequest(Arc::from(
+                        format!("Invalid template_id UUID: {}", s).as_str(),
+                    ))
+                })?),
+                _ => None,
+            };
+
+            // Phase 10 D-03: parse optional repayment_phase_id (invalid UUID -> 400 BadRequest)
+            let repayment_phase_id: Option<uuid::Uuid> = match &body.repayment_phase_id {
+                Some(s) if !s.is_empty() => Some(uuid::Uuid::parse_str(s).map_err(|_| {
+                    MailServiceError::BadRequest(Arc::from(
+                        format!("Invalid repayment_phase_id UUID: {}", s).as_str(),
+                    ))
+                })?),
+                _ => None,
+            };
+
             let job = state
                 .mail_service()
                 .create_job(
@@ -387,8 +419,8 @@ pub async fn send_bulk_mail<S: MailRestState>(
                     recipients,
                     attachment_inputs,
                     static_document_ids,
-                    None, // TODO(10.04): parse body.template_id (Option<String> -> Option<Uuid>)
-                    None, // TODO(10.04): parse body.repayment_phase_id (Option<String> -> Option<Uuid>)
+                    template_id,        // Phase 10 D-12
+                    repayment_phase_id, // Phase 10 D-03
                 )
                 .await?;
             let to = MailJobTO::from(&job);
