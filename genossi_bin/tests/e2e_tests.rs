@@ -11660,3 +11660,284 @@ async fn test_audit_chain_intact_after_phase_8_lifecycle() {
         verify.broken_links
     );
 }
+
+// ---------------------------------------------------------------------
+// Phase 08 Gap-Closure Plan 10 — CR-01 + CR-02 E2E-Regressionstests
+// ---------------------------------------------------------------------
+// IN-04 (08-VERIFICATION.md): Phase-8-Baseline-Tests verifizierten nie
+// dass ein 2. PUT mit der von einem 1. PUT zurückgelieferten version
+// funktioniert. Diese Lücke verbarg CR-01 (stale version response) bis
+// zum manuellen Code-Review. Die 5 Tests hier schließen die Lücke und
+// schützen vor zukünftigen Regressionen der 08-07/08/09-Fixes.
+
+/// CR-01 Regression — RepaymentEntry::update returnt nach 08-07-Fix die
+/// post-update version-UUID. Ein direkter 2. PUT mit dieser Version
+/// muss 200 produzieren (vor 08-07-Fix wäre das 409 "Version mismatch").
+#[tokio::test]
+async fn test_update_entry_followup_put_uses_response_version_returns_200() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let phase = create_open_repayment_phase(&client, &server, 2026, 12000).await;
+    let m = create_test_member(&client, &server).await;
+
+    let create_body = CreateRepaymentEntryRequest {
+        phase_id: phase.id,
+        member_id: m.id.unwrap(),
+        share_count_to_pay_out: 1,
+    };
+    let entry: RepaymentEntryTO = client
+        .post(server.url("/api/repayment-entry"))
+        .json(&create_body)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let create_version = entry
+        .version
+        .expect("create response must include version");
+
+    // 1. PUT: Open → Contacted, mit create-version
+    let put1_body = UpdateRepaymentEntryRequest {
+        share_count_to_pay_out: None,
+        status: Some(RepaymentEntryStatusTO::Contacted),
+        version: create_version,
+    };
+    let resp1 = client
+        .put(server.url(&format!("/api/repayment-entry/{}", entry.id)))
+        .json(&put1_body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp1.status(), StatusCode::OK, "1st PUT must succeed");
+    let updated1: RepaymentEntryTO = resp1.json().await.unwrap();
+    let version_after_put1 = updated1
+        .version
+        .expect("1st PUT response must include version (CR-01 post-fix)");
+    assert_ne!(
+        version_after_put1, create_version,
+        "Post-update version must differ from create version (DAO generates fresh UUID)"
+    );
+
+    // 2. PUT: Contacted → Open, MIT der version aus der 1. PUT-Response
+    let put2_body = UpdateRepaymentEntryRequest {
+        share_count_to_pay_out: None,
+        status: Some(RepaymentEntryStatusTO::Open),
+        version: version_after_put1,
+    };
+    let resp2 = client
+        .put(server.url(&format!("/api/repayment-entry/{}", entry.id)))
+        .json(&put2_body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp2.status(),
+        StatusCode::OK,
+        "2nd PUT with version from 1st PUT response must succeed (CR-01 regression)"
+    );
+    let updated2: RepaymentEntryTO = resp2.json().await.unwrap();
+    assert!(
+        matches!(updated2.status, RepaymentEntryStatusTO::Open),
+        "After 2nd PUT, status must be Open again"
+    );
+}
+
+/// CR-01/WR-01 Regression — batch_toggle_status returnt nach 08-07-Fix
+/// pro Entry eine post-update version. Ein einzelner Folge-PUT mit
+/// updated[0].version muss 200 produzieren.
+#[tokio::test]
+async fn test_batch_toggle_followup_put_uses_response_versions() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let fiscal_year = 2026;
+    let _m1 = create_member_with_exit_date(&client, &server, 1, fiscal_year, 5).await;
+    let _m2 = create_member_with_exit_date(&client, &server, 2, fiscal_year, 5).await;
+    let phase = create_open_repayment_phase(&client, &server, fiscal_year, 12000).await;
+
+    let entries: Vec<RepaymentEntryTO> = client
+        .get(server.url(&format!("/api/repayment-entry?phase_id={}", phase.id)))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(entries.len(), 2);
+
+    // Batch-Toggle: Open → Contacted
+    let batch_body = BatchStatusRequest {
+        entry_ids: entries.iter().map(|e| e.id).collect(),
+        target_status: RepaymentEntryStatusTO::Contacted,
+    };
+    let batch_resp = client
+        .post(server.url("/api/repayment-entry/batch-status"))
+        .json(&batch_body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(batch_resp.status(), StatusCode::OK);
+    let updated_batch: Vec<RepaymentEntryTO> = batch_resp.json().await.unwrap();
+    assert_eq!(updated_batch.len(), 2);
+
+    // Einzel-PUT mit updated_batch[0].version — Folge-Operation auf dem
+    // soeben durch batch_toggle geupdateten Entry.
+    let target_entry = &updated_batch[0];
+    let put_version = target_entry
+        .version
+        .expect("batch response must include version per entry (CR-01/WR-01 post-fix)");
+
+    let put_body = UpdateRepaymentEntryRequest {
+        share_count_to_pay_out: None,
+        status: Some(RepaymentEntryStatusTO::Open),
+        version: put_version,
+    };
+    let put_resp = client
+        .put(server.url(&format!("/api/repayment-entry/{}", target_entry.id)))
+        .json(&put_body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        put_resp.status(),
+        StatusCode::OK,
+        "Followup PUT with version from batch response must succeed (CR-01/WR-01 regression)"
+    );
+}
+
+/// CR-01 Regression — open_repayment_phase returnt nach 08-08-Fix die
+/// post-update Phase-version. Ein direkter PUT update_phase (D-04: in
+/// Open ist share_value editable, fiscal_year locked) mit dieser version
+/// muss 200 produzieren.
+#[tokio::test]
+async fn test_open_phase_response_version_usable_for_followup_update() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let phase = create_preparation_repayment_phase(&client, &server, 2026, 12000).await;
+    let phase_id = phase.id;
+
+    let open_resp = client
+        .post(server.url(&format!("/api/repayment-phase/{}/open", phase_id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(open_resp.status(), StatusCode::OK);
+    let opened: RepaymentPhaseTO = open_resp.json().await.unwrap();
+    let open_version = opened
+        .version
+        .expect("open response must include version (CR-01 post-08-08-fix)");
+
+    // PUT share_value-Korrektur in Open (D-04: erlaubt, fiscal_year unchanged)
+    let update_body = serde_json::json!({
+        "fiscal_year": 2026,
+        "share_value": 13000,
+        "version": open_version,
+    });
+    let put_resp = client
+        .put(server.url(&format!("/api/repayment-phase/{}", phase_id)))
+        .json(&update_body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        put_resp.status(),
+        StatusCode::OK,
+        "PUT update_phase with version from open response must succeed (CR-01 regression)"
+    );
+    let updated: RepaymentPhaseTO = put_resp.json().await.unwrap();
+    assert_eq!(updated.share_value, 13000);
+}
+
+/// CR-01 Regression — update_repayment_phase returnt nach 08-08-Fix
+/// die post-update version. Direkt-aufeinanderfolgende PUTs müssen
+/// beide 200 produzieren.
+#[tokio::test]
+async fn test_update_phase_response_version_usable_for_followup_update() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let phase = create_preparation_repayment_phase(&client, &server, 2026, 12000).await;
+    let phase_id = phase.id;
+    let v0 = phase.version.expect("create response must include version");
+
+    // 1. PUT: share_value 12000 → 14000
+    let put1_body = serde_json::json!({
+        "fiscal_year": 2026,
+        "share_value": 14000,
+        "version": v0,
+    });
+    let resp1 = client
+        .put(server.url(&format!("/api/repayment-phase/{}", phase_id)))
+        .json(&put1_body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp1.status(), StatusCode::OK, "1st PUT must succeed");
+    let updated1: RepaymentPhaseTO = resp1.json().await.unwrap();
+    let v1 = updated1
+        .version
+        .expect("1st PUT response must include version (CR-01 post-fix)");
+    assert_ne!(v1, v0, "Post-update version must differ from create version");
+
+    // 2. PUT: share_value 14000 → 15000, MIT der version aus 1. PUT-Response
+    let put2_body = serde_json::json!({
+        "fiscal_year": 2026,
+        "share_value": 15000,
+        "version": v1,
+    });
+    let resp2 = client
+        .put(server.url(&format!("/api/repayment-phase/{}", phase_id)))
+        .json(&put2_body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp2.status(),
+        StatusCode::OK,
+        "2nd PUT with version from 1st PUT response must succeed (CR-01 regression)"
+    );
+    let updated2: RepaymentPhaseTO = resp2.json().await.unwrap();
+    assert_eq!(updated2.share_value, 15000);
+}
+
+/// CR-02 Regression — batch_toggle_status mappt nach 08-09-Fix eine
+/// unbekannte/soft-deleted Entry-ID auf HTTP 404 (NICHT mehr 409 mit
+/// 'entry not found' im failure_reason). Aggregat-Konsistenz mit
+/// get/update/delete.
+#[tokio::test]
+async fn test_batch_toggle_with_unknown_entry_id_returns_404() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let fiscal_year = 2026;
+    let _m1 = create_member_with_exit_date(&client, &server, 1, fiscal_year, 5).await;
+    let phase = create_open_repayment_phase(&client, &server, fiscal_year, 12000).await;
+
+    let entries: Vec<RepaymentEntryTO> = client
+        .get(server.url(&format!("/api/repayment-entry?phase_id={}", phase.id)))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(entries.len(), 1, "Auto-Fill must produce 1 entry");
+
+    let real_id = entries[0].id;
+    let fake_id = uuid::Uuid::new_v4();
+
+    let batch_body = BatchStatusRequest {
+        entry_ids: vec![real_id, fake_id],
+        target_status: RepaymentEntryStatusTO::Contacted,
+    };
+    let resp = client
+        .post(server.url("/api/repayment-entry/batch-status"))
+        .json(&batch_body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::NOT_FOUND,
+        "Unknown entry_id in batch must return 404, not 409 (CR-02 regression)"
+    );
+}
