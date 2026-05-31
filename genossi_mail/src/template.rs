@@ -430,4 +430,72 @@ mod tests {
         let result = render_template(TEMPLATE_INFORMAL, &ctx).unwrap();
         assert_eq!(result, "Hallo Dr. Alex,");
     }
+
+    // ============================================================
+    // Phase 10 D-04 / D-05 / D-13: merge_repayment_context tests
+    // ============================================================
+
+    #[test]
+    fn test_merge_repayment_context_renders_all_three_vars() {
+        let member = make_member("Max", "Mustermann");
+        let base = member_to_template_context(&member);
+        let merged = merge_repayment_context(base, "60,00", 3, 2026);
+        let template = "Auszahlung: {{ payout_amount }} EUR, Anteile: {{ share_count }}, Geschaeftsjahr: {{ fiscal_year }}";
+        let result = render_template(template, &merged).unwrap();
+        assert_eq!(
+            result,
+            "Auszahlung: 60,00 EUR, Anteile: 3, Geschaeftsjahr: 2026"
+        );
+    }
+
+    #[test]
+    fn test_repayment_variable_missing_with_if_guard_renders_empty() {
+        let member = make_member("Max", "Mustermann");
+        let base = member_to_template_context(&member);
+        // NOTE: DO NOT call merge_repayment_context here — simulating D-05 edge-case
+        // where member has 0 Open/Contacted entries in the phase
+        let template = "{% if payout_amount %}Auszahlung: {{ payout_amount }} EUR{% endif %}Ende";
+        let result = render_template(template, &base).unwrap();
+        assert_eq!(result, "Ende");
+    }
+
+    #[test]
+    fn test_repayment_variable_missing_without_guard_fails_strict() {
+        let member = make_member("Max", "Mustermann");
+        let base = member_to_template_context(&member);
+        // No merge_repayment_context call — strict-env should fail when template
+        // references payout_amount (D-05/D-15 -> Worker mark_recipient_failed).
+        let template = "Auszahlung: {{ payout_amount }} EUR";
+        let result = render_template(template, &base);
+        assert!(
+            result.is_err(),
+            "Strict-env must error on undefined payout_amount (D-05/D-15 -> Worker mark_recipient_failed)"
+        );
+        let err_msg = result.unwrap_err().message;
+        assert!(
+            err_msg.contains("payout_amount") || err_msg.to_lowercase().contains("undefined"),
+            "Error message must reference the missing variable, got: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn test_merge_preserves_base_context_fields() {
+        let member = make_member("Anna", "Schmidt");
+        let base = member_to_template_context(&member);
+        let merged = merge_repayment_context(base, "60,00", 3, 2026);
+        // Both base fields (first_name/last_name) AND new fields are accessible
+        let template = "Hallo {{ first_name }} {{ last_name }}, Auszahlung: {{ payout_amount }} EUR";
+        let result = render_template(template, &merged).unwrap();
+        assert!(
+            result.contains("Anna Schmidt"),
+            "Base fields must be preserved: got {}",
+            result
+        );
+        assert!(
+            result.contains("60,00 EUR"),
+            "Repayment vars must be added: got {}",
+            result
+        );
+    }
 }
