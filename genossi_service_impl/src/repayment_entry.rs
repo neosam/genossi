@@ -516,13 +516,210 @@ impl<Deps: RepaymentEntryServiceDeps> RepaymentEntryService for RepaymentEntrySe
 
     async fn mark_paid_out(
         &self,
-        _id: Uuid,
-        _context: Authentication<Self::Context>,
+        id: Uuid,
+        context: Authentication<Self::Context>,
     ) -> Result<RepaymentEntry, ServiceError> {
-        // Phase 9 Task 1 stub — replaced by the full Cascade-Implementation in
-        // Task 2 (see PHASE-9 09-01-PLAN.md). Keeps `cargo build -p
-        // genossi_service_impl` green between Task 1 and Task 2.
-        unimplemented!("mark_paid_out implementation comes in Phase 9 Plan 01 Task 2")
+        // ===== Schritt 1: Tx beginnen =====
+        let tx = self.transaction_dao.use_transaction(None).await?;
+
+        // ===== Schritt 2: Permission + user_id (Phase 8 Convention) =====
+        let user_id = self
+            .permission_service
+            .current_user_id(context.clone())
+            .await?
+            .unwrap_or_else(|| "SYSTEM".to_string());
+        self.permission_service
+            .check_permission(ADMIN_PRIVILEGE, context)
+            .await?;
+
+        // ===== Schritt 3: Entry laden + Status-Guards (PAYO-04 D-05) =====
+        let entry = self
+            .repayment_entry_dao
+            .find_by_id(id, tx.clone())
+            .await?
+            .ok_or(ServiceError::EntityNotFound(id))?;
+
+        // PAYO-04 / D-05: PaidOut ist final
+        if entry.status == RepaymentEntryStatus::PaidOut {
+            return Err(ServiceError::Conflict(Arc::from(
+                "Entry already paid out (final per PAYO-04, no toggle-back)",
+            )));
+        }
+        // Status-Whitelist: nur Open oder Contacted darf markiert werden
+        if !matches!(
+            entry.status,
+            RepaymentEntryStatus::Open | RepaymentEntryStatus::Contacted
+        ) {
+            return Err(ServiceError::Conflict(Arc::from(format!(
+                "Entry status is '{}', expected Open or Contacted",
+                entry.status.as_str()
+            ))));
+        }
+
+        // ===== Schritt 4: Phase laden + Status-Guard (Defense-in-Depth) =====
+        let phase = self
+            .repayment_phase_dao
+            .find_by_id(entry.phase_id, tx.clone())
+            .await?
+            .ok_or_else(|| {
+                // Referentielle Inkonsistenz: Entry zeigt auf nicht-existente
+                // Phase → InternalError (NICHT EntityNotFound, RESEARCH Pitfall
+                // #5). Aus dem Frontend ist es kein User-NotFound — der Entry
+                // existiert ja; die Phase referenziert ein verschwundenes
+                // Aggregat.
+                ServiceError::InternalError(Arc::from(format!(
+                    "Entry {} references missing Phase {}",
+                    id, entry.phase_id
+                )))
+            })?;
+        if phase.status != RepaymentPhaseStatus::Open {
+            return Err(ServiceError::Conflict(Arc::from(format!(
+                "Phase status is '{}', expected 'Open' (Defense-in-Depth)",
+                phase.status.as_str()
+            ))));
+        }
+
+        // ===== Schritt 5: Member laden + PAYO-03-Validation =====
+        let member = self
+            .member_dao
+            .find_by_id(entry.member_id, tx.clone())
+            .await?
+            .ok_or(ServiceError::EntityNotFound(entry.member_id))?;
+
+        // PAYO-03 / D-13 / D-14: current_shares >= share_count_to_pay_out
+        if member.current_shares < entry.share_count_to_pay_out {
+            return Err(ServiceError::ValidationError(vec![ValidationFailureItem {
+                field: Arc::from("share_count_to_pay_out"),
+                message: Arc::from(format!(
+                    "Member.current_shares ({}) is less than entry.share_count_to_pay_out ({})",
+                    member.current_shares, entry.share_count_to_pay_out
+                )),
+            }]));
+        }
+
+        // ===== Schritt 6: audited_create! MemberAction::Verkauf (D-04 auto-fields) =====
+        // shares_change muss negativ sein (validate_action in member_action.rs:91-97);
+        // entry.share_count_to_pay_out ist garantiert > 0 (DB-CHECK + PAYO-03-Validation).
+        let now = time::OffsetDateTime::now_utc();
+        let today: time::Date = now.date();
+        let created = time::PrimitiveDateTime::new(now.date(), now.time());
+        let comment_str = format!("Anteils-Rueckzahlung Phase {}", phase.fiscal_year);
+        let action_entity = MemberActionEntity {
+            id: self.uuid_service.new_v4().await,
+            member_id: entry.member_id,
+            action_type: ActionType::Verkauf,
+            date: today,
+            shares_change: -entry.share_count_to_pay_out,
+            transfer_member_id: None,
+            effective_date: None,
+            comment: Some(Arc::from(comment_str)),
+            created,
+            deleted: None,
+            version: self.uuid_service.new_v4().await,
+        };
+        crate::audited_create!(
+            self,
+            self.member_action_dao,
+            &action_entity,
+            REPAYMENT_ENTRY_PROCESS_MARK_PAID_OUT,
+            &user_id,
+            tx
+        );
+
+        // ===== Schritt 7: audited_update! Member (current_shares -= N, action_count += 1) =====
+        let mut member_new = member.clone();
+        member_new.current_shares = member.current_shares - entry.share_count_to_pay_out;
+        member_new.action_count = member.action_count + 1;
+        crate::audited_update!(
+            self,
+            self.member_dao,
+            entry.member_id,
+            &member_new,
+            REPAYMENT_ENTRY_PROCESS_MARK_PAID_OUT,
+            &user_id,
+            tx
+        );
+
+        // ===== Schritt 8: Re-Read Member (BL-01 Pattern — None → InternalError, NICHT EntityNotFound) =====
+        // CR-01 Fix: Re-read to get the new version UUID generated by the DAO.
+        // Pattern mirrors MemberServiceImpl::update (member.rs:343-348).
+        //
+        // BL-01 Fix: Re-Read runs in the SAME transaction as the audited_update!
+        // above — soft-delete in the same Tx is impossible (single-writer per
+        // service method), so `None` here is an internal consistency error
+        // (DAO regression, Tx-Isolation break, corrupted id), NOT a user-facing
+        // "entity vanished" race. Map to InternalError → HTTP 500, never 404.
+        let _member_refreshed = self
+            .member_dao
+            .find_by_id(entry.member_id, tx.clone())
+            .await?
+            .ok_or_else(|| {
+                ServiceError::InternalError(Arc::from(format!(
+                    "Re-Read after audited_update! returned None for Member {} — \
+                     internal consistency error (same-tx invariant violated)",
+                    entry.member_id
+                )))
+            })?;
+
+        // ===== Schritt 9: audited_update! RepaymentEntry (status = PaidOut) =====
+        let mut entry_new = entry.clone();
+        entry_new.status = RepaymentEntryStatus::PaidOut;
+        crate::audited_update!(
+            self,
+            self.repayment_entry_dao,
+            id,
+            &entry_new,
+            REPAYMENT_ENTRY_PROCESS_MARK_PAID_OUT,
+            &user_id,
+            tx
+        );
+
+        // ===== Schritt 10: Re-Read RepaymentEntry (fuer Response.version + BL-01 Pattern) =====
+        // CR-01 Fix: Re-read to get the new version UUID generated by the DAO.
+        // BL-01 Fix: same-Tx invariant — None here is internal consistency error.
+        let entry_refreshed = self
+            .repayment_entry_dao
+            .find_by_id(id, tx.clone())
+            .await?
+            .ok_or_else(|| {
+                ServiceError::InternalError(Arc::from(format!(
+                    "Re-Read after audited_update! returned None for RepaymentEntry {} — \
+                     internal consistency error (same-tx invariant violated)",
+                    id
+                )))
+            })?;
+
+        // ===== Schritt 11: recalc_migrated (D-10 Option a, inline) =====
+        // Pattern-Konsistenz mit MemberServiceImpl::update (Z. 341) und
+        // MemberActionServiceImpl::create (Z. 346-348). compute_migration_status
+        // hat eine bewusste Off-by-One-Konvention (action_count + 1) —
+        // siehe member_action.rs:52; NICHT korrigieren.
+        let actions_for_member = self
+            .member_action_dao
+            .find_by_member_id(entry.member_id, tx.clone())
+            .await?;
+        let member_after_update = self
+            .member_dao
+            .find_by_id(entry.member_id, tx.clone())
+            .await?
+            .ok_or_else(|| {
+                ServiceError::InternalError(Arc::from(
+                    "Member vanished before recalc_migrated — Tx-isolation broken",
+                ))
+            })?;
+        let mig_status = crate::member_action::compute_migration_status(
+            &member_after_update,
+            &actions_for_member,
+        );
+        let migrated =
+            mig_status.status == genossi_service::member_action::MigrationState::Migrated;
+        self.member_dao
+            .update_migrated(entry.member_id, migrated, tx.clone())
+            .await?;
+
+        // ===== Schritt 12: commit =====
+        self.transaction_dao.commit(tx).await?;
+        Ok(RepaymentEntry::from(&entry_refreshed))
     }
 }
 
@@ -2294,5 +2491,641 @@ mod tests {
             "Must NOT return Conflict with 'entry not found' reason (CR-02 fixed): {:?}",
             result
         );
+    }
+
+    // ---------- Phase 9 Plan 01: mark_paid_out Cascade Tests ----------
+    //
+    // Sequence of DAO calls in mark_paid_out (for mockall::Sequence setup):
+    //   Step 3:  repayment_entry_dao.find_by_id(id)         -> entry pre-update
+    //   Step 4:  repayment_phase_dao.find_by_id(phase_id)   -> phase
+    //   Step 5:  member_dao.find_by_id(member_id)           -> member pre-update
+    //   Step 6:  member_action_dao.create(action, ...)
+    //   Step 7:  member_dao.find_by_id(member_id)           -> audited_update! internal load
+    //            member_dao.update(member_new, ...)
+    //   Step 8:  member_dao.find_by_id(member_id)           -> Re-Read after update
+    //   Step 9:  repayment_entry_dao.find_by_id(id)         -> audited_update! internal load
+    //            repayment_entry_dao.update(entry_new, ...)
+    //   Step 10: repayment_entry_dao.find_by_id(id)         -> Re-Read after update
+    //   Step 11: member_action_dao.find_by_member_id(member_id) -> actions list
+    //            member_dao.find_by_id(member_id)           -> member after update (for recalc)
+    //            member_dao.update_migrated(member_id, ...)
+    //   Step 12: tx_dao.commit(tx)
+    //
+    // Total: repayment_entry_dao.find_by_id = 3, .update = 1
+    //        repayment_phase_dao.find_by_id = 1
+    //        member_dao.find_by_id = 4, .update = 1, .update_migrated = 1
+    //        member_action_dao.create = 1, .find_by_member_id = 1
+    //        audit_log_dao.get_latest_hash + create_entries = 3 each
+
+    #[tokio::test]
+    async fn test_mark_paid_out_happy_path() {
+        // PAYO-01 Happy Path: Open Entry, Open Phase, sufficient shares.
+        // Asserts: result.status == PaidOut, new version returned.
+        let entry_id = Uuid::new_v4();
+        let member_id = Uuid::new_v4();
+        let phase_id = Uuid::new_v4();
+        let version_entry_old = Uuid::new_v4();
+        let version_entry_new = Uuid::new_v4();
+        let version_member_old = Uuid::new_v4();
+
+        let entry_pre = RepaymentEntryEntity {
+            id: entry_id,
+            member_id,
+            phase_id,
+            share_count_to_pay_out: 3,
+            status: RepaymentEntryStatus::Open,
+            created: make_test_datetime(),
+            deleted: None,
+            version: version_entry_old,
+        };
+        let entry_post = RepaymentEntryEntity {
+            status: RepaymentEntryStatus::PaidOut,
+            version: version_entry_new,
+            ..entry_pre.clone()
+        };
+
+        let mut phase = phase_in_status(RepaymentPhaseStatus::Open);
+        phase.id = phase_id;
+        phase.fiscal_year = 2026;
+
+        let mut member_pre = member_with_current_shares(10);
+        member_pre.id = member_id;
+        member_pre.action_count = 2;
+        member_pre.version = version_member_old;
+
+        // === RepaymentEntryDao sequence: 3 find_by_id + 1 update ===
+        let mut entry_dao = MockTestRepaymentEntryDao::new();
+        let mut entry_seq = mockall::Sequence::new();
+        let entry_pre_1 = entry_pre.clone();
+        entry_dao
+            .expect_find_by_id()
+            .times(1)
+            .in_sequence(&mut entry_seq)
+            .returning(move |_, _| Ok(Some(entry_pre_1.clone())));
+        let entry_pre_2 = entry_pre.clone();
+        entry_dao
+            .expect_find_by_id()
+            .times(1)
+            .in_sequence(&mut entry_seq)
+            .returning(move |_, _| Ok(Some(entry_pre_2.clone())));
+        entry_dao
+            .expect_update()
+            .times(1)
+            .in_sequence(&mut entry_seq)
+            .withf(|e: &RepaymentEntryEntity, process, _tx| {
+                e.status == RepaymentEntryStatus::PaidOut
+                    && process == REPAYMENT_ENTRY_PROCESS_MARK_PAID_OUT
+            })
+            .returning(|_, _, _| Ok(()));
+        let entry_post_clone = entry_post.clone();
+        entry_dao
+            .expect_find_by_id()
+            .times(1)
+            .in_sequence(&mut entry_seq)
+            .returning(move |_, _| Ok(Some(entry_post_clone.clone())));
+
+        // === RepaymentPhaseDao: 1 find_by_id ===
+        let mut phase_dao = MockTestRepaymentPhaseDao::new();
+        let phase_clone = phase.clone();
+        phase_dao
+            .expect_find_by_id()
+            .times(1)
+            .returning(move |_, _| Ok(Some(phase_clone.clone())));
+
+        // === MemberDao sequence: 4 find_by_id + 1 update + 1 update_migrated ===
+        let mut member_dao = MockTestMemberDao::new();
+        let mut member_seq = mockall::Sequence::new();
+        let member_pre_1 = member_pre.clone();
+        member_dao
+            .expect_find_by_id()
+            .times(1)
+            .in_sequence(&mut member_seq)
+            .returning(move |_, _| Ok(Some(member_pre_1.clone())));
+        let member_pre_2 = member_pre.clone();
+        member_dao
+            .expect_find_by_id()
+            .times(1)
+            .in_sequence(&mut member_seq)
+            .returning(move |_, _| Ok(Some(member_pre_2.clone())));
+        let expected_new_shares = 7; // 10 - 3
+        let expected_new_action_count = 3; // 2 + 1
+        member_dao
+            .expect_update()
+            .times(1)
+            .in_sequence(&mut member_seq)
+            .withf(move |m: &MemberEntity, process, _tx| {
+                m.current_shares == expected_new_shares
+                    && m.action_count == expected_new_action_count
+                    && process == REPAYMENT_ENTRY_PROCESS_MARK_PAID_OUT
+            })
+            .returning(|_, _, _| Ok(()));
+        let mut member_post = member_pre.clone();
+        member_post.current_shares = expected_new_shares;
+        member_post.action_count = expected_new_action_count;
+        let member_post_1 = member_post.clone();
+        member_dao
+            .expect_find_by_id()
+            .times(1)
+            .in_sequence(&mut member_seq)
+            .returning(move |_, _| Ok(Some(member_post_1.clone())));
+        let member_post_2 = member_post.clone();
+        member_dao
+            .expect_find_by_id()
+            .times(1)
+            .in_sequence(&mut member_seq)
+            .returning(move |_, _| Ok(Some(member_post_2.clone())));
+        member_dao
+            .expect_update_migrated()
+            .times(1)
+            .in_sequence(&mut member_seq)
+            .returning(|_, _, _| Ok(()));
+
+        // === MemberActionDao: 1 create + 1 find_by_member_id ===
+        let mut action_dao = MockTestMemberActionDao::new();
+        action_dao
+            .expect_create()
+            .times(1)
+            .withf(|a: &MemberActionEntity, process, _tx| {
+                a.action_type == ActionType::Verkauf
+                    && a.shares_change == -3
+                    && process == REPAYMENT_ENTRY_PROCESS_MARK_PAID_OUT
+            })
+            .returning(|_, _, _| Ok(()));
+        action_dao
+            .expect_find_by_member_id()
+            .times(1)
+            .returning(|_, _| Ok(Arc::from(Vec::<MemberActionEntity>::new())));
+
+        let service = build_service_admin_with_action_dao(entry_dao, phase_dao, member_dao, action_dao);
+
+        let result = service
+            .mark_paid_out(entry_id, Authentication::Full)
+            .await
+            .expect("happy-path mark_paid_out must succeed");
+
+        assert_eq!(result.status, RepaymentEntryStatus::PaidOut);
+        assert_eq!(
+            result.version, version_entry_new,
+            "Re-Read must return DAO-generated new version"
+        );
+        assert_ne!(result.version, version_entry_old);
+    }
+
+    #[tokio::test]
+    async fn test_mark_paid_out_rejects_paid_out_entry() {
+        // PAYO-04: PaidOut is final, no toggle-back.
+        // Only steps 1-3 execute; Step 3 returns early with Conflict.
+        let entry_id = Uuid::new_v4();
+        let member_id = Uuid::new_v4();
+        let phase_id = Uuid::new_v4();
+
+        let entry_paid_out = RepaymentEntryEntity {
+            id: entry_id,
+            member_id,
+            phase_id,
+            share_count_to_pay_out: 3,
+            status: RepaymentEntryStatus::PaidOut,
+            created: make_test_datetime(),
+            deleted: None,
+            version: Uuid::new_v4(),
+        };
+
+        let mut entry_dao = MockTestRepaymentEntryDao::new();
+        entry_dao
+            .expect_find_by_id()
+            .times(1)
+            .returning(move |_, _| Ok(Some(entry_paid_out.clone())));
+        entry_dao
+            .expect_update()
+            .times(0)
+            .returning(|_, _, _| Ok(()));
+
+        let phase_dao = MockTestRepaymentPhaseDao::new();
+        let mut member_dao = MockTestMemberDao::new();
+        member_dao
+            .expect_update()
+            .times(0)
+            .returning(|_, _, _| Ok(()));
+        let mut action_dao = MockTestMemberActionDao::new();
+        action_dao
+            .expect_create()
+            .times(0)
+            .returning(|_, _, _| Ok(()));
+
+        let service = build_service_admin_with_action_dao(entry_dao, phase_dao, member_dao, action_dao);
+
+        let result = service.mark_paid_out(entry_id, Authentication::Full).await;
+
+        match result {
+            Err(ServiceError::Conflict(msg)) => {
+                assert!(
+                    msg.contains("already paid out") || msg.contains("PAYO-04"),
+                    "Conflict message must reference already paid out / PAYO-04, got: {msg}"
+                );
+            }
+            other => panic!("Expected Conflict (PaidOut final), got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_mark_paid_out_rejects_when_phase_not_open() {
+        // Defense-in-Depth: Phase.status != Open → 409 Conflict.
+        // Steps 1-4 execute; Step 4 returns Conflict.
+        let entry_id = Uuid::new_v4();
+        let member_id = Uuid::new_v4();
+        let phase_id = Uuid::new_v4();
+
+        let entry_open = RepaymentEntryEntity {
+            id: entry_id,
+            member_id,
+            phase_id,
+            share_count_to_pay_out: 3,
+            status: RepaymentEntryStatus::Open,
+            created: make_test_datetime(),
+            deleted: None,
+            version: Uuid::new_v4(),
+        };
+
+        let mut phase_preparation = phase_in_status(RepaymentPhaseStatus::Preparation);
+        phase_preparation.id = phase_id;
+
+        let mut entry_dao = MockTestRepaymentEntryDao::new();
+        entry_dao
+            .expect_find_by_id()
+            .times(1)
+            .returning(move |_, _| Ok(Some(entry_open.clone())));
+        entry_dao
+            .expect_update()
+            .times(0)
+            .returning(|_, _, _| Ok(()));
+
+        let mut phase_dao = MockTestRepaymentPhaseDao::new();
+        phase_dao
+            .expect_find_by_id()
+            .times(1)
+            .returning(move |_, _| Ok(Some(phase_preparation.clone())));
+
+        let mut member_dao = MockTestMemberDao::new();
+        member_dao
+            .expect_update()
+            .times(0)
+            .returning(|_, _, _| Ok(()));
+        let mut action_dao = MockTestMemberActionDao::new();
+        action_dao
+            .expect_create()
+            .times(0)
+            .returning(|_, _, _| Ok(()));
+
+        let service = build_service_admin_with_action_dao(entry_dao, phase_dao, member_dao, action_dao);
+
+        let result = service.mark_paid_out(entry_id, Authentication::Full).await;
+
+        match result {
+            Err(ServiceError::Conflict(msg)) => {
+                assert!(
+                    msg.contains("Phase status"),
+                    "Conflict message must reference Phase status, got: {msg}"
+                );
+            }
+            other => panic!("Expected Conflict (Phase not Open), got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_mark_paid_out_rejects_when_current_shares_insufficient() {
+        // PAYO-03 / D-13 / D-14: member.current_shares < entry.share_count_to_pay_out
+        // → ValidationError, NOT Conflict. Steps 1-5 execute; Step 5 returns early.
+        let entry_id = Uuid::new_v4();
+        let member_id = Uuid::new_v4();
+        let phase_id = Uuid::new_v4();
+
+        let entry_open = RepaymentEntryEntity {
+            id: entry_id,
+            member_id,
+            phase_id,
+            share_count_to_pay_out: 5,
+            status: RepaymentEntryStatus::Open,
+            created: make_test_datetime(),
+            deleted: None,
+            version: Uuid::new_v4(),
+        };
+
+        let mut phase_open = phase_in_status(RepaymentPhaseStatus::Open);
+        phase_open.id = phase_id;
+
+        let mut member_low = member_with_current_shares(2);
+        member_low.id = member_id;
+
+        let mut entry_dao = MockTestRepaymentEntryDao::new();
+        entry_dao
+            .expect_find_by_id()
+            .times(1)
+            .returning(move |_, _| Ok(Some(entry_open.clone())));
+        entry_dao
+            .expect_update()
+            .times(0)
+            .returning(|_, _, _| Ok(()));
+
+        let mut phase_dao = MockTestRepaymentPhaseDao::new();
+        phase_dao
+            .expect_find_by_id()
+            .times(1)
+            .returning(move |_, _| Ok(Some(phase_open.clone())));
+
+        let mut member_dao = MockTestMemberDao::new();
+        member_dao
+            .expect_find_by_id()
+            .times(1)
+            .returning(move |_, _| Ok(Some(member_low.clone())));
+        member_dao
+            .expect_update()
+            .times(0)
+            .returning(|_, _, _| Ok(()));
+
+        let mut action_dao = MockTestMemberActionDao::new();
+        action_dao
+            .expect_create()
+            .times(0)
+            .returning(|_, _, _| Ok(()));
+
+        let service = build_service_admin_with_action_dao(entry_dao, phase_dao, member_dao, action_dao);
+
+        let result = service.mark_paid_out(entry_id, Authentication::Full).await;
+
+        match result {
+            Err(ServiceError::ValidationError(items)) => {
+                assert_eq!(items.len(), 1);
+                assert_eq!(items[0].field.as_ref(), "share_count_to_pay_out");
+                assert!(
+                    items[0].message.contains("Member.current_shares")
+                        && items[0].message.contains("2")
+                        && items[0].message.contains("5"),
+                    "ValidationError message must include both current_shares and \
+                     share_count_to_pay_out values, got: {}",
+                    items[0].message
+                );
+            }
+            other => panic!(
+                "Expected ValidationError (PAYO-03 insufficient shares), got {other:?}"
+            ),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_mark_paid_out_rereads_member_none_yields_internal_error() {
+        // BL-01 Pattern: Re-Read after audited_update! returns None →
+        // InternalError → HTTP 500, NEVER EntityNotFound → HTTP 404.
+        //
+        // Steps that execute before the failing Re-Read:
+        //   Step 1-5: entry-load, phase-load, member-load OK
+        //   Step 6:   member_action_dao.create OK (audited_create!)
+        //   Step 7:   member_dao.find_by_id (audited_update! internal) OK
+        //             member_dao.update OK
+        //   Step 8:   member_dao.find_by_id (Re-Read) -> None  ← THE BUG
+        //
+        // After the Re-Read fails, audited_update! on repayment_entry_dao must
+        // NOT run (times(0)).
+        let entry_id = Uuid::new_v4();
+        let member_id = Uuid::new_v4();
+        let phase_id = Uuid::new_v4();
+
+        let entry_open = RepaymentEntryEntity {
+            id: entry_id,
+            member_id,
+            phase_id,
+            share_count_to_pay_out: 3,
+            status: RepaymentEntryStatus::Open,
+            created: make_test_datetime(),
+            deleted: None,
+            version: Uuid::new_v4(),
+        };
+
+        let mut phase_open = phase_in_status(RepaymentPhaseStatus::Open);
+        phase_open.id = phase_id;
+        phase_open.fiscal_year = 2026;
+
+        let mut member_pre = member_with_current_shares(10);
+        member_pre.id = member_id;
+        member_pre.action_count = 1;
+
+        // === RepaymentEntryDao: only first find_by_id (Step 3) + no update ===
+        let mut entry_dao = MockTestRepaymentEntryDao::new();
+        let entry_pre_for_call = entry_open.clone();
+        entry_dao
+            .expect_find_by_id()
+            .times(1)
+            .returning(move |_, _| Ok(Some(entry_pre_for_call.clone())));
+        entry_dao
+            .expect_update()
+            .times(0)
+            .returning(|_, _, _| Ok(()));
+
+        let mut phase_dao = MockTestRepaymentPhaseDao::new();
+        phase_dao
+            .expect_find_by_id()
+            .times(1)
+            .returning(move |_, _| Ok(Some(phase_open.clone())));
+
+        // === MemberDao: 3 find_by_id (Step 5 OK, Step 7 OK, Step 8 None) + 1 update ===
+        let mut member_dao = MockTestMemberDao::new();
+        let mut member_seq = mockall::Sequence::new();
+        let member_pre_1 = member_pre.clone();
+        member_dao
+            .expect_find_by_id()
+            .times(1)
+            .in_sequence(&mut member_seq)
+            .returning(move |_, _| Ok(Some(member_pre_1.clone())));
+        let member_pre_2 = member_pre.clone();
+        member_dao
+            .expect_find_by_id()
+            .times(1)
+            .in_sequence(&mut member_seq)
+            .returning(move |_, _| Ok(Some(member_pre_2.clone())));
+        member_dao
+            .expect_update()
+            .times(1)
+            .in_sequence(&mut member_seq)
+            .returning(|_, _, _| Ok(()));
+        // The crucial expectation: Re-Read returns None.
+        member_dao
+            .expect_find_by_id()
+            .times(1)
+            .in_sequence(&mut member_seq)
+            .returning(|_, _| Ok(None));
+        member_dao
+            .expect_update_migrated()
+            .times(0)
+            .returning(|_, _, _| Ok(()));
+
+        // === MemberActionDao: 1 create + 0 find_by_member_id ===
+        let mut action_dao = MockTestMemberActionDao::new();
+        action_dao
+            .expect_create()
+            .times(1)
+            .returning(|_, _, _| Ok(()));
+        action_dao
+            .expect_find_by_member_id()
+            .times(0)
+            .returning(|_, _| Ok(Arc::from(Vec::<MemberActionEntity>::new())));
+
+        let service = build_service_admin_with_action_dao(entry_dao, phase_dao, member_dao, action_dao);
+
+        let result = service.mark_paid_out(entry_id, Authentication::Full).await;
+
+        match result {
+            Err(ServiceError::InternalError(msg)) => {
+                assert!(
+                    msg.contains("Re-Read") && msg.contains("Member"),
+                    "InternalError message must mention 'Re-Read' and 'Member', got: {msg}"
+                );
+                // BL-01: must NOT be a 404-mappable error.
+                assert!(
+                    !msg.contains("EntityNotFound"),
+                    "BL-01: must not surface as EntityNotFound, got: {msg}"
+                );
+            }
+            other => panic!(
+                "BL-01: Re-Read None must surface as InternalError, got {other:?}"
+            ),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_mark_paid_out_member_action_has_correct_fields() {
+        // D-04 vollautomatische MemberAction-Felder:
+        //   action_type = Verkauf, shares_change = -N,
+        //   comment = "Anteils-Rueckzahlung Phase {fiscal_year}",
+        //   transfer_member_id = None, effective_date = None,
+        //   process = "repayment-entry.mark-paid-out".
+        let entry_id = Uuid::new_v4();
+        let member_id = Uuid::new_v4();
+        let phase_id = Uuid::new_v4();
+
+        let entry_open = RepaymentEntryEntity {
+            id: entry_id,
+            member_id,
+            phase_id,
+            share_count_to_pay_out: 3,
+            status: RepaymentEntryStatus::Open,
+            created: make_test_datetime(),
+            deleted: None,
+            version: Uuid::new_v4(),
+        };
+        let entry_post = RepaymentEntryEntity {
+            status: RepaymentEntryStatus::PaidOut,
+            version: Uuid::new_v4(),
+            ..entry_open.clone()
+        };
+
+        let mut phase_open = phase_in_status(RepaymentPhaseStatus::Open);
+        phase_open.id = phase_id;
+        phase_open.fiscal_year = 2026;
+
+        let mut member_pre = member_with_current_shares(10);
+        member_pre.id = member_id;
+        member_pre.action_count = 2;
+
+        // === Entry DAO sequence: 2 pre + 1 update + 1 post ===
+        let mut entry_dao = MockTestRepaymentEntryDao::new();
+        let mut entry_seq = mockall::Sequence::new();
+        let entry_pre_1 = entry_open.clone();
+        entry_dao
+            .expect_find_by_id()
+            .times(1)
+            .in_sequence(&mut entry_seq)
+            .returning(move |_, _| Ok(Some(entry_pre_1.clone())));
+        let entry_pre_2 = entry_open.clone();
+        entry_dao
+            .expect_find_by_id()
+            .times(1)
+            .in_sequence(&mut entry_seq)
+            .returning(move |_, _| Ok(Some(entry_pre_2.clone())));
+        entry_dao
+            .expect_update()
+            .times(1)
+            .in_sequence(&mut entry_seq)
+            .returning(|_, _, _| Ok(()));
+        let entry_post_clone = entry_post.clone();
+        entry_dao
+            .expect_find_by_id()
+            .times(1)
+            .in_sequence(&mut entry_seq)
+            .returning(move |_, _| Ok(Some(entry_post_clone.clone())));
+
+        let mut phase_dao = MockTestRepaymentPhaseDao::new();
+        let phase_clone = phase_open.clone();
+        phase_dao
+            .expect_find_by_id()
+            .times(1)
+            .returning(move |_, _| Ok(Some(phase_clone.clone())));
+
+        let mut member_dao = MockTestMemberDao::new();
+        let mut member_seq = mockall::Sequence::new();
+        let member_pre_1 = member_pre.clone();
+        member_dao
+            .expect_find_by_id()
+            .times(1)
+            .in_sequence(&mut member_seq)
+            .returning(move |_, _| Ok(Some(member_pre_1.clone())));
+        let member_pre_2 = member_pre.clone();
+        member_dao
+            .expect_find_by_id()
+            .times(1)
+            .in_sequence(&mut member_seq)
+            .returning(move |_, _| Ok(Some(member_pre_2.clone())));
+        member_dao
+            .expect_update()
+            .times(1)
+            .in_sequence(&mut member_seq)
+            .returning(|_, _, _| Ok(()));
+        let mut member_post = member_pre.clone();
+        member_post.current_shares = 7;
+        member_post.action_count = 3;
+        let member_post_1 = member_post.clone();
+        member_dao
+            .expect_find_by_id()
+            .times(1)
+            .in_sequence(&mut member_seq)
+            .returning(move |_, _| Ok(Some(member_post_1.clone())));
+        let member_post_2 = member_post.clone();
+        member_dao
+            .expect_find_by_id()
+            .times(1)
+            .in_sequence(&mut member_seq)
+            .returning(move |_, _| Ok(Some(member_post_2.clone())));
+        member_dao
+            .expect_update_migrated()
+            .times(1)
+            .in_sequence(&mut member_seq)
+            .returning(|_, _, _| Ok(()));
+
+        // === The crucial capture: MemberActionEntity field assertions ===
+        let mut action_dao = MockTestMemberActionDao::new();
+        action_dao
+            .expect_create()
+            .times(1)
+            .withf(|a: &MemberActionEntity, process: &str, _tx| {
+                a.action_type == ActionType::Verkauf
+                    && a.shares_change == -3
+                    && a.transfer_member_id.is_none()
+                    && a.effective_date.is_none()
+                    && a.comment
+                        .as_ref()
+                        .map(|s| s.as_ref())
+                        == Some("Anteils-Rueckzahlung Phase 2026")
+                    && process == "repayment-entry.mark-paid-out"
+            })
+            .returning(|_, _, _| Ok(()));
+        action_dao
+            .expect_find_by_member_id()
+            .times(1)
+            .returning(|_, _| Ok(Arc::from(Vec::<MemberActionEntity>::new())));
+
+        let service = build_service_admin_with_action_dao(entry_dao, phase_dao, member_dao, action_dao);
+
+        service
+            .mark_paid_out(entry_id, Authentication::Full)
+            .await
+            .expect("mark_paid_out must succeed with correctly-set MemberAction fields");
     }
 }
