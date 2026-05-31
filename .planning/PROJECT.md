@@ -83,7 +83,7 @@ Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachv
 - [ ] `RepaymentPhase`-Entität (DAO/Service/REST/Frontend) mit Lifecycle angelegt → offen → abgeschlossen, `fiscal_year` + `share_value`
 - [ ] `RepaymentEntry`-Entität mit Status offen → angeschrieben → ausbezahlt; mehrere Einträge pro Mitglied+Phase
 - [ ] Auto-Befüllung der Phase aus Vorjahres-Austritten, manuelles Hinzufügen
-- [ ] "ausbezahlt"-Toggle erzeugt automatisch `MemberAction::Verkauf` mit negativem `shares_change` (audited)
+- [x] "ausbezahlt"-Toggle erzeugt automatisch `MemberAction::Verkauf` mit negativem `shares_change` (audited) — validated in Phase 9 (PAYO-01..04)
 - [ ] Massenmail-Anbindung mit Auszahlungs-Wert als Template-Variable
 - [ ] PDF-Export der Auszahlungsliste (vor Phasen-Abschluss verfügbar) für Online-Banking
 - [ ] CSV-Export für Buchhaltung
