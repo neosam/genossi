@@ -172,6 +172,25 @@ Plans:
 3. Export-Service hat `0` `audited_*!`-Aufrufe (Grep-Gate im Test); Vorstand-only via OIDC, `Helper`-Auth liefert 403
 4. 6+ E2E-Tests decken: PDF-Erfolg (Happy Path), 403 ohne Vorstand-Auth, 400 unbekanntes Format (`csv` blockiert mit 400), jede `?include`-Variante (`open`/`all`/`paid`), 409 bei `RepaymentPhase` in `Vorbereitung`-Status, 404 bei unbekannter `phase_id`, leere IBAN (Member.bank_account NULL) wird als leere Spalte gerendert
 
+**Plans:** 6 plans
+
+Plans:
+**Wave 1** *(parallel — foundation: Template + Service-Trait)*
+- [ ] 11-01-PLAN.md — Typst-Template `auszahlungsliste.typ` + DEFAULT_TEMPLATES-Eintrag + `PdfGenerator::render_repayment_list` + `RepaymentExportRow`-Struct
+- [ ] 11-02-PLAN.md — Service-Trait `RepaymentExportService` + Domain-Types `ExportFormat` (nur Pdf, D-12) + `ExportInclude` (Open/All/Paid, Default=Open, D-03) + `RepaymentExport`-Bundle
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 11-03-PLAN.md — `RepaymentExportServiceImpl` mit Permission-Funnel (D-10/D-11), In-Memory-Include-Filter (D-01/D-02), Sort (D-09), Verwendungszweck-Pre-Computing (D-04), Euro-Format-Pre-Computing, Grep-Gate-Test (EXPO-05)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+- [ ] 11-04-PLAN.md — REST-Handler + Format-Whitelist (D-12) + Query-Param-Default (D-03) + lokales `map_export_error` (D-11) + OpenAPI + Router-Mount + RestStateDef-Bound-Erweiterung
+
+**Wave 4** *(blocked on Wave 3 completion)*
+- [ ] 11-05-PLAN.md — DI-Wiring in `genossi_bin/src/lib.rs::RestStateImpl::new()` (5 Edit-Stellen, Single-Arc-per-Process)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+- [ ] 11-06-PLAN.md — 9 E2E-Tests: PDF-Happy-Path (Open+Closed) + Format-Whitelist (csv/xlsx/json/html → 400) + Status-Gate (Preparation → 409) + 404 + Audit-Chain bleibt valide + Include-Filter-3-Sub-Tests + leere IBAN (D-06) + Pitfall #2 Status-Leak-Defense (403 statt 409)
+
 #### Phase 12: Frontend (Component-First)
 
 **Goal:** Vorstand verwaltet RepaymentPhases im Browser; UI ist component-first und konsistent mit bestehendem Vorstand-Layout.
@@ -200,10 +219,10 @@ Plans:
 | 8. RepaymentEntry + Auto-Befüllung                              | v1.1      | 10/10 | Complete   | 2026-05-31 |
 | 9. Auszahlungs-Buchung (atomisch + auditiert)                   | v1.1      | 4/5 | In Progress|  |
 | 10. Massenmail-Anbindung + Template-Variablen                   | v1.1      | 8/8 | Complete    | 2026-05-31 |
-| 11. Export (PDF)                                                | v1.1      | 0/?            | Pending                 | —          |
+| 11. Export (PDF)                                                | v1.1      | 0/6            | Planned                 | —          |
 | 12. Frontend (Component-First)                                  | v1.1      | 0/?            | Pending                 | —          |
 
 ---
 
 *Roadmap created: 2026-05-02*
-*Last updated: 2026-05-31 after Phase 10 plans created (8 plans across 5 waves)*
+*Last updated: 2026-05-31 after Phase 11 plans created (6 plans across 5 waves)*
