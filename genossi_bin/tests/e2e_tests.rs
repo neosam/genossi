@@ -12582,3 +12582,214 @@ async fn test_mark_paid_out_race_one_succeeds_one_conflicts() {
         verify.broken_links
     );
 }
+
+// =====================================================================
+// Phase 10 Plan 08 Task 0: Test-Infrastruktur for bulk-mail E2E tests
+// =====================================================================
+//
+// The existing `setup()` (Z. 27-41) starts the REST server but NOT the mail
+// worker. Phase 10 plan 08 needs the worker actually running so that
+// `POST /api/mail/send-bulk` -> recipients are picked up and the audited
+// MemberDocument-create path is exercised.
+//
+// `setup_with_mail_worker` seeds the `config_entries` table with SMTP values
+// that guarantee deterministic failure (host=127.0.0.1, port=1 -> no listener)
+// and a polling interval of 0 seconds. The worker will:
+//   - lokal RFC5321-parse `to_address` BEFORE attempting SMTP-Connect — broken
+//     addresses (e.g. "not-an-email") fail instantly via lettre's
+//     AddressError ("Invalid to address: ...").
+//   - For syntactically valid addresses, SMTP-Connect to 127.0.0.1:1 yields
+//     "Connection refused" (no listener bound). Worker sets status='failed'
+//     and writes a MemberDocument with description containing the
+//     [FAILED:] marker.
+//
+// Both paths exercise the audited MemberDocument-create — SC#4
+// ("kein All-or-Nothing") is verified via 2 distinct failure subtypes
+// even without a real Mock-SMTP transport.
+
+/// Phase 10 Plan 08: E2E setup that ALSO spawns the mail worker after seeding
+/// SMTP config rows. Returns the server + the in-memory pool so tests can
+/// query the `member_document` table directly (avoids adding a test-only
+/// REST route).
+async fn setup_with_mail_worker() -> (
+    genossi_rest::test_server::test_support::TestServer,
+    Arc<SqlitePool>,
+) {
+    let pool = Arc::new(
+        SqlitePool::connect("sqlite::memory:")
+            .await
+            .expect("Failed to create in-memory database"),
+    );
+    sqlx::migrate!("../migrations/sqlite")
+        .run(&*pool)
+        .await
+        .expect("Failed to run migrations");
+
+    // Seed SMTP config BEFORE the worker spawns. Worker's load_smtp_config
+    // reads the rows on every send attempt (genossi_mail/src/service.rs:102).
+    seed_mail_test_config(&pool).await;
+
+    let rest_state = RestStateImpl::new(pool.clone());
+    rest_state.start_mail_worker();
+    let server = start_test_server(rest_state).await;
+    (server, pool)
+}
+
+/// Phase 10 Plan 08: insert the SMTP config rows the mail worker needs.
+/// Schema: `config_entries(key TEXT PK, value TEXT NOT NULL, value_type TEXT NOT NULL)`
+/// (migration 20260403000000_create_config_entries_table.sql).
+///
+/// host=127.0.0.1, port=1, tls=none -> connect refused -> failed-path.
+/// from is a syntactically valid address so the FROM-parse does not block
+/// the worker's RFC5321 to-parse from running.
+/// mail_send_interval_seconds=0 makes the worker advance immediately between
+/// recipients (no 36s default wait) so polling helpers complete fast.
+async fn seed_mail_test_config(pool: &SqlitePool) {
+    let entries = [
+        ("smtp_host", "127.0.0.1"),
+        ("smtp_port", "1"),
+        ("smtp_tls", "none"),
+        ("smtp_user", ""),
+        ("smtp_pass", ""),
+        ("smtp_from", "test-bulk@example.com"),
+        ("mail_send_interval_seconds", "0"),
+    ];
+    for (k, v) in entries {
+        sqlx::query(
+            "INSERT OR REPLACE INTO config_entries (key, value, value_type) VALUES (?, ?, ?)",
+        )
+        .bind(k)
+        .bind(v)
+        .bind("string")
+        .execute(pool)
+        .await
+        .expect("Failed to seed mail config row");
+    }
+}
+
+/// Phase 10 Plan 08: poll the mail-job status until the worker has
+/// processed all recipients (status transitions to "done" or "failed").
+/// Bounded by `timeout` so a stuck worker can't hang the test suite.
+async fn wait_for_mail_worker_idle(
+    server: &genossi_rest::test_server::test_support::TestServer,
+    job_id: uuid::Uuid,
+    timeout: std::time::Duration,
+) {
+    let client = reqwest::Client::new();
+    let deadline = std::time::Instant::now() + timeout;
+    let url = server.url(&format!("/api/mail/jobs/{}", job_id));
+    let mut last_status: String = String::from("<no-response>");
+    while std::time::Instant::now() < deadline {
+        if let Ok(res) = client.get(&url).send().await {
+            if let Ok(body) = res.json::<serde_json::Value>().await {
+                let status = body
+                    .get("status")
+                    .and_then(|s| s.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                if status == "done" || status == "failed" {
+                    return;
+                }
+                last_status = status;
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    panic!(
+        "wait_for_mail_worker_idle timed out after {:?} for job {} (last status: {})",
+        timeout, job_id, last_status
+    );
+}
+
+/// Phase 10 Plan 08: a minimal row-shape for direct `member_document` queries.
+/// Avoids depending on a DAO entity import path; we only need the columns
+/// the worker writes via Phase 10's `build_member_document_entity`.
+#[derive(Debug)]
+struct TestMemberDocumentRow {
+    id: uuid::Uuid,
+    #[allow(dead_code)]
+    member_id: uuid::Uuid,
+    #[allow(dead_code)]
+    document_type: String,
+    description: Option<String>,
+    template_id: Option<uuid::Uuid>,
+    mail_recipient_id: Option<uuid::Uuid>,
+    status: Option<String>,
+}
+
+/// Phase 10 Plan 08: query all (non-deleted) MemberDocuments for a
+/// document_type, ordered by created ascending. Used by tests to verify
+/// the worker actually wrote one row per member-recipient
+/// (SC#3: N members -> N MemberDocuments).
+async fn query_documents_by_type(
+    pool: &SqlitePool,
+    document_type: &str,
+) -> Vec<TestMemberDocumentRow> {
+    use sqlx::Row;
+    let rows = sqlx::query(
+        "SELECT id, member_id, document_type, description, template_id, mail_recipient_id, status
+         FROM member_document
+         WHERE document_type = ?
+           AND deleted IS NULL
+         ORDER BY created ASC",
+    )
+    .bind(document_type)
+    .fetch_all(pool)
+    .await
+    .expect("query_documents_by_type failed");
+
+    rows.into_iter()
+        .map(|r| {
+            let id_bytes: Vec<u8> = r.try_get("id").unwrap_or_default();
+            let member_id_bytes: Vec<u8> = r.try_get("member_id").unwrap_or_default();
+            let template_id_bytes: Option<Vec<u8>> = r.try_get("template_id").ok();
+            let mail_recipient_id_bytes: Option<Vec<u8>> = r.try_get("mail_recipient_id").ok();
+            TestMemberDocumentRow {
+                id: uuid::Uuid::from_slice(id_bytes.as_slice())
+                    .unwrap_or_else(|_| uuid::Uuid::nil()),
+                member_id: uuid::Uuid::from_slice(member_id_bytes.as_slice())
+                    .unwrap_or_else(|_| uuid::Uuid::nil()),
+                document_type: r.try_get::<String, _>("document_type").unwrap_or_default(),
+                description: r.try_get::<Option<String>, _>("description").ok().flatten(),
+                template_id: template_id_bytes
+                    .and_then(|b| uuid::Uuid::from_slice(b.as_slice()).ok()),
+                mail_recipient_id: mail_recipient_id_bytes
+                    .and_then(|b| uuid::Uuid::from_slice(b.as_slice()).ok()),
+                status: r.try_get::<Option<String>, _>("status").ok().flatten(),
+            }
+        })
+        .collect()
+}
+
+/// Phase 10 Plan 08: create a mail template via the REST API.
+/// Returns the template's id as a Uuid. Used by tests to construct a
+/// `SendBulkMailRequest.template_id` referencing a real row in
+/// `mail_templates` so the worker's MemberDocument.template_id matches.
+async fn create_mail_template(
+    client: &reqwest::Client,
+    server: &genossi_rest::test_server::test_support::TestServer,
+    name: &str,
+    subject: &str,
+    body: &str,
+) -> uuid::Uuid {
+    let resp = client
+        .post(server.url("/api/mail/templates"))
+        .json(&serde_json::json!({
+            "name": name,
+            "subject": subject,
+            "body": body,
+        }))
+        .send()
+        .await
+        .expect("POST /api/mail/templates failed");
+    assert!(
+        resp.status().is_success(),
+        "create_mail_template expected 2xx, got {}",
+        resp.status()
+    );
+    let body_json: serde_json::Value = resp.json().await.expect("decode MailTemplateTO failed");
+    let id_str = body_json["id"]
+        .as_str()
+        .expect("mail template response must include id");
+    uuid::Uuid::parse_str(id_str).expect("template id must be a valid UUID")
+}
