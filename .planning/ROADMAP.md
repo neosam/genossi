@@ -127,15 +127,36 @@ Plans:
 
 #### Phase 10: Massenmail-Anbindung + Template-Variablen
 
-**Goal:** Vorstand kann mehrere RepaymentEntries gleichzeitig anschreiben; Mail-Templates haben Zugriff auf Auszahlungs-Wert.
+**Goal:** Vorstand kann mehrere RepaymentEntries gleichzeitig anschreiben; Mail-Templates haben Zugriff auf Auszahlungs-Wert (`{{ payout_amount }}`, `{{ share_count }}`, `{{ fiscal_year }}`). Wiederverwendet den existierenden `POST /api/mail/send-bulk`-Endpoint (D-01), kein neuer Endpoint.
 
 **Requirements:** MAIL-01, MAIL-02, MAIL-03, MAIL-04.
 
 **Success criteria:**
-1. Bulk-Mail-Endpoint `POST /api/repayment-phase/{id}/send-mail` akzeptiert Liste von Entry-IDs + Template-ID; per OIDC auf Vorstand limitiert
-2. minijinja-Template-Engine löst `{{ payout_amount }}` (= `share_count_to_pay_out × phase.share_value`, in Euro mit 2 Nachkommastellen), `{{ share_count }}`, `{{ fiscal_year }}` korrekt auf (Unit-Test mit Sample-Template)
-3. Pro versendeter Mail wird ein `MemberDocument` mit Template-Referenz erzeugt (`audited_create!`); ein Bulk-Versand an N Empfänger erzeugt N MemberDocuments
-4. SMTP-Fehler bei einzelnem Empfänger → MemberDocument-Status `failed`, übrige Empfänger werden weiterhin verarbeitet (kein All-or-Nothing); E2E-Test mit MockSmtp
+1. Bulk-Mail-Endpoint `POST /api/mail/send-bulk` akzeptiert optional `template_id` + `repayment_phase_id` im Body (D-01: kein eigener Endpoint, Wiederverwendung des Mitgliederlisten-Mail-Patterns); per OIDC auf Vorstand limitiert
+2. minijinja-Template-Engine löst `{{ payout_amount }}` (= `SUM(share_count_to_pay_out) × phase.share_value`, deutsche Lokalisierung mit Komma als Dezimaltrennzeichen z.B. `"60,00"`), `{{ share_count }}` (i32-Aggregat), `{{ fiscal_year }}` (i32) pro Empfänger korrekt auf (Worker aggregiert offene+contacted Entries pro Member; Strict-`{% if %}`-Pattern als Opt-in)
+3. Pro versendeter Mail wird ein `MemberDocument` (`document_type=repayment_mail`) mit `template_id`, `mail_recipient_id`, `status=sent|failed` erzeugt via inlined audit-helper im Worker; ein Bulk-Versand an N Empfänger erzeugt N MemberDocuments; Audit-Hashchain bleibt valide
+4. SMTP-Fehler bei einzelnem Empfänger → MemberDocument-Status `failed` (description enthält `[FAILED: ...]`-Suffix; max 200 Zeichen; KEINE PII), übrige Empfänger werden weiterhin verarbeitet (kein All-or-Nothing); E2E-Test mit MockSmtp/Stub-SMTP
+
+**Plans:** 0/8 plans
+
+Plans:
+**Wave 1** *(schema/foundation; parallel)*
+- [ ] 10.01-mail-job-schema-erweiterung-PLAN.md — Migration + MailJob DAO-Struct + SQLite-Impl (template_id, repayment_phase_id)
+- [ ] 10.02-member-document-schema-und-document-type-PLAN.md — Migration + MemberDocumentEntity Auditable-Erweiterung (FROZEN-Order) + SQLite-Impl + DocumentType::RepaymentMail
+
+**Wave 2** *(blocked on Wave 1)*
+- [ ] 10.03-mail-service-create-job-signature-PLAN.md — MailService::create_job + Impl + alle Call-Sites in genossi_mail (Trait Breaking-Change)
+- [ ] 10.04-rest-bulk-mail-body-erweiterung-PLAN.md — SendBulkMailRequest + UUID-Parsing + 400 BadRequest bei Invalid (depends_on 10.03)
+- [ ] 10.05-template-repayment-context-helper-PLAN.md — merge_repayment_context + 4 Unit-Tests + deutsche Lokalisierung (NICHT depends_on; parallel zu 10.03/10.04)
+
+**Wave 3** *(blocked on Wave 2; Worker-Integration)*
+- [ ] 10.06-worker-repayment-context-und-audited-create-PLAN.md — Worker-Signatur (6 neue Deps) + worker_audit.rs (inlined wegen circular dep, see PATTERNS.md "Critical Finding") + Repayment-Aggregation + MemberDocument-Create + Fail-Tolerance
+
+**Wave 4** *(blocked on Wave 3)*
+- [ ] 10.07-genossi-bin-worker-wiring-PLAN.md — RestStateImpl::start_mail_worker DI-Wiring um 6 neue DAOs erweitern
+
+**Wave 5** *(blocked on Wave 4)*
+- [ ] 10.08-e2e-bulk-mail-und-audit-chain-PLAN.md — 5 E2E-Tests: SC#1-4 + Audit-Chain + PII-Safety + Ad-hoc-Skip
 
 #### Phase 11: Export (PDF + CSV)
 
@@ -177,11 +198,11 @@ Plans:
 | 7. RepaymentPhase Backend (Foundation)                          | v1.1      | 4/5 | In Progress|  |
 | 8. RepaymentEntry + Auto-Befüllung                              | v1.1      | 10/10 | Complete   | 2026-05-31 |
 | 9. Auszahlungs-Buchung (atomisch + auditiert)                   | v1.1      | 4/5 | In Progress|  |
-| 10. Massenmail-Anbindung + Template-Variablen                   | v1.1      | 0/?            | Pending                 | —          |
+| 10. Massenmail-Anbindung + Template-Variablen                   | v1.1      | 0/8 | Planned    |  |
 | 11. Export (PDF + CSV)                                          | v1.1      | 0/?            | Pending                 | —          |
 | 12. Frontend (Component-First)                                  | v1.1      | 0/?            | Pending                 | —          |
 
 ---
 
 *Roadmap created: 2026-05-02*
-*Last updated: 2026-05-30 after Phase 8 plans created (6 plans across 5 waves)*
+*Last updated: 2026-05-31 after Phase 10 plans created (8 plans across 5 waves)*
