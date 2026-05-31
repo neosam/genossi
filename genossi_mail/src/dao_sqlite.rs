@@ -70,6 +70,9 @@ struct MailJobDb {
     sent_count: i64,
     failed_count: i64,
     reply_to_inbound_mail_id: Option<Vec<u8>>,
+    // Phase 10 D-12 / D-03
+    template_id: Option<Vec<u8>>,
+    repayment_phase_id: Option<Vec<u8>>,
 }
 
 impl TryFrom<&MailJobDb> for MailJob {
@@ -89,6 +92,8 @@ impl TryFrom<&MailJobDb> for MailJob {
             sent_count: db.sent_count,
             failed_count: db.failed_count,
             reply_to_inbound_mail_id: parse_optional_uuid(&db.reply_to_inbound_mail_id)?,
+            template_id: parse_optional_uuid(&db.template_id)?,
+            repayment_phase_id: parse_optional_uuid(&db.repayment_phase_id)?,
         })
     }
 }
@@ -111,10 +116,12 @@ impl MailJobDao for MailJobDaoSqlite {
         let created = format_datetime(&job.created)?;
 
         let reply_to = job.reply_to_inbound_mail_id.map(|u| u.as_bytes().to_vec());
+        let template_id = job.template_id.map(|u| u.as_bytes().to_vec());
+        let repayment_phase_id = job.repayment_phase_id.map(|u| u.as_bytes().to_vec());
 
         sqlx::query(
-            "INSERT INTO mail_jobs (id, created, deleted, version, subject, body, status, total_count, sent_count, failed_count, reply_to_inbound_mail_id) \
-             VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO mail_jobs (id, created, deleted, version, subject, body, status, total_count, sent_count, failed_count, reply_to_inbound_mail_id, template_id, repayment_phase_id) \
+             VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(id)
         .bind(created)
@@ -126,6 +133,8 @@ impl MailJobDao for MailJobDaoSqlite {
         .bind(job.sent_count)
         .bind(job.failed_count)
         .bind(reply_to)
+        .bind(template_id)
+        .bind(repayment_phase_id)
         .execute(self.pool.as_ref())
         .await
         .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
@@ -136,7 +145,7 @@ impl MailJobDao for MailJobDaoSqlite {
     async fn find_by_id(&self, id: Uuid) -> Result<MailJob, MailDaoError> {
         let id_bytes = id.as_bytes().to_vec();
         let row = sqlx::query_as::<_, MailJobDb>(
-            "SELECT id, created, deleted, version, subject, body, status, total_count, sent_count, failed_count, reply_to_inbound_mail_id \
+            "SELECT id, created, deleted, version, subject, body, status, total_count, sent_count, failed_count, reply_to_inbound_mail_id, template_id, repayment_phase_id \
              FROM mail_jobs WHERE id = ?",
         )
         .bind(id_bytes)
@@ -150,7 +159,7 @@ impl MailJobDao for MailJobDaoSqlite {
 
     async fn all(&self) -> Result<Arc<[MailJob]>, MailDaoError> {
         let rows = sqlx::query_as::<_, MailJobDb>(
-            "SELECT id, created, deleted, version, subject, body, status, total_count, sent_count, failed_count, reply_to_inbound_mail_id \
+            "SELECT id, created, deleted, version, subject, body, status, total_count, sent_count, failed_count, reply_to_inbound_mail_id, template_id, repayment_phase_id \
              FROM mail_jobs ORDER BY created DESC",
         )
         .fetch_all(self.pool.as_ref())
@@ -1090,7 +1099,9 @@ mod tests {
                 total_count INTEGER NOT NULL,
                 sent_count INTEGER NOT NULL DEFAULT 0,
                 failed_count INTEGER NOT NULL DEFAULT 0,
-                reply_to_inbound_mail_id BLOB
+                reply_to_inbound_mail_id BLOB,
+                template_id BLOB,
+                repayment_phase_id BLOB
             )",
         )
         .execute(&pool)
@@ -1201,6 +1212,8 @@ mod tests {
             sent_count: 0,
             failed_count: 0,
             reply_to_inbound_mail_id: None,
+            template_id: None,
+            repayment_phase_id: None,
         }
     }
 

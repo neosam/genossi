@@ -508,6 +508,8 @@ mod tests {
             sent_count: 0,
             failed_count: 1,
             reply_to_inbound_mail_id: None,
+            template_id: None,
+            repayment_phase_id: None,
         }
     }
 

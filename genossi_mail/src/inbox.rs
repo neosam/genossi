@@ -428,6 +428,9 @@ where
             sent_count: 0,
             failed_count: 0,
             reply_to_inbound_mail_id: Some(mail.id),
+            // Phase 10: inbox reply is not template/phase-bound.
+            template_id: None,
+            repayment_phase_id: None,
         };
         self.job_dao.create(&job).await?;
 

@@ -37,6 +37,10 @@ pub struct MailJob {
     pub sent_count: i64,
     pub failed_count: i64,
     pub reply_to_inbound_mail_id: Option<Uuid>,
+    // Phase 10 D-12: optional template reference (NULL for ad-hoc / non-template mails)
+    pub template_id: Option<Uuid>,
+    // Phase 10 D-03: optional repayment-phase reference for worker-side aggregation
+    pub repayment_phase_id: Option<Uuid>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

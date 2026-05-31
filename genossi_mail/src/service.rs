@@ -277,6 +277,9 @@ impl<
             sent_count: 0,
             failed_count: 0,
             reply_to_inbound_mail_id: None,
+            // Phase 10: real values are wired in Plan 10.03 (MailService::create_job signature).
+            template_id: None,
+            repayment_phase_id: None,
         };
 
         self.job_dao.create(&job).await?;
@@ -566,6 +569,8 @@ mod tests {
             sent_count: 0,
             failed_count: 0,
             reply_to_inbound_mail_id: None,
+            template_id: None,
+            repayment_phase_id: None,
         };
         let job_clone = job.clone();
 
@@ -615,6 +620,8 @@ mod tests {
             sent_count: 1,
             failed_count: 1,
             reply_to_inbound_mail_id: None,
+            template_id: None,
+            repayment_phase_id: None,
         };
         let job_clone = job.clone();
 
@@ -747,6 +754,8 @@ mod tests {
             sent_count: 2,
             failed_count: 1,
             reply_to_inbound_mail_id: None,
+            template_id: None,
+            repayment_phase_id: None,
         };
         let job_clone = job.clone();
 
