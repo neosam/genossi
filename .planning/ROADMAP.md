@@ -137,7 +137,7 @@ Plans:
 3. Pro versendeter Mail wird ein `MemberDocument` (`document_type=repayment_mail`) mit `template_id`, `mail_recipient_id`, `status=sent|failed` erzeugt via inlined audit-helper im Worker; ein Bulk-Versand an N Empfänger erzeugt N MemberDocuments; Audit-Hashchain bleibt valide
 4. SMTP-Fehler bei einzelnem Empfänger → MemberDocument-Status `failed` (description enthält `[FAILED: ...]`-Suffix; max 200 Zeichen; KEINE PII), übrige Empfänger werden weiterhin verarbeitet (kein All-or-Nothing); E2E-Test mit MockSmtp/Stub-SMTP
 
-**Plans:** 7/8 plans executed
+**Plans:** 8/8 plans complete
 
 Plans:
 **Wave 1** *(schema/foundation; parallel)*
@@ -145,18 +145,18 @@ Plans:
 - [x] 10.02-member-document-schema-und-document-type-PLAN.md — Migration + MemberDocumentEntity Auditable-Erweiterung (FROZEN-Order) + SQLite-Impl + DocumentType::RepaymentMail
 
 **Wave 2** *(blocked on Wave 1)*
-- [ ] 10.03-mail-service-create-job-signature-PLAN.md — MailService::create_job + Impl + alle Call-Sites in genossi_mail (Trait Breaking-Change)
-- [ ] 10.04-rest-bulk-mail-body-erweiterung-PLAN.md — SendBulkMailRequest + UUID-Parsing + 400 BadRequest bei Invalid (depends_on 10.03)
-- [ ] 10.05-template-repayment-context-helper-PLAN.md — merge_repayment_context + 4 Unit-Tests + deutsche Lokalisierung (NICHT depends_on; parallel zu 10.03/10.04)
+- [x] 10.03-mail-service-create-job-signature-PLAN.md — MailService::create_job + Impl + alle Call-Sites in genossi_mail (Trait Breaking-Change)
+- [x] 10.04-rest-bulk-mail-body-erweiterung-PLAN.md — SendBulkMailRequest + UUID-Parsing + 400 BadRequest bei Invalid (depends_on 10.03)
+- [x] 10.05-template-repayment-context-helper-PLAN.md — merge_repayment_context + 4 Unit-Tests + deutsche Lokalisierung (NICHT depends_on; parallel zu 10.03/10.04)
 
 **Wave 3** *(blocked on Wave 2; Worker-Integration)*
-- [ ] 10.06-worker-repayment-context-und-audited-create-PLAN.md — Worker-Signatur (6 neue Deps) + worker_audit.rs (inlined wegen circular dep, see PATTERNS.md "Critical Finding") + Repayment-Aggregation + MemberDocument-Create + Fail-Tolerance
+- [x] 10.06-worker-repayment-context-und-audited-create-PLAN.md — Worker-Signatur (6 neue Deps) + worker_audit.rs (inlined wegen circular dep, see PATTERNS.md "Critical Finding") + Repayment-Aggregation + MemberDocument-Create + Fail-Tolerance
 
 **Wave 4** *(blocked on Wave 3)*
-- [ ] 10.07-genossi-bin-worker-wiring-PLAN.md — RestStateImpl::start_mail_worker DI-Wiring um 6 neue DAOs erweitern
+- [x] 10.07-genossi-bin-worker-wiring-PLAN.md — RestStateImpl::start_mail_worker DI-Wiring um 6 neue DAOs erweitern
 
 **Wave 5** *(blocked on Wave 4)*
-- [ ] 10.08-e2e-bulk-mail-und-audit-chain-PLAN.md — 5 E2E-Tests: SC#1-4 + Audit-Chain + PII-Safety + Ad-hoc-Skip
+- [x] 10.08-e2e-bulk-mail-und-audit-chain-PLAN.md — 5 E2E-Tests: SC#1-4 + Audit-Chain + PII-Safety + Ad-hoc-Skip
 
 #### Phase 11: Export (PDF + CSV)
 
@@ -198,7 +198,7 @@ Plans:
 | 7. RepaymentPhase Backend (Foundation)                          | v1.1      | 4/5 | In Progress|  |
 | 8. RepaymentEntry + Auto-Befüllung                              | v1.1      | 10/10 | Complete   | 2026-05-31 |
 | 9. Auszahlungs-Buchung (atomisch + auditiert)                   | v1.1      | 4/5 | In Progress|  |
-| 10. Massenmail-Anbindung + Template-Variablen                   | v1.1      | 7/8 | In Progress|  |
+| 10. Massenmail-Anbindung + Template-Variablen                   | v1.1      | 8/8 | Complete   | 2026-05-31 |
 | 11. Export (PDF + CSV)                                          | v1.1      | 0/?            | Pending                 | —          |
 | 12. Frontend (Component-First)                                  | v1.1      | 0/?            | Pending                 | —          |
 
