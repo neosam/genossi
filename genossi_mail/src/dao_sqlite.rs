@@ -1921,4 +1921,35 @@ mod tests {
         let result = dao.get_member_communications(member_id).await.unwrap();
         assert!(result.is_empty());
     }
+
+    // ── Phase 10 D-12 / D-03: MailJob template_id + repayment_phase_id ──
+
+    #[tokio::test]
+    async fn test_mail_job_roundtrip_with_template_and_phase_ids() {
+        let pool = setup_db().await;
+        let dao = MailJobDaoSqlite::new(pool);
+
+        let template_id = Uuid::new_v4();
+        let phase_id = Uuid::new_v4();
+        let mut job = sample_job();
+        job.template_id = Some(template_id);
+        job.repayment_phase_id = Some(phase_id);
+
+        dao.create(&job).await.unwrap();
+        let loaded = dao.find_by_id(job.id).await.unwrap();
+        assert_eq!(loaded.template_id, Some(template_id));
+        assert_eq!(loaded.repayment_phase_id, Some(phase_id));
+    }
+
+    #[tokio::test]
+    async fn test_mail_job_roundtrip_with_null_template_and_phase_ids() {
+        let pool = setup_db().await;
+        let dao = MailJobDaoSqlite::new(pool);
+
+        let job = sample_job(); // sample_job() defaults to None / None
+        dao.create(&job).await.unwrap();
+        let loaded = dao.find_by_id(job.id).await.unwrap();
+        assert_eq!(loaded.template_id, None);
+        assert_eq!(loaded.repayment_phase_id, None);
+    }
 }
