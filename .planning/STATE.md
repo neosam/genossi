@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Anteile-Rückzahlungsphase
 status: executing
-stopped_at: Completed 10-04-rest-bulk-mail-body-erweiterung
-last_updated: "2026-05-31T17:02:51.628Z"
+stopped_at: Completed 10-05-template-repayment-context-helper
+last_updated: "2026-05-31T17:17:50.504Z"
 last_activity: 2026-05-31
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 28
-  completed_plans: 24
-  percent: 86
+  completed_plans: 25
+  percent: 89
 ---
 
 # State: Genossi — v1.1 Anteile-Rückzahlungsphase
@@ -30,7 +30,7 @@ progress:
 ## Current Position
 
 Phase: 10 (massenmail-anbindung-template-variablen) — EXECUTING
-Plan: 5 of 8
+Plan: 6 of 8
 Status: Ready to execute
 Last activity: 2026-05-31
 
@@ -98,6 +98,7 @@ Overall: 0% complete
 | Phase Phase 10 PP02 | 11min | 2 tasks tasks | 5 files files |
 | Phase 10 P03 | 8min | 1 tasks | 3 files |
 | Phase 10 P04 | 8min | 1 tasks | 2 files |
+| Phase 10 P05 | 11min | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -173,6 +174,9 @@ Overall: 0% complete
 | Plan 10-04: BadRequest-Mapping fuer caller-controlled UUID-Parse-Fehler in `genossi_mail` REST-Handlern — `MailServiceError::BadRequest(Arc<str>)` existiert bereits, `error_handler` in `rest.rs:215-221` mappt sie auf HTTP 400 mit Input-echoed Message (T-10-04-02 disposition `accept`: kein PII-Leak, eigener Input wird returned). Match-Guard `Some(s) if !s.is_empty() => parse(s), _ => None` behandelt Empty-String wie Absent — defensive gegen Frontends die `null` als `""` serialisieren. Pattern fuer kuenftige caller-controlled UUID-Felder in Phase-10/12-REST-Handlern. | Phase 10, Plan 04 |
 | Plan 10-04: 11 `SendBulkMailRequest`-Literal-Initializers in `genossi_bin/tests/e2e_tests.rs` werden im selben GREEN-Commit (`6e0d1d1`) als Rule-3-Auto-Fix mit `template_id: None, repayment_phase_id: None` erweitert (Struct-Extension ist strukturell unvollstaendig bis alle Downstream-Literals kompilieren — Split-Commit wuerde Tree-Red-Build zwischen Commits lassen). Pre-Existing rustfmt-Drift bei `assert_ne!(v1, v0, ...)`-Block aus Plan 8.10 wird per Scope-Boundary nicht angefasst. Pattern-Anker fuer kuenftige genossi_mail-REST-Body-Erweiterungen mit vielen E2E-Call-Sites. | Phase 10, Plan 04 |
 | Plan 10-04: TODO(10.04)-Marker-Convention vollstaendig aufgeloest — `grep -c "TODO(10.04)" genossi_mail/src/rest.rs` faellt von 2 (nach Plan 10.03) auf 0. Single-Send `send_mail` und `application.rs`-Confirmation-Mail behalten `None,None` permanent als Design-Entscheidung (in Plan 10.03 SUMMARY dokumentiert), nicht als Stub. | Phase 10, Plan 04 |
+| Plan 10-05: minijinja 2.19 (Workspace-Version) unterstuetzt den `context! { ..base, ... }`-Spread NICHT — Compiler-Fehler `no rules expected payout_amount ... while trying to match ..`. Plan-Entscheidungsregel `1. PRIMARY -> 2. on-fail ERSETZE komplett mit FALLBACK; kein Mischen` befolgt; `merge_repayment_context` nutzt jetzt serde_json round-trip + BTreeMap-Merge + `Value::from_serialize`. Pattern-Vorlage fuer alle kuenftigen minijinja-Multi-Source-Context-Komposition-Faelle (Worker Plan 10.06, Frontend-Phase-12 Helper-Context). | Phase 10, Plan 05 |
+| Plan 10-05: D-13 Strict-Opt-in braucht idiomatisches `{% if X is defined %}`-Guard-Pattern — minijinja `UndefinedBehavior::Strict` (D-15 unveraendert) errort auch in boolean-Context (`{% if X %}`) auf truly-missing Variablen, NICHT nur in `{{ X }}`-Substitution. Unterschied zu existing `test_null_field_conditional`: `company=None` ist IM Context als None definiert (kein Err); Phase-10-`payout_amount` ist im D-05-Edge-Case GAR NICHT im Context. Plan-Test-Spec verwendete bare `{% if payout_amount %}` — Rule-1-Fix mit erklaerendem doc-Comment dokumentiert das korrekte Pattern fuer kuenftige Template-Autoren und Phase-12-Frontend-Template-Editor. | Phase 10, Plan 05 |
+| Plan 10-05: `validate_template_with_repayment` (D-14) ist fail-fast-FIRST — ruft `validate_template` member-only ZUERST auf und propagiert dessen Err sofort. Plan-Test-Spec erwartete faelschlich `is_ok()` fuer ein guard-loses Template, was dem ausdruecklichen Funktionszweck "Catches `{{ payout_amount }}` references without `{% if %}` guards before the worker actually sends mails" widerspricht. Rule-1-Fix prueft `is_err()` plus error-message-substring; zusaetzlicher Positiv-Test fuer guarded Template. Schritt 3 INCLUDED (additiv, 30 LOC, REST-Layer in Plan 10.06 kann direkt verdrahten ohne zweiten Probe-Loop). | Phase 10, Plan 05 |
 | One-Time-Use-QR pro Helfer | Verhindert Token-Weitergabe an Unbefugte | Phase 2 |
 | Helfer-Memo-Name = Freitext, kein Identitäts-Anker | Reine UX-Hilfe für Vorstand beim Drucken | Phase 2 |
 | GV-Status final nach Schluss; Vorstand-Korrekturen ohne Re-Open | Vermeidet Status-Pingpong, hält Audit-Story einfach | Phase 1 |
