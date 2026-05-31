@@ -83,7 +83,7 @@ Plans:
 - [x] 08-04-PLAN.md — RepaymentPhase-Service-Erweiterung: Auto-Fill + Pending-Validation (Wave 3)
 
 **Wave 4** *(blocked on Wave 3 completion)*
-- [ ] 08-05-PLAN.md — REST-Handler + TOs + Router + DI-Wiring (Wave 4)
+- [x] 08-05-PLAN.md — REST-Handler + TOs + Router + DI-Wiring (Wave 4)
 
 **Wave 5** *(blocked on Wave 4 completion)*
 - [ ] 08-06-PLAN.md — E2E-Tests: Auto-Fill + manueller CRUD + Batch + Close-Validation + Audit-Chain (Wave 5)
