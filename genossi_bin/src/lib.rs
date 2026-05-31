@@ -208,6 +208,34 @@ type RepaymentPhaseService = genossi_service_impl::repayment_phase::RepaymentPha
     RepaymentPhaseServiceDependencies,
 >;
 
+// Phase 8 Plan 05 (D-DI): RepaymentEntryServiceImpl wiring. Seven deps —
+// RepaymentEntryDao + RepaymentPhaseDao + MemberDao + AuditLogDao +
+// PermissionService + UuidService + TransactionDao. RepaymentEntryDao
+// und RepaymentPhaseDao werden Arc-shared mit RepaymentPhaseServiceImpl
+// (W-02: exakt 1 DAO-Konstruktor pro Prozess).
+pub struct RepaymentEntryServiceDependencies;
+
+unsafe impl Send for RepaymentEntryServiceDependencies {}
+unsafe impl Sync for RepaymentEntryServiceDependencies {}
+
+impl genossi_service_impl::repayment_entry::RepaymentEntryServiceDeps
+    for RepaymentEntryServiceDependencies
+{
+    type Context = Context;
+    type Transaction = Transaction;
+    type RepaymentEntryDao = RepaymentEntryDao;
+    type RepaymentPhaseDao = RepaymentPhaseDao;
+    type MemberDao = MemberDao;
+    type AuditLogDao = AuditLogDao;
+    type PermissionService = PermissionService;
+    type UuidService = UuidService;
+    type TransactionDao = TransactionDao;
+}
+
+type RepaymentEntryService = genossi_service_impl::repayment_entry::RepaymentEntryServiceImpl<
+    RepaymentEntryServiceDependencies,
+>;
+
 type HelperTokenDao = genossi_dao_impl_sqlite::helper_token::HelperTokenDaoImpl;
 type AttendanceDao = genossi_dao_impl_sqlite::attendance::AttendanceDaoImpl;
 
@@ -480,6 +508,8 @@ pub struct RestStateImpl {
     assembly_service: Arc<AssemblyService>,
     // Phase 7 Plan 04: RepaymentPhase backend foundation.
     repayment_phase_service: Arc<RepaymentPhaseService>,
+    // Phase 8 Plan 05: RepaymentEntry CRUD + Batch-Toggle REST surface.
+    repayment_entry_service: Arc<RepaymentEntryService>,
     helper_token_service: Arc<HelperTokenService>,
     // Phase 3 Plan 06: AttendanceServiceImpl exposed to REST handlers via
     // AttendanceRestState (D-23 wiring).
@@ -706,19 +736,36 @@ impl RestStateImpl {
             permission_dao: permission_dao.clone(),
         });
 
-        // Phase 7 Plan 04: RepaymentPhaseServiceImpl wiring.
-        // Phase 8 Plan 04 extends to 7 deps: added RepaymentEntryDao + MemberDao
-        // so open_phase auto-fills RepaymentEntries and close_phase validates
-        // pending entries — both atomically in the same transaction as the
-        // status update (PHAS-02, PHAS-03).
-        // Shares the same `audit_log_dao` Arc as all other audited services
-        // (T-07-04-05 mitigation: single hash chain across the workspace).
+        // Phase 7 Plan 04 + Phase 8 Plans 04/05: RepaymentPhase + RepaymentEntry
+        // service wiring.
+        // - W-02 (Plan 8 Plan 05): RepaymentPhaseDao + RepaymentEntryDao werden
+        //   GENAU EINMAL gebaut und via Arc::clone an BEIDE Services geteilt
+        //   (RepaymentPhaseServiceImpl für Auto-Fill/Close-Validation,
+        //   RepaymentEntryServiceImpl für CRUD + Batch-Toggle). Sicherstellt
+        //   konsistente DAO-State über alle Aufrufe (T-08-05-04 mitigation).
+        // - audit_log_dao wird mit allen anderen audited Services geteilt
+        //   (T-07-04-05 mitigation: single hash chain across the workspace).
         let repayment_phase_dao = Arc::new(RepaymentPhaseDao::new(pool.clone()));
-        let repayment_entry_dao_for_phase = Arc::new(RepaymentEntryDao::new(pool.clone()));
+        let repayment_entry_dao = Arc::new(RepaymentEntryDao::new(pool.clone()));
         let repayment_phase_service = Arc::new(
             genossi_service_impl::repayment_phase::RepaymentPhaseServiceImpl {
-                repayment_phase_dao,
-                repayment_entry_dao: repayment_entry_dao_for_phase,
+                repayment_phase_dao: repayment_phase_dao.clone(),
+                repayment_entry_dao: repayment_entry_dao.clone(),
+                member_dao: member_dao.clone(),
+                audit_log_dao: audit_log_dao.clone(),
+                permission_service: permission_service.clone(),
+                uuid_service: uuid_service.clone(),
+                transaction_dao: transaction_dao.clone(),
+            },
+        );
+        // Phase 8 Plan 05: RepaymentEntryServiceImpl with 7 deps.
+        // Uses the SAME repayment_phase_dao + repayment_entry_dao + member_dao
+        // Arcs as RepaymentPhaseServiceImpl above — single DAO instance per
+        // process per W-02.
+        let repayment_entry_service = Arc::new(
+            genossi_service_impl::repayment_entry::RepaymentEntryServiceImpl {
+                repayment_entry_dao: repayment_entry_dao.clone(),
+                repayment_phase_dao: repayment_phase_dao.clone(),
                 member_dao: member_dao.clone(),
                 audit_log_dao: audit_log_dao.clone(),
                 permission_service: permission_service.clone(),
@@ -845,6 +892,7 @@ impl RestStateImpl {
             application_service,
             assembly_service,
             repayment_phase_service,
+            repayment_entry_service,
             helper_token_service,
             attendance_service,
             attendance_export_service,
@@ -1328,6 +1376,16 @@ impl genossi_rest::repayment_phase::RepaymentPhaseRestState for RestStateImpl {
 
     fn repayment_phase_service(&self) -> Arc<Self::RepaymentPhaseService> {
         self.repayment_phase_service.clone()
+    }
+}
+
+// Phase 8 Plan 05: bind RepaymentEntryServiceImpl to the REST handlers
+// generated in genossi_rest::repayment_entry.
+impl genossi_rest::repayment_entry::RepaymentEntryRestState for RestStateImpl {
+    type RepaymentEntryService = RepaymentEntryService;
+
+    fn repayment_entry_service(&self) -> Arc<Self::RepaymentEntryService> {
+        self.repayment_entry_service.clone()
     }
 }
 
