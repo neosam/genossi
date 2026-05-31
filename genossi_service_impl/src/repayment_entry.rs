@@ -2033,4 +2033,57 @@ mod tests {
         assert_eq!(result[0].status, RepaymentEntryStatus::Contacted);
         assert_eq!(result[1].status, RepaymentEntryStatus::Contacted);
     }
+
+    // ---------- Phase 08 Gap-Closure CR-02: Aggregate-Consistent 404 ----------
+
+    /// Phase 08 Gap-Closure CR-02 — verifies that `batch_toggle_status` maps
+    /// a missing or soft-deleted entry_id to `ServiceError::EntityNotFound`
+    /// (NOT to `ServiceError::Conflict` with `"entry not found"` body).
+    ///
+    /// Aggregate-consistent with `get_repayment_entry`, `update_repayment_entry`,
+    /// and `delete_repayment_entry` — all return NotFound for the same condition.
+    /// Without this fix the Frontend cannot distinguish a stale-ID race (e.g.
+    /// soft-delete in another tab) from a real domain conflict (source status
+    /// is `PaidOut` etc.).
+    #[tokio::test]
+    async fn test_batch_toggle_status_unknown_entry_id_returns_entity_not_found() {
+        let unknown_id = Uuid::new_v4();
+
+        let mut entry_dao = MockTestRepaymentEntryDao::new();
+        // Mock returns None → Entry not found / soft-deleted
+        entry_dao
+            .expect_find_by_id()
+            .times(1)
+            .returning(|_, _| Ok(None));
+        entry_dao
+            .expect_update()
+            .times(0)
+            .returning(|_, _, _| Ok(()));
+
+        let phase_dao = MockTestRepaymentPhaseDao::new();
+        let member_dao = MockTestMemberDao::new();
+
+        let service = build_service_admin(entry_dao, phase_dao, member_dao);
+
+        let input = RepaymentEntryBatchStatusInput {
+            entry_ids: vec![unknown_id].into(),
+            target_status: RepaymentEntryStatus::Contacted,
+        };
+        let result = service
+            .batch_toggle_status(&input, Authentication::Full)
+            .await;
+
+        assert!(
+            matches!(&result, Err(ServiceError::EntityNotFound(id)) if *id == unknown_id),
+            "Expected EntityNotFound({}), got {:?}",
+            unknown_id,
+            result
+        );
+        // CR-02: explicitly NOT a Conflict with "entry not found" reason.
+        assert!(
+            !matches!(&result, Err(ServiceError::Conflict(msg)) if msg.contains("entry not found")),
+            "Must NOT return Conflict with 'entry not found' reason (CR-02 fixed): {:?}",
+            result
+        );
+    }
 }
