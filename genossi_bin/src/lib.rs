@@ -521,6 +521,14 @@ pub struct RestStateImpl {
     // AttendanceExportRestState (D-DI wiring).
     attendance_export_service: Arc<AttendanceExportService>,
     audit_log_dao: Arc<AuditLogDao>,
+    // Phase 10 D-11: DAOs shared with the mail-worker for repayment-context
+    // aggregation + auditable MemberDocument-create. Same Arcs as the audited
+    // services use, so the worker contributes to the single per-process audit
+    // hash chain. See start_mail_worker() below for the wiring.
+    member_document_dao: Arc<MemberDocumentDao>,
+    repayment_phase_dao: Arc<RepaymentPhaseDao>,
+    repayment_entry_dao: Arc<RepaymentEntryDao>,
+    mail_template_dao: Arc<MailTemplateDaoType>,
     timestamp_service: Arc<TimestampServiceType>,
     backup_dao: Arc<BackupDao>,
     // Inbox worker dependencies
@@ -590,7 +598,10 @@ impl RestStateImpl {
 
         let member_document_service = Arc::new(
             genossi_service_impl::member_document::MemberDocumentServiceImpl {
-                member_document_dao,
+                // Phase 10 D-11: clone instead of move — the same Arc is
+                // persisted as a RestStateImpl field below and shared with
+                // the mail-worker.
+                member_document_dao: member_document_dao.clone(),
                 member_dao: member_dao.clone(),
                 audit_log_dao: audit_log_dao.clone(),
                 permission_service: permission_service.clone(),
@@ -831,7 +842,10 @@ impl RestStateImpl {
             });
 
         let mail_template_dao = Arc::new(MailTemplateDaoType::new(pool.clone()));
-        let mail_template_service = Arc::new(MailTemplateServiceType::new(mail_template_dao));
+        // Phase 10 D-11: clone instead of move — the same Arc is persisted as
+        // a RestStateImpl field below and shared with the mail-worker.
+        let mail_template_service =
+            Arc::new(MailTemplateServiceType::new(mail_template_dao.clone()));
 
         let static_document_dao_for_service = Arc::new(StaticDocumentDaoType::new(pool.clone()));
         let static_document_service = Arc::new(StaticDocumentServiceType::new(
@@ -903,6 +917,13 @@ impl RestStateImpl {
             attendance_service,
             attendance_export_service,
             audit_log_dao,
+            // Phase 10 D-11: persist the worker-relevant DAOs (already
+            // constructed above via Arc::new(XDao::new(pool.clone())) —
+            // reuse those Arcs).
+            member_document_dao,
+            repayment_phase_dao,
+            repayment_entry_dao,
+            mail_template_dao,
             timestamp_service,
             permission_service,
             session_service,
