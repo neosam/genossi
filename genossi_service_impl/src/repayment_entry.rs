@@ -24,6 +24,7 @@
 use async_trait::async_trait;
 use genossi_dao::audit_log::AuditLogDao;
 use genossi_dao::member::MemberDao;
+use genossi_dao::member_action::{ActionType, MemberActionDao, MemberActionEntity};
 use genossi_dao::repayment_entry::{RepaymentEntryDao, RepaymentEntryEntity, RepaymentEntryStatus};
 use genossi_dao::repayment_phase::{RepaymentPhaseDao, RepaymentPhaseStatus};
 use genossi_dao::TransactionDao;
@@ -43,6 +44,7 @@ const REPAYMENT_ENTRY_PROCESS_CREATE: &str = "repayment-entry.create";
 const REPAYMENT_ENTRY_PROCESS_UPDATE: &str = "repayment-entry.update";
 const REPAYMENT_ENTRY_PROCESS_DELETE: &str = "repayment-entry.delete";
 const REPAYMENT_ENTRY_PROCESS_BATCH_TOGGLE: &str = "repayment-entry.batch-toggle";
+const REPAYMENT_ENTRY_PROCESS_MARK_PAID_OUT: &str = "repayment-entry.mark-paid-out";
 const ADMIN_PRIVILEGE: &str = "admin";
 
 gen_service_impl! {
@@ -50,6 +52,7 @@ gen_service_impl! {
         RepaymentEntryDao: RepaymentEntryDao<Transaction = Self::Transaction> = repayment_entry_dao,
         RepaymentPhaseDao: RepaymentPhaseDao<Transaction = Self::Transaction> = repayment_phase_dao,
         MemberDao: MemberDao<Transaction = Self::Transaction> = member_dao,
+        MemberActionDao: MemberActionDao<Transaction = Self::Transaction> = member_action_dao,
         AuditLogDao: AuditLogDao<Transaction = Self::Transaction> = audit_log_dao,
         PermissionService: PermissionService<Context = Self::Context> = permission_service,
         UuidService: UuidService = uuid_service,
@@ -510,6 +513,17 @@ impl<Deps: RepaymentEntryServiceDeps> RepaymentEntryService for RepaymentEntrySe
         self.transaction_dao.commit(tx).await?;
         Ok(updated.into())
     }
+
+    async fn mark_paid_out(
+        &self,
+        _id: Uuid,
+        _context: Authentication<Self::Context>,
+    ) -> Result<RepaymentEntry, ServiceError> {
+        // Phase 9 Task 1 stub — replaced by the full Cascade-Implementation in
+        // Task 2 (see PHASE-9 09-01-PLAN.md). Keeps `cargo build -p
+        // genossi_service_impl` green between Task 1 and Task 2.
+        unimplemented!("mark_paid_out implementation comes in Phase 9 Plan 01 Task 2")
+    }
 }
 
 #[cfg(test)]
@@ -682,6 +696,44 @@ mod tests {
     }
 
     mock! {
+        pub TestMemberActionDao {}
+        #[async_trait]
+        impl MemberActionDao for TestMemberActionDao {
+            type Transaction = TestTransaction;
+            async fn dump_all(
+                &self,
+                tx: TestTransaction,
+            ) -> Result<Arc<[MemberActionEntity]>, DaoError>;
+            async fn create(
+                &self,
+                entity: &MemberActionEntity,
+                process: &str,
+                tx: TestTransaction,
+            ) -> Result<(), DaoError>;
+            async fn update(
+                &self,
+                entity: &MemberActionEntity,
+                process: &str,
+                tx: TestTransaction,
+            ) -> Result<(), DaoError>;
+            async fn all(
+                &self,
+                tx: TestTransaction,
+            ) -> Result<Arc<[MemberActionEntity]>, DaoError>;
+            async fn find_by_id(
+                &self,
+                id: Uuid,
+                tx: TestTransaction,
+            ) -> Result<Option<MemberActionEntity>, DaoError>;
+            async fn find_by_member_id(
+                &self,
+                member_id: Uuid,
+                tx: TestTransaction,
+            ) -> Result<Arc<[MemberActionEntity]>, DaoError>;
+        }
+    }
+
+    mock! {
         pub TestAuditLogDao {}
         #[async_trait]
         impl AuditLogDao for TestAuditLogDao {
@@ -828,6 +880,7 @@ mod tests {
         type RepaymentEntryDao = MockTestRepaymentEntryDao;
         type RepaymentPhaseDao = MockTestRepaymentPhaseDao;
         type MemberDao = MockTestMemberDao;
+        type MemberActionDao = MockTestMemberActionDao;
         type AuditLogDao = MockTestAuditLogDao;
         type PermissionService = MockTestPermissionService;
         type UuidService = StaticUuidService;
@@ -936,6 +989,10 @@ mod tests {
     }
 
     /// Build a complete service with full deps.
+    ///
+    /// Phase 9: existing callers keep the 4-parameter signature. Tests that
+    /// exercise mark_paid_out (Cascade through member_action_dao) use
+    /// `build_service_with_action_dao` below to pass a configured mock.
     fn build_service(
         entry_dao: MockTestRepaymentEntryDao,
         phase_dao: MockTestRepaymentPhaseDao,
@@ -946,6 +1003,7 @@ mod tests {
             repayment_entry_dao: Arc::new(entry_dao),
             repayment_phase_dao: Arc::new(phase_dao),
             member_dao: Arc::new(member_dao),
+            member_action_dao: Arc::new(MockTestMemberActionDao::new()),
             audit_log_dao: Arc::new(make_audit_log_dao_quiet()),
             permission_service: Arc::new(perm_service),
             uuid_service: Arc::new(StaticUuidService),
@@ -965,6 +1023,26 @@ mod tests {
             member_dao,
             make_permission_service_admin_ok(),
         )
+    }
+
+    /// Build a service with all 4 DAOs plus admin permission ok (Phase 9 helper
+    /// for mark_paid_out-Cascade tests).
+    fn build_service_admin_with_action_dao(
+        entry_dao: MockTestRepaymentEntryDao,
+        phase_dao: MockTestRepaymentPhaseDao,
+        member_dao: MockTestMemberDao,
+        action_dao: MockTestMemberActionDao,
+    ) -> RepaymentEntryServiceImpl<TestDeps> {
+        RepaymentEntryServiceImpl {
+            repayment_entry_dao: Arc::new(entry_dao),
+            repayment_phase_dao: Arc::new(phase_dao),
+            member_dao: Arc::new(member_dao),
+            member_action_dao: Arc::new(action_dao),
+            audit_log_dao: Arc::new(make_audit_log_dao_quiet()),
+            permission_service: Arc::new(make_permission_service_admin_ok()),
+            uuid_service: Arc::new(StaticUuidService),
+            transaction_dao: Arc::new(setup_mock_tx_dao()),
+        }
     }
 
     // ---------- Create Validation Tests (D-11) ----------

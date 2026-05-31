@@ -175,6 +175,21 @@ pub trait RepaymentEntryService {
         input: &RepaymentEntryBatchStatusInput,
         context: Authentication<Self::Context>,
     ) -> Result<Arc<[RepaymentEntry]>, ServiceError>;
+
+    /// Mark a RepaymentEntry as PaidOut with atomic Cascade (Phase 9, PAYO-01..04):
+    /// (1) audited_create! MemberAction::Verkauf with shares_change = -N,
+    /// (2) audited_update! Member.current_shares -= N + action_count += 1,
+    /// (3) audited_update! RepaymentEntry.status = PaidOut.
+    /// All three writes commit in a single SQLite-Tx with shared process
+    /// `repayment-entry.mark-paid-out` (D-01). Final per PAYO-04 (no toggle-back).
+    /// Pre-Conditions: Entry.status in {Open, Contacted}, Phase.status == Open,
+    /// Member.current_shares >= Entry.share_count_to_pay_out (PAYO-03).
+    /// Audit-process `repayment-entry.mark-paid-out`. Requires `admin`.
+    async fn mark_paid_out(
+        &self,
+        id: Uuid,
+        context: Authentication<Self::Context>,
+    ) -> Result<RepaymentEntry, ServiceError>;
 }
 
 #[cfg(test)]
@@ -280,5 +295,7 @@ mod tests {
         let _ = mock.expect_get_repayment_entry();
         let _ = mock.expect_list_repayment_entries_by_phase();
         let _ = mock.expect_batch_toggle_status();
+        // Phase 9 — neu (PAYO-01):
+        let _ = mock.expect_mark_paid_out();
     }
 }

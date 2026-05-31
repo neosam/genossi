@@ -29,7 +29,12 @@ gen_service_impl! {
     }
 }
 
-pub(crate) fn compute_migration_status(
+// Phase 9 (D-10 Option a): visibility upgraded from pub(crate) to pub to allow
+// RepaymentEntryServiceImpl::mark_paid_out to call this function for the
+// post-Cascade recalc_migrated step. Function is pure (no Tx, no I/O); no
+// safety or correctness risk from cross-crate exposure. See PHASE-9 PATTERNS.md
+// §"genossi_service_impl/src/member_action.rs — Visibility-Wechsel".
+pub fn compute_migration_status(
     member: &genossi_dao::member::MemberEntity,
     actions: &[genossi_dao::member_action::MemberActionEntity],
 ) -> MigrationStatus {
