@@ -17,9 +17,9 @@
 
 ### RepaymentEntry Management
 
-- [ ] **ENTR-01**: Beim Phase-Öffnen werden für alle Mitglieder mit `exit_date` im `fiscal_year` automatisch RepaymentEntries angelegt — Initial-Wert `share_count_to_pay_out = Member.current_shares` zum Stichpunkt
+- [x] **ENTR-01**: Beim Phase-Öffnen werden für alle Mitglieder mit `exit_date` im `fiscal_year` automatisch RepaymentEntries angelegt — Initial-Wert `share_count_to_pay_out = Member.current_shares` zum Stichpunkt
 - [ ] **ENTR-02**: Vorstand kann manuell weitere Einträge zu einer offenen Phase hinzufügen (Mitglied-Picker + `share_count_to_pay_out`) — für Teil-Abtretungen und verspätet gemeldete Austritte
-- [ ] **ENTR-03**: Mehrere Einträge pro Mitglied+Phase sind erlaubt (kein Composite-PK-Constraint auf `(member_id, phase_id)`)
+- [x] **ENTR-03**: Mehrere Einträge pro Mitglied+Phase sind erlaubt (kein Composite-PK-Constraint auf `(member_id, phase_id)`)
 - [ ] **ENTR-04**: Vorstand kann `share_count_to_pay_out` bearbeiten solange Eintragsstatus `offen` oder `angeschrieben`
 - [ ] **ENTR-05**: Vorstand kann Eintrag soft-löschen solange Eintragsstatus nicht `ausbezahlt`
 - [ ] **ENTR-06**: Status-Toggle `offen → angeschrieben` manuell durch Vorstand; multi-select-fähig (Massen-Toggle nach Mail-Versand)
@@ -90,9 +90,9 @@
 | PHAS-03 | Phase 7 (Skeleton: state-machine + audit-trail) + Phase 8 (full: pending-entry validation) | Skeleton |
 | PHAS-04 | Phase 7 | Complete |
 | PHAS-05 | Phase 7 | Complete |
-| ENTR-01 | Phase 8 | Pending |
+| ENTR-01 | Phase 8 | Complete |
 | ENTR-02 | Phase 8 | Pending |
-| ENTR-03 | Phase 8 | Pending |
+| ENTR-03 | Phase 8 | Complete |
 | ENTR-04 | Phase 8 | Pending |
 | ENTR-05 | Phase 8 | Pending |
 | ENTR-06 | Phase 8 | Pending |

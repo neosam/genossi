@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Anteile-Rückzahlungsphase
 status: executing
-stopped_at: Phase 8 context gathered
-last_updated: "2026-05-31T03:48:33.051Z"
-last_activity: 2026-05-31 -- Phase 08 execution started
+stopped_at: Completed 08-01-PLAN.md
+last_updated: "2026-05-31T03:59:51.288Z"
+last_activity: 2026-05-31
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 11
-  completed_plans: 5
-  percent: 45
+  completed_plans: 6
+  percent: 55
 ---
 
 # State: Genossi — v1.1 Anteile-Rückzahlungsphase
@@ -30,9 +30,9 @@ progress:
 ## Current Position
 
 Phase: 08 (repaymententry-auto-bef-llung) — EXECUTING
-Plan: 1 of 6
-Status: Executing Phase 08
-Last activity: 2026-05-31 -- Phase 08 execution started
+Plan: 2 of 6
+Status: Ready to execute
+Last activity: 2026-05-31
 
 ## Closure Snapshot (v1.0, 2026-05-29)
 
@@ -80,6 +80,7 @@ Overall: 0% complete
 | Phase 07 P03 | 9min | 2 tasks | 4 files |
 | Phase 07 P04 | 8min | 3 tasks | 5 files |
 | Phase 07 P05 | 5min | 1 task | 1 file |
+| Phase 08 P01 | 6min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -127,6 +128,11 @@ Overall: 0% complete
 | Plan 07-05: Optimistic-Locking via Stale-Retry-Pattern statt direkter Version-Bump-Assertion — codebase-weite Service-Konvention (Assembly, RepaymentPhase, Member) gibt nach `audited_update!` die LOKALE entity mit alter Version zurück; DAO bumpt die DB-Version atomar (siehe `genossi_dao_impl_sqlite/src/repayment_phase.rs:150`), aber Bump wird NICHT propagiert. Stale-retry-PUT mit alter Version → 409 `"Version mismatch"` verifiziert die DB-Konsistenz end-to-end. Architekt-Korrektur (DAO-Update als `Result<Uuid, _>`) wäre Rule-4-Change; als tech-debt-Item für eine spätere Phase markiert. | Phase 7, Plan 05 |
 | Plan 07-05: Audit-Endpoint-Pfad `/api/audit/repayment_phase/{id}` mit Underscore (nicht Bindestrich) — `entity_type` ist die `Auditable`-Trait-Constant `"repayment_phase"` aus Plan 01, nicht der REST-Pfad-Namespace. Pattern-konsistent mit `/api/audit/assembly/{id}` aus Phase 1. | Phase 7, Plan 05 |
 | Plan 07-05: 7 E2E-Tests = 1 Lifecycle-Happy-Path + 6 Negative-Paths verifizieren alle 5 ROADMAP-SC und Decisions D-04..D-12 end-to-end. Substring-Body-Assertions (`body.contains("fiscal_year")` / `"share_value"` / `"Version mismatch"`) als minimal-invasive Diagnostik statt brittle exakter Fehlertexte. Pattern-Vorlage für Phase-8-RepaymentEntry- und Phase-9-PayoutCascade-E2E-Tests. | Phase 7, Plan 05 |
+| Plan 08-01: RepaymentEntryStatus-Enum mit allen 3 Varianten (Open/Contacted/PaidOut) von Anfang an in DAO + DB-Migration — Phase 9 (PaidOut-Toggle) braucht damit keine Enum-Erweiterung und keine DB-Schema-Migration. Konsistenz mit Phase-7-D-01 (Statusstrings auf Englisch). | Phase 8, Plan 01 |
+| Plan 08-01: Audit-Felder-Reihenfolge `member_id/phase_id/share_count_to_pay_out/status` (genau 4 Felder) ist frozen via Index-basierten Test (`test_auditable_audit_fields_member_id_first_phase_id_second`) ZUSÄTZLICH zum Names-Vec-Test — verhindert Refactorings, die nur die Reihenfolge tauschen aber Länge und Names erhalten. Hash-Chain-Konsistenz analog Phase-7-Plan-01-Lektion. | Phase 8, Plan 01 |
+| Plan 08-01: `find_by_phase_id` als DAO-Default-Impl über `dump_all` + In-Memory-Filter (statt SQL-WHERE im SQLite-Sub-DAO) — Phase-7-Konvention für Domain-Filter (`count_active`, `find_by_member_number`); SQL-Index-Optimization (`idx_repayment_entry_phase`) liegt in der Migration und Plan 02 kann optional `dump_all` mit SQL-WHERE überschreiben, ohne Trait-API-Breaking-Change. | Phase 8, Plan 01 |
+| Plan 08-01: CHECK(share_count_to_pay_out > 0) auf Schema-Ebene zusätzlich zur Service-Layer-Validation (D-11.3) — Defense-in-Depth gegen Daten-Korruption durch direkte DB-Zugriffe (Migrations, manuelle Korrekturen, künftige Service-Bypass-Bugs). T-08-01-03-Mitigation. | Phase 8, Plan 01 |
+| Plan 08-01: KEIN UNIQUE-Constraint auf (member_id, phase_id) — ENTR-03 erlaubt mehrere Einträge pro Mitglied+Phase (Teil-Abtretungen, Korrekturen nach Erst-Auto-Fill, mehrstufige Auszahlungen). Phase 9 fängt den Sum-Check beim `mark_paid_out` über `Member.current_shares` ab — kein DB-Constraint nötig. | Phase 8, Plan 01 |
 | One-Time-Use-QR pro Helfer | Verhindert Token-Weitergabe an Unbefugte | Phase 2 |
 | Helfer-Memo-Name = Freitext, kein Identitäts-Anker | Reine UX-Hilfe für Vorstand beim Drucken | Phase 2 |
 | GV-Status final nach Schluss; Vorstand-Korrekturen ohne Re-Open | Vermeidet Status-Pingpong, hält Audit-Story einfach | Phase 1 |
@@ -177,8 +183,8 @@ Details siehe `.planning/v1.0-MILESTONE-AUDIT.md` und `.planning/MILESTONES.md`.
 
 **Last action (2026-05-29, Phase 07 Plan 02):** Plan `07-02-PLAN.md` ausgeführt — `RepaymentPhaseDaoImpl` (SQLite-Impl des Plan-01-Traits) angelegt mit `RepaymentPhaseDb`-Row, `TryFrom` mit guarded i32-Cast (T-07-02-05), `dump_all`/`create`/`update` inkl. Pre-Exists-Check + Optimistic-Locking via `rows_affected == 0 → ConflictError("Version mismatch")`. ORDER BY ist `fiscal_year DESC, created DESC` (Phase-7-spezifisch). `parse_datetime` via `use crate::assembly::parse_datetime` reused (kein Duplikat). 4 grüne Tokio-Integrationstests gegen in-memory SQLite. Modul-Decl in `genossi_dao_impl_sqlite/src/lib.rs` alphabetisch eingefügt. Commit `6f6bf0f` (feat: 367 LOC added).
 
-**Stopped At:** Phase 8 context gathered
-**Resume File:** .planning/phases/08-repaymententry-auto-bef-llung/08-CONTEXT.md
+**Stopped At:** Completed 08-01-PLAN.md
+**Resume File:** None
 
 **Last action (2026-05-17, Phase 06 Discuss):** `/gsd-discuss-phase 6` durchgeführt — `06-CONTEXT.md` + `06-DISCUSSION-LOG.md` erstellt und committed (`30a3c2b`). 20 Implementierungsentscheidungen (D-01..D-20) erfasst: drei Export-Formate parallel (PDF via Typst, CSV semikolon/UTF-8-BOM, XLSX via rust_xlsxwriter), `?include=all|present`-Query, Status-Closed-only, Vorstand-only via OIDC, Snapshot-Daten aus `assembly_member_snapshot`, Sortierung `member_number ASC`, Endpoint `GET /api/assembly/{aid}/attendance-export/{format}`, Filename `gv-{YYYY-MM-DD}-teilnehmer.{ext}`, kein Audit-Hashchain-Eintrag. PDF-Layout minimal (Kopf mit GV-Titel + Datum + „X von Y anwesend", dann Tabelle). 6 Deferred Ideas (Sammelexport, E-Mail-Versand, Unterschriftenspalte, Logo, Multi-Sheet, Export-Audit). Nächster Schritt: `/gsd-plan-phase 6`.
 
