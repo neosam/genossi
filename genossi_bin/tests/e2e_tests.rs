@@ -12,10 +12,11 @@ use genossi_rest::test_server::test_support::start_test_server;
 use genossi_rest_types::{
     ActionTypeTO, AdminCreateApplicationRequest, ApplicationStatusTO, ApplicationTO,
     AssemblyDetailTO, AssemblyStatusTO, AssemblyTO, AttendanceMemberTO, AttendanceStatsTO,
-    HelperSessionTO, MemberActionTO, MemberDocumentTO, MemberImportResultTO, MemberTO,
-    MigrationStatusTO, PublicJoinRequest, PublicJoinResponse, RepaymentPhaseStatusTO,
+    BatchStatusRequest, CreateRepaymentEntryRequest, HelperSessionTO, MemberActionTO,
+    MemberDocumentTO, MemberImportResultTO, MemberTO, MigrationStatusTO, PublicJoinRequest,
+    PublicJoinResponse, RepaymentEntryStatusTO, RepaymentEntryTO, RepaymentPhaseStatusTO,
     RepaymentPhaseTO, SalutationTO, SessionRevokeResponse, UpdateApplicationRequest,
-    UserPreferenceTO, ValidationResultTO, VerifyResponseTO,
+    UpdateRepaymentEntryRequest, UserPreferenceTO, ValidationResultTO, VerifyResponseTO,
 };
 use reqwest::StatusCode;
 use sqlx::SqlitePool;
@@ -10091,12 +10092,7 @@ async fn create_closed_assembly_with_members(
         resp.status()
     );
 
-    (
-        assembly_id,
-        "2026-05-15".to_string(),
-        n_present,
-        n_members,
-    )
+    (assembly_id, "2026-05-15".to_string(), n_present, n_members)
 }
 
 /// Phase 6 / D-04 / D-16: PDF export of a Closed assembly returns 200 with
@@ -10252,8 +10248,7 @@ async fn test_export_xlsx_closed_returns_zip_magic_bytes() {
         .unwrap()
         .to_string();
     assert_eq!(
-        content_type,
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        content_type, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "D-16: XLSX Content-Type must be the Office MIME type"
     );
     let bytes = resp.bytes().await.unwrap();
@@ -10385,8 +10380,7 @@ async fn test_export_unknown_format_returns_400() {
 async fn test_export_include_present_filters_absent_members() {
     let server = setup().await;
     let client = reqwest::Client::new();
-    let (aid, _, n_present, _) =
-        create_closed_assembly_with_members(&client, &server, 5, 2).await;
+    let (aid, _, n_present, _) = create_closed_assembly_with_members(&client, &server, 5, 2).await;
     assert_eq!(n_present, 2, "test setup must produce exactly 2 present");
 
     let resp = client
@@ -10427,9 +10421,11 @@ async fn test_export_filename_schema_matches_date() {
     // setup_with_templates() so the PDF branch can find teilnehmerliste.typ.
     let server = setup_with_templates().await;
     let client = reqwest::Client::new();
-    let (aid, date_str, _, _) =
-        create_closed_assembly_with_members(&client, &server, 3, 0).await;
-    assert_eq!(date_str, "2026-05-15", "test setup uses fixed assembly date");
+    let (aid, date_str, _, _) = create_closed_assembly_with_members(&client, &server, 3, 0).await;
+    assert_eq!(
+        date_str, "2026-05-15",
+        "test setup uses fixed assembly date"
+    );
 
     for (fmt, ext) in [("pdf", "pdf"), ("csv", "csv"), ("xlsx", "xlsx")] {
         let resp = client
@@ -10748,10 +10744,7 @@ async fn test_repayment_phase_lifecycle_audit_chain_intact() {
     //    share_value diff `12000 -> 13000` is recorded under the update
     //    process (ROADMAP SC#5).
     let response = client
-        .get(server.url(&format!(
-            "/api/audit/repayment_phase/{}",
-            phase_id
-        )))
+        .get(server.url(&format!("/api/audit/repayment_phase/{}", phase_id)))
         .send()
         .await
         .unwrap();
@@ -10864,10 +10857,7 @@ async fn test_close_repayment_phase_from_preparation_returns_conflict() {
 
     // Skip Open; try to close directly from Preparation.
     let response = client
-        .post(server.url(&format!(
-            "/api/repayment-phase/{}/close",
-            phase.id
-        )))
+        .post(server.url(&format!("/api/repayment-phase/{}/close", phase.id)))
         .send()
         .await
         .unwrap();
@@ -11002,5 +10992,671 @@ async fn test_validation_share_value_zero_returns_400() {
         body.contains("share_value"),
         "validation error body must mention share_value; got: {}",
         body
+    );
+}
+
+// =====================================================================
+// Phase 08 Plan 06: RepaymentEntry + Auto-Befüllung — E2E tests
+// (ENTR-01..06, PHAS-02, PHAS-03; Decisions D-02/D-05/D-06/D-07/D-08/D-11/D-13/D-14/D-15)
+// =====================================================================
+
+/// Phase 8 helper — Member mit echtem `exit_date` im fiscal_year, das durch
+/// eine **Austritt-MemberAction** entsteht (recalc_dates ist die Single Source
+/// of Truth für exit_date — siehe `genossi_service_impl/src/member.rs:288` +
+/// `member_action.rs:160-169` compute_dates). Ein bloßes MemberTO.exit_date
+/// im POST wird durch recalc_dates() überschrieben (auf None gesetzt) wenn
+/// keine Austritt-Action existiert.
+///
+/// Schritte:
+/// 1. POST /api/members mit shares_at_joining=current_shares (Service setzt
+///    current_shares = shares_at_joining beim Create, siehe member.rs:213-218).
+/// 2. POST /api/members/{id}/actions mit ActionTypeTO::Austritt + effective_date
+///    im fiscal_year (15. Juni). recalc_dates schreibt exit_date in den Member.
+/// 3. GET /api/members/{id} um den gehärteten Member-State zurückzugeben.
+///
+/// **Member-Endpoint ist PLURAL** `/api/members` (verifiziert via
+/// `grep -n '/api/members' genossi_rest/src/lib.rs` → Router-Mount Z. 562).
+/// W-01 Review-Note: Singular `/api/member` existiert nicht.
+async fn create_member_with_exit_date(
+    client: &reqwest::Client,
+    server: &genossi_rest::test_server::test_support::TestServer,
+    member_number: i64,
+    fiscal_year: i32,
+    current_shares: i32,
+) -> MemberTO {
+    // Schritt 1: Member anlegen (shares_at_joining = current_shares; Service-Konvention).
+    let mut m = sample_member();
+    m.member_number = member_number;
+    m.shares_at_joining = current_shares;
+    m.current_shares = current_shares; // wird vom Service überschrieben, schadet aber nicht
+    let response = client
+        .post(server.url("/api/members"))
+        .json(&m)
+        .send()
+        .await
+        .expect("create_member POST failed");
+    assert!(
+        response.status().is_success(),
+        "create_member expected 2xx, got {}",
+        response.status()
+    );
+    let created: MemberTO = response.json().await.expect("decode MemberTO failed");
+    let member_id = created.id.expect("created member must have id");
+
+    // Schritt 2: Austritt-Action posten — recalc_dates wird exit_date setzen.
+    let exit_date = time::Date::from_calendar_date(fiscal_year, time::Month::June, 15).unwrap();
+    let austritt = MemberActionTO {
+        id: None,
+        member_id,
+        action_type: ActionTypeTO::Austritt,
+        date: exit_date,
+        shares_change: 0, // Austritt erlaubt nur shares_change=0
+        transfer_member_id: None,
+        effective_date: Some(exit_date),
+        comment: Some("Phase 8 E2E setup".to_string()),
+        created: None,
+        deleted: None,
+        version: None,
+    };
+    let response = client
+        .post(server.url(&format!("/api/members/{}/actions", member_id)))
+        .json(&austritt)
+        .send()
+        .await
+        .expect("POST Austritt action failed");
+    assert!(
+        response.status().is_success(),
+        "POST Austritt expected 2xx, got {}: {}",
+        response.status(),
+        response.text().await.unwrap_or_default()
+    );
+
+    // Schritt 3: Member nach recalc neu laden.
+    let response = client
+        .get(server.url(&format!("/api/members/{}", member_id)))
+        .send()
+        .await
+        .expect("GET member failed");
+    assert_eq!(response.status(), StatusCode::OK);
+    response.json().await.expect("decode MemberTO failed")
+}
+
+/// Phase 8 helper — Preparation-Phase erzeugen UND öffnen.
+/// Das Öffnen triggert den Auto-Fill der RepaymentEntries (PHAS-02 / ENTR-01).
+async fn create_open_repayment_phase(
+    client: &reqwest::Client,
+    server: &genossi_rest::test_server::test_support::TestServer,
+    fiscal_year: i32,
+    share_value: i64,
+) -> RepaymentPhaseTO {
+    let phase = create_preparation_repayment_phase(client, server, fiscal_year, share_value).await;
+    let phase_id = phase.id;
+    let open_resp = client
+        .post(server.url(&format!("/api/repayment-phase/{}/open", phase_id)))
+        .send()
+        .await
+        .expect("open_phase POST failed");
+    assert_eq!(
+        open_resp.status(),
+        StatusCode::OK,
+        "open_phase must return 200 (triggers Phase-8 auto-fill)"
+    );
+    open_resp
+        .json()
+        .await
+        .expect("decode opened RepaymentPhaseTO failed")
+}
+
+// --- Auto-Fill tests (PHAS-02 / ENTR-01) ---
+
+/// Phase 08 Plan 06 Test 1 — Auto-Fill: 3 Members mit exit_date in FY 2026.
+/// - M1: current_shares=5 → SOLL Entry
+/// - M2: current_shares=0 → KEIN Entry (D-02: current_shares > 0)
+/// - M3: current_shares=3 → SOLL Entry
+/// Erwartete Liste-Länge: 2.
+#[tokio::test]
+async fn test_open_phase_triggers_auto_fill() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let fiscal_year = 2026;
+
+    let _m1 = create_member_with_exit_date(&client, &server, 1, fiscal_year, 5).await;
+    let _m2 = create_member_with_exit_date(&client, &server, 2, fiscal_year, 0).await;
+    let _m3 = create_member_with_exit_date(&client, &server, 3, fiscal_year, 3).await;
+
+    let phase = create_open_repayment_phase(&client, &server, fiscal_year, 12000).await;
+
+    let resp = client
+        .get(server.url(&format!("/api/repayment-entry?phase_id={}", phase.id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let entries: Vec<RepaymentEntryTO> = resp.json().await.unwrap();
+    assert_eq!(
+        entries.len(),
+        2,
+        "expected 2 auto-filled entries (M2 with current_shares=0 must be skipped per D-02); got {}",
+        entries.len()
+    );
+    for e in &entries {
+        assert!(
+            matches!(e.status, RepaymentEntryStatusTO::Open),
+            "auto-filled entry must start in Open, got {:?}",
+            e.status
+        );
+        assert_eq!(e.phase_id, phase.id);
+    }
+}
+
+/// Phase 08 Plan 06 Test 2 — 0-Member-Case: Auto-Fill mit 0 Mitgliedern
+/// liefert 0 Entries, Phase steht trotzdem auf Open (D-14: 0-Entry-Close ok).
+#[tokio::test]
+async fn test_open_phase_auto_fill_zero_members() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Keine Members angelegt
+    let phase = create_open_repayment_phase(&client, &server, 2026, 12000).await;
+    assert!(
+        matches!(phase.status, RepaymentPhaseStatusTO::Open),
+        "phase must be Open even with 0 members; got {:?}",
+        phase.status
+    );
+
+    let resp = client
+        .get(server.url(&format!("/api/repayment-entry?phase_id={}", phase.id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let entries: Vec<RepaymentEntryTO> = resp.json().await.unwrap();
+    assert_eq!(
+        entries.len(),
+        0,
+        "0-member case must produce 0 entries (D-14)"
+    );
+}
+
+/// Phase 08 Plan 06 Test 3 — Member ohne `exit_date` darf KEINEN Eintrag bekommen.
+/// (Default sample_member hat exit_date = None.)
+#[tokio::test]
+async fn test_open_phase_skips_member_without_exit_date() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let _m = create_test_member(&client, &server).await;
+    let phase = create_open_repayment_phase(&client, &server, 2026, 12000).await;
+
+    let entries: Vec<RepaymentEntryTO> = client
+        .get(server.url(&format!("/api/repayment-entry?phase_id={}", phase.id)))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        entries.len(),
+        0,
+        "member without exit_date must not be auto-filled (D-02 filter)"
+    );
+}
+
+/// Phase 08 Plan 06 Test 4 — Member mit `exit_date` AUSSERHALB des fiscal_year
+/// (hier 2027 vs. Phase-FY 2026) darf KEINEN Eintrag bekommen.
+#[tokio::test]
+async fn test_open_phase_skips_member_outside_fiscal_year() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let _m = create_member_with_exit_date(&client, &server, 1, 2027, 5).await;
+    let phase = create_open_repayment_phase(&client, &server, 2026, 12000).await;
+
+    let entries: Vec<RepaymentEntryTO> = client
+        .get(server.url(&format!("/api/repayment-entry?phase_id={}", phase.id)))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        entries.len(),
+        0,
+        "member with exit_date outside fiscal_year must not be auto-filled (D-01/D-02)"
+    );
+}
+
+// --- Manual create tests (ENTR-02 / D-11) ---
+
+/// Phase 08 Plan 06 Test 5 — Happy: POST mit gültigem Body in Open-Phase → 201.
+///
+/// **Hinweis** (genossi_service_impl/src/member.rs:213-214): Member-Service
+/// setzt beim Create `current_shares = shares_at_joining`; der vom Test
+/// gesendete `current_shares`-Wert wird ignoriert. sample_member() hat
+/// `shares_at_joining = 1`, deshalb ist `share_count_to_pay_out = 1`
+/// das Maximum für den happy-path-POST.
+#[tokio::test]
+async fn test_manual_add_entry_happy_path() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let phase = create_open_repayment_phase(&client, &server, 2026, 12000).await;
+    let m = create_test_member(&client, &server).await;
+
+    let body = CreateRepaymentEntryRequest {
+        phase_id: phase.id,
+        member_id: m.id.unwrap(),
+        share_count_to_pay_out: 1,
+    };
+    let resp = client
+        .post(server.url("/api/repayment-entry"))
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    let status = resp.status();
+    let body_text = resp.text().await.unwrap();
+    assert_eq!(status, StatusCode::CREATED, "got {}: {}", status, body_text);
+    let entry: RepaymentEntryTO = serde_json::from_str(&body_text).unwrap();
+    assert_eq!(entry.share_count_to_pay_out, 1);
+    assert_eq!(entry.phase_id, phase.id);
+    assert_eq!(entry.member_id, m.id.unwrap());
+    assert!(
+        matches!(entry.status, RepaymentEntryStatusTO::Open),
+        "manual create must start in Open"
+    );
+}
+
+/// Phase 08 Plan 06 Test 6 — D-11.1: POST in Preparation-Phase → 409.
+#[tokio::test]
+async fn test_manual_add_entry_phase_not_open_returns_409() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    // Phase bleibt in Preparation (NICHT öffnen!)
+    let phase = create_preparation_repayment_phase(&client, &server, 2026, 12000).await;
+    let m = create_test_member(&client, &server).await;
+
+    let body = CreateRepaymentEntryRequest {
+        phase_id: phase.id,
+        member_id: m.id.unwrap(),
+        share_count_to_pay_out: 2,
+    };
+    let resp = client
+        .post(server.url("/api/repayment-entry"))
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::CONFLICT,
+        "POST in Preparation-Phase must return 409 (D-11.1)"
+    );
+}
+
+/// Phase 08 Plan 06 Test 7 — D-11.3: share_count > Member.current_shares → 400.
+#[tokio::test]
+async fn test_manual_add_entry_share_count_exceeds_returns_400() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let phase = create_open_repayment_phase(&client, &server, 2026, 12000).await;
+    // sample_member hat current_shares == 3
+    let m = create_test_member(&client, &server).await;
+
+    let body = CreateRepaymentEntryRequest {
+        phase_id: phase.id,
+        member_id: m.id.unwrap(),
+        share_count_to_pay_out: 999,
+    };
+    let resp = client
+        .post(server.url("/api/repayment-entry"))
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::BAD_REQUEST,
+        "share_count_to_pay_out > current_shares must return 400 (D-11.3)"
+    );
+    let body_text = resp.text().await.unwrap();
+    assert!(
+        body_text.contains("share_count_to_pay_out"),
+        "validation error body must mention field name; got: {}",
+        body_text
+    );
+}
+
+// --- Update tests (ENTR-04 / ENTR-06 / D-05 / D-06) ---
+
+/// Phase 08 Plan 06 Test 8 — D-06: Status Open → Contacted via PUT → 200.
+#[tokio::test]
+async fn test_update_entry_status_open_to_contacted_succeeds() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let phase = create_open_repayment_phase(&client, &server, 2026, 12000).await;
+    let m = create_test_member(&client, &server).await;
+
+    let create_body = CreateRepaymentEntryRequest {
+        phase_id: phase.id,
+        member_id: m.id.unwrap(),
+        share_count_to_pay_out: 1,
+    };
+    let create_resp = client
+        .post(server.url("/api/repayment-entry"))
+        .json(&create_body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(create_resp.status(), StatusCode::CREATED);
+    let entry: RepaymentEntryTO = create_resp.json().await.unwrap();
+    let version = entry
+        .version
+        .expect("version must be present on create response");
+
+    let update_body = UpdateRepaymentEntryRequest {
+        share_count_to_pay_out: None,
+        status: Some(RepaymentEntryStatusTO::Contacted),
+        version,
+    };
+    let resp = client
+        .put(server.url(&format!("/api/repayment-entry/{}", entry.id)))
+        .json(&update_body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let updated: RepaymentEntryTO = resp.json().await.unwrap();
+    assert!(
+        matches!(updated.status, RepaymentEntryStatusTO::Contacted),
+        "expected Contacted after PUT, got {:?}",
+        updated.status
+    );
+}
+
+/// Phase 08 Plan 06 Test 9 — D-05: PUT mit status=PaidOut → 409.
+/// PaidOut darf nur über Phase-9 mark_paid_out gesetzt werden.
+#[tokio::test]
+async fn test_update_entry_status_paid_out_returns_409() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let phase = create_open_repayment_phase(&client, &server, 2026, 12000).await;
+    let m = create_test_member(&client, &server).await;
+
+    let create_body = CreateRepaymentEntryRequest {
+        phase_id: phase.id,
+        member_id: m.id.unwrap(),
+        share_count_to_pay_out: 1,
+    };
+    let entry: RepaymentEntryTO = client
+        .post(server.url("/api/repayment-entry"))
+        .json(&create_body)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let version = entry
+        .version
+        .expect("version must be present on create response");
+
+    let update_body = UpdateRepaymentEntryRequest {
+        share_count_to_pay_out: None,
+        status: Some(RepaymentEntryStatusTO::PaidOut),
+        version,
+    };
+    let resp = client
+        .put(server.url(&format!("/api/repayment-entry/{}", entry.id)))
+        .json(&update_body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::CONFLICT,
+        "PUT with status=PaidOut must return 409 (D-05)"
+    );
+}
+
+// --- Delete tests (ENTR-05) ---
+
+/// Phase 08 Plan 06 Test 10 — ENTR-05: DELETE auf Open-Entry → 204 + nachfolgender GET 404.
+#[tokio::test]
+async fn test_delete_entry_in_open_succeeds() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let phase = create_open_repayment_phase(&client, &server, 2026, 12000).await;
+    let m = create_test_member(&client, &server).await;
+
+    let create_body = CreateRepaymentEntryRequest {
+        phase_id: phase.id,
+        member_id: m.id.unwrap(),
+        share_count_to_pay_out: 1,
+    };
+    let entry: RepaymentEntryTO = client
+        .post(server.url("/api/repayment-entry"))
+        .json(&create_body)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    let resp = client
+        .delete(server.url(&format!("/api/repayment-entry/{}", entry.id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::NO_CONTENT,
+        "DELETE on Open entry must return 204 (ENTR-05)"
+    );
+
+    let get_resp = client
+        .get(server.url(&format!("/api/repayment-entry/{}", entry.id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        get_resp.status(),
+        StatusCode::NOT_FOUND,
+        "soft-deleted entry must return 404 on GET"
+    );
+}
+
+// --- Batch-Toggle tests (D-07 / D-08) ---
+
+/// Phase 08 Plan 06 Test 11 — D-08 Happy: Batch-Toggle 2 Entries auf Contacted → 200.
+#[tokio::test]
+async fn test_batch_toggle_happy_path() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let fiscal_year = 2026;
+
+    let _m1 = create_member_with_exit_date(&client, &server, 1, fiscal_year, 5).await;
+    let _m2 = create_member_with_exit_date(&client, &server, 2, fiscal_year, 5).await;
+    let phase = create_open_repayment_phase(&client, &server, fiscal_year, 12000).await;
+
+    // Auto-Fill erzeugte 2 Entries (M1, M2)
+    let entries: Vec<RepaymentEntryTO> = client
+        .get(server.url(&format!("/api/repayment-entry?phase_id={}", phase.id)))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(entries.len(), 2, "auto-fill must produce 2 entries");
+
+    let body = BatchStatusRequest {
+        entry_ids: entries.iter().map(|e| e.id).collect(),
+        target_status: RepaymentEntryStatusTO::Contacted,
+    };
+    let resp = client
+        .post(server.url("/api/repayment-entry/batch-status"))
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let updated: Vec<RepaymentEntryTO> = resp.json().await.unwrap();
+    assert_eq!(updated.len(), 2);
+    for u in &updated {
+        assert!(
+            matches!(u.status, RepaymentEntryStatusTO::Contacted),
+            "all batch-toggled entries must be Contacted, got {:?}",
+            u.status
+        );
+    }
+}
+
+/// Phase 08 Plan 06 Test 12 — D-07: target_status=PaidOut → 400.
+#[tokio::test]
+async fn test_batch_toggle_paid_out_target_returns_400() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let body = BatchStatusRequest {
+        entry_ids: vec![uuid::Uuid::new_v4()],
+        target_status: RepaymentEntryStatusTO::PaidOut,
+    };
+    let resp = client
+        .post(server.url("/api/repayment-entry/batch-status"))
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::BAD_REQUEST,
+        "batch-status with target_status=PaidOut must return 400 (D-07)"
+    );
+}
+
+// --- Close-Validation tests (PHAS-03 / D-13 / D-14 / D-15) ---
+
+/// Phase 08 Plan 06 Test 13 — D-15: Close mit pending Entries → 409 +
+/// Body enthält `pending_count` und die Mitgliedsnummer.
+#[tokio::test]
+async fn test_close_phase_with_pending_entries_returns_409_with_member_numbers() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let fiscal_year = 2026;
+
+    // Member mit member_number=42, exit_date 2026 → Auto-Fill erzeugt 1 Entry (Open = pending)
+    let _m1 = create_member_with_exit_date(&client, &server, 42, fiscal_year, 5).await;
+    let phase = create_open_repayment_phase(&client, &server, fiscal_year, 12000).await;
+
+    let resp = client
+        .post(server.url(&format!("/api/repayment-phase/{}/close", phase.id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::CONFLICT,
+        "close with pending entries must return 409 (PHAS-03 / D-15)"
+    );
+    let body = resp.text().await.unwrap();
+    assert!(
+        body.contains("pending_count"),
+        "close-conflict body must contain pending_count; got: {}",
+        body
+    );
+    assert!(
+        body.contains("42"),
+        "close-conflict body must mention member_number 42; got: {}",
+        body
+    );
+}
+
+/// Phase 08 Plan 06 Test 14 — D-14: 0-Entry-Close ist erlaubt.
+#[tokio::test]
+async fn test_close_phase_with_zero_entries_succeeds() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Keine Members → Auto-Fill erzeugt 0 Entries
+    let phase = create_open_repayment_phase(&client, &server, 2026, 12000).await;
+
+    let resp = client
+        .post(server.url(&format!("/api/repayment-phase/{}/close", phase.id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "0-entry close must return 200 (D-14)"
+    );
+}
+
+// --- Audit-Hashchain-Test (cross-cutting) ---
+
+/// Phase 08 Plan 06 Test 15 — Audit-Hashchain bleibt valid nach komplettem
+/// Phase-8-Lifecycle: create-phase → open (Auto-Fill 2 Entries) → batch-toggle
+/// → delete-one → /api/audit/verify.valid == true.
+#[tokio::test]
+async fn test_audit_chain_intact_after_phase_8_lifecycle() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let fiscal_year = 2026;
+
+    let _m1 = create_member_with_exit_date(&client, &server, 1, fiscal_year, 5).await;
+    let _m2 = create_member_with_exit_date(&client, &server, 2, fiscal_year, 5).await;
+    let phase = create_open_repayment_phase(&client, &server, fiscal_year, 12000).await;
+
+    // Auto-Fill 2 Entries
+    let entries: Vec<RepaymentEntryTO> = client
+        .get(server.url(&format!("/api/repayment-entry?phase_id={}", phase.id)))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(entries.len(), 2, "auto-fill must produce 2 entries");
+
+    // Batch-Toggle alle auf Contacted
+    let batch_resp = client
+        .post(server.url("/api/repayment-entry/batch-status"))
+        .json(&BatchStatusRequest {
+            entry_ids: entries.iter().map(|e| e.id).collect(),
+            target_status: RepaymentEntryStatusTO::Contacted,
+        })
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(batch_resp.status(), StatusCode::OK);
+
+    // Delete 1 Entry (Soft-Delete)
+    let del_resp = client
+        .delete(server.url(&format!("/api/repayment-entry/{}", entries[0].id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(del_resp.status(), StatusCode::NO_CONTENT);
+
+    // Audit-Chain prüfen
+    let verify_resp = client
+        .get(server.url("/api/audit/verify"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(verify_resp.status(), StatusCode::OK);
+    let verify: VerifyResponseTO = verify_resp.json().await.unwrap();
+    assert!(
+        verify.valid,
+        "audit chain must remain valid after Phase 8 lifecycle; broken_links={:?}, total={}",
+        verify.broken_links, verify.total_entries
+    );
+    assert!(
+        verify.broken_links.is_empty(),
+        "broken_links must be empty after Phase 8 lifecycle; got {:?}",
+        verify.broken_links
     );
 }
