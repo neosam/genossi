@@ -5,12 +5,69 @@ use crate::dao::{
     MailRecipientAttachmentDao, MailRecipientDao,
 };
 use crate::service::{build_transport, load_smtp_config, MailServiceError};
-use crate::template::{member_to_template_context, render_template, MemberResolver};
+use crate::template::{
+    member_to_template_context, merge_repayment_context, render_template, MemberResolver,
+};
 use genossi_config::service::ConfigService;
 use genossi_service::document_storage::DocumentStorage;
 
 const DEFAULT_SEND_INTERVAL_SECONDS: u64 = 36;
 const IDLE_POLL_SECONDS: u64 = 5;
+
+/// Phase 10 D-11: process-string for MemberDocument audit entries created by the
+/// mail worker (no auth context). Distinct from the genossi_service_impl
+/// MEMBER_DOCUMENT_PROCESS string so audit logs make the worker-source distinguishable.
+const REPAYMENT_MAIL_PROCESS: &str = "repayment-mail-worker";
+
+/// Phase 10 D-11: fallback user_id (matches existing
+/// genossi_service_impl/src/member_document.rs fallback when no auth context).
+const WORKER_USER_ID: &str = "SYSTEM";
+
+/// Phase 10 specifics: maximum number of error characters retained in the
+/// MemberDocument.description suffix. Prevents oversized DB rows when SMTP
+/// servers return verbose error blocks. Format: "{subject} [FAILED: {truncated}]".
+const ERROR_TRUNCATION_LIMIT: usize = 200;
+
+/// Phase 10 D-11: build a MemberDocumentEntity for a single recipient that the
+/// mail worker has just attempted to deliver. Pure sync — no DAO calls, no tx.
+/// The caller (try_create_member_document_audited) handles persistence + audit.
+fn build_member_document_entity(
+    job: &crate::dao::MailJob,
+    member_id: uuid::Uuid,
+    recipient_id: uuid::Uuid,
+    send_result_ok: bool,
+    error_msg: &str,
+) -> genossi_dao::member_document::MemberDocumentEntity {
+    let now = time::OffsetDateTime::now_utc();
+    let (doc_status, doc_description) = if send_result_ok {
+        ("sent".to_string(), job.subject.to_string())
+    } else {
+        // Truncate to ERROR_TRUNCATION_LIMIT chars (NOT bytes — char-safe for UTF-8).
+        let truncated: String = error_msg.chars().take(ERROR_TRUNCATION_LIMIT).collect();
+        (
+            "failed".to_string(),
+            format!("{} [FAILED: {}]", job.subject, truncated),
+        )
+    };
+
+    genossi_dao::member_document::MemberDocumentEntity {
+        id: uuid::Uuid::new_v4(),
+        member_id,
+        document_type: Arc::from("repayment_mail"),
+        description: Some(Arc::from(doc_description.as_str())),
+        // No file on disk for repayment mails (Phase 10 specifics §relative_path)
+        file_name: Arc::from(""),
+        mime_type: Arc::from("text/plain"),
+        relative_path: Arc::from(""),
+        created: time::PrimitiveDateTime::new(now.date(), now.time()),
+        deleted: None,
+        version: uuid::Uuid::new_v4(),
+        // Phase 10 D-07 fields:
+        template_id: job.template_id,
+        mail_recipient_id: Some(recipient_id),
+        status: Some(Arc::from(doc_status.as_str())),
+    }
+}
 
 async fn get_send_interval<C: ConfigService>(config_service: &C) -> u64 {
     let all_config = match config_service.get_all().await {
@@ -91,7 +148,8 @@ async fn mark_recipient_failed<R: MailRecipientDao, J: MailJobDao>(
     );
 }
 
-pub async fn start_mail_worker<C, J, R, A, SA, D, M, IB>(
+#[allow(clippy::too_many_arguments)]
+pub async fn start_mail_worker<C, J, R, A, SA, D, M, IB, MD, AL, MT, RE, RP, TX>(
     config_service: Arc<C>,
     job_dao: Arc<J>,
     recipient_dao: Arc<R>,
@@ -100,6 +158,13 @@ pub async fn start_mail_worker<C, J, R, A, SA, D, M, IB>(
     document_storage: Arc<D>,
     member_resolver: Arc<M>,
     inbound_mail_dao: Arc<IB>,
+    // --- Phase 10 D-11 new deps ---
+    member_document_dao: Arc<MD>,
+    audit_log_dao: Arc<AL>,
+    _mail_template_dao: Arc<MT>, // currently unused by worker but reserved (Plan 10.07 wiring)
+    repayment_entry_dao: Arc<RE>,
+    repayment_phase_dao: Arc<RP>,
+    transaction_dao: Arc<TX>,
 ) where
     C: ConfigService,
     J: MailJobDao,
@@ -109,6 +174,18 @@ pub async fn start_mail_worker<C, J, R, A, SA, D, M, IB>(
     D: DocumentStorage + 'static,
     M: MemberResolver,
     IB: InboundMailDao,
+    MD: genossi_dao::member_document::MemberDocumentDao + Send + Sync + 'static,
+    AL: genossi_dao::audit_log::AuditLogDao<Transaction = MD::Transaction> + Send + Sync + 'static,
+    MT: crate::dao::MailTemplateDao + Send + Sync + 'static,
+    RE: genossi_dao::repayment_entry::RepaymentEntryDao<Transaction = MD::Transaction>
+        + Send
+        + Sync
+        + 'static,
+    RP: genossi_dao::repayment_phase::RepaymentPhaseDao<Transaction = MD::Transaction>
+        + Send
+        + Sync
+        + 'static,
+    TX: genossi_dao::TransactionDao<Transaction = MD::Transaction> + Send + Sync + 'static,
 {
     loop {
         let next = match recipient_dao.next_pending().await {
@@ -181,7 +258,114 @@ pub async fn start_mail_worker<C, J, R, A, SA, D, M, IB>(
         let (rendered_subject, rendered_body) = if let Some(member_id) = next.member_id {
             match member_resolver.find_member_by_id(member_id).await {
                 Ok(Some(member)) => {
-                    let ctx = member_to_template_context(&member);
+                    let mut ctx = member_to_template_context(&member);
+
+                    // Phase 10 D-04: merge per-recipient repayment context (only if
+                    // job is repayment-linked). D-06 filter: deleted IS NULL AND
+                    // status IN (Open, Contacted). D-05: only merge when at least
+                    // one relevant entry exists; otherwise the strict-env render
+                    // will fail on referenced `payout_amount`/`share_count`/
+                    // `fiscal_year` variables and the recipient is marked failed.
+                    if let Some(phase_id) = job.repayment_phase_id {
+                        let agg_tx = match transaction_dao.transaction().await {
+                            Ok(t) => t,
+                            Err(e) => {
+                                mark_recipient_failed(
+                                    recipient_dao.as_ref(),
+                                    job_dao.as_ref(),
+                                    &next,
+                                    &mut job,
+                                    &format!(
+                                        "Worker: cannot open tx for repayment context: {:?}",
+                                        e
+                                    ),
+                                )
+                                .await;
+                                let interval = get_send_interval(config_service.as_ref()).await;
+                                tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
+                                continue;
+                            }
+                        };
+
+                        let phase_opt = match repayment_phase_dao
+                            .find_by_id(phase_id, agg_tx.clone())
+                            .await
+                        {
+                            Ok(p) => p,
+                            Err(e) => {
+                                mark_recipient_failed(
+                                    recipient_dao.as_ref(),
+                                    job_dao.as_ref(),
+                                    &next,
+                                    &mut job,
+                                    &format!("Worker: repayment_phase lookup failed: {:?}", e),
+                                )
+                                .await;
+                                let interval = get_send_interval(config_service.as_ref()).await;
+                                tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
+                                continue;
+                            }
+                        };
+
+                        if let Some(phase) = phase_opt {
+                            let entries = match repayment_entry_dao
+                                .find_by_phase_id(phase_id, agg_tx.clone())
+                                .await
+                            {
+                                Ok(es) => es,
+                                Err(e) => {
+                                    mark_recipient_failed(
+                                        recipient_dao.as_ref(),
+                                        job_dao.as_ref(),
+                                        &next,
+                                        &mut job,
+                                        &format!("Worker: repayment_entry lookup failed: {:?}", e),
+                                    )
+                                    .await;
+                                    let interval = get_send_interval(config_service.as_ref()).await;
+                                    tokio::time::sleep(std::time::Duration::from_secs(interval))
+                                        .await;
+                                    continue;
+                                }
+                            };
+
+                            // D-06 filter: deleted IS NULL AND status IN (Open, Contacted).
+                            // PaidOut and Declined explicitly excluded (semantically already paid out / refused).
+                            let relevant: Vec<_> = entries
+                                .iter()
+                                .filter(|e| {
+                                    e.deleted.is_none()
+                                        && e.member_id == member.id
+                                        && matches!(
+                                            e.status,
+                                            genossi_dao::repayment_entry::RepaymentEntryStatus::Open
+                                            | genossi_dao::repayment_entry::RepaymentEntryStatus::Contacted
+                                        )
+                                })
+                                .collect();
+
+                            // D-05: only merge if at least one relevant entry exists.
+                            if !relevant.is_empty() {
+                                let share_count: i32 =
+                                    relevant.iter().map(|e| e.share_count_to_pay_out).sum();
+                                let cents: i64 = (share_count as i64) * (phase.share_value);
+                                // German locale "X,YZ" (Plan 10.05-aligned formatting).
+                                let payout_amount = format!("{},{:02}", cents / 100, cents % 100);
+
+                                ctx = merge_repayment_context(
+                                    ctx,
+                                    &payout_amount,
+                                    share_count,
+                                    phase.fiscal_year,
+                                );
+                            }
+                        }
+
+                        // Release the read tx — best-effort, errors ignored as the tx
+                        // was read-only.
+                        let _ = transaction_dao.commit(agg_tx).await;
+                    }
+
                     let subject = match render_template(&job.subject, &ctx) {
                         Ok(s) => s,
                         Err(e) => {
@@ -287,6 +471,15 @@ pub async fn start_mail_worker<C, J, R, A, SA, D, M, IB>(
         let mut updated_recipient = next.clone();
         updated_recipient.version = uuid::Uuid::new_v4();
 
+        // Capture send-result summary for the post-send audited MemberDocument
+        // create (Phase 10 D-10). We move out of send_result in the match below,
+        // so we extract the boolean + error string here first.
+        let send_ok = send_result.is_ok();
+        let send_err_msg = match &send_result {
+            Ok(_) => String::new(),
+            Err(e) => format!("{:?}", e),
+        };
+
         match send_result {
             Ok(message_id) => {
                 updated_recipient.status = Arc::from("sent");
@@ -314,6 +507,24 @@ pub async fn start_mail_worker<C, J, R, A, SA, D, M, IB>(
             tracing::error!("Worker: failed to update recipient {}: {:?}", next.id, e);
         }
 
+        // Phase 10 D-10 / MAIL-04: persist MemberDocument as audited final-state anchor.
+        // Skips ad-hoc recipients (no member_id) per CONTEXT.md (Defense-in-Depth).
+        // Fail-tolerant: a failure here does NOT abort the worker — see
+        // try_create_member_document_audited for tracing + rollback semantics.
+        if let Some(member_id) = next.member_id {
+            try_create_member_document_audited(
+                member_document_dao.as_ref(),
+                audit_log_dao.as_ref(),
+                transaction_dao.as_ref(),
+                member_id,
+                &job,
+                next.id,
+                send_ok,
+                &send_err_msg,
+            )
+            .await;
+        }
+
         // Check job completion
         if job.sent_count + job.failed_count >= job.total_count {
             if job.failed_count >= job.total_count {
@@ -329,6 +540,105 @@ pub async fn start_mail_worker<C, J, R, A, SA, D, M, IB>(
         // Wait configured interval
         let interval = get_send_interval(config_service.as_ref()).await;
         tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
+    }
+}
+
+/// Phase 10 D-11: best-effort persist + audit a MemberDocument for the recipient.
+/// Inline audit-pattern: DAO.create + build_create_entries + AuditLogDao.create_entries.
+/// Fail-tolerant: any error is logged via tracing::error! and the function returns;
+/// the worker continues with the next recipient. tx is rolled back on error.
+///
+/// Inlined helpers from `crate::worker_audit` are used instead of the
+/// `audited_create!` macro in `genossi_service_impl` because that crate already
+/// depends on `genossi_mail` (cycle would otherwise form). Hash-chain semantics
+/// are byte-for-byte identical — see `worker_audit::compute_entry_hash`.
+#[allow(clippy::too_many_arguments)]
+async fn try_create_member_document_audited<MD, AL, TX>(
+    member_document_dao: &MD,
+    audit_log_dao: &AL,
+    transaction_dao: &TX,
+    member_id: uuid::Uuid,
+    job: &crate::dao::MailJob,
+    recipient_id: uuid::Uuid,
+    send_result_ok: bool,
+    error_message: &str,
+) where
+    MD: genossi_dao::member_document::MemberDocumentDao,
+    AL: genossi_dao::audit_log::AuditLogDao<Transaction = MD::Transaction>,
+    TX: genossi_dao::TransactionDao<Transaction = MD::Transaction>,
+{
+    let entity =
+        build_member_document_entity(job, member_id, recipient_id, send_result_ok, error_message);
+
+    let tx = match transaction_dao.transaction().await {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::error!(
+                "Worker: tx open failed for MemberDocument (recipient {}): {:?}",
+                recipient_id,
+                e
+            );
+            return;
+        }
+    };
+
+    // INLINE Step 1: DAO write
+    if let Err(e) = member_document_dao
+        .create(&entity, REPAYMENT_MAIL_PROCESS, tx.clone())
+        .await
+    {
+        tracing::error!(
+            "Worker: MemberDocumentDao.create failed (recipient {}): {:?}",
+            recipient_id,
+            e
+        );
+        let _ = genossi_dao::Transaction::rollback(tx).await;
+        return;
+    }
+
+    // INLINE Step 2: get current chain tail
+    let prev_hash = match audit_log_dao.get_latest_hash(tx.clone()).await {
+        Ok(opt) => opt.unwrap_or_default(),
+        Err(e) => {
+            tracing::error!(
+                "Worker: AuditLogDao.get_latest_hash failed (recipient {}): {:?}",
+                recipient_id,
+                e
+            );
+            let _ = genossi_dao::Transaction::rollback(tx).await;
+            return;
+        }
+    };
+
+    // INLINE Step 3: build entries via worker_audit (pure helper)
+    let entries = crate::worker_audit::build_create_entries(
+        &entity,
+        WORKER_USER_ID,
+        REPAYMENT_MAIL_PROCESS,
+        &prev_hash,
+        &mut uuid::Uuid::new_v4,
+    );
+
+    // INLINE Step 4: write audit-log rows in same tx
+    if !entries.is_empty() {
+        if let Err(e) = audit_log_dao.create_entries(&entries, tx.clone()).await {
+            tracing::error!(
+                "Worker: AuditLogDao.create_entries failed (recipient {}): {:?}",
+                recipient_id,
+                e
+            );
+            let _ = genossi_dao::Transaction::rollback(tx).await;
+            return;
+        }
+    }
+
+    // INLINE Step 5: commit
+    if let Err(e) = transaction_dao.commit(tx).await {
+        tracing::error!(
+            "Worker: tx commit failed for MemberDocument (recipient {}): {:?}",
+            recipient_id,
+            e
+        );
     }
 }
 
@@ -775,8 +1085,14 @@ mod tests {
             &*entity.document_type, "repayment_mail",
             "document_type must be 'repayment_mail' for Phase 10"
         );
-        assert!(entity.deleted.is_none(), "new entity must not be soft-deleted");
-        assert_eq!(&*entity.file_name, "", "no file on disk for repayment mails");
+        assert!(
+            entity.deleted.is_none(),
+            "new entity must not be soft-deleted"
+        );
+        assert_eq!(
+            &*entity.file_name, "",
+            "no file on disk for repayment mails"
+        );
         assert_eq!(
             &*entity.relative_path, "",
             "no path on disk for repayment mails"
@@ -791,7 +1107,7 @@ mod tests {
         let mid = uuid::Uuid::new_v4();
         let rid = uuid::Uuid::new_v4();
         // 300-char error (> ERROR_TRUNCATION_LIMIT=200)
-        let long_err: String = std::iter::repeat('x').take(300).collect();
+        let long_err: String = "x".repeat(300);
 
         let entity = build_member_document_entity(&job, mid, rid, false, &long_err);
 

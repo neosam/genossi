@@ -27,6 +27,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 /// Byte-for-byte identical to `genossi_service_impl::audit_log::compute_entry_hash`.
+#[allow(clippy::too_many_arguments)]
 pub fn compute_entry_hash(
     timestamp: &str,
     user_id: &str,
@@ -72,6 +73,7 @@ fn value_to_hash_str(v: &Option<Arc<str>>) -> String {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn build_audit_entries<E: Auditable>(
     action: &str,
     changes: &[AuditFieldChange],
