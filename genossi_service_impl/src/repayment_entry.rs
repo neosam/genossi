@@ -1932,6 +1932,98 @@ mod tests {
         assert_eq!(result.status, RepaymentEntryStatus::Contacted);
     }
 
+    /// Phase 08 BL-01 Negativtest — when the Re-Read after `audited_update!`
+    /// returns `None` (a structurally-impossible same-Tx inconsistency, e.g.
+    /// a future DAO regression that breaks the `deleted IS NULL` filter or a
+    /// Tx-Isolation break), the service MUST emit `ServiceError::InternalError`
+    /// (→ HTTP 500), NOT `ServiceError::EntityNotFound` (→ HTTP 404). A 404
+    /// would lie to the client: "the entity you tried to update doesn't exist"
+    /// — even though the audited_update! a moment earlier succeeded against
+    /// the same id in the same Tx.
+    #[tokio::test]
+    async fn test_update_repayment_entry_rereads_none_yields_internal_error() {
+        let entry_id = Uuid::new_v4();
+        let member_id = Uuid::new_v4();
+        let phase_id = Uuid::new_v4();
+        let version_a = Uuid::new_v4();
+
+        let pre_entity = RepaymentEntryEntity {
+            id: entry_id,
+            member_id,
+            phase_id,
+            share_count_to_pay_out: 2,
+            status: RepaymentEntryStatus::Open,
+            created: make_test_datetime(),
+            deleted: None,
+            version: version_a,
+        };
+
+        // Sequence of find_by_id calls in update_repayment_entry:
+        //   1. Pre-update load (Edit-Matrix + version-check) -> Some(pre)
+        //   2. audited_update! internal load (audit_macros.rs:47) -> Some(pre)
+        //   3. BL-01 Re-Read after audited_update! -> None (simulated DAO
+        //      regression — structurally impossible in real same-Tx, but we
+        //      must verify the service handles it as an INTERNAL error).
+        let mut entry_dao = MockTestRepaymentEntryDao::new();
+        let mut seq = mockall::Sequence::new();
+
+        let pre_for_call_1 = pre_entity.clone();
+        entry_dao
+            .expect_find_by_id()
+            .times(1)
+            .in_sequence(&mut seq)
+            .returning(move |_, _| Ok(Some(pre_for_call_1.clone())));
+
+        let pre_for_call_2 = pre_entity.clone();
+        entry_dao
+            .expect_find_by_id()
+            .times(1)
+            .in_sequence(&mut seq)
+            .returning(move |_, _| Ok(Some(pre_for_call_2.clone())));
+
+        entry_dao
+            .expect_update()
+            .times(1)
+            .in_sequence(&mut seq)
+            .returning(|_, _, _| Ok(()));
+
+        // The crucial expectation: Re-Read returns None.
+        entry_dao
+            .expect_find_by_id()
+            .times(1)
+            .in_sequence(&mut seq)
+            .returning(|_, _| Ok(None));
+
+        let phase_dao = MockTestRepaymentPhaseDao::new();
+        let member_dao = MockTestMemberDao::new();
+
+        let service = build_service_admin(entry_dao, phase_dao, member_dao);
+
+        let update = RepaymentEntryUpdate {
+            share_count_to_pay_out: None,
+            status: Some(RepaymentEntryStatus::Contacted),
+            version: version_a,
+        };
+        let err = service
+            .update_repayment_entry(entry_id, &update, Authentication::Full)
+            .await
+            .expect_err("Re-Read returning None must surface as an error, not as Ok");
+
+        match err {
+            ServiceError::InternalError(msg) => {
+                assert!(
+                    msg.contains("Re-Read") && msg.contains(&entry_id.to_string()),
+                    "InternalError message must mention 'Re-Read' and the entity id, \
+                     got: {msg}"
+                );
+            }
+            other => panic!(
+                "Re-Read None must map to ServiceError::InternalError (→ HTTP 500), \
+                 NOT to {other:?} (which would map to a wrong HTTP status). BL-01 regression."
+            ),
+        }
+    }
+
     /// Phase 08 Gap-Closure CR-01/WR-01 — verifies that `batch_toggle_status`
     /// re-reads each entry after `audited_update!` so the returned Vec carries
     /// the DAO-generated new versions per entry (not stale pre-update ones).

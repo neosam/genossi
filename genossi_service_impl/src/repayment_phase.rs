@@ -2275,6 +2275,96 @@ mod tests {
         );
     }
 
+    /// Phase 08 BL-01 Negativtest — when the Re-Read after `audited_update!`
+    /// in `update_repayment_phase` returns `None` (a structurally-impossible
+    /// same-Tx inconsistency, e.g. a future DAO regression), the service MUST
+    /// emit `ServiceError::InternalError` (→ HTTP 500), NOT
+    /// `ServiceError::EntityNotFound` (→ HTTP 404). A 404 would lie to the
+    /// client: "the phase you tried to update doesn't exist" — even though
+    /// the audited_update! a moment earlier succeeded against the same id in
+    /// the same Tx. Covers all 4 Phase lifecycle methods via the same code
+    /// pattern (create/update/open/close).
+    #[tokio::test]
+    async fn test_update_repayment_phase_rereads_none_yields_internal_error() {
+        let phase_id = Uuid::new_v4();
+        let version_a = Uuid::new_v4();
+
+        let date = time::Date::from_calendar_date(2026, time::Month::May, 29).unwrap();
+        let datetime = time::PrimitiveDateTime::new(date, time::Time::MIDNIGHT);
+        let pre = RepaymentPhaseEntity {
+            id: phase_id,
+            fiscal_year: 2026,
+            share_value: 12000,
+            status: RepaymentPhaseStatus::Preparation,
+            opened_at: None,
+            closed_at: None,
+            created: datetime,
+            deleted: None,
+            version: version_a,
+        };
+
+        // Sequence of find_by_id calls in update_repayment_phase:
+        //   1. Pre-update load (Edit-Matrix + version-check) -> Some(pre)
+        //   2. audited_update! internal load (audit_macros.rs:47) -> Some(pre)
+        //   3. BL-01 Re-Read after audited_update! -> None (simulated DAO
+        //      regression — structurally impossible in real same-Tx).
+        let mut phase_dao = MockTestRepaymentPhaseDao::new();
+        let mut seq = mockall::Sequence::new();
+
+        let pre_for_1 = pre.clone();
+        phase_dao
+            .expect_find_by_id()
+            .times(1)
+            .in_sequence(&mut seq)
+            .returning(move |_, _| Ok(Some(pre_for_1.clone())));
+
+        let pre_for_2 = pre.clone();
+        phase_dao
+            .expect_find_by_id()
+            .times(1)
+            .in_sequence(&mut seq)
+            .returning(move |_, _| Ok(Some(pre_for_2.clone())));
+
+        phase_dao
+            .expect_update()
+            .times(1)
+            .in_sequence(&mut seq)
+            .returning(|_, _, _| Ok(()));
+
+        // The crucial expectation: Re-Read returns None.
+        phase_dao
+            .expect_find_by_id()
+            .times(1)
+            .in_sequence(&mut seq)
+            .returning(|_, _| Ok(None));
+
+        let service = build_service(phase_dao);
+
+        let update = RepaymentPhaseUpdate {
+            fiscal_year: 2026,
+            share_value: 13000,
+            version: version_a,
+        };
+        let err = service
+            .update_repayment_phase(phase_id, &update, Authentication::Full)
+            .await
+            .expect_err("Re-Read returning None must surface as an error, not as Ok");
+
+        match err {
+            ServiceError::InternalError(msg) => {
+                assert!(
+                    msg.contains("Re-Read") && msg.contains(&phase_id.to_string()),
+                    "InternalError message must mention 'Re-Read' and the entity id, \
+                     got: {msg}"
+                );
+            }
+            other => panic!(
+                "Re-Read None must map to ServiceError::InternalError (→ HTTP 500), \
+                 NOT to {other:?} (which would map to a wrong HTTP status). BL-01 regression."
+            ),
+        }
+    }
+
     /// Phase 08 Gap-Closure CR-01 — verifies that `open_repayment_phase`
     /// re-reads the Phase entity after `audited_update!` (NACH der Auto-Fill-
     /// Loop, VOR commit) und returns the fresh version-UUID. Member-DAO
