@@ -84,7 +84,7 @@ Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachv
 - [ ] `RepaymentEntry`-Entität mit Status offen → angeschrieben → ausbezahlt; mehrere Einträge pro Mitglied+Phase
 - [ ] Auto-Befüllung der Phase aus Vorjahres-Austritten, manuelles Hinzufügen
 - [x] "ausbezahlt"-Toggle erzeugt automatisch `MemberAction::Verkauf` mit negativem `shares_change` (audited) — validated in Phase 9 (PAYO-01..04)
-- [ ] Massenmail-Anbindung mit Auszahlungs-Wert als Template-Variable
+- [x] Massenmail-Anbindung mit Auszahlungs-Wert als Template-Variable — validated in Phase 10 (MAIL-01..04)
 - [ ] PDF-Export der Auszahlungsliste (vor Phasen-Abschluss verfügbar) für Online-Banking
 - [ ] CSV-Export für Buchhaltung
 - [ ] Frontend: shared `RepaymentEntryList`-Component, Phase-Lifecycle-Page, Eintrag-Bearbeiten-Page
@@ -252,4 +252,4 @@ bestehende admin-only Listing-Route `GET /api/assembly/{id}/helper-tokens`).
 
 ---
 
-*Last updated: 2026-05-30 after Phase 7 (RepaymentPhase Backend Foundation) complete — DAO/Service/REST/E2E für `RepaymentPhase`, 5/5 Plans grün, 255/255 E2E. PHAS-01/04/05 vollständig, PHAS-02/03 Skeleton (full impl in Phase 8).*
+*Last updated: 2026-05-31 after Phase 10 (Massenmail-Anbindung + Template-Variablen) complete — Bulk-Mail-Endpoint POST /api/mail/send-bulk akzeptiert template_id + repayment_phase_id; Worker aggregiert payout_amount/share_count/fiscal_year per Empfänger; pro Mail auditierter MemberDocument-Eintrag (RepaymentMail) mit erhaltener Hash-Chain; SMTP-Fehler kein All-or-Nothing. 8/8 Plans, 1024/1024 Tests grün, 5 neue E2E-Tests. MAIL-01..04 validated.*
