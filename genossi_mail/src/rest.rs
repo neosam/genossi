@@ -338,13 +338,37 @@ pub async fn send_bulk_mail<S: MailRestState>(
                 )));
             }
 
-            // Validate templates against all recipient members
+            // Validate templates against all recipient members.
+            //
+            // Phase 10 Plan 08 (Rule 2 fix from Plan 10.04 gap): when the
+            // bulk-send request carries a repayment_phase_id, the body
+            // typically references `{{ payout_amount }}`, `{{ share_count }}`
+            // and `{{ fiscal_year }}` — variables the WORKER will inject from
+            // the RepaymentPhase + RepaymentEntries (Plan 10.06). The pure
+            // `validate_template` helper does not know about these vars and
+            // would reject the request under strict-env. Use the
+            // `validate_template_with_repayment` helper (Plan 10.05) when the
+            // phase-id is present so the probe-render uses a merged context
+            // and catches BOTH plain-member-var bugs AND repayment-var
+            // typos in the same call. D-14.
             let member_ids: Vec<uuid::Uuid> =
                 recipients.iter().filter_map(|r| r.member_id).collect();
             let members = state.resolve_members(&member_ids).await;
-            if let Err(errors) =
-                crate::template::validate_template(&body.subject, &body.body, &members)
+            let validation_result = if body
+                .repayment_phase_id
+                .as_deref()
+                .map(|s| !s.is_empty())
+                .unwrap_or(false)
             {
+                crate::template::validate_template_with_repayment(
+                    &body.subject,
+                    &body.body,
+                    &members,
+                )
+            } else {
+                crate::template::validate_template(&body.subject, &body.body, &members)
+            };
+            if let Err(errors) = validation_result {
                 return Err(MailServiceError::TemplateValidation(Arc::from(
                     errors.join("; "),
                 )));
