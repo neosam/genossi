@@ -380,7 +380,12 @@ impl<Deps: RepaymentEntryServiceDeps> RepaymentEntryService for RepaymentEntrySe
             .check_permission(ADMIN_PRIVILEGE, context)
             .await?;
 
-        // Helper: strukturierter 409-Body (D-08; analog CloseConflictResponse-Pattern)
+        // Helper: strukturierter 409-Body (D-08; analog CloseConflictResponse-Pattern).
+        // Nutzung NUR für echte Domain-Konflikte (z.B. source status ist nicht
+        // Open/Contacted). NotFound-Fälle (Entry existiert nicht / ist
+        // soft-deleted) werden seit CR-02-Fix (Phase 08 Gap-Closure Plan 09)
+        // direkt auf ServiceError::EntityNotFound gemappt (→ HTTP 404),
+        // aggregat-konsistent mit get/update/delete im selben Aggregat.
         let conflict_body = |idx: usize, entry_id: Uuid, reason: &str| -> ServiceError {
             let detail = serde_json::json!({
                 "failure_index": idx,
@@ -421,11 +426,19 @@ impl<Deps: RepaymentEntryServiceDeps> RepaymentEntryService for RepaymentEntrySe
         // vorherige Entries committet, aber Tx wurde nicht committed →
         // SQLite verwirft alles bei Drop).
         for (idx, entry_id) in input.entry_ids.iter().enumerate() {
+            // CR-02 Fix (Phase 08 Gap-Closure Plan 09): NotFound-Branch mappt
+            // auf ServiceError::EntityNotFound (→ HTTP 404), aggregat-konsistent
+            // mit get/update/delete im selben Aggregat. Der vorherige
+            // conflict_body("entry not found")-Mapping versteckte Stale-ID-
+            // Szenarien in einer 409-Antwort und machte es einem Frontend
+            // unmöglich, eine UI-Race-Condition (z.B. soft-delete im anderen
+            // Tab) von einem echten Domain-Konflikt zu unterscheiden.
+            // `idx` bleibt für den Source-Status-Check weiter unten in Nutzung.
             let mut entity = self
                 .repayment_entry_dao
                 .find_by_id(*entry_id, tx.clone())
                 .await?
-                .ok_or_else(|| conflict_body(idx, *entry_id, "entry not found"))?;
+                .ok_or(ServiceError::EntityNotFound(*entry_id))?;
 
             // Source-Status muss Open oder Contacted sein
             if !matches!(
