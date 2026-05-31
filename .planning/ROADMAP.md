@@ -137,12 +137,12 @@ Plans:
 3. Pro versendeter Mail wird ein `MemberDocument` (`document_type=repayment_mail`) mit `template_id`, `mail_recipient_id`, `status=sent|failed` erzeugt via inlined audit-helper im Worker; ein Bulk-Versand an N Empfänger erzeugt N MemberDocuments; Audit-Hashchain bleibt valide
 4. SMTP-Fehler bei einzelnem Empfänger → MemberDocument-Status `failed` (description enthält `[FAILED: ...]`-Suffix; max 200 Zeichen; KEINE PII), übrige Empfänger werden weiterhin verarbeitet (kein All-or-Nothing); E2E-Test mit MockSmtp/Stub-SMTP
 
-**Plans:** 1/8 plans executed
+**Plans:** 2/8 plans executed
 
 Plans:
 **Wave 1** *(schema/foundation; parallel)*
 - [x] 10.01-mail-job-schema-erweiterung-PLAN.md — Migration + MailJob DAO-Struct + SQLite-Impl (template_id, repayment_phase_id)
-- [ ] 10.02-member-document-schema-und-document-type-PLAN.md — Migration + MemberDocumentEntity Auditable-Erweiterung (FROZEN-Order) + SQLite-Impl + DocumentType::RepaymentMail
+- [x] 10.02-member-document-schema-und-document-type-PLAN.md — Migration + MemberDocumentEntity Auditable-Erweiterung (FROZEN-Order) + SQLite-Impl + DocumentType::RepaymentMail
 
 **Wave 2** *(blocked on Wave 1)*
 - [ ] 10.03-mail-service-create-job-signature-PLAN.md — MailService::create_job + Impl + alle Call-Sites in genossi_mail (Trait Breaking-Change)
@@ -198,7 +198,7 @@ Plans:
 | 7. RepaymentPhase Backend (Foundation)                          | v1.1      | 4/5 | In Progress|  |
 | 8. RepaymentEntry + Auto-Befüllung                              | v1.1      | 10/10 | Complete   | 2026-05-31 |
 | 9. Auszahlungs-Buchung (atomisch + auditiert)                   | v1.1      | 4/5 | In Progress|  |
-| 10. Massenmail-Anbindung + Template-Variablen                   | v1.1      | 1/8 | In Progress|  |
+| 10. Massenmail-Anbindung + Template-Variablen                   | v1.1      | 2/8 | In Progress|  |
 | 11. Export (PDF + CSV)                                          | v1.1      | 0/?            | Pending                 | —          |
 | 12. Frontend (Component-First)                                  | v1.1      | 0/?            | Pending                 | —          |
 

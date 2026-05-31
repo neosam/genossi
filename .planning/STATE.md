@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Anteile-Rückzahlungsphase
 status: executing
-stopped_at: Completed 10-01-mail-job-schema-erweiterung
-last_updated: "2026-05-31T16:18:36.292Z"
-last_activity: 2026-05-31 -- Completed Plan 10-01 mail-job-schema-erweiterung
+stopped_at: Completed 10-02-member-document-schema-und-document-type
+last_updated: "2026-05-31T16:38:02.407Z"
+last_activity: 2026-05-31
 progress:
   total_phases: 6
   completed_phases: 3
   total_plans: 28
-  completed_plans: 21
-  percent: 75
+  completed_plans: 22
+  percent: 79
 ---
 
 # State: Genossi — v1.1 Anteile-Rückzahlungsphase
@@ -30,7 +30,7 @@ progress:
 ## Current Position
 
 Phase: 10 (massenmail-anbindung-template-variablen) — EXECUTING
-Plan: 2 of 8
+Plan: 3 of 8
 Status: Ready to execute
 Last activity: 2026-05-31
 
@@ -95,6 +95,7 @@ Overall: 0% complete
 | Phase 09 P03 | 3min | 1 tasks | 1 files |
 | Phase 09 P04 | 22min | 1 tasks | 1 files |
 | Phase 10 P01 | 10min | 2 tasks | 6 files |
+| Phase Phase 10 PP02 | 11min | 2 tasks tasks | 5 files files |
 
 ## Accumulated Context
 
@@ -164,6 +165,8 @@ Overall: 0% complete
 | Plan 09-04: Setup-Reihenfolge bei Auto-Fill-Phases: Member ZUERST anlegen, Phase DANN oeffnen — Auto-Fill (PHAS-02 / ENTR-01) laeuft beim Open der Phase und braucht den Member im fiscal_year, sonst entstehen 0 Entries. Inline-Kommentar in jedem Test dokumentiert die Reihenfolge-Notwendigkeit. Pattern-Anker fuer alle kuenftigen Auto-Fill-Tests. | Phase 9, Plan 04 |
 | Plan 09-04: Insufficient-Shares-Setup-Workaround in PAYO-03-E2E-Test: Member-PUT auf `current_shares=2` statt Manual-Verkauf-Action — POST `/api/members/{id}/actions` modifiziert `current_shares` NICHT automatisch (verifiziert: `genossi_service_impl/src/member_action.rs` hat nur `recalc_dates` und `recalc_migrated`, kein `recalc_shares`). Member-PUT schreibt `current_shares` 1:1 ohne Validation. Pattern fuer kuenftige Tests die Member-Field-State direkt manipulieren muessen. | Phase 9, Plan 04 |
 | Plan 10-01: MailJob bekommt zwei neue Option<Uuid>-Felder (`template_id` D-12, `repayment_phase_id` D-03) als BLOB-NULL-Spalten via forward-only ALTER-TABLE-Migration. `update()` lässt beide Felder unberührt (immutable post-create, gleiche Semantik wie subject/body/created). MailJob bleibt **NICHT** Auditable (operational, nicht domain) — neue Spalten werden aus bereits-auditierten Entitäten (MailTemplate, RepaymentPhase) referenziert. FK-Klauseln dokumentarisch (Projekt setzt `PRAGMA foreign_keys=ON` nicht). Downstream-Konstruktoren in service.rs/worker.rs/inbox.rs defaulten beide Felder auf `None` als Zwischen-Stand — Plan 10.03 wired die echten Werte über die `create_job`-Signatur ein. | Phase 10, Plan 01 |
+| Plan 10-02: MemberDocumentEntity bekommt 3 neue Option-Felder (`template_id` D-07, `mail_recipient_id` D-07, `status` D-07/D-09) als BLOB/TEXT-NULL-Spalten via forward-only ALTER-TABLE-Migration. `Auditable::audit_fields()` waechst von 6 auf 9 Eintraege mit explizitem FROZEN-Order-Kommentar (Phase-7-Lektion): bestehende Indizes 0-5 unveraendert, neue Felder bei Indizes 6-8. Bestehende MemberDocuments (JoinDeclaration etc.) bleiben backward-kompatibel mit NULL-Werten in den 3 neuen Spalten und liefern `None` an den entsprechenden audit_fields-Indizes — historische Audit-Eintraege bleiben hashchain-valid. Service-DTO `MemberDocument` mirrored die 3 Felder, beide From-Impls erweitert damit Entity<->DTO-Roundtrip lossless ist. `parse_optional_uuid` lokal in genossi_dao_impl_sqlite/src/member_document.rs dupliziert (statt aus genossi_mail::dao_sqlite re-exportiert) zur crate-Boundary-Sauberkeit. | Phase 10, Plan 02 |
+| Plan 10-02: DocumentType::RepaymentMail-Variante (D-09) ist nicht-Singleton (`is_singleton() == false`, multiple Mails pro Member erlaubt) und hat KEIN Typst-Template (`template_path() == None`, weil der Mail-Body selbst das Artefakt ist). Per-Variante-explizit gematchtes `template_path()` statt Wildcard `_ => None` — verhindert dass kuenftige Enum-Erweiterungen versehentlich an einer Stelle vergessen werden. `as_str() == "repayment_mail"` und `from_str("repayment_mail")` Round-Trip ist Test-gesichert (T-10-02-04 Mitigation). | Phase 10, Plan 02 |
 | One-Time-Use-QR pro Helfer | Verhindert Token-Weitergabe an Unbefugte | Phase 2 |
 | Helfer-Memo-Name = Freitext, kein Identitäts-Anker | Reine UX-Hilfe für Vorstand beim Drucken | Phase 2 |
 | GV-Status final nach Schluss; Vorstand-Korrekturen ohne Re-Open | Vermeidet Status-Pingpong, hält Audit-Story einfach | Phase 1 |
@@ -205,6 +208,20 @@ Details siehe `.planning/v1.0-MILESTONE-AUDIT.md` und `.planning/MILESTONES.md`.
 - **ISO8601-Datetime**: `genossi_rest_types::iso8601_datetime` serde-Modul für alle TO-Datetime-Felder
 
 ## Session Continuity
+
+**Last action (2026-05-31, Phase 10 Plan 02 — Wave 1, member_document Schema-Erweiterung + DocumentType::RepaymentMail):** Plan `10.02-member-document-schema-und-document-type-PLAN.md` ausgeführt — Migration + Auditable-Erweiterung für `member_document.template_id` + `member_document.mail_recipient_id` + `member_document.status` + neue `DocumentType::RepaymentMail`-Variante. Task 1: neue Migration `migrations/sqlite/20260601000100_extend_member_document_mail.sql` mit 3 ALTER-TABLE-ADD-COLUMN-Statements und ADR-Header (D-07 3 neue Spalten, D-08 FROZEN-Order, D-09 RepaymentMail-Variante, FK-as-documentation, forward-only, status-String-Enum-Convention). Task 2 als TDD: RED-Commit `2a3008a` fügt 8 failing Tests hinzu (2 audit_fields FROZEN-Order in `genossi_dao/src/member_document.rs`, 4 DocumentType-Tests in `genossi_service/src/member_document.rs`, 2 SQLite-Roundtrip-Tests in `genossi_dao_impl_sqlite/src/member_document.rs`) — Compile-Fail bestätigt (E0560 genossi_dao 6 Fehler, E0599 genossi_service 4 Fehler, E0609 sqlite 9 Fehler); GREEN-Commit `1b87886` erweitert `MemberDocumentEntity` mit 3 `Option`-Feldern, `Auditable::audit_fields()` von 6 auf 9 Einträge mit explizitem FROZEN-Order-Kommentar, `MemberDocumentDb` um 3 `Option<Vec<u8>>`/`Option<String>`-Felder, lokalen `parse_optional_uuid`-Helper in genossi_dao_impl_sqlite (Duplikat aus genossi_mail::dao_sqlite, vermeidet crate-Boundary-Refactor), INSERT (9 → 12 placeholders), UPDATE (5 → 8 SET clauses inkl. der 3 neuen Felder als Defense-in-Depth für künftige Retry-Flows), SELECT in `dump_all` erweitert, `DocumentType::RepaymentMail` als 5. Variante mit expliziten Match-Armen in allen 4 Methoden (`as_str`, `from_str`, `is_singleton == false`, `template_path == None`), `MemberDocument`-Service-Struct mirrored die 3 Felder damit From<&Entity>-Roundtrip lossless, beide From-Impls erweitert, `upload()` in genossi_service_impl konstruiert MemberDocument mit None/None/None für reguläre Vorstand-Uploads (Worker in Plan 10.06 schreibt die echten Werte über `audited_create!`). Test-Pyramide: 6/6 genossi_dao::member_document-Tests grün (4 baseline + 2 neu), 8/8 genossi_service::member_document-Tests grün (4 baseline + 4 neu), 2/2 genossi_dao_impl_sqlite::member_document-Tests grün (0 baseline, alle neu), workspace 726/726 lib-Tests grün, 279/279 E2E-Tests grün; kein Regress. rustfmt + clippy clean auf den 4 touchierten Files (Nix-Toolchain via /nix/store-Suche aktiviert). Keine Deviations — Plan 1:1 ausgeführt. Im Kontext der Migration die im Plan 10.01 etablierte Reformulierung "SQLite < 3.35 cannot remove columns" (statt "has no DROP COLUMN") direkt im ersten Migration-Commit verwendet, um den `grep "DROP COLUMN" → 0`-Acceptance-Konflikt zu vermeiden — nicht als Deviation gewertet, weil keine Code-Änderung nötig war. MAIL-03 + MAIL-04 als requirements-mark-complete eingetragen (entsprechend Plan-Frontmatter, finale Worker-Validation läuft in Plan 10.06 noch). Nächster Schritt: Plan 10.03 (mail-service-create-job-signature) oder 10.05 (template-repayment-context-helper) — beide haben in Wave 2 ihre Vorbedingungen aus 10.01+10.02 erfüllt.
+
+**Files written this session (Plan 10-02):**
+
+- `migrations/sqlite/20260601000100_extend_member_document_mail.sql` (NEW — 22 LOC, 3 ALTER TABLE ADD COLUMN-Statements + ADR-Header)
+- `genossi_dao/src/member_document.rs` (MOD — +115 LOC -3 LOC: 3 neue Entity-Felder, audit_fields() 6→9 mit FROZEN-Kommentar, 2 neue Tests, fixture make_document() + test_auditable_fields_count angepasst)
+- `genossi_dao_impl_sqlite/src/member_document.rs` (MOD — +155 LOC -2 LOC: MemberDocumentDb +3 Felder, parse_optional_uuid Helper, TryFrom-Update, INSERT 9→12, UPDATE 5→8 SET clauses, SELECT erweitert, 2 neue Roundtrip-Tests + lokales setup_db() DDL aktualisiert)
+- `genossi_service/src/member_document.rs` (MOD — +38 LOC -4 LOC: DocumentType::RepaymentMail Variante in 4 Methoden, MemberDocument struct 3 Felder, 2 From-Impls erweitert, 4 neue Tests)
+- `genossi_service_impl/src/member_document.rs` (MOD — +6 LOC: upload() konstruiert MemberDocument mit None/None/None für die 3 neuen Felder + Inline-Kommentar)
+- `.planning/phases/10-massenmail-anbindung-template-variablen/10-02-SUMMARY.md` (NEW)
+- `.planning/STATE.md` (MOD — diese Aktualisierung; Plan auf 3 of 8 fortgeschritten via advance-plan; Performance-Metric Phase 10 P02 eingetragen; 2 Key-Decisions hinzugefügt)
+- `.planning/ROADMAP.md` (MOD — Plan 10.02 checkbox `[ ]` → `[x]`; Phase 10 Plan-Progress via roadmap.update-plan-progress)
+- `.planning/REQUIREMENTS.md` (MOD — MAIL-03 + MAIL-04 als initial-complete via requirements.mark-complete markiert; finale Worker-Validation läuft in 10.06)
 
 **Last action (2026-05-31, Phase 10 Plan 01 — Wave 1, mail-job Schema-Erweiterung):** Plan `10.01-mail-job-schema-erweiterung-PLAN.md` ausgeführt — Migration + DAO-Erweiterung für `mail_jobs.template_id` + `mail_jobs.repayment_phase_id` (beide BLOB NULL). Task 1: neue Migration `migrations/sqlite/20260601000000_extend_mail_job_template_phase.sql` mit zwei ALTER-TABLE-ADD-COLUMN-Statements und ADR-Header (D-12 Template-Tracking, D-03 Job-weite Repayment-Context, FK-as-documentation, forward-only). Task 2 als TDD: RED-Commit `651a63f` fügt zwei Roundtrip-Tests (`test_mail_job_roundtrip_with_template_and_phase_ids` Some/Some, `test_mail_job_roundtrip_with_null_template_and_phase_ids` None/None) als compile-fail (6 × E0609) hinzu; GREEN-Commit `645e6b9` erweitert `MailJob`-Struct um die zwei neuen `Option<Uuid>`-Felder, `MailJobDb` um zwei `Option<Vec<u8>>`-Felder, `TryFrom<&MailJobDb>` um `parse_optional_uuid`-Aufrufe, INSERT (11 → 13 placeholders), beide SELECT-Statements (find_by_id, all), das `setup_db()`-CREATE-TABLE-Schema und die `sample_job()`-Test-Fixture. Vier downstream MailJob-Konstruktoren (`service.rs` × 4 inkl. `MailServiceImpl::create_job`-Production-Code, `worker.rs` × 1 sample_job, `inbox.rs` × 1 reply-flow) defaulten beide neuen Felder auf `None` als Zwischen-Stand — Plan 10.03 wird die echten Werte über die erweiterte `create_job`-Signatur einbringen. `update()` bleibt unverändert (Felder sind post-create immutable, gleiche Semantik wie subject/body). 114/114 genossi_mail-lib-Tests grün (112 baseline + 2 neu); workspace-Build clean; clippy + fmt clean (Nix-Toolchain via /nix/store-Suche aktiviert). Eine Deviation Rule-1 (Bug): das Acceptance-Kriterium `grep -c "DROP COLUMN" → 0` kollidierte mit dem ADR-Header-Kommentar "SQLite < 3.35 has no DROP COLUMN"; Reformulierung auf "cannot remove columns" mit identischer Semantik, vor dem Initial-Commit angewendet. Keine weiteren Deviations. MAIL-01 + MAIL-02 als requirements-mark-complete eingetragen (entsprechend Plan-Frontmatter, finale Endpoint+Worker-Validation läuft in Plan 10.03/10.04/10.06 noch). Nächster Schritt: Plan 10.02 (member_document Schema + DocumentType::RepaymentMail) — kann parallel zu 10.01 in Wave 1 laufen.
 
@@ -295,7 +312,7 @@ Details siehe `.planning/v1.0-MILESTONE-AUDIT.md` und `.planning/MILESTONES.md`.
 
 **Last action (2026-05-29, Phase 07 Plan 02):** Plan `07-02-PLAN.md` ausgeführt — `RepaymentPhaseDaoImpl` (SQLite-Impl des Plan-01-Traits) angelegt mit `RepaymentPhaseDb`-Row, `TryFrom` mit guarded i32-Cast (T-07-02-05), `dump_all`/`create`/`update` inkl. Pre-Exists-Check + Optimistic-Locking via `rows_affected == 0 → ConflictError("Version mismatch")`. ORDER BY ist `fiscal_year DESC, created DESC` (Phase-7-spezifisch). `parse_datetime` via `use crate::assembly::parse_datetime` reused (kein Duplikat). 4 grüne Tokio-Integrationstests gegen in-memory SQLite. Modul-Decl in `genossi_dao_impl_sqlite/src/lib.rs` alphabetisch eingefügt. Commit `6f6bf0f` (feat: 367 LOC added).
 
-**Stopped At:** Phase 10 context gathered
+**Stopped At:** Completed 10-02-member-document-schema-und-document-type
 **Resume File:** None
 
 **Last action (2026-05-17, Phase 06 Discuss):** `/gsd-discuss-phase 6` durchgeführt — `06-CONTEXT.md` + `06-DISCUSSION-LOG.md` erstellt und committed (`30a3c2b`). 20 Implementierungsentscheidungen (D-01..D-20) erfasst: drei Export-Formate parallel (PDF via Typst, CSV semikolon/UTF-8-BOM, XLSX via rust_xlsxwriter), `?include=all|present`-Query, Status-Closed-only, Vorstand-only via OIDC, Snapshot-Daten aus `assembly_member_snapshot`, Sortierung `member_number ASC`, Endpoint `GET /api/assembly/{aid}/attendance-export/{format}`, Filename `gv-{YYYY-MM-DD}-teilnehmer.{ext}`, kein Audit-Hashchain-Eintrag. PDF-Layout minimal (Kopf mit GV-Titel + Datum + „X von Y anwesend", dann Tabelle). 6 Deferred Ideas (Sammelexport, E-Mail-Versand, Unterschriftenspalte, Logo, Multi-Sheet, Export-Audit). Nächster Schritt: `/gsd-plan-phase 6`.
