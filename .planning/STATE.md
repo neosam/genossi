@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Anteile-Rückzahlungsphase
 status: executing
-stopped_at: Completed 08-09-PLAN.md (gap-closure CR-02 batch_toggle 404 vs 409 semantics fix)
-last_updated: "2026-05-31T06:53:31.360Z"
+stopped_at: Completed 08-10-PLAN.md (gap-closure Wave 3, IN-04 E2E-regression test coverage)
+last_updated: "2026-05-31T07:47:30.710Z"
 last_activity: 2026-05-31
 progress:
   total_phases: 6
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 15
-  completed_plans: 14
-  percent: 93
+  completed_plans: 15
+  percent: 100
 ---
 
 # State: Genossi — v1.1 Anteile-Rückzahlungsphase
@@ -29,9 +29,9 @@ progress:
 
 ## Current Position
 
-Phase: 08 (repaymententry-auto-bef-llung) — EXECUTING
-Plan: 4 of 10
-Status: Ready to execute
+Phase: 08 (repaymententry-auto-bef-llung) — EXECUTING (Gap-Closure complete; ready for phase verification)
+Plan: 10 of 10 (08-07, 08-08, 08-09, 08-10 gap-closure done)
+Status: Ready for `/gsd-verify-phase 08`
 Last activity: 2026-05-31
 
 ## Closure Snapshot (v1.0, 2026-05-29)
@@ -89,6 +89,7 @@ Overall: 0% complete
 | Phase 08 P07 | 9min | 1 tasks | 1 files |
 | Phase 08 P08 | 7min | 1 tasks | 1 files |
 | Phase 08 P09 | 8min | 2 tasks | 3 files |
+| Phase 08 P10 | 5min | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -150,6 +151,9 @@ Overall: 0% complete
 | Plan 08-06: E2E-Helper `create_member_with_exit_date` braucht 3-Schritt-Setup (POST Member → POST Austritt-MemberAction → GET Member) — `MemberTO.exit_date` allein wird beim Member-Create durch `recalc_dates()` (member.rs:288) ueberschrieben; `compute_dates()` (member_action.rs:160-169) ist Single Source of Truth fuer `exit_date` und ermittelt es ausschliesslich aus `MemberAction::Austritt`/`Todesfall`-Actions. Vorlage fuer Phase 9 (PAYO mark-paid-out-Tests) und alle kuenftigen E2E-Tests mit echtem `exit_date`. | Phase 8, Plan 06 |
 | Plan 08-06: `test_manual_add_entry_happy_path` nutzt `share_count_to_pay_out=1` statt =2 — Member-Service setzt beim Create `current_shares = shares_at_joining` (member.rs:213-218); sample_member() hat `shares_at_joining=1`, der vom Test gesendete `current_shares=3` im MemberTO wird ignoriert. Persistiert wird `current_shares=1`, also blockt D-11.3 jeden Versuch mit `share_count_to_pay_out > 1`. Doc-Comment im Test erklaert die Service-Konvention. | Phase 8, Plan 06 |
 | Plan 08-09: CR-02 Variante a (preferred per REVIEW.md) — `batch_toggle_status` NotFound-Branch mappt missing/soft-deleted entry_id direkt auf `ServiceError::EntityNotFound(*entry_id)` (→ HTTP 404 via globales From<ServiceError>-Mapping in genossi_rest/src/lib.rs:97-113), aggregat-konsistent mit get/update/delete im selben Aggregat. Source-Status-Check bleibt `conflict_body` (= 409), weil das ein echter Domain-Konflikt ist; `idx` und `enumerate()` bleiben im Loop. OpenAPI für POST /batch-status listet 404 explizit auf (utoipa erlaubt 404-Response ohne body-Schema; Body ist Framework-Standard NotFound). Doc-Comment-driven Schema-Scope-Documentation auf BatchFailureResponse + conflict_body-Helper-Closure dokumentiert 404-vs-409-Trennung dauerhaft (Defense-in-Depth gegen Rückfall in altes Mapping). Pattern-Vorlage für künftige strukturierte 409-Body-Endpunkte: TO-Schema-Doc dokumentiert explizit welche Status-Codes NICHT abgedeckt sind. | Phase 8, Plan 09 |
+| Plan 08-10: 5 E2E-Regression-Tests werden als ein einzelner `test`-Commit additiv hinzugefügt (NICHT TDD-RED→GREEN-Sequenz separat) — Fix war bereits in 08-07/08/09 deployed; Tests zementieren das gefixte Verhalten und sind im Commit klar als Regression-Tests gelabelt. Vorlage für künftige "Lock-In"-Plans, die ein bereits gefixtes Verhalten dauerhaft absichern, ohne einen neuen RED-Schritt zu provozieren. | Phase 8, Plan 10 |
+| Plan 08-10: CR-01-Regression-Assertion-Pattern — explizites `assert_ne!(version_after_put, create_version)` verifiziert dass der DAO tatsächlich eine NEUE UUID generiert hat (NICHT nur, dass die Service-Schicht die alte zurückliefert). Pattern-Vorlage für künftige E2E-Tests die Optimistic-Locking-Re-Read-Pattern absichern: "1. Operation → version extrahieren → assert version differs from input → 2. Operation mit dieser version → asserted Success". | Phase 8, Plan 10 |
+| Plan 08-10: Mixed-Validity-Batch-Pattern (CR-02 Test 5) — `entry_ids=[real, fake]` statt nur `[fake]` verifiziert dass die NotFound-Erkennung im Loop-Body greift (nicht nur als initialer Validation-Pass). Robust gegen künftige Refactorings, die einen Pre-Validation-Pfad einfügen. Phase-Update-Bodies in Test 3+4 via `serde_json::json!` (konsistent mit Phase-7-Lifecycle-Test Z. 10645-10649), nicht via UpdateRepaymentPhaseRequest-Import. | Phase 8, Plan 10 |
 | One-Time-Use-QR pro Helfer | Verhindert Token-Weitergabe an Unbefugte | Phase 2 |
 | Helfer-Memo-Name = Freitext, kein Identitäts-Anker | Reine UX-Hilfe für Vorstand beim Drucken | Phase 2 |
 | GV-Status final nach Schluss; Vorstand-Korrekturen ohne Re-Open | Vermeidet Status-Pingpong, hält Audit-Story einfach | Phase 1 |
@@ -191,6 +195,16 @@ Details siehe `.planning/v1.0-MILESTONE-AUDIT.md` und `.planning/MILESTONES.md`.
 - **ISO8601-Datetime**: `genossi_rest_types::iso8601_datetime` serde-Modul für alle TO-Datetime-Felder
 
 ## Session Continuity
+
+**Last action (2026-05-31, Phase 08 Plan 10 — gap-closure Wave 3, IN-04 E2E-coverage):** Plan `08-10-PLAN.md` ausgeführt — 5 E2E-Regression-Tests am Datei-Ende von `genossi_bin/tests/e2e_tests.rs` (+281 LOC) zementieren die 08-07/08/09-Fixes gegen zukünftige Rückfälle. Tests: (1) `test_update_entry_followup_put_uses_response_version_returns_200` (CR-01 RepaymentEntry — 1. PUT extrahiert version, 2. PUT mit dieser version → 200; asserted Status zurück auf Open), (2) `test_batch_toggle_followup_put_uses_response_versions` (CR-01/WR-01 batch_toggle — extrahiert updated[0].version, Einzel-PUT mit dieser version → 200), (3) `test_open_phase_response_version_usable_for_followup_update` (CR-01 RepaymentPhase::open + D-04 — extrahiert opened.version, PUT update_phase mit share_value-Korrektur → 200), (4) `test_update_phase_response_version_usable_for_followup_update` (CR-01 RepaymentPhase::update — 1. PUT extrahiert version, 2. PUT mit dieser version → 200), (5) `test_batch_toggle_with_unknown_entry_id_returns_404` (CR-02 — entry_ids=[real, fake] → 404 NICHT 409). Jede CR-01-Assertion macht explizit `assert_ne!(version_after_put, create_version)` um zu verifizieren dass der DAO tatsächlich eine NEUE UUID generiert hat. CR-02-Test nutzt Mixed-Validity-Pattern (real+fake im Array) um sicherzustellen dass NotFound-Erkennung im Loop-Body greift, nicht nur als initialer Validation-Pass. Phase-Update-Bodies in Test 3+4 via `serde_json::json!` (konsistent mit Phase-7-Lifecycle-Test Z. 10645-10649). 275/275 E2E-Tests grün (270 baseline = 255 Phase-7 + 15 Phase-8-P06 + 5 neu); kein Regress. 5 neue Tests einzeln verifiziert per name-filter (jeder zeigt "274 filtered out + 1 passed"). Keine Deviations — Plan 1:1 ausgeführt. Kein TDD-RED-Schritt: Fixes waren bereits in 08-07/08/09 deployed; ein separater RED würde künstlich den Branch instabilisieren ohne neuen Erkenntnisgewinn. Stattdessen ein einzelner `test`-Commit additiv (`0262b63`) mit klar als Regression-Test gelabeltem Commit-Body. Acceptance-Criteria komplett erfüllt: alle 5 Test-Namen je 1x, StatusCode::NOT_FOUND 22 (>=2), CR-01-Regression-Assertions 3 (>=3), build clean, full test-run grün. **Phase 8 Gap-Closure ist nach 08-07 (CR-01 RepaymentEntry), 08-08 (CR-01 RepaymentPhase), 08-09 (CR-02 batch_toggle) und 08-10 (E2E-Regression-Lock-In) vollständig abgeschlossen.** Alle 3 BLOCKER-Bugs aus dem Code-Review sind im Production-Code gefixt + im Service-Layer mit Unit-Tests abgesichert + im REST-Layer mit E2E-Tests abgesichert + in OpenAPI dokumentiert. Nächster Schritt: `/gsd-verify-phase 08` zur Final-Verifikation mit allen 4 Gap-Closures, oder direkt Phase 9 (PayoutCascade) starten.
+
+**Files written this session (Plan 08-10):**
+
+- `genossi_bin/tests/e2e_tests.rs` (MOD +281 LOC: 5 neue E2E-Regression-Tests am Datei-Ende, jeweils mit Inline-Doc-Kommentaren die CR-01/CR-02-Referenz und Pre-Fix-Verhalten erklären)
+- `.planning/phases/08-repaymententry-auto-bef-llung/08-10-SUMMARY.md` (NEW)
+- `.planning/STATE.md` (MOD — diese Aktualisierung; Plan auf 5 of 10 → 10 of 10 fortgeschritten via advance-plan; Performance-Metric Phase 08 P10 eingetragen; 3 Key-Decisions hinzugefügt)
+- `.planning/ROADMAP.md` (MOD — Phase 8 Plan-Progress via roadmap.update-plan-progress: 10 plans / 10 summaries / Complete)
+- `.planning/REQUIREMENTS.md` (UNVERÄNDERT — ENTR-02/ENTR-06/PHAS-02/PHAS-03 bereits in 08-05/08-06/08-09 als REST/E2E-complete markiert)
 
 **Last action (2026-05-31, Phase 08 Plan 09 — gap-closure Wave 2, CR-02):** Plan `08-09-PLAN.md` ausgeführt — CR-02-Bugfix in `RepaymentEntryServiceImpl::batch_toggle_status`. Die NotFound-Branch im Loop-Body mappt jetzt missing/soft-deleted `entry_id` auf `ServiceError::EntityNotFound(*entry_id)` (→ HTTP 404 via globales `From<ServiceError> for RestError`), aggregat-konsistent mit `get/update/delete` im selben Aggregat. Vorher mappte sie auf `conflict_body(idx, *entry_id, "entry not found")` (→ HTTP 409 mit JSON-Body), was Stale-ID-Szenarien hinter dem gleichen Status-Code versteckte wie echte Domain-Konflikte. Source-Status-Check bleibt `conflict_body` (= 409), weil das ein echter Domain-Konflikt ist; `idx` und `enumerate()` bleiben im Loop für den Source-Status-Check. Doc-Comment auf `conflict_body`-Helper-Closure erweitert mit CR-02-Scope-Erklärung. OpenAPI-Annotation für `POST /api/repayment-entry/batch-status` (genossi_rest/src/repayment_entry.rs) listet jetzt explizit `(status = 404, ...)` auf — Description erwähnt D-08 Tx-Rollback, Aggregat-Konsistenz mit get/update/delete, und Klarstellung dass Response-Body Standard-NotFound-Payload ist (NICHT BatchFailureResponse). 409-Description verschärft mit Cross-Reference zur 404. BatchFailureResponse-Struct-Doc-Comment in genossi_rest_types/src/lib.rs expanded mit Scope-Trennung 409 vs 404, verweist auf Phase 08 Gap-Closure Plan 09 / CR-02. 1 neuer Unit-Test `test_batch_toggle_status_unknown_entry_id_returns_entity_not_found` verifiziert das neue Verhalten dauerhaft — und assert explizit, dass das alte Conflict-mit-"entry not found"-Verhalten NICHT mehr auftritt. 22/22 RepaymentEntry-Tests grün (21 alt + 1 neu); 268/268 service_impl-lib-Tests grün; 3/3 genossi_rest::repayment_entry; 7/7 genossi_rest_types::repayment_entry_to_tests; workspace-Build clean. 3 Commits: `9d52ebd` (test: RED-failing test), `f029b6a` (fix: NotFound-Mapping + conflict_body-Doc), `e0628aa` (docs: OpenAPI 404 + BatchFailureResponse-Doc). Keine Deviations. ENTR-06 als REST-complete markiert. Phase 8 Gap-Closure ist nach 08-07 (CR-01 RepaymentEntry), 08-08 (CR-01 RepaymentPhase) und 08-09 (CR-02 batch_toggle) vollständig abgearbeitet. Nächster Schritt: `/gsd-verify-phase 08` mit allen Gap-Closures.
 

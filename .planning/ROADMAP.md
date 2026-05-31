@@ -69,7 +69,7 @@ Plans:
 4. Status-Toggle `offen ↔ angeschrieben` ist multi-select-fähig (Batch-Endpoint); Audit-Eintrag pro Toggle
 5. `close_phase` (PHAS-03) blockt mit 409 Conflict wenn mindestens ein Eintrag nicht `ausbezahlt` ODER `deleted IS NULL` ist — E2E-Test deckt Negative-Path
 
-**Plans:** 7/10 plans executed
+**Plans:** 10/10 plans complete
 
 Plans:
 **Wave 1**
@@ -92,7 +92,7 @@ Plans:
 - [x] 08-07-PLAN.md — Gap CR-01: Re-Read-Pattern in `RepaymentEntryServiceImpl::update_repayment_entry` + `batch_toggle_status` (Wave 1, parallel zu 08-08)
 - [x] 08-08-PLAN.md — Gap CR-01: Re-Read-Pattern in `RepaymentPhaseServiceImpl::create_repayment_phase` + `update_repayment_phase` + `open_repayment_phase` + `close_repayment_phase` (Wave 1, parallel zu 08-07; Phase-7-Erbe)
 - [x] 08-09-PLAN.md — Gap CR-02: `batch_toggle_status` NotFound → 404 statt 409 + OpenAPI-Doku + `BatchFailureResponse`-Schema-Klarstellung (Wave 2, depends_on 08-07 — gleiche Datei)
-- [ ] 08-10-PLAN.md — Gap IN-04: 5 E2E-Regressionstests für CR-01-Folge-PUTs + CR-02-NotFound-Mapping (Wave 3, depends_on 08-07/08/09)
+- [x] 08-10-PLAN.md — Gap IN-04: 5 E2E-Regressionstests für CR-01-Folge-PUTs + CR-02-NotFound-Mapping (Wave 3, depends_on 08-07/08/09)
 
 #### Phase 9: Auszahlungs-Buchung (atomisch + auditiert)
 
@@ -157,7 +157,7 @@ Plans:
 | 5. Pre-GV-Generalprobe und Operations-Plan                      | v1.0      | 0/0            | SKIPPED (GV produktiv)  | 2026-05-17 |
 | 6. Teilnehmerlisten-Export für Generalversammlungen             | v1.0      | 4/4            | Complete                | 2026-05-17 |
 | 7. RepaymentPhase Backend (Foundation)                          | v1.1      | 4/5 | In Progress|  |
-| 8. RepaymentEntry + Auto-Befüllung                              | v1.1      | 7/10 | In Progress|  |
+| 8. RepaymentEntry + Auto-Befüllung                              | v1.1      | 10/10 | Complete   | 2026-05-31 |
 | 9. Auszahlungs-Buchung (atomisch + auditiert)                   | v1.1      | 0/?            | Pending                 | —          |
 | 10. Massenmail-Anbindung + Template-Variablen                   | v1.1      | 0/?            | Pending                 | —          |
 | 11. Export (PDF + CSV)                                          | v1.1      | 0/?            | Pending                 | —          |
