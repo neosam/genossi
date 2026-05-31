@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Anteile-Rückzahlungsphase
-status: ready_to_plan
-stopped_at: Completed 10.08-e2e-bulk-mail-und-audit-chain plan (Phase 10 complete)
-last_updated: "2026-05-31T18:11:00.000Z"
+status: planning
+stopped_at: Phase 11 context gathered
+last_updated: "2026-05-31T20:53:20.306Z"
 last_activity: 2026-05-31
 progress:
   total_phases: 6
-  completed_phases: 5
+  completed_phases: 4
   total_plans: 28
   completed_plans: 28
-  percent: 83
+  percent: 100
 ---
 
 # State: Genossi — v1.1 Anteile-Rückzahlungsphase
@@ -339,8 +339,8 @@ Details siehe `.planning/v1.0-MILESTONE-AUDIT.md` und `.planning/MILESTONES.md`.
 
 **Last action (2026-05-29, Phase 07 Plan 02):** Plan `07-02-PLAN.md` ausgeführt — `RepaymentPhaseDaoImpl` (SQLite-Impl des Plan-01-Traits) angelegt mit `RepaymentPhaseDb`-Row, `TryFrom` mit guarded i32-Cast (T-07-02-05), `dump_all`/`create`/`update` inkl. Pre-Exists-Check + Optimistic-Locking via `rows_affected == 0 → ConflictError("Version mismatch")`. ORDER BY ist `fiscal_year DESC, created DESC` (Phase-7-spezifisch). `parse_datetime` via `use crate::assembly::parse_datetime` reused (kein Duplikat). 4 grüne Tokio-Integrationstests gegen in-memory SQLite. Modul-Decl in `genossi_dao_impl_sqlite/src/lib.rs` alphabetisch eingefügt. Commit `6f6bf0f` (feat: 367 LOC added).
 
-**Stopped At:** Completed 10.07-genossi-bin-worker-wiring plan
-**Resume File:** None
+**Stopped At:** Phase 11 context gathered
+**Resume File:** .planning/phases/11-export-pdf-csv/11-CONTEXT.md
 
 **Last action (2026-05-31, Phase 10 Plan 07):** Plan `10.07-genossi-bin-worker-wiring-PLAN.md` ausgeführt — `genossi_bin/src/lib.rs::RestStateImpl` um 5 neue persistierte DAO-Felder erweitert (`member_document_dao`, `repayment_phase_dao`, `repayment_entry_dao`, `mail_template_dao`, `transaction_dao`); `start_mail_worker` Spawn-Block durchgereicht 6 neue Worker-Deps via `self.X.clone()` (8 → 14 args). 2 Move-to-Clone-Konversionen in `new()` (MemberDocumentServiceImpl-init + MailTemplateServiceType::new). Eine Rule-3-Deviation: Plan-Text behauptete `transaction_dao` existiere bereits als RestStateImpl-Feld an Z. 323 — tatsaechlich war das `DbAssemblyStatusProbe.transaction_dao` (mock_auth-only). Auto-Fix ergaenzt das Feld im gleichen Commit wie das Worker-Wiring. Option A enforced: 0 neue `Arc::new(...)` im Spawn-Block; alle 6 Worker-Deps stammen aus persistenten RestStateImpl-Feldern. `cargo build --workspace` exit 0; 740/740 Workspace-lib-tests gruen; rustfmt clean; clippy 0 NEUE Warnings. Smoke-Test (`DATABASE_URL=sqlite::memory: timeout 5 cargo run --bin genossi`) bootet ohne Panic und logged "Mail worker started". 2 Task-Commits (`8f5f690` feat-Task1, `5ba4e7a` feat-Task2). Naechster Schritt: Plan 10.08 (E2E bulk-mail + audit-chain).
 
