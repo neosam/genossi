@@ -24,6 +24,14 @@ const DEFAULT_TEMPLATES: &[DefaultTemplate] = &[
         path: "teilnehmerliste.typ",
         content: include_bytes!("../../templates/defaults/teilnehmerliste.typ"),
     },
+    // Phase 11 (EXPO-01..03): Auszahlungslisten-Export PDF template.
+    // Required by RepaymentExportServiceImpl::export(ExportFormat::Pdf) — Plan 11.03.
+    // Without this entry the PDF-Export branch fails with a "template not
+    // found" InternalError on a fresh installation (Pitfall #1 RESEARCH §Common Pitfalls).
+    DefaultTemplate {
+        path: "auszahlungsliste.typ",
+        content: include_bytes!("../../templates/defaults/auszahlungsliste.typ"),
+    },
 ];
 
 pub struct TemplateStorage {
