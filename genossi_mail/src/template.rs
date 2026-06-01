@@ -183,10 +183,13 @@ pub fn validate_template_with_repayment(
     body: &str,
     members: &[MemberEntity],
 ) -> Result<(), Vec<String>> {
-    // First: pure-member probe (existing behavior + same error format).
-    validate_template(subject, body, members)?;
+    // UAT-Defekt #5 Fix (Phase-10 Bug): Pure-member-Probe entfernt — sie würde
+    // bei jedem Body mit `{{ payout_amount }}` o.ä. fehlschlagen, BEVOR die
+    // merged-context-Probe (die diese Variablen kennt) jemals durchläuft.
+    // Der merged-context enthält das komplette pure-member-Context plus die
+    // drei Repayment-Vars; alle pure-member-Fehler werden hier ebenfalls
+    // abgefangen, also kein Verlust an Validierungstiefe.
 
-    // Then: probe with merged repayment context (dummy values).
     let mut errors = Vec::new();
     let env = strict_env();
     let subject_tmpl = match env.template_from_str(subject) {
@@ -623,29 +626,24 @@ mod tests {
     // ============================================================
 
     #[test]
-    fn test_validate_template_with_repayment_catches_missing_guard() {
+    fn test_validate_template_with_repayment_accepts_unguarded_payout_amount() {
         let member = make_member("Max", "Mustermann");
-        // D-14 fail-fast: a template that references payout_amount WITHOUT a
-        // `{% if ... is defined %}` guard fails the first (member-only) probe-
-        // render — `validate_template_with_repayment` propagates that Err, so
-        // the REST send-bulk endpoint can reject the template BEFORE the worker
-        // sends a single mail. This is exactly the guard D-14 wants to enforce.
+        // UAT-Defekt #5: Phase-10's ursprüngliche "fail-fast"-Logik forderte
+        // ein `{% if payout_amount is defined %}`-Guard, sonst Validation-Error.
+        // Das passt aber nicht zum tatsächlichen Phase-12-UX (Vorstand schreibt
+        // `{{ payout_amount }}` natürlich, weil im Repayment-Bulk-Flow ALLE
+        // Empfänger es bekommen). validate_template_with_repayment akzeptiert
+        // unguarded Phase-10-Vars im merged-context, der die Vars mit
+        // Dummy-Werten liefert.
         let result = validate_template_with_repayment(
             "Subject",
             "Auszahlung: {{ payout_amount }} EUR",
             std::slice::from_ref(&member),
         );
         assert!(
-            result.is_err(),
-            "Template missing the `is defined`-guard must be caught in REST validation (D-14 fail-fast)"
-        );
-        let errors = result.unwrap_err();
-        assert!(
-            errors
-                .iter()
-                .any(|e| e.contains("payout_amount") || e.to_lowercase().contains("undefined")),
-            "Error must reference the missing variable, got: {:?}",
-            errors
+            result.is_ok(),
+            "Template mit unguarded payout_amount MUSS durchgehen — merged-context liefert die Variable, got: {:?}",
+            result
         );
 
         // Negative path: a syntax error still fails.
@@ -655,6 +653,18 @@ mod tests {
             std::slice::from_ref(&member),
         );
         assert!(result2.is_err(), "Syntax errors must still surface as Err");
+
+        // Negative path: typos in member vars still caught.
+        let result3 = validate_template_with_repayment(
+            "Subject",
+            "Hallo {{ vorname }}, Auszahlung {{ payout_amount }}", // typo: vorname (correct: first_name)
+            std::slice::from_ref(&member),
+        );
+        assert!(
+            result3.is_err(),
+            "Member-Var-Typos müssen weiterhin abgefangen werden, got: {:?}",
+            result3
+        );
     }
 
     #[test]
