@@ -26,6 +26,7 @@ pub mod test_support {
             + crate::attendance::AttendanceRestState
             + crate::attendance_export::AttendanceExportRestState
             + crate::repayment_export::RepaymentExportRestState
+            + crate::repayment_letter::RepaymentLetterRestState
             + crate::audit_log::AuditRestState
             + crate::audit_timestamp::TimestampRestState,
     >(

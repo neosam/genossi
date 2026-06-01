@@ -279,6 +279,7 @@ pub trait RestStateDef:
         (path = "/api/attendance/{assembly_id}", api = attendance::ApiDoc),
         (path = "/api/assembly/{assembly_id}/attendance-export", api = attendance_export::ApiDoc),
         (path = "/api/repayment-phase/{phase_id}/export", api = repayment_export::ApiDoc),
+        (path = "/api/repayment-phase/{phase_id}/letters", api = repayment_letter::ApiDoc),
         (path = "/api/audit", api = audit_log::ApiDoc),
         (path = "/api/audit/timestamps", api = audit_timestamp::ApiDoc),
         (path = "/api/session", api = session_management::ApiDoc)
@@ -449,6 +450,7 @@ pub async fn create_app<
         + attendance::AttendanceRestState
         + attendance_export::AttendanceExportRestState
         + repayment_export::RepaymentExportRestState
+        + repayment_letter::RepaymentLetterRestState
         + audit_log::AuditRestState
         + audit_timestamp::TimestampRestState,
 >(
@@ -657,6 +659,15 @@ pub async fn create_app<
             "/api/repayment-phase",
             repayment_export::generate_export_route::<RestState>(),
         )
+        // Phase 13 Plan 05 (D-13-02/03/04): Bulk-PDF-Anschreiben via
+        // POST /{phase_id}/letters/generate. Mounted unter /api/repayment-phase
+        // — Axum 0.8.3 merged das mit den existierenden Mounts unter dem
+        // gleichen Prefix; /{phase_id}/letters/generate ist disjunkt zu
+        // /{phase_id} (RepaymentPhase) und /{phase_id}/export/{format}.
+        .nest(
+            "/api/repayment-phase",
+            repayment_letter::generate_letter_route::<RestState>(),
+        )
         .nest("/api/audit", audit_log::generate_route::<RestState>())
         .nest(
             "/api/audit/timestamps",
@@ -782,6 +793,7 @@ pub async fn start_server<
         + attendance::AttendanceRestState
         + attendance_export::AttendanceExportRestState
         + repayment_export::RepaymentExportRestState
+        + repayment_letter::RepaymentLetterRestState
         + audit_log::AuditRestState
         + audit_timestamp::TimestampRestState,
 >(
