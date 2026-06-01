@@ -907,6 +907,9 @@ pub struct PreviewRequest {
     pub subject: String,
     pub body: String,
     pub member_id: String,
+    // UAT-Defekt #6 (Phase-12): optional Repayment-Kontext für Live-Preview.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repayment_phase_id: Option<Uuid>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -922,12 +925,14 @@ pub async fn preview_mail(
     subject: &str,
     body: &str,
     member_id: &str,
+    repayment_phase_id: Option<Uuid>,
 ) -> Result<PreviewResponse, AppError> {
     let url = format!("{}/api/mail/preview", config.backend);
     let req = PreviewRequest {
         subject: subject.to_string(),
         body: body.to_string(),
         member_id: member_id.to_string(),
+        repayment_phase_id,
     };
     let response = reqwest::Client::new().post(url).json(&req).send().await?;
     let response = check_response(response).await?;

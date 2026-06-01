@@ -434,6 +434,8 @@ pub fn MailPage() -> Element {
                                 subject: subject,
                                 body: body,
                                 member_ids: selected_member_ids.read().clone(),
+                                // UAT-Defekt #6: Live-Preview soll Repayment-Vars rendern
+                                repayment_phase_id: *repayment_phase_id.read(),
                             }
 
                             // Attachment selector — visible only for single recipient

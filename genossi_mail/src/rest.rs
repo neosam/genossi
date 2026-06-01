@@ -148,6 +148,13 @@ pub struct PreviewRequest {
     pub body: String,
     #[schema(example = "123e4567-e89b-12d3-a456-426614174000")]
     pub member_id: String,
+    /// UAT-Defekt #6 (Phase-12): optional Repayment-Kontext — wenn gesetzt,
+    /// rendert /preview mit gemergten Dummy-Werten für `payout_amount` (`60,00`),
+    /// `share_count` (`1`) und `fiscal_year` (Phase.fiscal_year, dummy `2026`).
+    /// Ohne dieses Feld bleibt die alte pure-member-Render-Logik aktiv.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(example = "29ae374c-9e60-4cc8-b0b4-ce51c28e7b6e")]
+    pub repayment_phase_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
@@ -484,7 +491,21 @@ pub async fn preview_mail<S: MailRestState>(
                 .await
                 .ok_or(MailServiceError::NotFound)?;
 
-            let ctx = member_to_template_context(&member);
+            // UAT-Defekt #6: bei gesetztem repayment_phase_id wird der Context
+            // mit Dummy-Werten für payout_amount/share_count/fiscal_year angereichert,
+            // damit Live-Preview im Phase-12-Mail-Flow nicht an "undefined value"
+            // scheitert. Für reine Member-Previews bleibt der Pfad unverändert.
+            let base_ctx = member_to_template_context(&member);
+            let ctx = if body
+                .repayment_phase_id
+                .as_deref()
+                .map(|s| !s.is_empty())
+                .unwrap_or(false)
+            {
+                crate::template::merge_repayment_context(base_ctx, "60,00", 1, 2026)
+            } else {
+                base_ctx
+            };
             let mut errors = Vec::new();
 
             let rendered_subject = match render_template(&body.subject, &ctx) {

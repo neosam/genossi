@@ -15,6 +15,7 @@ fn trigger_preview(
     subject: &str,
     body: &str,
     member_id: Uuid,
+    repayment_phase_id: Option<Uuid>,
     mut preview_loading: Signal<bool>,
     mut preview_result: Signal<Option<PreviewResponse>>,
 ) {
@@ -24,7 +25,7 @@ fn trigger_preview(
     spawn(async move {
         preview_loading.set(true);
         let config = CONFIG.read().clone();
-        match api::preview_mail(&config, &subj, &b, &mid_str).await {
+        match api::preview_mail(&config, &subj, &b, &mid_str, repayment_phase_id).await {
             Ok(result) => preview_result.set(Some(result)),
             Err(e) => preview_result.set(Some(PreviewResponse {
                 subject: String::new(),
@@ -41,6 +42,10 @@ pub fn TemplatePreview(
     subject: ReadOnlySignal<String>,
     body: ReadOnlySignal<String>,
     member_ids: Vec<Uuid>,
+    // UAT-Defekt #6: optional Repayment-Kontext, damit Live-Preview im
+    // Phase-12-Flow `{{ payout_amount }}` etc. korrekt rendert.
+    #[props(default)]
+    repayment_phase_id: Option<Uuid>,
 ) -> Element {
     let i18n = use_i18n();
     let mut preview_member_id = use_signal(|| None::<Uuid>);
@@ -62,7 +67,7 @@ pub fn TemplatePreview(
                             preview_result.set(None);
                         } else if let Ok(id) = val.parse::<Uuid>() {
                             preview_member_id.set(Some(id));
-                            trigger_preview(&subject.read(), &body.read(), id, preview_loading, preview_result);
+                            trigger_preview(&subject.read(), &body.read(), id, repayment_phase_id, preview_loading, preview_result);
                         }
                     },
                     option { value: "", {i18n.t(Key::MailTemplatePreviewSelect)} }
@@ -94,7 +99,7 @@ pub fn TemplatePreview(
                     disabled: *preview_loading.read(),
                     onclick: move |_| {
                         if let Some(mid) = *preview_member_id.read() {
-                            trigger_preview(&subject.read(), &body.read(), mid, preview_loading, preview_result);
+                            trigger_preview(&subject.read(), &body.read(), mid, repayment_phase_id, preview_loading, preview_result);
                         }
                     },
                     if *preview_loading.read() { "..." } else { {i18n.t(Key::MailTemplatePreview)} }
