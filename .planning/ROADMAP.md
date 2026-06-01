@@ -261,8 +261,36 @@ Plans:
 | 10. Massenmail-Anbindung + Template-Variablen                   | v1.1      | 8/8 | Complete    | 2026-05-31 |
 | 11. Export (PDF)                                                | v1.1      | 6/6 | Complete    | 2026-06-01 |
 | 12. Frontend (Component-First)                                  | v1.1      | 15/15 | Complete    | 2026-06-01 |
+| 13. RepaymentLetter-Bulk-Anschreiben für Nicht-Email-Mitglieder | (additiv) | 7/7 planned | Planned                 | —          |
+
+### Phase 13: RepaymentLetter-Bulk-Anschreiben für Nicht-Email-Mitglieder
+
+**Goal:** Ergänzt die v1.1-Auszahlungs-Pipeline um einen Brief-Kanal — Vorstand selektiert auf der RepaymentPhase-Detail-Page Einträge multi-select und triggert eine Bulk-PDF-Generierung; pro Member entsteht ein auditiertes MemberDocument mit Info-Schreiben (Auszahlungsbetrag, Anteile, hinterlegte IBAN), zusätzlich ein transientes Bundle-PDF als Direct-Download für den Druck-Workflow.
+**Requirements**: BRIEF-01 (REQUIREMENTS.md §Brief-Anschreiben-Automatik — der bisherige v1.1-Defer wird in Phase 13 aufgehoben)
+**Depends on:** Phase 12
+**Plans:** 7 plans
+
+Plans:
+**Wave 1** *(foundation: DocumentType + Template + DEFAULT_TEMPLATES-Eintrag)*
+- [ ] 13-01-PLAN.md — DocumentType::RepaymentLetter + auszahlungs_anschreiben.typ + DEFAULT_TEMPLATES (D-13-05, D-13-06, D-13-08)
+
+**Wave 2** *(parallel — Resolver + PdfGenerator-Renderer, beide depends_on Wave 1)*
+- [ ] 13-02-PLAN.md — RepaymentContextResolver Trait + Impl + 11 Unit-Tests (D-13-04, D-13-10)
+- [ ] 13-03-PLAN.md — PdfGenerator::render_repayment_letter + render_repayment_letter_bundle + Bundle-Template (D-13-01)
+
+**Wave 3** *(blocked on Wave 2 — Service-Kernlogik)*
+- [ ] 13-04-PLAN.md — RepaymentLetterServiceImpl mit Permission-Funnel + Status-Gate + Aggregation + audited_create-Loop + Bundle-Render (D-13-01..09)
+
+**Wave 4** *(blocked on 04 — REST + DI)*
+- [ ] 13-05-PLAN.md — REST-Handler POST /letters/generate + OpenAPI (6 Status-Codes) + DI-Wiring in genossi_bin (D-13-02, D-13-03)
+
+**Wave 5** *(blocked on 05 — Frontend)*
+- [ ] 13-06-PLAN.md — Frontend Bulk-Button + on_letter_request + Blob-Download + Toast (D-13-09 Hinweis, Phase 12 D-01 Button-Pattern MANDATORY)
+
+**Wave 6** *(blocked on 05+06 — E2E)*
+- [ ] 13-07-PLAN.md — 8 E2E-Tests: Happy-Path + Multi-Entry-Aggregation + Permission-Denied + Status-Gate + entry_phase_mismatch + IBAN-NULL + Audit-Hashchain + Idempotenz+No-Toggle
 
 ---
 
 *Roadmap created: 2026-05-02*
-*Last updated: 2026-06-01 after Phase 12 planning — 15 plans across 11 waves cover UI-01..UI-06 (28 user-locked decisions D-01..D-28 fully traced); milestone v1.1 in plan-phase 33/48 plans complete, 15 new plans pending execution.*
+*Last updated: 2026-06-01 after Phase 13 planning — 7 plans across 6 waves cover BRIEF-01 (11 user-locked decisions D-13-01..11 fully traced); milestone v1.1 ist abgeschlossen (48/48 plans complete), Phase 13 ist additive Folge-Phase auf Phase 12.*
