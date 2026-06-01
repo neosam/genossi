@@ -7,22 +7,19 @@
 use crate::api::RepaymentPhaseStatusTO;
 
 /// D-03 + D-08: Öffnen-Button is only visible in status `Preparation`.
-fn should_show_open_button(_status: RepaymentPhaseStatusTO) -> bool {
-    // RED stub: will be replaced in GREEN.
-    false
+fn should_show_open_button(status: RepaymentPhaseStatusTO) -> bool {
+    matches!(status, RepaymentPhaseStatusTO::Preparation)
 }
 
 /// D-03 + D-08: Schließen-Button is only visible in status `Open`.
-fn should_show_close_button(_status: RepaymentPhaseStatusTO) -> bool {
-    // RED stub: will be replaced in GREEN.
-    false
+fn should_show_close_button(status: RepaymentPhaseStatusTO) -> bool {
+    matches!(status, RepaymentPhaseStatusTO::Open)
 }
 
 /// D-05 + D-08: `share_value` is read-only in status `Closed`.
 /// Plan 12-06 reuses this for the inline-edit guard.
-pub(crate) fn is_share_value_editable(_status: RepaymentPhaseStatusTO) -> bool {
-    // RED stub: will be replaced in GREEN.
-    false
+pub(crate) fn is_share_value_editable(status: RepaymentPhaseStatusTO) -> bool {
+    !matches!(status, RepaymentPhaseStatusTO::Closed)
 }
 
 use dioxus::prelude::*;
