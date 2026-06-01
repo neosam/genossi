@@ -867,6 +867,13 @@ pub struct SendBulkMailRequest {
     pub attachment_ids: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub static_document_ids: Vec<String>,
+    // ── Phase 12 (D-18 + Phase 10 D-03/D-12) ───────────────────────────
+    // Backward-compatible: payloads without these keys still deserialize
+    // (Phase 10 backend asserted backward-compat via #[serde(default)]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub template_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repayment_phase_id: Option<Uuid>,
 }
 
 pub async fn send_bulk_mail(
@@ -876,6 +883,8 @@ pub async fn send_bulk_mail(
     body: &str,
     attachment_ids: &[String],
     static_document_ids: &[String],
+    template_id: Option<&str>,
+    repayment_phase_id: Option<Uuid>,
 ) -> Result<MailJobTO, AppError> {
     info!("Sending bulk mail to {} recipients", recipients.len());
     let url = format!("{}/api/mail/send-bulk", config.backend);
@@ -885,6 +894,8 @@ pub async fn send_bulk_mail(
         body: body.to_string(),
         attachment_ids: attachment_ids.to_vec(),
         static_document_ids: static_document_ids.to_vec(),
+        template_id: template_id.map(String::from),
+        repayment_phase_id,
     };
     let response = reqwest::Client::new().post(url).json(&req).send().await?;
     let response = check_response(response).await?;
@@ -1921,6 +1932,263 @@ pub async fn export_attendance_url(
     Ok(blob_url)
 }
 
+// ─── Phase 12 ─── RepaymentPhase / RepaymentEntry TOs ───────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum RepaymentPhaseStatusTO {
+    Preparation,
+    Open,
+    Closed,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RepaymentPhaseTO {
+    pub id: Uuid,
+    pub fiscal_year: i32,
+    pub share_value: i64,
+    pub status: RepaymentPhaseStatusTO,
+    #[serde(default)]
+    pub opened_at: Option<String>,
+    #[serde(default)]
+    pub closed_at: Option<String>,
+    #[serde(default)]
+    pub created: Option<String>,
+    #[serde(default)]
+    pub deleted: Option<String>,
+    #[serde(default)]
+    pub version: Option<Uuid>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CreateRepaymentPhaseRequest {
+    pub fiscal_year: i32,
+    pub share_value: i64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct UpdateRepaymentPhaseRequest {
+    pub fiscal_year: i32,
+    pub share_value: i64,
+    pub version: Uuid,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum RepaymentEntryStatusTO {
+    Open,
+    Contacted,
+    PaidOut,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RepaymentEntryTO {
+    pub id: Uuid,
+    pub member_id: Uuid,
+    pub phase_id: Uuid,
+    pub share_count_to_pay_out: i32,
+    pub status: RepaymentEntryStatusTO,
+    #[serde(default)]
+    pub created: Option<String>,
+    #[serde(default)]
+    pub deleted: Option<String>,
+    #[serde(default)]
+    pub version: Option<Uuid>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CreateRepaymentEntryRequest {
+    pub phase_id: Uuid,
+    pub member_id: Uuid,
+    pub share_count_to_pay_out: i32,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct UpdateRepaymentEntryRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub share_count_to_pay_out: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<RepaymentEntryStatusTO>,
+    pub version: Uuid,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct BatchStatusRequest {
+    pub entry_ids: Vec<Uuid>,
+    pub target_status: RepaymentEntryStatusTO,
+}
+
+/// 409-Body von POST /api/repayment-phase/{id}/close (Phase 8 D-15).
+/// Wird via serde_json::from_str::<CloseConflictResponse>(&app_error.detail.unwrap_or_default())
+/// im Caller deserialisiert (D-04).
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+pub struct CloseConflictResponse {
+    pub error: String,
+    pub pending_count: usize,
+    pub pending_member_numbers: Vec<String>,
+}
+
+/// 409-Body von POST /api/repayment-entry/batch-status (Phase 8 Plan 09 CR-02).
+/// 404 bei missing entry_id; 409 mit BatchFailureResponse bei Domain-Conflict.
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+pub struct BatchFailureResponse {
+    pub failure_index: usize,
+    pub failure_id: String,
+    pub failure_reason: String,
+}
+
+// ─── Phase 12 ─── RepaymentPhase endpoints ──────────────────────────
+
+pub async fn list_repayment_phases(config: &Config) -> Result<Vec<RepaymentPhaseTO>, AppError> {
+    info!("Listing repayment phases");
+    let url = format!("{}/api/repayment-phase", config.backend);
+    let response = check_response(reqwest::get(url).await?).await?;
+    Ok(response.json().await?)
+}
+
+pub async fn get_repayment_phase(
+    config: &Config,
+    id: Uuid,
+) -> Result<RepaymentPhaseTO, AppError> {
+    info!("Fetching repayment phase {id}");
+    let url = format!("{}/api/repayment-phase/{id}", config.backend);
+    let response = check_response(reqwest::get(url).await?).await?;
+    Ok(response.json().await?)
+}
+
+pub async fn create_repayment_phase(
+    config: &Config,
+    req: &CreateRepaymentPhaseRequest,
+) -> Result<RepaymentPhaseTO, AppError> {
+    info!("Creating repayment phase");
+    let url = format!("{}/api/repayment-phase", config.backend);
+    let response = reqwest::Client::new().post(url).json(req).send().await?;
+    let response = check_response(response).await?;
+    Ok(response.json().await?)
+}
+
+/// Caller MUST re-fetch via get_repayment_phase(...) after this returns —
+/// Phase 8 CR-01 Pattern: backend bumps version atomically; service-layer
+/// returns the stale local entity, not the DAO-bumped version.
+pub async fn update_repayment_phase(
+    config: &Config,
+    id: Uuid,
+    req: &UpdateRepaymentPhaseRequest,
+) -> Result<RepaymentPhaseTO, AppError> {
+    info!("Updating repayment phase {id}");
+    let url = format!("{}/api/repayment-phase/{id}", config.backend);
+    let response = reqwest::Client::new().put(url).json(req).send().await?;
+    let response = check_response(response).await?;
+    Ok(response.json().await?)
+}
+
+pub async fn open_repayment_phase(
+    config: &Config,
+    id: Uuid,
+) -> Result<RepaymentPhaseTO, AppError> {
+    info!("Opening repayment phase {id}");
+    let url = format!("{}/api/repayment-phase/{id}/open", config.backend);
+    let response = reqwest::Client::new().post(url).send().await?;
+    let response = check_response(response).await?;
+    Ok(response.json().await?)
+}
+
+pub async fn close_repayment_phase(
+    config: &Config,
+    id: Uuid,
+) -> Result<RepaymentPhaseTO, AppError> {
+    info!("Closing repayment phase {id}");
+    let url = format!("{}/api/repayment-phase/{id}/close", config.backend);
+    let response = reqwest::Client::new().post(url).send().await?;
+    let response = check_response(response).await?;
+    Ok(response.json().await?)
+}
+
+// ─── Phase 12 ─── RepaymentEntry endpoints ──────────────────────────
+
+pub async fn list_repayment_entries(
+    config: &Config,
+    phase_id: Uuid,
+) -> Result<Vec<RepaymentEntryTO>, AppError> {
+    info!("Listing repayment entries for phase {phase_id}");
+    let url = format!(
+        "{}/api/repayment-entry?phase_id={phase_id}",
+        config.backend
+    );
+    let response = check_response(reqwest::get(url).await?).await?;
+    Ok(response.json().await?)
+}
+
+pub async fn get_repayment_entry(
+    config: &Config,
+    id: Uuid,
+) -> Result<RepaymentEntryTO, AppError> {
+    info!("Fetching repayment entry {id}");
+    let url = format!("{}/api/repayment-entry/{id}", config.backend);
+    let response = check_response(reqwest::get(url).await?).await?;
+    Ok(response.json().await?)
+}
+
+pub async fn create_repayment_entry(
+    config: &Config,
+    req: &CreateRepaymentEntryRequest,
+) -> Result<RepaymentEntryTO, AppError> {
+    info!("Creating repayment entry");
+    let url = format!("{}/api/repayment-entry", config.backend);
+    let response = reqwest::Client::new().post(url).json(req).send().await?;
+    let response = check_response(response).await?;
+    Ok(response.json().await?)
+}
+
+/// Caller MUST re-fetch via get_repayment_entry(...) after this returns —
+/// Phase 8 CR-01 Pattern: backend bumps version atomically; service-layer
+/// returns the stale local entity, not the DAO-bumped version.
+pub async fn update_repayment_entry(
+    config: &Config,
+    id: Uuid,
+    req: &UpdateRepaymentEntryRequest,
+) -> Result<RepaymentEntryTO, AppError> {
+    info!("Updating repayment entry {id}");
+    let url = format!("{}/api/repayment-entry/{id}", config.backend);
+    let response = reqwest::Client::new().put(url).json(req).send().await?;
+    let response = check_response(response).await?;
+    Ok(response.json().await?)
+}
+
+pub async fn delete_repayment_entry(config: &Config, id: Uuid) -> Result<(), AppError> {
+    info!("Deleting repayment entry {id}");
+    let url = format!("{}/api/repayment-entry/{id}", config.backend);
+    let response = reqwest::Client::new().delete(url).send().await?;
+    check_response(response).await?;
+    Ok(())
+}
+
+pub async fn batch_toggle_repayment_status(
+    config: &Config,
+    req: &BatchStatusRequest,
+) -> Result<(), AppError> {
+    info!(
+        "Batch-toggling {} repayment entries",
+        req.entry_ids.len()
+    );
+    let url = format!("{}/api/repayment-entry/batch-status", config.backend);
+    let response = reqwest::Client::new().post(url).json(req).send().await?;
+    check_response(response).await?;
+    Ok(())
+}
+
+pub async fn mark_repayment_entry_paid_out(
+    config: &Config,
+    id: Uuid,
+) -> Result<RepaymentEntryTO, AppError> {
+    info!("Marking repayment entry {id} paid-out");
+    let url = format!(
+        "{}/api/repayment-entry/{id}/mark-paid-out",
+        config.backend
+    );
+    let response = reqwest::Client::new().post(url).send().await?;
+    let response = check_response(response).await?;
+    Ok(response.json().await?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2009,5 +2277,153 @@ mod tests {
         let err = AppError::new(None, "Verbindungsfehler", None);
         assert_eq!(err.status, None);
         assert!(err.detail.is_none());
+    }
+
+    // ─── Phase 12 ─── Foundation tests ────────────────────────────────
+
+    #[test]
+    fn test_send_bulk_mail_request_backward_compat_without_phase12_fields() {
+        // Backward-compat (Phase 10 D-12 + Phase 12): payloads without the new
+        // optional fields MUST still deserialize. Plan 12-12 wires real values.
+        let json = r#"{
+            "to_addresses": [{"address": "a@b.c", "member_id": null}],
+            "subject": "s",
+            "body": "b"
+        }"#;
+        let req: SendBulkMailRequest = serde_json::from_str(json).expect("backward-compat broken");
+        assert_eq!(req.template_id, None);
+        assert_eq!(req.repayment_phase_id, None);
+        assert!(req.attachment_ids.is_empty());
+    }
+
+    #[test]
+    fn test_send_bulk_mail_request_phase12_roundtrip() {
+        let phase_id = Uuid::nil();
+        let req = SendBulkMailRequest {
+            to_addresses: vec![],
+            subject: "s".into(),
+            body: "b".into(),
+            attachment_ids: vec![],
+            static_document_ids: vec![],
+            template_id: Some("tpl-1".into()),
+            repayment_phase_id: Some(phase_id),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"template_id\":\"tpl-1\""));
+        assert!(json.contains("\"repayment_phase_id\""));
+        let round: SendBulkMailRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(round.template_id.as_deref(), Some("tpl-1"));
+        assert_eq!(round.repayment_phase_id, Some(phase_id));
+    }
+
+    #[test]
+    fn test_send_bulk_mail_request_skips_none_fields() {
+        // skip_serializing_if=Option::is_none should omit absent fields entirely.
+        let req = SendBulkMailRequest {
+            to_addresses: vec![],
+            subject: "s".into(),
+            body: "b".into(),
+            attachment_ids: vec![],
+            static_document_ids: vec![],
+            template_id: None,
+            repayment_phase_id: None,
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(!json.contains("template_id"));
+        assert!(!json.contains("repayment_phase_id"));
+    }
+
+    #[test]
+    fn test_repayment_phase_status_to_serde() {
+        // Backend emits PascalCase variants — verify exact wire format.
+        let json = serde_json::to_string(&RepaymentPhaseStatusTO::Preparation).unwrap();
+        assert_eq!(json, "\"Preparation\"");
+        let json = serde_json::to_string(&RepaymentPhaseStatusTO::Open).unwrap();
+        assert_eq!(json, "\"Open\"");
+        let json = serde_json::to_string(&RepaymentPhaseStatusTO::Closed).unwrap();
+        assert_eq!(json, "\"Closed\"");
+    }
+
+    #[test]
+    fn test_repayment_entry_status_to_serde() {
+        let json = serde_json::to_string(&RepaymentEntryStatusTO::Open).unwrap();
+        assert_eq!(json, "\"Open\"");
+        let json = serde_json::to_string(&RepaymentEntryStatusTO::Contacted).unwrap();
+        assert_eq!(json, "\"Contacted\"");
+        let json = serde_json::to_string(&RepaymentEntryStatusTO::PaidOut).unwrap();
+        assert_eq!(json, "\"PaidOut\"");
+    }
+
+    #[test]
+    fn test_repayment_phase_to_deserialize_minimal() {
+        // Backend emits all timestamp/version fields. Frontend must accept
+        // partial-missing payloads via #[serde(default)] on optional fields.
+        let json = r#"{
+            "id": "00000000-0000-0000-0000-000000000000",
+            "fiscal_year": 2026,
+            "share_value": 6000,
+            "status": "Preparation"
+        }"#;
+        let phase: RepaymentPhaseTO = serde_json::from_str(json).unwrap();
+        assert_eq!(phase.fiscal_year, 2026);
+        assert_eq!(phase.share_value, 6000);
+        assert_eq!(phase.status, RepaymentPhaseStatusTO::Preparation);
+        assert!(phase.opened_at.is_none());
+        assert!(phase.version.is_none());
+    }
+
+    #[test]
+    fn test_repayment_entry_to_deserialize_minimal() {
+        let json = r#"{
+            "id": "00000000-0000-0000-0000-000000000000",
+            "member_id": "11111111-1111-1111-1111-111111111111",
+            "phase_id": "22222222-2222-2222-2222-222222222222",
+            "share_count_to_pay_out": 3,
+            "status": "Open"
+        }"#;
+        let entry: RepaymentEntryTO = serde_json::from_str(json).unwrap();
+        assert_eq!(entry.share_count_to_pay_out, 3);
+        assert_eq!(entry.status, RepaymentEntryStatusTO::Open);
+    }
+
+    #[test]
+    fn test_update_repayment_entry_request_skips_none_fields() {
+        // Partial updates: only send the fields that change. version is mandatory.
+        let req = UpdateRepaymentEntryRequest {
+            share_count_to_pay_out: Some(5),
+            status: None,
+            version: Uuid::nil(),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"share_count_to_pay_out\":5"));
+        assert!(!json.contains("\"status\""));
+        assert!(json.contains("\"version\""));
+    }
+
+    #[test]
+    fn test_close_conflict_response_deserialize() {
+        // Backend Phase 8 D-15 wire format.
+        let json = r#"{
+            "error": "Cannot close",
+            "pending_count": 3,
+            "pending_member_numbers": ["42", "43", "+1 weitere"]
+        }"#;
+        let conflict: CloseConflictResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(conflict.pending_count, 3);
+        assert_eq!(conflict.pending_member_numbers.len(), 3);
+        assert_eq!(conflict.pending_member_numbers[0], "42");
+    }
+
+    #[test]
+    fn test_batch_failure_response_deserialize() {
+        // Backend Phase 8 Plan 09 CR-02 wire format.
+        let json = r#"{
+            "failure_index": 2,
+            "failure_id": "33333333-3333-3333-3333-333333333333",
+            "failure_reason": "Already paid out"
+        }"#;
+        let failure: BatchFailureResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(failure.failure_index, 2);
+        assert_eq!(failure.failure_reason, "Already paid out");
     }
 }

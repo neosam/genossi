@@ -516,7 +516,11 @@ pub fn MailPage() -> Element {
                                         error.set(None);
                                         success_msg.set(None);
                                         let config = CONFIG.read().clone();
-                                        match api::send_bulk_mail(&config, &recipients, &subj, &b, &att_ids, &static_ids).await {
+                                        // Phase 12-01: send_bulk_mail signature now requires
+                                        // template_id + repayment_phase_id (Phase 10 D-12/D-03).
+                                        // Plan 12-12 replaces these `None, None` defaults with
+                                        // the real values parsed from `?from=repayment&phase_id=…`.
+                                        match api::send_bulk_mail(&config, &recipients, &subj, &b, &att_ids, &static_ids, None, None).await {
                                             Ok(_job) => {
                                                 success_msg.set(Some(i18n.t(Key::MailJobCreated).to_string()));
                                                 selected_member_ids.set(Vec::new());
