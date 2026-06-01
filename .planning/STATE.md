@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Anteile-Rückzahlungsphase
-status: verifying
+status: ready_to_plan
 stopped_at: Completed 11-06-PLAN.md (8 E2E-Tests fuer RepaymentExport PDF + Helper `create_member_without_iban` — Phase 11 vollstaendig verifiziert, EXPO-01/02/03/05 erfuellt)
 last_updated: "2026-06-01T06:08:01.150Z"
 last_activity: 2026-06-01
 progress:
   total_phases: 6
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 34
   completed_plans: 34
   percent: 100
@@ -29,9 +29,9 @@ progress:
 
 ## Current Position
 
-Phase: 11 (export-pdf-csv) — EXECUTING
-Plan: 6 of 6
-Status: Phase complete — ready for verification
+Phase: 12
+Plan: Not started
+Status: Ready to plan
 Last activity: 2026-06-01
 
 ## Closure Snapshot (v1.0, 2026-05-29)
