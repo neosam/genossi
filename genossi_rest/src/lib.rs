@@ -2,6 +2,7 @@ pub mod application;
 pub mod assembly;
 pub mod attendance;
 pub mod attendance_export;
+pub mod repayment_export;
 pub mod audit_log;
 pub mod audit_timestamp;
 pub mod auth;
