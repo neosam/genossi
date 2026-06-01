@@ -116,12 +116,58 @@ impl<Deps: RepaymentExportServiceDeps> RepaymentExportServiceImpl<Deps> {
 /// (D-04/D-05) und Euro-Format (REVISION-Fix B3) ohne async/Mock-Setup
 /// verifiziert werden koennen.
 pub(crate) fn filter_and_enrich_rows(
-    _phase: &RepaymentPhaseEntity,
-    _entry_member_pairs: Vec<(RepaymentEntryEntity, MemberEntity)>,
-    _include: ExportInclude,
+    phase: &RepaymentPhaseEntity,
+    entry_member_pairs: Vec<(RepaymentEntryEntity, MemberEntity)>,
+    include: ExportInclude,
 ) -> Vec<RepaymentExportRow> {
-    // TDD-RED-Stub: vollstaendige Implementation folgt im GREEN-Commit.
-    todo!("filter_and_enrich_rows - GREEN")
+    let mut pairs = entry_member_pairs;
+
+    // D-01 / D-02: In-Memory-Include-Filter.
+    pairs.retain(|(entry, _)| match include {
+        ExportInclude::Open => matches!(
+            entry.status,
+            RepaymentEntryStatus::Open | RepaymentEntryStatus::Contacted
+        ),
+        ExportInclude::All => true,
+        ExportInclude::Paid => matches!(entry.status, RepaymentEntryStatus::PaidOut),
+    });
+
+    // D-09: Stable-Sort `member_number ASC`, `entry.created ASC`.
+    pairs.sort_by(|a, b| {
+        a.1.member_number
+            .cmp(&b.1.member_number)
+            .then_with(|| a.0.created.cmp(&b.0.created))
+    });
+
+    // D-04 / D-05 / D-07: Pre-compute `amount_str` + Verwendungszweck pro Row.
+    // REVISION-Fix B3: KEIN `.abs()` - Phase-10-D-04-Pattern (PATTERNS.md S9).
+    //   Domain-Constraint `share_count > 0` UND `share_value > 0` garantiert
+    //   non-negative `amount_cents`.
+    pairs
+        .iter()
+        .map(|(entry, m)| {
+            let amount_cents = (entry.share_count_to_pay_out as i64) * phase.share_value;
+            let amount_str = format!("{},{:02}", amount_cents / 100, amount_cents % 100);
+            // D-04 wortwoertlich mit ORIGINAL-Umlaut; D-05 keine Sanitization.
+            let purpose = format!(
+                "Anteilsrückzahlung GJ {} {} {} {}",
+                phase.fiscal_year, m.member_number, m.first_name, m.last_name
+            );
+            RepaymentExportRow {
+                member_number: m.member_number,
+                name: format!("{} {}", m.first_name, m.last_name),
+                // D-06 / D-07: leere IBAN -> leerer String (kein Skip, kein Marker).
+                iban: m
+                    .bank_account
+                    .as_ref()
+                    .map(|s| s.to_string())
+                    .unwrap_or_default(),
+                share_count: entry.share_count_to_pay_out,
+                amount_str,
+                purpose,
+            }
+        })
+        .collect()
 }
 
 #[async_trait]
@@ -132,19 +178,92 @@ impl<Deps: RepaymentExportServiceDeps> RepaymentExportService for RepaymentExpor
     async fn export(
         &self,
         phase_id: Uuid,
-        _format: ExportFormat,
-        _include: ExportInclude,
+        format: ExportFormat,
+        include: ExportInclude,
         context: Authentication<Self::Context>,
     ) -> Result<RepaymentExport, ServiceError> {
-        // TDD-RED-Stub: nur die Permission-Funnel-Path-Sicht ist hier
-        // ausreichend codiert, damit der B2-Pitfall-#2-Test schon im
-        // RED-Schritt den `not yet implemented`-Pfad nicht erreicht.
-        // Vollstaendige Implementation folgt im GREEN-Commit.
+        // Open Tx for Phase + Entries + Members reads (single Tx,
+        // Discretion N+1 per RESEARCH Q5).
         let tx = self.transaction_dao.use_transaction(None).await?;
-        let _phase = self
+
+        // Permission-Funnel (D-10 / D-11 / Pitfall #2): liefert Phase wenn
+        // admin + Status in {Open, Closed}.
+        let phase = self
             .check_admin_and_phase_status(phase_id, context, tx.clone())
             .await?;
-        todo!("RepaymentExportServiceImpl::export - GREEN")
+
+        // Read all entries for this phase. `find_by_phase_id` filtert
+        // soft-deleted via Default-Impl.
+        let raw_entries: Vec<RepaymentEntryEntity> = self
+            .repayment_entry_dao
+            .find_by_phase_id(phase_id, tx.clone())
+            .await?
+            .iter()
+            .cloned()
+            .collect();
+
+        // Member per entry lesen (N+1 - Discretion-Choice, RESEARCH Q5).
+        let mut entry_member_pairs: Vec<(RepaymentEntryEntity, MemberEntity)> =
+            Vec::with_capacity(raw_entries.len());
+        for entry in raw_entries.into_iter() {
+            // D-02: Defensive Skip soft-deleted Entries (Defense-in-Depth -
+            // `find_by_phase_id` filtert bereits, aber kostet nichts).
+            if entry.deleted.is_some() {
+                continue;
+            }
+            // `MemberDao::find_by_id` Default-Impl filtert soft-deleted
+            // (`deleted IS NULL`).
+            let member_opt = self
+                .member_dao
+                .find_by_id(entry.member_id, tx.clone())
+                .await?;
+            if let Some(member) = member_opt {
+                entry_member_pairs.push((entry, member));
+            }
+            // else: member soft-deleted -> skip (D-02).
+        }
+
+        // Pitfall #8: Commit Tx VOR `PdfGenerator::render_*`
+        // (sync method; nach Render gibt es keine async-tx-Ops mehr).
+        self.transaction_dao.commit(tx).await?;
+
+        // REVISION-Fix W1 / W6 / B3: Filter / Sort / Enrichment in pure fn.
+        let enriched_rows = filter_and_enrich_rows(&phase, entry_member_pairs, include);
+
+        // D-18 Phase 6: `tracing::info!`-Pattern ersetzt Audit-Eintrag.
+        tracing::info!(
+            target: EXPORT_TARGET,
+            phase_id = %phase_id,
+            fiscal_year = phase.fiscal_year,
+            format = ?format,
+            include = ?include,
+            rows = enriched_rows.len(),
+            "exporting repayment list"
+        );
+
+        // Render PDF (sync; Tx bereits committed).
+        let bytes = match format {
+            ExportFormat::Pdf => self.pdf_generator.render_repayment_list(
+                "auszahlungsliste.typ",
+                &self.template_base,
+                &phase,
+                &enriched_rows,
+            )?,
+        };
+
+        // D-15 / SC #2: Server-generated filename, kein User-Input.
+        let include_str = match include {
+            ExportInclude::Open => "open",
+            ExportInclude::All => "all",
+            ExportInclude::Paid => "paid",
+        };
+        let filename = format!("auszahlung-{}-{}.pdf", phase.fiscal_year, include_str);
+
+        Ok(RepaymentExport {
+            bytes,
+            content_type: "application/pdf",
+            filename,
+        })
     }
 }
 
