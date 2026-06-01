@@ -15,6 +15,7 @@ pub mod member_details;
 pub mod members;
 pub mod not_authenticated;
 pub mod permissions;
+pub mod repayment_phases;
 pub mod static_documents;
 pub mod templates;
 pub mod validation;
