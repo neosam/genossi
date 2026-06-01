@@ -100,3 +100,4 @@ pub use repayment_entry_status_badge::RepaymentEntryStatusBadge;
 
 // ─── Phase 12 ─── EditableShareCountCell (D-13 Inline-Edit) ─────────
 pub mod editable_share_count_cell;
+pub use editable_share_count_cell::EditableShareCountCell;
