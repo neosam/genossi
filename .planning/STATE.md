@@ -4,14 +4,14 @@ milestone: v1.1
 milestone_name: Anteile-Rückzahlungsphase
 status: executing
 stopped_at: Completed 11-03-PLAN.md (RepaymentExportServiceImpl + Permission-Funnel + 5 service-layer tests)
-last_updated: "2026-06-01T05:35:02.940Z"
+last_updated: "2026-06-01T05:46:14.180Z"
 last_activity: 2026-06-01
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 34
-  completed_plans: 31
-  percent: 91
+  completed_plans: 32
+  percent: 94
 ---
 
 # State: Genossi — v1.1 Anteile-Rückzahlungsphase
@@ -30,7 +30,7 @@ progress:
 ## Current Position
 
 Phase: 11 (export-pdf-csv) — EXECUTING
-Plan: 4 of 6
+Plan: 5 of 6
 Status: Ready to execute
 Last activity: 2026-06-01
 
@@ -105,6 +105,7 @@ Overall: 0% complete
 | Phase 11 P01 | 6min | 2 tasks tasks | 3 files files |
 | Phase 11 P02 | 5min | 1 tasks | 2 files |
 | Phase 11 P03 | 8min | 1 tasks tasks | 2 files files |
+| Phase 11 P04 | 6min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -200,6 +201,9 @@ Overall: 0% complete
 | Plan 11-03: Pure-Function-Extraktion `filter_and_enrich_rows` als `pub(crate)`-Helper (REVISION-Fix W1/W6) — direkt testbar ohne `mock!`-Setup; eliminiert Async-Boilerplate in 3 von 5 Tests (Filter-Counts, Umlaut-Erhalt, Euro-Format). Pattern-Anker für künftige Service-Tests mit Filter/Sort/Enrichment-Logik. | Phase 11, Plan 03 |
 | Plan 11-03: TDD-RED via zwei `todo!()`-Stubs (`filter_and_enrich_rows` UND `export()` nach Permission-Funnel) — 3 von 5 Tests scheitern mit `not yet implemented`; 2 Tests (Grep-Gate via `include_str!` + B2-Pitfall-#2-Funnel-Order-Mock-Test) laufen schon im RED grün, weil sie Code-Pfade greifen, die NICHT in `todo!()` münden. Saubere semantisch-konsistente RED-Verifikation für Service-Tests, die Source-Inspection oder Funnel-Order vor der Stub-Logik prüfen. | Phase 11, Plan 03 |
 | Plan 11-03: Acceptance-Criterion `grep -c '.abs()' == 0` strikt buchstabengetreu nicht erfüllbar (4 Treffer in Doku/Assertion-Strings wegen Self-Reference-Phänomen). Code-Pfad-`.abs()`-Count == 0 via `grep -v '//' \| grep -v '"' \| wc -l` verifiziert. Plan-Intention (Phase-10-D-04-Konsistenz ohne `.abs()` im Code-Pfad, PATTERNS.md §S9) ist erfüllt. Future Plans formulieren solche Greps mit Self-Reference-Filter-Klausel (Pattern aus Audit-Macros-Grep-Gate). | Phase 11, Plan 03 |
+| Plan 11-04: TDD-RED-Strategie fuer REST-Handler via wrong defaults (`ExportIncludeQuery::default()=All`, `map_export_error->Unauthorized`, Format-Whitelist als `_ => Pdf` Catch-All) statt `todo!()`-Stubs — 3 von 7 Tests scheitern semantisch korrekt mit assertion-Failures, 4 Tests laufen schon im RED gruen (sind unabhaengig von Stub-Bodies, treffen Code-Pfade die immer das gleiche Verhalten zeigen). Pattern-Vorlage fuer kuenftige REST-Handler-Plans mit klaren Default-Werten und Mapping-Tabellen. | Phase 11, Plan 04 |
+| Plan 11-04: REVISION-Fix W2 deterministisch via grep-Count vor Commit — `grep -c "attendance_export::AttendanceExportRestState"` und `grep -c "repayment_export::RepaymentExportRestState"` in `lib.rs` MUESSEN identisch sein (== 2: create_app + start_server). Verhindert "trait bound not satisfied"-Build-Errors an genau einer vergessenen Stelle. Pattern-Vorlage fuer alle kuenftigen Trait-Erweiterungen mit mehreren Bound-Stellen. | Phase 11, Plan 04 |
+| Plan 11-04: test_server.rs ist eigenstaendige Bound-Stelle ausserhalb `lib.rs` — Plan-Spec zaehlte nur lib.rs-Stellen (2); `cargo build -p genossi_rest` deckte eine 3. Stelle in `test_server.rs::start_test_server`-Generic auf. Rule-3-Auto-Fix erweitert dort ebenfalls, sonst kompilieren Plan-11.06-E2E-Tests nicht. Pattern-Anker fuer kuenftige Trait-Erweiterungen: ALLE Files mit RestStateDef-Bound-Listen pruefen (`grep -r "RestStateDef" genossi_rest/src`), nicht nur `lib.rs`. | Phase 11, Plan 04 |
 | One-Time-Use-QR pro Helfer | Verhindert Token-Weitergabe an Unbefugte | Phase 2 |
 | Helfer-Memo-Name = Freitext, kein Identitäts-Anker | Reine UX-Hilfe für Vorstand beim Drucken | Phase 2 |
 | GV-Status final nach Schluss; Vorstand-Korrekturen ohne Re-Open | Vermeidet Status-Pingpong, hält Audit-Story einfach | Phase 1 |
@@ -438,3 +442,7 @@ Details siehe `.planning/v1.0-MILESTONE-AUDIT.md` und `.planning/MILESTONES.md`.
 *Phase 08 COMPLETE: 2026-05-31*
 *Phase 08 Plan 07 completed: 2026-05-31 (gap-closure Wave 1: CR-01 RepaymentEntry Re-Read)*
 *Phase 08 Plan 08 completed: 2026-05-31 (gap-closure Wave 1: CR-01 RepaymentPhase Re-Read)*
+*Phase 11 Plan 01 completed: 2026-06-01*
+*Phase 11 Plan 02 completed: 2026-06-01*
+*Phase 11 Plan 03 completed: 2026-06-01*
+*Phase 11 Plan 04 completed: 2026-06-01 (REST-Handler + Format-Whitelist + map_export_error + Wiring)*
