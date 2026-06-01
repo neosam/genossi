@@ -1937,6 +1937,109 @@ pub async fn export_attendance_url(
     Ok(blob_url)
 }
 
+// ─── Phase 13 ─── RepaymentLetter Bulk-Anschreiben ──────────────────
+
+/// Phase 13 D-13-02 / D-13-04: Ergebnis von [`generate_repayment_letters`].
+///
+/// `blob_url` ist die per `URL.createObjectURL` erzeugte Blob-URL fuer das
+/// Bundle-PDF (vom Caller in `<a download>`-Click verpackt, danach
+/// `Url::revoke_object_url` aufrufen).
+///
+/// `document_count` kommt aus dem `X-Document-Count`-Response-Header und
+/// reflektiert die Anzahl der nach Member-Aggregation (D-13-04) tatsaechlich
+/// erzeugten Briefe — nicht die Roh-`entry_ids.len()`. Wird vom Caller
+/// fuer die Singular/Plural-Toast-Wahl verwendet.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GeneratedLettersResult {
+    pub blob_url: String,
+    pub document_count: usize,
+}
+
+/// Phase 13 D-13-02 / D-13-03 / D-13-04: POST
+/// `/api/repayment-phase/{phase_id}/letters/generate`.
+///
+/// Sendet `entry_ids` als JSON-Body, empfaengt das Bundle-PDF als Binary +
+/// `X-Document-Count`-Header. Caller triggert `<a download>`-Click mit
+/// `blob_url` und nutzt `document_count` fuer die Toast-Pluralisierung
+/// (Server aggregiert via Resolver: `document_count = unique members`,
+/// NICHT `entry_ids.len()`).
+///
+/// Returns: [`GeneratedLettersResult`]. Caller MUSS
+/// `web_sys::Url::revoke_object_url(&blob_url)` nach dem `.click()` aufrufen
+/// (Pattern aus Phase 6/11 Export, vgl. `assembly_details.rs:362-395`).
+pub async fn generate_repayment_letters(
+    config: &Config,
+    phase_id: Uuid,
+    entry_ids: Vec<Uuid>,
+) -> Result<GeneratedLettersResult, AppError> {
+    use wasm_bindgen::JsCast;
+    use wasm_bindgen_futures::JsFuture;
+
+    let url = format!(
+        "{}/api/repayment-phase/{}/letters/generate",
+        config.backend, phase_id
+    );
+    info!("Generating repayment letters: {url} ({} entries)", entry_ids.len());
+
+    let body = serde_json::json!({ "entry_ids": entry_ids }).to_string();
+    let entry_ids_len = entry_ids.len();
+
+    let mut opts = web_sys::RequestInit::new();
+    opts.set_method("POST");
+    opts.set_body(&wasm_bindgen::JsValue::from_str(&body));
+
+    let headers = web_sys::Headers::new()
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
+    headers
+        .set("Content-Type", "application/json")
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
+    opts.set_headers(&headers);
+
+    let request = web_sys::Request::new_with_str_and_init(&url, &opts)
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
+
+    let window = web_sys::window()
+        .ok_or_else(|| AppError::new(None, "Verbindungsfehler", None))?;
+    let resp_value = JsFuture::from(window.fetch_with_request(&request))
+        .await
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
+
+    let resp: web_sys::Response = resp_value
+        .dyn_into()
+        .map_err(|_| AppError::new(None, "Verbindungsfehler", None))?;
+
+    if !resp.ok() {
+        return Err(map_web_response_error(&resp).await);
+    }
+
+    // D-13-04: X-Document-Count Header lesen — das ist der Server-aggregierte
+    // unique-member-count. Fallback `entry_ids.len()` falls Header fehlt
+    // (defensiv — sollte nicht passieren, weil Backend ihn immer setzt).
+    let document_count: usize = resp
+        .headers()
+        .get("X-Document-Count")
+        .ok()
+        .flatten()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(entry_ids_len);
+
+    let blob = JsFuture::from(resp.blob().unwrap())
+        .await
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
+
+    let blob: web_sys::Blob = blob
+        .dyn_into()
+        .map_err(|_| AppError::new(None, "Verbindungsfehler", None))?;
+
+    let blob_url = web_sys::Url::create_object_url_with_blob(&blob)
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
+
+    Ok(GeneratedLettersResult {
+        blob_url,
+        document_count,
+    })
+}
+
 // ─── Phase 12 ─── RepaymentPhase / RepaymentEntry TOs ───────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

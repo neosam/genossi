@@ -640,6 +640,15 @@ pub enum Key {
     RepaymentEntryPaidOutConfirmWarn3,
     RepaymentEntryPaidOutConfirmButton,
     RepaymentEntryBulkMailButton,
+    // ─── Phase 13 ─── RepaymentLetter Bulk-Anschreiben ──
+    /// Button-Label fuer den Bulk-Letter-Action neben Massenmail.
+    RepaymentEntryBulkLetterButton,
+    /// Toast-Singular-Form: "1 Brief erzeugt. ..."
+    RepaymentLetterToastSingular,
+    /// Toast-Plural-Form mit `{count}`-Placeholder: "{count} Briefe erzeugt. ..."
+    RepaymentLetterToastPlural,
+    /// Default-Filename-Prefix fuer Bundle-PDF (`auszahlungs_anschreiben_GJ_{year}.pdf`).
+    RepaymentLetterFilenamePrefix,
     RepaymentExportInclude,
     RepaymentExportIncludeOpen,
     RepaymentExportIncludeAll,

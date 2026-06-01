@@ -575,6 +575,11 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::RepaymentEntryPaidOutConfirmWarn3 => "⚠ Reduziert current_shares der betroffenen Mitglieder.".into(),
         Key::RepaymentEntryPaidOutConfirmButton => "Endgültig markieren".into(),
         Key::RepaymentEntryBulkMailButton => "Mail an Ausgewählte".into(),
+        // ─── Phase 13 ─── RepaymentLetter Bulk-Anschreiben ──
+        Key::RepaymentEntryBulkLetterButton => "Anschreiben erzeugen".into(),
+        Key::RepaymentLetterToastSingular => "1 Brief erzeugt. Vergiss nicht, den Eintrag anschliessend als angeschrieben zu markieren.".into(),
+        Key::RepaymentLetterToastPlural => "{count} Briefe erzeugt. Vergiss nicht, die Eintraege anschliessend als angeschrieben zu markieren.".into(),
+        Key::RepaymentLetterFilenamePrefix => "auszahlungs_anschreiben".into(),
         Key::RepaymentExportInclude => "Welche Einträge einschließen?".into(),
         Key::RepaymentExportIncludeOpen => "Nur offene + angeschriebene (für Banking-Vorlage)".into(),
         Key::RepaymentExportIncludeAll => "Alle Einträge".into(),
