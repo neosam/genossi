@@ -50,6 +50,7 @@
             rustc
             cargo
             rust-analyzer
+            clippy
             sqlx-cli
             sqlite
             nodejs
