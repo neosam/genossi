@@ -834,24 +834,127 @@ fn build_inputs_repayment(
 /// `member`, `repayment`, `today` werden als JSON-String unter
 /// `sys.inputs.<key>` an Typst gereicht.
 ///
-/// TDD-RED-Phase: Stub returnt leeres Dict, damit die Tests fail-en und der
-/// RED-Schritt dokumentiert ist. GREEN-Commit ersetzt den Body.
+/// Pitfall #5 (RESEARCH): `member.bank_account = None` muss als JSON `null`
+/// serialisiert werden — das Template hat einen `#if m.bank_account != none`
+/// -Switch. KEIN Default-String fuer abwesende IBAN.
+///
+/// `_phase` ist heute ungenutzt (Subject/Sender/Recipient kommen aus Member +
+/// RepaymentContext); wird mitgereicht fuer kuenftige Erweiterungen
+/// (z.B. phase-spezifische Anrede).
 fn build_inputs_repayment_letter(
     _phase: &RepaymentPhaseEntity,
-    _member: &MemberEntity,
-    _ctx: &RepaymentContext,
+    member: &MemberEntity,
+    ctx: &RepaymentContext,
 ) -> Dict {
-    Dict::new()
+    let mut inputs = Dict::new();
+
+    let date_str = time::OffsetDateTime::now_utc().date().to_string();
+    inputs.insert(
+        Str::from("today"),
+        Value::Str(Str::from(date_str.as_str())),
+    );
+
+    let member_json = serde_json::json!({
+        "member_number": member.member_number,
+        "salutation": member.salutation.as_ref().map(|s| s.as_str()),
+        "title": member.title.as_ref().map(|s| s.as_ref()),
+        "first_name": member.first_name.as_ref(),
+        "last_name": member.last_name.as_ref(),
+        "street": member.street.as_ref().map(|s| s.as_ref()),
+        "house_number": member.house_number.as_ref().map(|s| s.as_ref()),
+        "postal_code": member.postal_code.as_ref().map(|s| s.as_ref()),
+        "city": member.city.as_ref().map(|s| s.as_ref()),
+        "bank_account": member.bank_account.as_ref().map(|s| s.as_ref()),
+    });
+    let member_str = serde_json::to_string(&member_json).expect("member json serialisable");
+    inputs.insert(
+        Str::from("member"),
+        Value::Str(Str::from(member_str.as_str())),
+    );
+
+    let repayment_json = serde_json::json!({
+        "share_count": ctx.share_count,
+        "payout_amount": ctx.payout_amount,
+        "fiscal_year": ctx.fiscal_year,
+    });
+    let repayment_str =
+        serde_json::to_string(&repayment_json).expect("repayment json serialisable");
+    inputs.insert(
+        Str::from("repayment"),
+        Value::Str(Str::from(repayment_str.as_str())),
+    );
+
+    inputs
 }
 
 /// Phase 13 D-13-01: Inputs fuer Bundle-PDF (N Members in EINEM Compile).
 ///
-/// TDD-RED-Phase: Stub returnt leeres Dict; GREEN-Commit fuellt den Body.
+/// `recipients`-Array enthaelt pro Member ein Objekt mit `member` und
+/// `repayment` Sub-JSON. Reihenfolge bestimmt der Caller (Service sortiert nach
+/// `member_number` ASC — RESEARCH Pitfall #10).
+///
+/// Zusaetzlich `today` und `meta` (mit `phase_id`, `fiscal_year`,
+/// `recipient_count`) — `meta` ist heute fuer das Bundle-Template optional, wird
+/// aber fuer kuenftige Header/Trailer-Erweiterungen bereitgestellt.
 fn build_inputs_repayment_letters_bundle(
-    _phase: &RepaymentPhaseEntity,
-    _recipients: &[(MemberEntity, RepaymentContext)],
+    phase: &RepaymentPhaseEntity,
+    recipients: &[(MemberEntity, RepaymentContext)],
 ) -> Dict {
-    Dict::new()
+    let mut inputs = Dict::new();
+
+    let date_str = time::OffsetDateTime::now_utc().date().to_string();
+    inputs.insert(
+        Str::from("today"),
+        Value::Str(Str::from(date_str.as_str())),
+    );
+
+    let meta = serde_json::json!({
+        "fiscal_year": phase.fiscal_year,
+        "recipient_count": recipients.len(),
+        "phase_id": phase.id.to_string(),
+    });
+    inputs.insert(
+        Str::from("meta"),
+        Value::Str(Str::from(
+            serde_json::to_string(&meta)
+                .expect("meta json serialisable")
+                .as_str(),
+        )),
+    );
+
+    let recipient_values: Vec<serde_json::Value> = recipients
+        .iter()
+        .map(|(member, ctx)| {
+            serde_json::json!({
+                "member": {
+                    "member_number": member.member_number,
+                    "salutation": member.salutation.as_ref().map(|s| s.as_str()),
+                    "title": member.title.as_ref().map(|s| s.as_ref()),
+                    "first_name": member.first_name.as_ref(),
+                    "last_name": member.last_name.as_ref(),
+                    "street": member.street.as_ref().map(|s| s.as_ref()),
+                    "house_number": member.house_number.as_ref().map(|s| s.as_ref()),
+                    "postal_code": member.postal_code.as_ref().map(|s| s.as_ref()),
+                    "city": member.city.as_ref().map(|s| s.as_ref()),
+                    "bank_account": member.bank_account.as_ref().map(|s| s.as_ref()),
+                },
+                "repayment": {
+                    "share_count": ctx.share_count,
+                    "payout_amount": ctx.payout_amount,
+                    "fiscal_year": ctx.fiscal_year,
+                },
+            })
+        })
+        .collect();
+    let recipients_str =
+        serde_json::to_string(&serde_json::Value::Array(recipient_values))
+            .expect("recipients json serialisable");
+    inputs.insert(
+        Str::from("recipients"),
+        Value::Str(Str::from(recipients_str.as_str())),
+    );
+
+    inputs
 }
 
 struct TemplateWorld<'a> {
