@@ -442,6 +442,48 @@ impl PdfGenerator {
         Ok(pdf_bytes)
     }
 
+    /// Phase 13 D-13-01: Render EIN Single-Letter-PDF fuer 1 Member.
+    ///
+    /// Synchrone Funktion (Typst ist nicht-async) — Caller commitet Tx VOR
+    /// Aufruf (RESEARCH Pitfall #2). Template-Pfad ist typischerweise
+    /// `"auszahlungs_anschreiben.typ"` (Plan 13-01 Output).
+    ///
+    /// TDD-RED-Phase: Stub returnt InternalError; GREEN-Commit ersetzt den
+    /// Body durch echten Typst-Render-Pfad analog `render_repayment_list`.
+    pub fn render_repayment_letter(
+        &self,
+        _template_path: &str,
+        _template_base: &Path,
+        _phase: &RepaymentPhaseEntity,
+        _member: &MemberEntity,
+        _ctx: &RepaymentContext,
+    ) -> Result<Vec<u8>, ServiceError> {
+        Err(ServiceError::InternalError(Arc::from(
+            "render_repayment_letter not yet implemented (TDD RED)",
+        )))
+    }
+
+    /// Phase 13 D-13-01: Render Bundle-PDF mit N Briefen in EINEM Typst-Compile.
+    ///
+    /// Recipients ist die Sortier-Reihenfolge (RESEARCH Pitfall #10 — Caller
+    /// sortiert). Template ist typischerweise `"auszahlungs_anschreiben_bundle.typ"`
+    /// (Plan 13-01 Output), das via `#import "auszahlungs_anschreiben.typ":
+    /// render-letter` die Single-Source-of-Truth nutzt und mit `#pagebreak()`
+    /// zwischen Recipients trennt.
+    ///
+    /// TDD-RED-Phase: Stub returnt InternalError; GREEN-Commit ersetzt den Body.
+    pub fn render_repayment_letter_bundle(
+        &self,
+        _template_path: &str,
+        _template_base: &Path,
+        _phase: &RepaymentPhaseEntity,
+        _recipients: &[(MemberEntity, RepaymentContext)],
+    ) -> Result<Vec<u8>, ServiceError> {
+        Err(ServiceError::InternalError(Arc::from(
+            "render_repayment_letter_bundle not yet implemented (TDD RED)",
+        )))
+    }
+
     fn build_inputs_application(&self, application: &Application) -> Dict {
         let mut inputs = Dict::new();
 
@@ -1838,5 +1880,158 @@ foo
             serde_json::from_str(extract_str_input(&dict, "recipients").as_str()).unwrap();
         let first = &recipients_json.as_array().unwrap()[0];
         assert_eq!(first["member"]["bank_account"], serde_json::Value::Null);
+    }
+
+    // --- Phase 13 D-13-01 render_repayment_letter(_bundle) tests --------------
+    //
+    // Smoke-Tests gegen ECHTE Plan-13-01-Templates aus templates/defaults/.
+    // CARGO_MANIFEST_DIR macht die Pfade unabhaengig vom Cargo-Working-Dir.
+
+    /// Provisioniert die beiden Plan-13-01-Letter-Templates in einem TempDir
+    /// und gibt das Dir-Handle zurueck. Templates importieren keine externen
+    /// _layout.typ-Files (sie nutzen `@preview/letter-pro:3.0.0` direkt) —
+    /// das `templates/defaults/_layout.typ` muss daher NICHT mitkopiert
+    /// werden.
+    fn provision_letter_templates() -> TempDir {
+        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let dir = TempDir::new().unwrap();
+        std::fs::copy(
+            manifest.join("../templates/defaults/auszahlungs_anschreiben.typ"),
+            dir.path().join("auszahlungs_anschreiben.typ"),
+        )
+        .unwrap();
+        std::fs::copy(
+            manifest.join("../templates/defaults/auszahlungs_anschreiben_bundle.typ"),
+            dir.path().join("auszahlungs_anschreiben_bundle.typ"),
+        )
+        .unwrap();
+        // Logo asset referenced by the templates via #place(...image(...)).
+        // Without it the Typst compile fails with a file-not-found error.
+        std::fs::copy(
+            manifest.join("../templates/nebenan-unverpackt-logo.svg"),
+            dir.path().join("nebenan-unverpackt-logo.svg"),
+        )
+        .unwrap();
+        dir
+    }
+
+    #[test]
+    fn test_render_repayment_letter_smoke() {
+        // Renders a single letter with a Member-with-IBAN; verifies PDF magic
+        // and non-trivial size.
+        let template_base = provision_letter_templates();
+        let generator = PdfGenerator::new();
+        let phase = test_repayment_phase();
+        let member = sample_member_with_iban();
+        let ctx = sample_ctx(3, "360,00", phase.fiscal_year);
+
+        let res = generator.render_repayment_letter(
+            "auszahlungs_anschreiben.typ",
+            template_base.path(),
+            &phase,
+            &member,
+            &ctx,
+        );
+        assert!(res.is_ok(), "render failed: {:?}", res.err());
+        let bytes = res.unwrap();
+        assert!(bytes.starts_with(b"%PDF-"), "missing PDF magic bytes");
+        assert!(bytes.len() > 1000, "PDF too small ({} bytes)", bytes.len());
+    }
+
+    #[test]
+    fn test_render_repayment_letter_null_iban_renders_ok() {
+        // D-13-06 Baustein 3 + Pitfall #5: Member ohne bank_account muss
+        // ohne Error rendern (Template hat `#if m.bank_account != none`-Switch).
+        let template_base = provision_letter_templates();
+        let generator = PdfGenerator::new();
+        let phase = test_repayment_phase();
+        let member = sample_member_without_iban();
+        let ctx = sample_ctx(2, "240,00", phase.fiscal_year);
+
+        let res = generator.render_repayment_letter(
+            "auszahlungs_anschreiben.typ",
+            template_base.path(),
+            &phase,
+            &member,
+            &ctx,
+        );
+        assert!(
+            res.is_ok(),
+            "NULL-IBAN render must not fail: {:?}",
+            res.err()
+        );
+        let bytes = res.unwrap();
+        assert!(bytes.starts_with(b"%PDF-"));
+    }
+
+    #[test]
+    fn test_render_repayment_letter_template_not_found() {
+        // Falscher Path → InternalError mit "template not found"-Substring.
+        let template_base = provision_letter_templates();
+        let generator = PdfGenerator::new();
+        let phase = test_repayment_phase();
+        let member = sample_member_with_iban();
+        let ctx = sample_ctx(1, "120,00", phase.fiscal_year);
+
+        let res = generator.render_repayment_letter(
+            "does_not_exist.typ",
+            template_base.path(),
+            &phase,
+            &member,
+            &ctx,
+        );
+        let err = res.expect_err("expected InternalError for missing template");
+        match err {
+            ServiceError::InternalError(msg) => {
+                assert!(
+                    msg.contains("template not found"),
+                    "error message missing 'template not found': {}",
+                    msg
+                );
+            }
+            other => panic!("expected InternalError, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_render_repayment_letter_bundle_smoke() {
+        // Bundle mit 2 Recipients; PDF muss deutlich groesser sein als ein
+        // einzelner Letter (= mehrere Seiten via #pagebreak()).
+        let template_base = provision_letter_templates();
+        let generator = PdfGenerator::new();
+        let phase = test_repayment_phase();
+        let m1 = sample_member_with_iban();
+        let m2 = sample_member_without_iban();
+        let ctx = sample_ctx(3, "360,00", phase.fiscal_year);
+
+        let single_bytes = generator
+            .render_repayment_letter(
+                "auszahlungs_anschreiben.typ",
+                template_base.path(),
+                &phase,
+                &m1,
+                &ctx,
+            )
+            .expect("single render ok");
+
+        let recipients = vec![(m1.clone(), ctx.clone()), (m2, ctx.clone())];
+        let bundle_bytes = generator
+            .render_repayment_letter_bundle(
+                "auszahlungs_anschreiben_bundle.typ",
+                template_base.path(),
+                &phase,
+                &recipients,
+            )
+            .expect("bundle render ok");
+
+        assert!(bundle_bytes.starts_with(b"%PDF-"), "missing PDF magic");
+        // Heuristik: Bundle >= 1.5x Single (siehe Plan threat-model bullet #6).
+        assert!(
+            bundle_bytes.len() > (single_bytes.len() as f64 * 1.5) as usize,
+            "bundle ({} bytes) must be at least 1.5x single ({} bytes) — \
+             otherwise bundle template did not render both letters",
+            bundle_bytes.len(),
+            single_bytes.len(),
+        );
     }
 }
