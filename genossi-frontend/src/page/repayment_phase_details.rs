@@ -208,6 +208,9 @@ pub fn RepaymentPhaseDetails(id: String) -> Element {
                         let phase_for_basics = p.clone();
                         let phase_for_entries = p.clone();
                         let phase_for_export = p.clone();
+                        // Phase 13: fiscal_year fuer Browser-Save-Filename
+                        // des Bundle-PDFs (`auszahlungs_anschreiben_GJ_{year}.pdf`).
+                        let fiscal_year_for_letters = p.fiscal_year;
                         rsx! {
                             TabStrip {
                                 tabs: tab_defs,
@@ -255,6 +258,71 @@ pub fn RepaymentPhaseDetails(id: String) -> Element {
                                                     if let Some(window) = web_sys::window() {
                                                         let _ = window.location().set_href(&url);
                                                     }
+                                                },
+                                                on_letter_request: move |entry_ids: Vec<uuid::Uuid>| {
+                                                    // Phase 13 D-13-02: Direct-Download des Bundle-PDFs +
+                                                    // Browser-Save via <a download> + Toast mit Server-Document-Count.
+                                                    //
+                                                    // KEIN entry_ids.len() vorab speichern — wir nutzen den
+                                                    // Server-aggregierten document_count aus X-Document-Count (D-13-04),
+                                                    // damit "1 Brief erzeugt" auch dann stimmt, wenn der Vorstand
+                                                    // 3 Entries fuer 1 Member ausgewaehlt hat.
+                                                    if entry_ids.is_empty() {
+                                                        return; // defensive — Button ist disabled bei 0 Selection
+                                                    }
+                                                    let phase_id_for_spawn = phase_id;
+                                                    let fiscal_year_for_spawn = fiscal_year_for_letters;
+                                                    spawn(async move {
+                                                        let cfg = CONFIG.read().clone();
+                                                        match api::generate_repayment_letters(
+                                                            &cfg, phase_id_for_spawn, entry_ids,
+                                                        ).await {
+                                                            Ok(result) => {
+                                                                // Browser-Save: <a download>-Click + revoke_object_url
+                                                                // (Pattern aus assembly_details.rs:362-395).
+                                                                if let Some(window) = web_sys::window() {
+                                                                    if let Some(document) = window.document() {
+                                                                        if let Ok(elem) = document.create_element("a") {
+                                                                            let _ = elem.set_attribute("href", &result.blob_url);
+                                                                            let dl_filename = format!(
+                                                                                "auszahlungs_anschreiben_GJ_{}.pdf",
+                                                                                fiscal_year_for_spawn
+                                                                            );
+                                                                            let _ = elem.set_attribute("download", &dl_filename);
+                                                                            use wasm_bindgen::JsCast;
+                                                                            if let Ok(html_elem) =
+                                                                                elem.dyn_into::<web_sys::HtmlElement>()
+                                                                            {
+                                                                                html_elem.click();
+                                                                            }
+                                                                        }
+                                                                        // T-06-16 mitigation: release blob URL after click.
+                                                                        let _ = web_sys::Url::revoke_object_url(&result.blob_url);
+                                                                    }
+                                                                }
+                                                                // D-13-04: Server-Document-Count nutzen (NICHT entry_ids.len()).
+                                                                // Singular/Plural-aware Toast (deutsche Grammatik).
+                                                                let i18n_for_toast = use_i18n();
+                                                                let toast_msg = if result.document_count == 1 {
+                                                                    i18n_for_toast.t(Key::RepaymentLetterToastSingular).to_string()
+                                                                } else {
+                                                                    let count_str = result.document_count.to_string();
+                                                                    i18n_for_toast.t(Key::RepaymentLetterToastPlural).replace("{count}", &count_str)
+                                                                };
+                                                                show_toast(&mut toast_messages, &mut toast_counter, toast_msg);
+
+                                                                // D-13-09 Selection-Preservation:
+                                                                // selected_ids wird hier bewusst NICHT modifiziert. Der
+                                                                // Vorstand kann sofort den Phase-8-Batch-Button
+                                                                // "Als angeschrieben markieren" mit derselben Selektion
+                                                                // ausloesen. Backend toggelt den Status NICHT
+                                                                // automatisch — symmetrisch zu Phase 10 (Mail).
+                                                            }
+                                                            Err(e) => {
+                                                                show_toast(&mut toast_messages, &mut toast_counter, e.message);
+                                                            }
+                                                        }
+                                                    });
                                                 },
                                                 on_error: move |msg: String| show_toast(&mut toast_messages, &mut toast_counter, msg),
                                             }
