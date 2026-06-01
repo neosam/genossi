@@ -646,4 +646,39 @@ mod tests {
         let url = build_mail_redirect_url(pid, &[]);
         assert!(url.starts_with("/mail?"));
     }
+
+    // Plan 12-14 UI-02 / EXPO-01..03: build_export_url Pure-Func Tests
+    // RED-Phase: failing tests for the PDF-Export URL builder.
+    // ExportInclude::Open|All|Paid select the ?include= filter (Phase 11 D-03 default open).
+
+    #[test]
+    fn build_url_open() {
+        let pid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
+        let url = build_export_url(pid, ExportInclude::Open, "https://api.example.com");
+        assert_eq!(
+            url,
+            "https://api.example.com/api/repayment-phase/550e8400-e29b-41d4-a716-446655440000/export/pdf?include=open"
+        );
+    }
+
+    #[test]
+    fn build_url_all() {
+        let pid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
+        let url = build_export_url(pid, ExportInclude::All, "https://api.example.com");
+        assert!(url.ends_with("include=all"));
+    }
+
+    #[test]
+    fn build_url_paid() {
+        let pid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
+        let url = build_export_url(pid, ExportInclude::Paid, "https://api.example.com");
+        assert!(url.ends_with("include=paid"));
+    }
+
+    #[test]
+    fn build_url_trims_backend_trailing_slash() {
+        let pid = Uuid::new_v4();
+        let url = build_export_url(pid, ExportInclude::Open, "https://api.example.com/");
+        assert!(!url.contains("//api/"));
+    }
 }
