@@ -10,3 +10,6 @@ inventurly-test.qcow2
 genossi_bin/templates/
 genossi-frontend/codemirror/node_modules/
 .claude/worktrees/
+# Ignore test-side-effect typst-package caches in workspace sub-dirs
+# (root /typst-packages/ stays committed — it ships the letter-pro package).
+/*/typst-packages/
