@@ -205,6 +205,46 @@ Plans:
 5. `ausbezahlt`-Toggle hat Confirm-Dialog mit Warnung „irreversibel, audit-pflichtig, reduziert current_shares"; Backend-Validation-Fehler (PAYO-03) wird im Frontend als Toast angezeigt
 6. Massenmail-Aktion im Tabellen-Header funktioniert (multi-select → Template-Picker → Versenden); UAT-Checkliste durchgeklickt mit echtem SMTP-Account auf Staging
 
+**Plans:** 15 plans (Wave 1: 12-01 api+i18n, 12-02 badges+format; Wave 2: 12-03 router+nav, 12-04 list-page; Wave 3: 12-05 detail-skeleton; Wave 4: 12-06 share_value-inline-edit, 12-07 editable_cell; Wave 5: 12-08 entry-list; Wave 6: 12-09 add-modal; Wave 7: 12-10 paidout-confirm; Wave 8: 12-11 template-var-buttons, 12-12 mail-page; Wave 9: 12-13 mail-redirect-wire; Wave 10: 12-14 export-tab; Wave 11: 12-15 final-gates+UAT-checkpoint)
+
+Plans:
+**Wave 1** *(parallel — foundation: API + i18n + badges + format-helper)*
+- [ ] 12-01-PLAN.md — api.rs +12 functions + lokale TOs + i18n keys (~30 in de/en)
+- [ ] 12-02-PLAN.md — repayment_phase_status_badge + repayment_entry_status_badge + format_payout_eur helper
+
+**Wave 2** *(blocked on Wave 1)*
+- [ ] 12-03-PLAN.md — router routes + top_bar NavItem + page stubs
+- [ ] 12-04-PLAN.md — repayment_phases page (UI-01) + Create-Modal
+
+**Wave 3** *(blocked on Wave 2)*
+- [ ] 12-05-PLAN.md — repayment_phase_details skeleton (UI-02) — TabStrip + BasicsTab Lifecycle + Close-Confirm + 409-Body-Parse
+
+**Wave 4** *(blocked on Wave 3 — parallel: 12-06 touches details, 12-07 touches component layer)*
+- [ ] 12-06-PLAN.md — share_value Inline-Edit (D-05 PHAS-04)
+- [ ] 12-07-PLAN.md — editable_share_count_cell component (D-13)
+
+**Wave 5** *(blocked on Wave 4)*
+- [ ] 12-08-PLAN.md — repayment_entry_list component (UI-03) — Multi-Select + Filter + Inline-Edit + Detail-Page-Mount
+
+**Wave 6** *(blocked on Wave 5)*
+- [ ] 12-09-PLAN.md — repayment_entry_add_modal (UI-04) + Detail-Page-Wire
+
+**Wave 7** *(blocked on Wave 6)*
+- [ ] 12-10-PLAN.md — repayment_entry_paidout_confirm (UI-05) + Sequential-Loop + Detail-Page-Wire
+
+**Wave 8** *(blocked on Wave 7 — parallel: 12-11 component, 12-12 mail-page; no file overlap)*
+- [ ] 12-11-PLAN.md — TemplateVarButtons +show_repayment_vars prop (D-19)
+- [ ] 12-12-PLAN.md — mail_page query-param parsing + send_bulk_mail body (D-18)
+
+**Wave 9** *(blocked on Wave 8)*
+- [ ] 12-13-PLAN.md — Detail-Page on_mail_request wiring (Mail-Redirect-URL)
+
+**Wave 10** *(blocked on Wave 9)*
+- [ ] 12-14-PLAN.md — Export-Tab + PDF-Download anchor
+
+**Wave 11** *(blocked on Wave 10 — non-autonomous, human UAT)*
+- [ ] 12-15-PLAN.md — Final Grep-Gates + UAT-Checkliste + Vorstand-Walkthrough
+
 ## Progress
 
 | Phase                                                           | Milestone | Plans Complete | Status                  | Completed  |
@@ -220,9 +260,9 @@ Plans:
 | 9. Auszahlungs-Buchung (atomisch + auditiert)                   | v1.1      | 5/5 | Complete   | 2026-06-01 |
 | 10. Massenmail-Anbindung + Template-Variablen                   | v1.1      | 8/8 | Complete    | 2026-05-31 |
 | 11. Export (PDF)                                                | v1.1      | 6/6 | Complete    | 2026-06-01 |
-| 12. Frontend (Component-First)                                  | v1.1      | 0/?            | Pending                 | —          |
+| 12. Frontend (Component-First)                                  | v1.1      | 0/15           | Pending                 | —          |
 
 ---
 
 *Roadmap created: 2026-05-02*
-*Last updated: 2026-06-01 after Phase 11 Plan 06 complete — 8 E2E-Tests verifizieren EXPO-01/02/03/05 + D-05/D-06/D-10/D-11/D-12 end-to-end gegen real-running Server; Phase 11 (export-pdf) shipped, milestone v1.1 zu 91% complete (33/34 plans, nur Phase 12 Frontend offen).*
+*Last updated: 2026-06-01 after Phase 12 planning — 15 plans across 11 waves cover UI-01..UI-06 (28 user-locked decisions D-01..D-28 fully traced); milestone v1.1 in plan-phase 33/48 plans complete, 15 new plans pending execution.*
