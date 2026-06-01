@@ -15,6 +15,8 @@ pub mod member_details;
 pub mod members;
 pub mod not_authenticated;
 pub mod permissions;
+// ─── Phase 12 ─── repayment pages ───────────────────────────────────
+pub mod repayment_phase_details;
 pub mod repayment_phases;
 pub mod static_documents;
 pub mod templates;
@@ -37,6 +39,9 @@ pub use member_details::MemberDetails;
 pub use members::Members;
 pub use not_authenticated::NotAuthenticated;
 pub use permissions::Permissions;
+// ─── Phase 12 ─── repayment pages re-exports ────────────────────────
+pub use repayment_phase_details::RepaymentPhaseDetails;
+pub use repayment_phases::RepaymentPhases;
 pub use static_documents::StaticDocumentsPage;
 pub use templates::Templates;
 pub use validation::Validation;
