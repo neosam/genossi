@@ -112,3 +112,7 @@ pub use repayment_entry_list::{
 // ─── Phase 12 Plan 12-09 ─── RepaymentEntryAddModal (UI-04) ─────────
 pub mod repayment_entry_add_modal;
 pub use repayment_entry_add_modal::{validate_create_entry, RepaymentEntryAddModal};
+
+// ─── Phase 12 Plan 12-10 ─── RepaymentEntryPaidOutConfirm (UI-05) ────
+pub mod repayment_entry_paidout_confirm;
+pub use repayment_entry_paidout_confirm::sum_payout_amounts;
