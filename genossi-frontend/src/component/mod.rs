@@ -97,3 +97,6 @@ pub mod repayment_phase_status_badge;
 pub mod repayment_entry_status_badge;
 pub use repayment_phase_status_badge::RepaymentPhaseStatusBadge;
 pub use repayment_entry_status_badge::RepaymentEntryStatusBadge;
+
+// ─── Phase 12 ─── EditableShareCountCell (D-13 Inline-Edit) ─────────
+pub mod editable_share_count_cell;
