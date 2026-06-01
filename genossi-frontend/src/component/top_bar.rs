@@ -67,6 +67,11 @@ pub fn TopBar() -> Element {
             label: i18n.t(Key::Assemblies).to_string(),
             route: Route::Assemblies {},
         });
+        // ── Phase 12 D-27 ── Anteils-Rückzahlung neben Assemblies (Mitglieder-Workflow-Affinität) ──
+        mitglieder_items.push(NavItem {
+            label: i18n.t(Key::RepaymentPhases).to_string(),
+            route: Route::RepaymentPhases {},
+        });
     }
 
     let mut kommunikation_items = Vec::new();

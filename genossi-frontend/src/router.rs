@@ -17,6 +17,9 @@ pub use crate::page::MailTemplatesPage;
 pub use crate::page::MemberDetails;
 pub use crate::page::Members;
 pub use crate::page::Permissions;
+// ─── Phase 12 ─── repayment pages ───────────────────────────────────
+pub use crate::page::RepaymentPhaseDetails;
+pub use crate::page::RepaymentPhases;
 pub use crate::page::StaticDocumentsPage;
 pub use crate::page::Templates;
 pub use crate::page::Validation;
@@ -35,6 +38,11 @@ pub enum Route {
     Assemblies {},
     #[route("/assemblies/:id")]
     AssemblyDetails { id: String },
+    // ── Phase 12 ── Anteils-Rückzahlung (Vorstand-only, admin-gated über RequirePrivilege in der Page) ──
+    #[route("/repayment-phases")]
+    RepaymentPhases {},
+    #[route("/repayment-phases/:id")]
+    RepaymentPhaseDetails { id: String },
     // ─── existing routes ─────────────────────────
     #[route("/members")]
     Members {},
