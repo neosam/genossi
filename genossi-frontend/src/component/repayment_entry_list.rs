@@ -138,6 +138,10 @@ pub fn RepaymentEntryList(
     on_add: EventHandler<()>,
     on_paidout_request: EventHandler<Vec<RepaymentEntryTO>>,
     on_mail_request: EventHandler<Vec<Uuid>>,
+    /// Phase 13 D-13-03: Callback fuer Bulk-Letter-Request.
+    /// Receives `entry_ids` (NICHT `member_ids`) — Server aggregiert
+    /// pro Member via Resolver (D-13-04).
+    on_letter_request: EventHandler<Vec<Uuid>>,
     on_error: EventHandler<String>,
 ) -> Element {
     let i18n = use_i18n();
@@ -246,6 +250,36 @@ pub fn RepaymentEntryList(
                             on_mail_request.call(member_ids);
                         },
                         "{i18n.t(Key::RepaymentEntryBulkMailButton)} ({selected_count})"
+                    }
+                    // Phase 13 D-13-01..03: Bulk-Letter-Button.
+                    // KRITISCH r#type: "button" Phase 12 D-01 — Page-Reload-Bug.
+                    // Visueller Unterschied zum Mail-Button (Purple statt Blau),
+                    // damit der Vorstand die beiden Bulk-Aktionen klar trennen kann.
+                    button {
+                        r#type: "button",
+                        class: if selected_count == 0 {
+                            "bg-gray-200 text-gray-500 px-3 py-2 rounded text-sm cursor-not-allowed min-h-[44px]"
+                        } else {
+                            "bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded text-sm min-h-[44px]"
+                        },
+                        disabled: selected_count == 0,
+                        onclick: move |_| {
+                            // D-13-03: entry_ids (NICHT member_ids) — Server
+                            // aggregiert via Resolver D-13-04. Selection bleibt
+                            // hier UNVERAENDERT (D-13-09 Selection-Preservation),
+                            // damit der Vorstand direkt anschliessend mit dem
+                            // Phase-8-Batch-Endpoint "Als angeschrieben markieren"
+                            // auf der gleichen Auswahl fortsetzen kann.
+                            let selected_set = selected_ids.read().clone();
+                            let ids: Vec<Uuid> = entries
+                                .read()
+                                .iter()
+                                .filter(|e| selected_set.contains(&e.id))
+                                .map(|e| e.id)
+                                .collect();
+                            on_letter_request.call(ids);
+                        },
+                        "{i18n.t(Key::RepaymentEntryBulkLetterButton)} ({selected_count})"
                     }
                     button {
                         r#type: "button",
