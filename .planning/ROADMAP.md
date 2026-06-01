@@ -47,7 +47,7 @@ Use `/gsd-plan-phase 7` to start execution of the first phase.
 4. E2E-Test: create → open → close-Lifecycle erfolgreich; Audit-Chain via `/api/audit/verify` bleibt valide
 5. `share_value`-Korrektur in `Offen`-Status erzeugt genau einen Audit-Eintrag pro Feld-Änderung; `fiscal_year` ist nach `Offen` read-only
 
-**Plans:** 4/5 plans executed
+**Plans:** 5/5 plans complete
 
 Plans:
 - [x] 07-01-PLAN.md — Migration + DAO-Trait + Entity + Auditable (Wave 1)
@@ -107,7 +107,7 @@ Plans:
 4. Status `ausbezahlt` ist final — Toggle-Back-Versuch über REST liefert 409 Conflict
 5. Race-Test mit `tokio::join!` auf zwei parallele `mark_paid_out`-Calls auf dem gleichen Eintrag: genau einer geht durch, der andere `Conflict`
 
-**Plans:** 4/5 plans executed
+**Plans:** 5/5 plans complete
 
 Plans:
 **Wave 1**
@@ -172,7 +172,7 @@ Plans:
 3. Export-Service hat `0` `audited_*!`-Aufrufe (Grep-Gate im Test); Vorstand-only via OIDC, `Helper`-Auth liefert 403
 4. 6+ E2E-Tests decken: PDF-Erfolg (Happy Path), 403 ohne Vorstand-Auth, 400 unbekanntes Format (`csv` blockiert mit 400), jede `?include`-Variante (`open`/`all`/`paid`), 409 bei `RepaymentPhase` in `Vorbereitung`-Status, 404 bei unbekannter `phase_id`, leere IBAN (Member.bank_account NULL) wird als leere Spalte gerendert
 
-**Plans:** 5/6 plans executed
+**Plans:** 6/6 plans complete
 
 Plans:
 **Wave 1** *(parallel — foundation: Template + Service-Trait)*
@@ -189,7 +189,7 @@ Plans:
 - [x] 11-05-PLAN.md — DI-Wiring in `genossi_bin/src/lib.rs::RestStateImpl::new()` (5 Edit-Stellen, Single-Arc-per-Process)
 
 **Wave 5** *(blocked on Wave 4 completion)*
-- [ ] 11-06-PLAN.md — 9 E2E-Tests: PDF-Happy-Path (Open+Closed) + Format-Whitelist (csv/xlsx/json/html → 400) + Status-Gate (Preparation → 409) + 404 + Audit-Chain bleibt valide + Include-Filter-3-Sub-Tests + leere IBAN (D-06) + Pitfall #2 Status-Leak-Defense (403 statt 409)
+- [x] 11-06-PLAN.md — 9 E2E-Tests: PDF-Happy-Path (Open+Closed) + Format-Whitelist (csv/xlsx/json/html → 400) + Status-Gate (Preparation → 409) + 404 + Audit-Chain bleibt valide + Include-Filter-3-Sub-Tests + leere IBAN (D-06) + Pitfall #2 Status-Leak-Defense (403 statt 409)
 
 #### Phase 12: Frontend (Component-First)
 
@@ -215,14 +215,14 @@ Plans:
 | 4. Frontend (Component-First) + QR + Manual-Code-Fallback       | v1.0      | 11/11          | Complete                | 2026-05-06 |
 | 5. Pre-GV-Generalprobe und Operations-Plan                      | v1.0      | 0/0            | SKIPPED (GV produktiv)  | 2026-05-17 |
 | 6. Teilnehmerlisten-Export für Generalversammlungen             | v1.0      | 4/4            | Complete                | 2026-05-17 |
-| 7. RepaymentPhase Backend (Foundation)                          | v1.1      | 4/5 | In Progress|  |
+| 7. RepaymentPhase Backend (Foundation)                          | v1.1      | 5/5 | Complete   | 2026-06-01 |
 | 8. RepaymentEntry + Auto-Befüllung                              | v1.1      | 10/10 | Complete   | 2026-05-31 |
-| 9. Auszahlungs-Buchung (atomisch + auditiert)                   | v1.1      | 4/5 | In Progress|  |
+| 9. Auszahlungs-Buchung (atomisch + auditiert)                   | v1.1      | 5/5 | Complete   | 2026-06-01 |
 | 10. Massenmail-Anbindung + Template-Variablen                   | v1.1      | 8/8 | Complete    | 2026-05-31 |
-| 11. Export (PDF)                                                | v1.1      | 5/6 | In Progress|  |
+| 11. Export (PDF)                                                | v1.1      | 6/6 | Complete   | 2026-06-01 |
 | 12. Frontend (Component-First)                                  | v1.1      | 0/?            | Pending                 | —          |
 
 ---
 
 *Roadmap created: 2026-05-02*
-*Last updated: 2026-05-31 after Phase 11 plans created (6 plans across 5 waves)*
+*Last updated: 2026-06-01 after Phase 11 Plan 06 complete — 8 E2E-Tests verifizieren EXPO-01/02/03/05 + D-05/D-06/D-10/D-11/D-12 end-to-end gegen real-running Server; Phase 11 (export-pdf) shipped, milestone v1.1 zu 91% complete (33/34 plans, nur Phase 12 Frontend offen).*
