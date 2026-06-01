@@ -24,9 +24,11 @@
 ///
 /// Always two decimal digits, comma as decimal separator, trailing
 /// non-breaking-space-and-€ glyph.
-pub fn format_payout_eur(_share_count: i32, _share_value_cents: i64) -> String {
-    // RED stub — implementation follows
-    String::new()
+pub fn format_payout_eur(share_count: i32, share_value_cents: i64) -> String {
+    let total_cents = (share_count as i64) * share_value_cents;
+    let euros = total_cents / 100;
+    let cents_rem = (total_cents.abs() % 100) as u32;
+    format!("{},{:02} €", euros, cents_rem)
 }
 
 /// Parst einen User-Input (60,00 / 60.00 / 60) als Euro-Wert und liefert
@@ -37,9 +39,18 @@ pub fn format_payout_eur(_share_count: i32, _share_value_cents: i64) -> String {
 /// - Wert kleiner-gleich 0 (Backend Phase 7 D-12 erfordert share_value > 0)
 ///
 /// Verwendung: Plan 12-04 Create-Modal, Plan 12-06 share_value-Inline-Edit.
-pub fn parse_euro_to_cents(_input: &str) -> Option<i64> {
-    // RED stub — implementation follows
-    None
+pub fn parse_euro_to_cents(input: &str) -> Option<i64> {
+    let trimmed = input.trim().replace(',', ".");
+    let euros: f64 = trimmed.parse().ok()?;
+    if !(euros > 0.0) {
+        return None;
+    }
+    let cents = (euros * 100.0).round() as i64;
+    if cents <= 0 {
+        None
+    } else {
+        Some(cents)
+    }
 }
 
 #[cfg(test)]
