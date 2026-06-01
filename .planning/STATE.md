@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Anteile-Rückzahlungsphase
 status: executing
-stopped_at: Completed 11-03-PLAN.md (RepaymentExportServiceImpl + Permission-Funnel + 5 service-layer tests)
-last_updated: "2026-06-01T05:46:14.180Z"
+stopped_at: Completed 11-05-PLAN.md (RepaymentExport DI-Wiring in RestStateImpl — 5 additive Edit-Stellen in genossi_bin/src/lib.rs)
+last_updated: "2026-06-01T05:53:48.822Z"
 last_activity: 2026-06-01
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 34
-  completed_plans: 32
-  percent: 94
+  completed_plans: 33
+  percent: 97
 ---
 
 # State: Genossi — v1.1 Anteile-Rückzahlungsphase
@@ -30,7 +30,7 @@ progress:
 ## Current Position
 
 Phase: 11 (export-pdf-csv) — EXECUTING
-Plan: 5 of 6
+Plan: 6 of 6
 Status: Ready to execute
 Last activity: 2026-06-01
 
@@ -106,6 +106,7 @@ Overall: 0% complete
 | Phase 11 P02 | 5min | 1 tasks | 2 files |
 | Phase 11 P03 | 8min | 1 tasks tasks | 2 files files |
 | Phase 11 P04 | 6min | 2 tasks | 3 files |
+| Phase 11 P05 | 3min | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -204,6 +205,8 @@ Overall: 0% complete
 | Plan 11-04: TDD-RED-Strategie fuer REST-Handler via wrong defaults (`ExportIncludeQuery::default()=All`, `map_export_error->Unauthorized`, Format-Whitelist als `_ => Pdf` Catch-All) statt `todo!()`-Stubs — 3 von 7 Tests scheitern semantisch korrekt mit assertion-Failures, 4 Tests laufen schon im RED gruen (sind unabhaengig von Stub-Bodies, treffen Code-Pfade die immer das gleiche Verhalten zeigen). Pattern-Vorlage fuer kuenftige REST-Handler-Plans mit klaren Default-Werten und Mapping-Tabellen. | Phase 11, Plan 04 |
 | Plan 11-04: REVISION-Fix W2 deterministisch via grep-Count vor Commit — `grep -c "attendance_export::AttendanceExportRestState"` und `grep -c "repayment_export::RepaymentExportRestState"` in `lib.rs` MUESSEN identisch sein (== 2: create_app + start_server). Verhindert "trait bound not satisfied"-Build-Errors an genau einer vergessenen Stelle. Pattern-Vorlage fuer alle kuenftigen Trait-Erweiterungen mit mehreren Bound-Stellen. | Phase 11, Plan 04 |
 | Plan 11-04: test_server.rs ist eigenstaendige Bound-Stelle ausserhalb `lib.rs` — Plan-Spec zaehlte nur lib.rs-Stellen (2); `cargo build -p genossi_rest` deckte eine 3. Stelle in `test_server.rs::start_test_server`-Generic auf. Rule-3-Auto-Fix erweitert dort ebenfalls, sonst kompilieren Plan-11.06-E2E-Tests nicht. Pattern-Anker fuer kuenftige Trait-Erweiterungen: ALLE Files mit RestStateDef-Bound-Listen pruefen (`grep -r "RestStateDef" genossi_rest/src`), nicht nur `lib.rs`. | Phase 11, Plan 04 |
+| Plan 11-05: 5-Edit-Stellen-Wiring-Pattern in `genossi_bin/src/lib.rs` 1:1 von Phase-6 AttendanceExport gespiegelt (Z. 266-289/520-522/815-830/918-922/1460-1468 als Vorlage). Alle DAOs + `pdf_generator` + `template_storage` via Arc::clone aus den bereits konstruierten Arcs geteilt — Single-Arc-per-Process pro Plan-10-Pattern, T-007-Mitigation (keine zweite PdfGenerator::new()-Allokation). RestStateImpl::new() erhaelt 5 additive Edits in einem atomaren Commit (Split-Commits wuerden den Tree zwischen Edit-Stellen rot lassen, E0063/E0609). | Phase 11, Plan 05 |
+| Plan 11-05: Acceptance-Criterion `grep -cE "type RepaymentExportService =" == 1` ist semantisch zu strikt — matched 2 Treffer: File-Level-Type-Alias (Z. 314) UND Trait-Assoc-Type-Setter im RestStateImpl-Trait-Impl (Z. 1526). Beide vom Plan-Text explizit gefordert (SCHRITT 1 + SCHRITT 5). Future Plan-Acceptance-Criteria sollten anchoring (`^type`) oder getrennte Counts verwenden. Analog zur Phase-11-Plan-03 Acceptance-Lesart-Deviation. | Phase 11, Plan 05 |
 | One-Time-Use-QR pro Helfer | Verhindert Token-Weitergabe an Unbefugte | Phase 2 |
 | Helfer-Memo-Name = Freitext, kein Identitäts-Anker | Reine UX-Hilfe für Vorstand beim Drucken | Phase 2 |
 | GV-Status final nach Schluss; Vorstand-Korrekturen ohne Re-Open | Vermeidet Status-Pingpong, hält Audit-Story einfach | Phase 1 |
