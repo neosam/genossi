@@ -1,5 +1,6 @@
 use genossi_dao::assembly::AssemblyEntity;
 use genossi_dao::attendance::AttendanceMemberRow;
+use genossi_dao::repayment_phase::RepaymentPhaseEntity;
 use genossi_service::application::Application;
 use genossi_service::member::Member;
 use genossi_service::template::TemplateError;
@@ -21,6 +22,27 @@ const EMBEDDED_FONTS: &[&[u8]] = &[
     include_bytes!("../../fonts/LiberationSans-Italic.ttf"),
     include_bytes!("../../fonts/LiberationSans-BoldItalic.ttf"),
 ];
+
+/// Phase 11 (EXPO-02): Rendering-Bundle pro Auszahlungseintrag.
+///
+/// Pre-computed im Service-Impl (Plan 11.03); der Renderer baut nur die JSON-
+/// Inputs fuer Typst. `amount_str` und `purpose` sind nach D-04 (Verwendungs-
+/// zweck-Schema mit Umlauten) + Phase-10-D-04 (deutsche Euro-Formatierung
+/// "12,00") konform vorbereitet.
+///
+/// D-05: Sonderzeichen ä/ö/ü/ß bleiben unveraendert — KEINE ASCII-
+/// Sanitization. Typst rendert UTF-8 nativ.
+/// D-07: `iban` ist leerer String, wenn `Member.bank_account == None`
+/// (Konversion `unwrap_or_default()` im Service-Impl).
+#[derive(Debug, Clone)]
+pub struct RepaymentExportRow {
+    pub member_number: i64,
+    pub name: String,
+    pub iban: String,
+    pub share_count: i32,
+    pub amount_str: String,
+    pub purpose: String,
+}
 
 pub struct PackageCache {
     cache_dir: PathBuf,
@@ -333,6 +355,32 @@ impl PdfGenerator {
                 ))))
             }
         }
+    }
+
+    /// Phase 11 (EXPO-02): Renders die Auszahlungsliste fuer eine
+    /// RepaymentPhase als PDF.
+    ///
+    /// Inputs:
+    ///   * `template_path` — filename relative zu `template_base`, z. B.
+    ///     `"auszahlungsliste.typ"`.
+    ///   * `template_base` — root directory (resolves `#import "_layout.typ"`).
+    ///   * `phase` — liefert `phase.fiscal_year` und `phase.share_value` fuer
+    ///     `meta.title`, `meta.fiscal_year` und Summe `meta.total_amount_str`.
+    ///   * `rows` — pre-computed RepaymentExportRows (D-04 purpose-String inkl.
+    ///     Umlaute, D-05 no-sanitization).
+    ///
+    /// Wraps Typst-Fehler in `ServiceError::InternalError`; gleiches Pipeline-
+    /// Pattern wie `render_attendance_list`.
+    pub fn render_repayment_list(
+        &self,
+        template_path: &str,
+        template_base: &Path,
+        phase: &RepaymentPhaseEntity,
+        rows: &[RepaymentExportRow],
+    ) -> Result<Vec<u8>, ServiceError> {
+        let _ = (template_path, template_base, phase, rows);
+        // TDD-RED stub: implementation lands in the GREEN commit.
+        todo!("render_repayment_list — implemented in GREEN commit")
     }
 
     fn build_inputs_application(&self, application: &Application) -> Dict {
@@ -1072,6 +1120,119 @@ Member number: #member.member_number
         );
         let pdf = result.unwrap();
         assert!(pdf.starts_with(b"%PDF"));
+    }
+
+    // --- Phase 11 (EXPO-02) render_repayment_list tests ----------------------
+    //
+    // REVISION-Fix W5: `CARGO_MANIFEST_DIR` macht die Template-Pfade
+    // deterministisch unabhaengig vom Cargo-Working-Dir (Workspace-Root vs.
+    // Crate-Dir).
+    // REVISION-Fix B1 + W6: D-04 wortwoertlich mit ORIGINAL-Umlaut
+    // "Anteilsrückzahlung" (ü, NICHT ue). D-05: keine ASCII-Sanitization.
+    // Member-Name "Hans Müller" verifiziert UTF-8-Render-Path durch Typst.
+
+    fn test_repayment_phase() -> RepaymentPhaseEntity {
+        let now = time::OffsetDateTime::now_utc();
+        let created = time::PrimitiveDateTime::new(now.date(), now.time());
+        RepaymentPhaseEntity {
+            id: Uuid::new_v4(),
+            fiscal_year: 2026,
+            share_value: 12000, // 120 EUR in cents
+            status: genossi_dao::repayment_phase::RepaymentPhaseStatus::Open,
+            opened_at: None,
+            closed_at: None,
+            created,
+            deleted: None,
+            version: Uuid::new_v4(),
+        }
+    }
+
+    #[test]
+    fn test_render_repayment_list_with_empty_rows() {
+        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let template_base = TempDir::new().unwrap();
+        std::fs::copy(
+            manifest.join("../templates/defaults/_layout.typ"),
+            template_base.path().join("_layout.typ"),
+        )
+        .unwrap();
+        std::fs::copy(
+            manifest.join("../templates/defaults/auszahlungsliste.typ"),
+            template_base.path().join("auszahlungsliste.typ"),
+        )
+        .unwrap();
+
+        let generator = PdfGenerator::new();
+        let phase = test_repayment_phase();
+        let rows: Vec<RepaymentExportRow> = Vec::new();
+        let res = generator.render_repayment_list(
+            "auszahlungsliste.typ",
+            template_base.path(),
+            &phase,
+            &rows,
+        );
+        assert!(res.is_ok(), "render failed: {:?}", res.err());
+        let bytes = res.unwrap();
+        assert!(bytes.starts_with(b"%PDF-"), "PDF magic bytes missing");
+    }
+
+    #[test]
+    fn test_render_repayment_list_with_two_rows() {
+        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let template_base = TempDir::new().unwrap();
+        std::fs::copy(
+            manifest.join("../templates/defaults/_layout.typ"),
+            template_base.path().join("_layout.typ"),
+        )
+        .unwrap();
+        std::fs::copy(
+            manifest.join("../templates/defaults/auszahlungsliste.typ"),
+            template_base.path().join("auszahlungsliste.typ"),
+        )
+        .unwrap();
+
+        let generator = PdfGenerator::new();
+        let phase = test_repayment_phase();
+        // REVISION-Fix B1 + W6: D-04 wortwoertlich mit ORIGINAL-Umlaut.
+        let rows = vec![
+            RepaymentExportRow {
+                member_number: 1234,
+                name: "Hans Müller".to_string(),
+                iban: "DE89370400440532013000".to_string(),
+                share_count: 1,
+                amount_str: "120,00".to_string(),
+                purpose: "Anteilsrückzahlung GJ 2026 1234 Hans Müller".to_string(),
+            },
+            RepaymentExportRow {
+                member_number: 5678,
+                name: "Erika Beispiel".to_string(),
+                iban: String::new(), // D-07: IBAN-NULL als leerer String
+                share_count: 2,
+                amount_str: "240,00".to_string(),
+                purpose: "Anteilsrückzahlung GJ 2026 5678 Erika Beispiel".to_string(),
+            },
+        ];
+
+        // Sanity: purpose-Strings enthalten ORIGINAL-Umlaut (D-04 wortwoertlich).
+        assert!(
+            rows[0].purpose.contains('ü'),
+            "D-04 violated: purpose must contain 'ü' from 'Anteilsrückzahlung'"
+        );
+        assert_eq!(
+            rows[0].purpose,
+            "Anteilsrückzahlung GJ 2026 1234 Hans Müller"
+        );
+
+        let res = generator.render_repayment_list(
+            "auszahlungsliste.typ",
+            template_base.path(),
+            &phase,
+            &rows,
+        );
+        assert!(res.is_ok(), "render failed: {:?}", res.err());
+        let bytes = res.unwrap();
+        assert!(bytes.starts_with(b"%PDF-"));
+        assert!(bytes.len() > 1000, "PDF too small ({} bytes)", bytes.len());
     }
 
     #[test]
