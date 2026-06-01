@@ -1,10 +1,16 @@
 //! Repayment phase detail page (Phase 12 Plan 12-05, UI-02) — admin-only.
 //!
-//! Task 1 (TDD RED): pure status-driven render-logic functions exist as stubs,
-//! tests are written but FAIL. Task 1 GREEN turns them into real predicates.
-//! Task 2 builds the full TabStrip + BasicsTab UI on top.
+//! Task 1: pure status-driven render-logic predicates (should_show_open_button,
+//! should_show_close_button, is_share_value_editable). Plan 12-06 reuses
+//! is_share_value_editable for the inline-edit guard.
+//!
+//! Task 2: 3-Tab-Layout (D-06) with TabStrip + inline BasicsTab + Schließen-
+//! Confirm-Modal + 409 CloseConflictResponse body-parse.
+//!
+//! Task 2 (TDD RED): parse_close_conflict is stubbed (returns None for all).
+//! Task 2 GREEN replaces with real serde_json::from_str dispatch.
 
-use crate::api::RepaymentPhaseStatusTO;
+use crate::api::{AppError, CloseConflictResponse, RepaymentPhaseStatusTO};
 
 /// D-03 + D-08: Öffnen-Button is only visible in status `Preparation`.
 fn should_show_open_button(status: RepaymentPhaseStatusTO) -> bool {
@@ -20,6 +26,16 @@ fn should_show_close_button(status: RepaymentPhaseStatusTO) -> bool {
 /// Plan 12-06 reuses this for the inline-edit guard.
 pub(crate) fn is_share_value_editable(status: RepaymentPhaseStatusTO) -> bool {
     !matches!(status, RepaymentPhaseStatusTO::Closed)
+}
+
+/// D-04 + Open-Question 5: parses the 409-detail body of POST /api/repayment-phase/{id}/close
+/// into a CloseConflictResponse. Returns None when the body is not a valid
+/// CloseConflictResponse (e.g. non-409 errors, missing detail body, or garbled JSON).
+/// On Some, the caller renders an ErrorAlert with pending_count + member-number list
+/// (detail-expand). On None, the caller falls back to a generic Toast with the error message.
+fn parse_close_conflict(_err: &AppError) -> Option<CloseConflictResponse> {
+    // RED stub: will be replaced in GREEN.
+    None
 }
 
 use dioxus::prelude::*;
@@ -58,5 +74,51 @@ mod tests {
         assert!(is_share_value_editable(RepaymentPhaseStatusTO::Preparation));
         assert!(is_share_value_editable(RepaymentPhaseStatusTO::Open));
         assert!(!is_share_value_editable(RepaymentPhaseStatusTO::Closed));
+    }
+
+    #[test]
+    fn parse_close_conflict_returns_none_on_non_409() {
+        let err = AppError {
+            status: Some(404),
+            message: "Not found".into(),
+            detail: None,
+        };
+        assert!(parse_close_conflict(&err).is_none());
+    }
+
+    #[test]
+    fn parse_close_conflict_returns_none_when_detail_missing() {
+        let err = AppError {
+            status: Some(409),
+            message: "Conflict".into(),
+            detail: None,
+        };
+        assert!(parse_close_conflict(&err).is_none());
+    }
+
+    #[test]
+    fn parse_close_conflict_returns_some_on_valid_body() {
+        let body = r#"{"error":"pending entries","pending_count":2,"pending_member_numbers":["42","43"]}"#;
+        let err = AppError {
+            status: Some(409),
+            message: "Conflict".into(),
+            detail: Some(body.to_string()),
+        };
+        let cc = parse_close_conflict(&err).expect("should parse");
+        assert_eq!(cc.pending_count, 2);
+        assert_eq!(
+            cc.pending_member_numbers,
+            vec!["42".to_string(), "43".to_string()]
+        );
+    }
+
+    #[test]
+    fn parse_close_conflict_returns_none_on_garbled_body() {
+        let err = AppError {
+            status: Some(409),
+            message: "Conflict".into(),
+            detail: Some("not json".into()),
+        };
+        assert!(parse_close_conflict(&err).is_none());
     }
 }
