@@ -3,6 +3,8 @@ pub mod assembly;
 pub mod attendance;
 pub mod attendance_export;
 pub mod repayment_export;
+// Phase 13 (D-13-01..11): REST-Handler fuer Bulk-PDF-Anschreiben (Vorstand-only).
+pub mod repayment_letter;
 pub mod audit_log;
 pub mod audit_timestamp;
 pub mod auth;
