@@ -274,6 +274,7 @@ pub trait RestStateDef:
         (path = "/api/assembly/{assembly_id}/helper-tokens", api = helper_token::ApiDoc),
         (path = "/api/attendance/{assembly_id}", api = attendance::ApiDoc),
         (path = "/api/assembly/{assembly_id}/attendance-export", api = attendance_export::ApiDoc),
+        (path = "/api/repayment-phase/{phase_id}/export", api = repayment_export::ApiDoc),
         (path = "/api/audit", api = audit_log::ApiDoc),
         (path = "/api/audit/timestamps", api = audit_timestamp::ApiDoc),
         (path = "/api/session", api = session_management::ApiDoc)
@@ -443,6 +444,7 @@ pub async fn create_app<
         + helper_token::HelperTokenRestState
         + attendance::AttendanceRestState
         + attendance_export::AttendanceExportRestState
+        + repayment_export::RepaymentExportRestState
         + audit_log::AuditRestState
         + audit_timestamp::TimestampRestState,
 >(
@@ -642,6 +644,15 @@ pub async fn create_app<
             "/api/assembly",
             attendance_export::generate_export_route::<RestState>(),
         )
+        // Phase 11 Plan 04 (D-12, D-03, D-11): PDF-Export der Auszahlungsliste.
+        // Mounted unter /api/repayment-phase — Axum 0.8.3 merged das mit dem
+        // bereits existierenden repayment_phase::generate_route() unter dem
+        // gleichen Prefix; die Pfade /{phase_id} und /{phase_id}/export/{format}
+        // kollidieren nicht (unique segments).
+        .nest(
+            "/api/repayment-phase",
+            repayment_export::generate_export_route::<RestState>(),
+        )
         .nest("/api/audit", audit_log::generate_route::<RestState>())
         .nest(
             "/api/audit/timestamps",
@@ -766,6 +777,7 @@ pub async fn start_server<
         + helper_token::HelperTokenRestState
         + attendance::AttendanceRestState
         + attendance_export::AttendanceExportRestState
+        + repayment_export::RepaymentExportRestState
         + audit_log::AuditRestState
         + audit_timestamp::TimestampRestState,
 >(

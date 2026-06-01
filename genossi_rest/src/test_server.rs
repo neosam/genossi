@@ -25,6 +25,7 @@ pub mod test_support {
             + crate::helper_token::HelperTokenRestState
             + crate::attendance::AttendanceRestState
             + crate::attendance_export::AttendanceExportRestState
+            + crate::repayment_export::RepaymentExportRestState
             + crate::audit_log::AuditRestState
             + crate::audit_timestamp::TimestampRestState,
     >(
