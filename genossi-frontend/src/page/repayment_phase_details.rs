@@ -68,6 +68,43 @@ pub(crate) fn build_mail_redirect_url(phase_id: Uuid, member_ids: &[Uuid]) -> St
     }
 }
 
+/// Plan 12-14 / Phase 11 D-03: Filter-Optionen für den PDF-Export.
+///
+/// `Open` ist Backend-Default (entspricht "?include=open" — offene +
+/// angeschriebene Einträge; Banking-Vorlage). `All` zieht zusätzlich
+/// ausbezahlte Einträge mit ein, `Paid` filtert auf ausbezahlte.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ExportInclude {
+    Open,
+    All,
+    Paid,
+}
+
+impl ExportInclude {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            ExportInclude::Open => "open",
+            ExportInclude::All => "all",
+            ExportInclude::Paid => "paid",
+        }
+    }
+}
+
+/// Plan 12-14 (Backend Phase 11): Vollständige URL für den PDF-Export.
+///
+/// Browser-native Download via Content-Disposition (Backend setzt
+/// `attachment; filename="auszahlung-{fiscal_year}-{include}.pdf"`).
+/// Defensives Trim eines möglichen Trailing-Slash in `backend`, damit
+/// keine doppelten Schrägstriche entstehen, falls die Config einen
+/// Slash am Ende behält.
+pub(crate) fn build_export_url(phase_id: Uuid, include: ExportInclude, backend: &str) -> String {
+    let backend_trimmed = backend.trim_end_matches('/');
+    format!(
+        "{backend_trimmed}/api/repayment-phase/{phase_id}/export/pdf?include={}",
+        include.as_str()
+    )
+}
+
 /// D-04 + Open-Question 5: parses the 409-detail body of POST /api/repayment-phase/{id}/close
 /// into a CloseConflictResponse. Returns None when the body is not a valid
 /// CloseConflictResponse (e.g. non-409 errors, missing detail body, or garbled JSON).
