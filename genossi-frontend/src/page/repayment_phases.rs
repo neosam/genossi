@@ -184,38 +184,41 @@ fn CreateRepaymentPhaseForm(
 
     let invalid_msg = "Bitte gültiges Geschäftsjahr und Anteilswert > 0 angeben".to_string();
 
+    let submit = move |_| {
+        let year = *fiscal_year.read();
+        let share_value_cents = match parse_euro_to_cents(&share_value_euro.read()) {
+            Some(c) => c,
+            None => {
+                on_error.call(invalid_msg.clone());
+                return;
+            }
+        };
+        if !(1900..=9999).contains(&year) {
+            on_error.call(invalid_msg.clone());
+            return;
+        }
+        submitting.set(true);
+        let req = CreateRepaymentPhaseRequest {
+            fiscal_year: year,
+            share_value: share_value_cents,
+        };
+        spawn(async move {
+            let config = CONFIG.read().clone();
+            match api::create_repayment_phase(&config, &req).await {
+                Ok(_) => on_created.call(()),
+                Err(e) => on_error.call(e.message),
+            }
+            submitting.set(false);
+        });
+    };
+
     rsx! {
-        form {
+        // UAT Section A #5 Defekt (Plan 12-04): Form-onsubmit + prevent_default
+        // löst trotzdem Page-Reload aus (Dioxus Button-Reload-Bug — Memory
+        // feedback_dioxus_button_type). Fix: div-Wrapper + r#type:"button" +
+        // onclick statt form/submit.
+        div {
             class: "flex flex-col gap-4",
-            onsubmit: move |e| {
-                e.prevent_default();
-                let year = *fiscal_year.read();
-                // Plan 12-02 Kanonik: parse_euro_to_cents aus repayment_format
-                let share_value_cents = match parse_euro_to_cents(&share_value_euro.read()) {
-                    Some(c) => c,
-                    None => {
-                        on_error.call(invalid_msg.clone());
-                        return;
-                    }
-                };
-                if !(1900..=9999).contains(&year) {
-                    on_error.call(invalid_msg.clone());
-                    return;
-                }
-                submitting.set(true);
-                let req = CreateRepaymentPhaseRequest {
-                    fiscal_year: year,
-                    share_value: share_value_cents,
-                };
-                spawn(async move {
-                    let config = CONFIG.read().clone();
-                    match api::create_repayment_phase(&config, &req).await {
-                        Ok(_) => on_created.call(()),
-                        Err(e) => on_error.call(e.message),
-                    }
-                    submitting.set(false);
-                });
-            },
             h2 { class: "text-xl font-semibold", "{i18n.t(Key::RepaymentPhaseCreate)}" }
             label { class: "flex flex-col gap-1",
                 span { class: "text-sm text-gray-700", "{i18n.t(Key::RepaymentPhaseFiscalYear)}" }
@@ -248,9 +251,10 @@ fn CreateRepaymentPhaseForm(
                     "{i18n.t(Key::Cancel)}"
                 }
                 button {
-                    r#type: "submit",
+                    r#type: "button",
                     class: "bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded disabled:opacity-50 min-h-[44px]",
                     disabled: *submitting.read(),
+                    onclick: submit,
                     "{i18n.t(Key::Save)}"
                 }
             }

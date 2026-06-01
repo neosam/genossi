@@ -40,33 +40,36 @@ pub fn RepaymentEntryAddModal(
 
     let invalid_msg = "Bitte Mitglied auswaehlen und Anteile > 0 angeben".to_string();
 
+    let submit = move |_| {
+        let mid = *selected_member_id.read();
+        let sc = *share_count.read();
+        if !validate_create_entry(mid, sc) {
+            on_error.call(invalid_msg.clone());
+            return;
+        }
+        let member_id = mid.unwrap();
+        submitting.set(true);
+        let req = CreateRepaymentEntryRequest {
+            phase_id,
+            member_id,
+            share_count_to_pay_out: sc,
+        };
+        spawn(async move {
+            let config = CONFIG.read().clone();
+            match api::create_repayment_entry(&config, &req).await {
+                Ok(_) => on_created.call(()),
+                Err(e) => on_error.call(e.message),
+            }
+            submitting.set(false);
+        });
+    };
+
     rsx! {
-        form {
+        // UAT Defekt-Prävention (Plan 12-09): Form-onsubmit + prevent_default
+        // löst trotzdem Page-Reload aus (Memory feedback_dioxus_button_type).
+        // Konsistent mit Fix in repayment_phases.rs CreateRepaymentPhaseForm.
+        div {
             class: "flex flex-col gap-4",
-            onsubmit: move |e| {
-                e.prevent_default();
-                let mid = *selected_member_id.read();
-                let sc = *share_count.read();
-                if !validate_create_entry(mid, sc) {
-                    on_error.call(invalid_msg.clone());
-                    return;
-                }
-                let member_id = mid.unwrap();
-                submitting.set(true);
-                let req = CreateRepaymentEntryRequest {
-                    phase_id,
-                    member_id,
-                    share_count_to_pay_out: sc,
-                };
-                spawn(async move {
-                    let config = CONFIG.read().clone();
-                    match api::create_repayment_entry(&config, &req).await {
-                        Ok(_) => on_created.call(()),
-                        Err(e) => on_error.call(e.message),
-                    }
-                    submitting.set(false);
-                });
-            },
             h2 { class: "text-xl font-semibold", "{i18n.t(Key::RepaymentEntryAdd)}" }
             label { class: "flex flex-col gap-1",
                 span { class: "text-sm text-gray-700", "Mitglied" }
@@ -107,9 +110,10 @@ pub fn RepaymentEntryAddModal(
                     "{i18n.t(Key::Cancel)}"
                 }
                 button {
-                    r#type: "submit",
+                    r#type: "button",
                     class: "bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded disabled:opacity-50 min-h-[44px]",
                     disabled: *submitting.read() || !validate_create_entry(*selected_member_id.read(), *share_count.read()),
+                    onclick: submit,
                     "{i18n.t(Key::Save)}"
                 }
             }

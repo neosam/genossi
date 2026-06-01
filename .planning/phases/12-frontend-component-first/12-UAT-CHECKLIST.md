@@ -129,7 +129,7 @@
 ## Defects
 | # | Beschreibung | Plan-Referenz | Schwere | Gap-Closure-Plan oder Inline-Fix | Status |
 |---|---|---|---|---|---|
-|   |   |   |   |   |   |
+| 1 | A#5: Create-Modal Validation feuert nicht — Submit mit `0`/`0` löst trotz `e.prevent_default()` einen Full-Page-Reload aus (weißer Flash → Liste), Toast erscheint nicht. Bekannter Dioxus-Bug (Memory `feedback_dioxus_button_type`) — `form { onsubmit }` + `r#type:"submit"` reicht nicht. Auch proaktiv in `repayment_entry_add_modal.rs` (UI-04) gefixt. | 12-04 (Listen-Page Create-Form) + 12-09 (Add-Entry-Modal, proaktiv) | Medium | **Inline-Fix angewendet:** `form` → `div`, Submit-Button `r#type:"button"` + `onclick: submit`-Closure. Files: `genossi-frontend/src/page/repayment_phases.rs`, `genossi-frontend/src/component/repayment_entry_add_modal.rs`. | RESOLVED |
 
 ## Zusammenfassung
 - Total Items: __
