@@ -101,3 +101,10 @@ pub use repayment_entry_status_badge::RepaymentEntryStatusBadge;
 // ─── Phase 12 ─── EditableShareCountCell (D-13 Inline-Edit) ─────────
 pub mod editable_share_count_cell;
 pub use editable_share_count_cell::EditableShareCountCell;
+
+// ─── Phase 12 Plan 12-08 ─── RepaymentEntryList (UI-03) ─────────────
+pub mod repayment_entry_list;
+pub use repayment_entry_list::{
+    entry_counts_by_status, filter_entries_by_status, member_for_entry, sort_entries_default,
+    StatusCounts, StatusFilter,
+};
