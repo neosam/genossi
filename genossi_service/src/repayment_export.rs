@@ -7,9 +7,6 @@
 //!   - D-03: Default-Include = Open (Banking-Vorlage-Use-Case)
 //!   - D-10: Export erlaubt fuer Open ODER Closed (Impl in Plan 11.03)
 //!
-//! TDD-RED stub: Default/Variants intentionally WRONG so test assertions
-//! fail. GREEN commit corrects Default to Open and removes Csv variant.
-
 use async_trait::async_trait;
 use mockall::automock;
 use std::fmt::Debug;
@@ -18,12 +15,11 @@ use uuid::Uuid;
 use crate::permission::Authentication;
 use crate::ServiceError;
 
-/// Output formats. TDD-RED stub: extra `Csv` variant present so
-/// `test_export_format_only_has_pdf_variant` fails — GREEN removes it.
+/// Output formats. D-12: NUR Pdf in Phase 11. Re-Add von Csv ist additiv
+/// (neue Variante hier + Match-Arm im Service-Impl + Format-Whitelist im REST).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ExportFormat {
     Pdf,
-    Csv, // TDD-RED: violates D-12; removed in GREEN.
 }
 
 /// Include filter for the export.
@@ -39,9 +35,9 @@ pub enum ExportInclude {
 }
 
 impl Default for ExportInclude {
-    /// TDD-RED stub: Default is WRONG (`All`); GREEN flips to `Open` per D-03.
+    /// D-03: Default ist Open fuer Banking-Workflow ("noch nicht ausbezahlt").
     fn default() -> Self {
-        ExportInclude::All
+        ExportInclude::Open
     }
 }
 
