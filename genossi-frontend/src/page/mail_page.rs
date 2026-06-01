@@ -47,18 +47,35 @@ pub fn MailPage() -> Element {
     let mut expanded_job_id = use_signal(|| None::<String>);
     let mut job_detail = use_signal(|| None::<MailJobDetailTO>);
 
-    // Compose form state — initialize from global selection (member list checkboxes)
+    // Phase 12 D-18 (UAT-Defekt #3 Fix): Query-Params SYNCHRON im use_signal-Initializer
+    // parsen — vor dem ersten Render. Der vorherige use_effect-basierte Ansatz
+    // litt unter einem Race: chip-Render-Block las MEMBERS.read() = empty bei
+    // mount, die nachfolgende selected_member_ids.set() trat dann zwar ein, aber
+    // visuell hat der Vorstand "kein Mitglied ausgewählt" gesehen.
+    let url_params: ParsedMailContext = web_sys::window()
+        .and_then(|w| w.location().search().ok())
+        .map(|s| parse_mail_query(&s))
+        .unwrap_or(ParsedMailContext {
+            phase_id: None,
+            member_ids: Vec::new(),
+        });
+
+    // Compose form state — URL-Params haben Vorrang, sonst global selection
     let mut selected_member_ids = use_signal(|| {
-        let global = SELECTED_MEMBER_IDS.read();
-        global.selected_ids.clone()
+        if !url_params.member_ids.is_empty() {
+            url_params.member_ids.clone()
+        } else {
+            let global = SELECTED_MEMBER_IDS.read();
+            global.selected_ids.clone()
+        }
     });
     let mut subject = use_signal(|| String::new());
     let mut body = use_signal(|| String::new());
     let mut sending = use_signal(|| false);
     let mut cached_footer = use_signal(|| String::new());
 
-    // Phase 12 D-18: Kontext aus Query-Params (?phase_id=..&members=..&from=repayment)
-    let mut repayment_phase_id = use_signal(|| Option::<Uuid>::None);
+    // Phase 12 D-18: Repayment-Kontext aus URL-Params synchron initialisiert
+    let mut repayment_phase_id = use_signal(|| url_params.phase_id);
     // Phase 12 D-18 + Issue #2 BLOCKER-Fix: Template-Auswahl wird ueber on_select_id
     // gesetzt und als template_id an send_bulk_mail durchgereicht; KEIN hardcoded None mehr.
     let mut selected_template_id = use_signal(|| Option::<String>::None);
@@ -82,21 +99,8 @@ pub fn MailPage() -> Element {
         });
     });
 
-    // Phase 12 D-18: Parse Query-Params bei Mount
-    // (?phase_id=..&members=..&from=repayment) → repayment_phase_id + selected_member_ids vorbefuellen
-    use_effect(move || {
-        if let Some(window) = web_sys::window() {
-            if let Ok(search) = window.location().search() {
-                let parsed = parse_mail_query(&search);
-                if parsed.phase_id.is_some() {
-                    repayment_phase_id.set(parsed.phase_id);
-                }
-                if !parsed.member_ids.is_empty() {
-                    selected_member_ids.set(parsed.member_ids);
-                }
-            }
-        }
-    });
+    // Phase 12 D-18: Query-Params werden bereits synchron im use_signal-Initializer
+    // oben geparst (UAT-Defekt #3 Fix). use_effect entfernt — war Race-anfällig.
 
     // Load footer on mount
     use_effect(move || {
