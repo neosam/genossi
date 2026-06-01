@@ -266,12 +266,9 @@ pub fn RepaymentPhaseDetails(id: String) -> Element {
                                                 "{i18n.t(Key::RepaymentExportNotOpenYet)}"
                                             }
                                         },
-                                        // Plan 12-14 ersetzt diesen Stub mit Format-Picker + Download
-                                        _ => rsx! {
-                                            div { class: "text-center py-12 text-gray-500",
-                                                "TODO Plan 12-14: Export-Tab für phase_id={phase_for_export.id}"
-                                            }
-                                        },
+                                        // Plan 12-14: ExportTab wired-up.
+                                        // D-08: Closed-Status zeigt Export weiterhin (Backend Phase 11 EXPO-01).
+                                        _ => rsx! { ExportTab { phase: phase_for_export } },
                                     },
                                     _ => rsx! {},
                                 }
@@ -572,6 +569,96 @@ fn BasicsTab(
                     }
                 }
             }
+        }
+    }
+}
+
+/// Plan 12-14 UI-02 (EXPO-01..03) — Export-Tab.
+///
+/// Drei Radio-Buttons fuer `?include=open|all|paid` (Default: open — Phase 11 D-03)
+/// + grosser blauer Download-Anker, der das PDF im neuen Tab oeffnet. Der Browser
+/// haendelt den Download via Content-Disposition (Backend Phase 11 setzt den Header).
+///
+/// D-26: Download ist ein `<a>`-Element mit Button-Styling — KEIN `<button>` mit
+/// fake-href. D-01 Grep-Gate ist nicht betroffen, weil Radio-Inputs und der
+/// Download-Anker keine `<button>`-Tags sind.
+///
+/// D-08: Bei Status=Closed wird ExportTab im `_ =>`-Branch gerendert (Caller-Site).
+/// Backend laesst Export fuer Open UND Closed zu; Filter::Open in Closed-Phase
+/// kann eine leere Liste liefern (akzeptables Backend-Verhalten).
+#[component]
+fn ExportTab(phase: RepaymentPhaseTO) -> Element {
+    let i18n = use_i18n();
+    let mut selected_include = use_signal(|| ExportInclude::Open);
+    let config = CONFIG.read();
+    let backend = config.backend.to_string();
+    let phase_id = phase.id;
+    let download_url = build_export_url(phase_id, *selected_include.read(), &backend);
+
+    rsx! {
+        div { class: "flex flex-col gap-4 max-w-xl",
+            div {
+                h3 { class: "text-lg font-semibold mb-2",
+                    "{i18n.t(Key::RepaymentExportInclude)}"
+                }
+                div { class: "flex flex-col gap-2",
+                    ExportIncludeRadio {
+                        value: ExportInclude::Open,
+                        selected: *selected_include.read(),
+                        label: i18n.t(Key::RepaymentExportIncludeOpen).to_string(),
+                        on_select: move |v| selected_include.set(v),
+                    }
+                    ExportIncludeRadio {
+                        value: ExportInclude::All,
+                        selected: *selected_include.read(),
+                        label: i18n.t(Key::RepaymentExportIncludeAll).to_string(),
+                        on_select: move |v| selected_include.set(v),
+                    }
+                    ExportIncludeRadio {
+                        value: ExportInclude::Paid,
+                        selected: *selected_include.read(),
+                        label: i18n.t(Key::RepaymentExportIncludePaid).to_string(),
+                        on_select: move |v| selected_include.set(v),
+                    }
+                }
+            }
+
+            // D-26 + D-01: Download via <a>-Element (kein button) mit Button-Styling.
+            // target=_blank oeffnet PDF im neuen Tab; Content-Disposition triggert Browser-Download.
+            // Plan-Discretion: Falls UAT lieber direkt im selben Tab herunterladen will,
+            // kann target weglassen (siehe Summary).
+            a {
+                class: "inline-block bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded text-center font-semibold min-h-[44px]",
+                href: "{download_url}",
+                target: "_blank",
+                rel: "noopener noreferrer",
+                "{i18n.t(Key::RepaymentExportDownload)}"
+            }
+        }
+    }
+}
+
+/// Plan 12-14: Einzelner Radio-Button fuer ExportInclude.
+///
+/// Reine Anzeige-Component — keine Logik im Render-Pfad, nur EventHandler-Forward.
+/// Wird in `ExportTab` dreimal verwendet (Open/All/Paid).
+#[component]
+fn ExportIncludeRadio(
+    value: ExportInclude,
+    selected: ExportInclude,
+    label: String,
+    on_select: EventHandler<ExportInclude>,
+) -> Element {
+    let is_selected = value == selected;
+    rsx! {
+        label { class: "flex items-center gap-2 cursor-pointer min-h-[44px]",
+            input {
+                r#type: "radio",
+                name: "export_include",
+                checked: is_selected,
+                onchange: move |_| on_select.call(value),
+            }
+            span { class: "text-gray-700", "{label}" }
         }
     }
 }
