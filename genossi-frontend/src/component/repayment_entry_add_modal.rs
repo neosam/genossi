@@ -22,9 +22,8 @@ use crate::service::config::CONFIG;
 use crate::service::member::MEMBERS;
 
 /// D-23 minimal client-side validation. Returns true wenn Submit erlaubt.
-pub fn validate_create_entry(_member_id: Option<Uuid>, _share_count: i32) -> bool {
-    // RED-phase stub: returns false so all valid-case tests fail.
-    false
+pub fn validate_create_entry(member_id: Option<Uuid>, share_count: i32) -> bool {
+    member_id.is_some() && share_count > 0
 }
 
 #[component]
