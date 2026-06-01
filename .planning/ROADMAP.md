@@ -205,12 +205,12 @@ Plans:
 5. `ausbezahlt`-Toggle hat Confirm-Dialog mit Warnung „irreversibel, audit-pflichtig, reduziert current_shares"; Backend-Validation-Fehler (PAYO-03) wird im Frontend als Toast angezeigt
 6. Massenmail-Aktion im Tabellen-Header funktioniert (multi-select → Template-Picker → Versenden); UAT-Checkliste durchgeklickt mit echtem SMTP-Account auf Staging
 
-**Plans:** 15 plans (Wave 1: 12-01 api+i18n, 12-02 badges+format; Wave 2: 12-03 router+nav, 12-04 list-page; Wave 3: 12-05 detail-skeleton; Wave 4: 12-06 share_value-inline-edit, 12-07 editable_cell; Wave 5: 12-08 entry-list; Wave 6: 12-09 add-modal; Wave 7: 12-10 paidout-confirm; Wave 8: 12-11 template-var-buttons, 12-12 mail-page; Wave 9: 12-13 mail-redirect-wire; Wave 10: 12-14 export-tab; Wave 11: 12-15 final-gates+UAT-checkpoint)
+**Plans:** 2/15 plans executed
 
 Plans:
 **Wave 1** *(parallel — foundation: API + i18n + badges + format-helper)*
-- [ ] 12-01-PLAN.md — api.rs +12 functions + lokale TOs + i18n keys (~30 in de/en)
-- [ ] 12-02-PLAN.md — repayment_phase_status_badge + repayment_entry_status_badge + format_payout_eur helper
+- [x] 12-01-PLAN.md — api.rs +12 functions + lokale TOs + i18n keys (~30 in de/en)
+- [x] 12-02-PLAN.md — repayment_phase_status_badge + repayment_entry_status_badge + format_payout_eur helper
 
 **Wave 2** *(blocked on Wave 1)*
 - [ ] 12-03-PLAN.md — router routes + top_bar NavItem + page stubs
@@ -260,7 +260,7 @@ Plans:
 | 9. Auszahlungs-Buchung (atomisch + auditiert)                   | v1.1      | 5/5 | Complete   | 2026-06-01 |
 | 10. Massenmail-Anbindung + Template-Variablen                   | v1.1      | 8/8 | Complete    | 2026-05-31 |
 | 11. Export (PDF)                                                | v1.1      | 6/6 | Complete    | 2026-06-01 |
-| 12. Frontend (Component-First)                                  | v1.1      | 0/15           | Pending                 | —          |
+| 12. Frontend (Component-First)                                  | v1.1      | 2/15 | In Progress|  |
 
 ---
 
