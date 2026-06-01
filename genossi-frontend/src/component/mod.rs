@@ -93,3 +93,7 @@ pub use basics_tab::BasicsTab;
 
 // ─── Phase 12 ─── RepaymentPhase / RepaymentEntry helpers + badges ──
 pub mod repayment_format;
+pub mod repayment_phase_status_badge;
+pub mod repayment_entry_status_badge;
+pub use repayment_phase_status_badge::RepaymentPhaseStatusBadge;
+pub use repayment_entry_status_badge::RepaymentEntryStatusBadge;
