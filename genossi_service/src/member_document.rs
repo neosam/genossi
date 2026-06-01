@@ -287,4 +287,43 @@ mod tests {
             "RepaymentMail has no Typst template (CONTEXT D-09)"
         );
     }
+
+    // -------------------------------------------------------------------------
+    // Phase 13 D-LETT-04 / D-13-05 / D-13-08: DocumentType::RepaymentLetter
+    // RepaymentLetter ist persistierter PDF-Brief im document_storage.
+    // - is_singleton == false (D-13-08: Re-Generierung erlaubt nach Anteils-Korrektur)
+    // - template_path() == None (D-LETT-04: Template wird vom Service mit
+    //   hardcoded Pfaden "auszahlungs_anschreiben.typ" / "auszahlungs_anschreiben_bundle.typ"
+    //   aufgerufen, NICHT ueber dieses Mapping erreichbar — eigener Slug-Pfad)
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_repayment_letter_as_str() {
+        assert_eq!(DocumentType::RepaymentLetter.as_str(), "repayment_letter");
+    }
+
+    #[test]
+    fn test_repayment_letter_from_str() {
+        assert_eq!(
+            DocumentType::from_str("repayment_letter"),
+            Some(DocumentType::RepaymentLetter)
+        );
+    }
+
+    #[test]
+    fn test_repayment_letter_is_singleton_false_per_d13_08() {
+        assert!(
+            !DocumentType::RepaymentLetter.is_singleton(),
+            "D-13-08: Re-Generierung erlaubt — KEIN singleton"
+        );
+    }
+
+    #[test]
+    fn test_repayment_letter_template_path_none() {
+        assert_eq!(
+            DocumentType::RepaymentLetter.template_path(),
+            None,
+            "D-LETT-04: Template wird vom Service mit hardcoded Pfaden geladen, nicht ueber DocumentType-Mapping"
+        );
+    }
 }
