@@ -172,12 +172,12 @@ Plans:
 3. Export-Service hat `0` `audited_*!`-Aufrufe (Grep-Gate im Test); Vorstand-only via OIDC, `Helper`-Auth liefert 403
 4. 6+ E2E-Tests decken: PDF-Erfolg (Happy Path), 403 ohne Vorstand-Auth, 400 unbekanntes Format (`csv` blockiert mit 400), jede `?include`-Variante (`open`/`all`/`paid`), 409 bei `RepaymentPhase` in `Vorbereitung`-Status, 404 bei unbekannter `phase_id`, leere IBAN (Member.bank_account NULL) wird als leere Spalte gerendert
 
-**Plans:** 1/6 plans executed
+**Plans:** 2/6 plans executed
 
 Plans:
 **Wave 1** *(parallel — foundation: Template + Service-Trait)*
 - [x] 11-01-PLAN.md — Typst-Template `auszahlungsliste.typ` + DEFAULT_TEMPLATES-Eintrag + `PdfGenerator::render_repayment_list` + `RepaymentExportRow`-Struct
-- [ ] 11-02-PLAN.md — Service-Trait `RepaymentExportService` + Domain-Types `ExportFormat` (nur Pdf, D-12) + `ExportInclude` (Open/All/Paid, Default=Open, D-03) + `RepaymentExport`-Bundle
+- [x] 11-02-PLAN.md — Service-Trait `RepaymentExportService` + Domain-Types `ExportFormat` (nur Pdf, D-12) + `ExportInclude` (Open/All/Paid, Default=Open, D-03) + `RepaymentExport`-Bundle
 
 **Wave 2** *(blocked on Wave 1 completion)*
 - [ ] 11-03-PLAN.md — `RepaymentExportServiceImpl` mit Permission-Funnel (D-10/D-11), In-Memory-Include-Filter (D-01/D-02), Sort (D-09), Verwendungszweck-Pre-Computing (D-04), Euro-Format-Pre-Computing, Grep-Gate-Test (EXPO-05)
@@ -219,7 +219,7 @@ Plans:
 | 8. RepaymentEntry + Auto-Befüllung                              | v1.1      | 10/10 | Complete   | 2026-05-31 |
 | 9. Auszahlungs-Buchung (atomisch + auditiert)                   | v1.1      | 4/5 | In Progress|  |
 | 10. Massenmail-Anbindung + Template-Variablen                   | v1.1      | 8/8 | Complete    | 2026-05-31 |
-| 11. Export (PDF)                                                | v1.1      | 1/6 | In Progress|  |
+| 11. Export (PDF)                                                | v1.1      | 2/6 | In Progress|  |
 | 12. Frontend (Component-First)                                  | v1.1      | 0/?            | Pending                 | —          |
 
 ---
