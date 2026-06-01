@@ -106,5 +106,5 @@ pub use editable_share_count_cell::EditableShareCountCell;
 pub mod repayment_entry_list;
 pub use repayment_entry_list::{
     entry_counts_by_status, filter_entries_by_status, member_for_entry, sort_entries_default,
-    StatusCounts, StatusFilter,
+    RepaymentEntryList, StatusCounts, StatusFilter,
 };

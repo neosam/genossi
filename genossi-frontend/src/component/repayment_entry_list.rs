@@ -8,11 +8,30 @@
 //! Default-Sort: Mitgliedsnummer ASC, created ASC (D-14).
 //! Status-Filter ist client-side (Backend liefert immer alle, Phase 8 D-10).
 //!
-//! Wave 1 (Task 1): Pure-Helper-Funktionen + Unit-Tests (TDD-RED-Phase Stubs).
-//! Wave 2 (Task 2): Vollstaendige RepaymentEntryList-Component.
+//! Component-Vertrag (EventHandler-Props):
+//!   - on_changed: Reload-Trigger nach Mutation
+//!   - on_add: Open Add-Entry-Modal (Plan 12-09 mountet das Modal in der Detail-Page)
+//!   - on_paidout_request: Open PaidOut-Confirm (Plan 12-10)
+//!   - on_mail_request: Redirect zu /mail (Plan 12-13)
+//!   - on_error: Toast-Trigger
+//!
+//! D-08 readonly_mode: bei phase.status == Closed wird die Bulk-Action-Leiste,
+//! die Checkbox-Spalte, der Inline-Edit und die Trash-Action ausgeblendet —
+//! die Tabelle wird zur reinen Lese-Ansicht. Tab-Filter bleibt aktiv.
 
-use crate::api::{RepaymentEntryStatusTO, RepaymentEntryTO};
+use dioxus::prelude::*;
 use rest_types::MemberTO;
+use uuid::Uuid;
+
+use crate::api::{
+    self, BatchStatusRequest, RepaymentEntryStatusTO, RepaymentEntryTO, RepaymentPhaseStatusTO,
+    RepaymentPhaseTO, UpdateRepaymentEntryRequest,
+};
+use crate::component::repayment_format::format_payout_eur;
+use crate::component::{EditableShareCountCell, Modal, RepaymentEntryStatusBadge};
+use crate::i18n::{use_i18n, Key};
+use crate::service::config::CONFIG;
+use crate::service::member::MEMBERS;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StatusFilter {
@@ -98,6 +117,363 @@ pub fn sort_entries_default(
         }
     });
     result
+}
+
+// ─── Component ───────────────────────────────────────────────────────
+
+#[component]
+pub fn RepaymentEntryList(
+    phase: RepaymentPhaseTO,
+    on_changed: EventHandler<()>,
+    on_add: EventHandler<()>,
+    on_paidout_request: EventHandler<Vec<RepaymentEntryTO>>,
+    on_mail_request: EventHandler<Vec<Uuid>>,
+    on_error: EventHandler<String>,
+) -> Element {
+    let i18n = use_i18n();
+    let phase_id = phase.id;
+    let phase_status = phase.status;
+    let share_value = phase.share_value;
+    // D-08: bei phase.status == Closed wird die Component zur reinen Lese-Ansicht
+    let readonly_mode = matches!(phase_status, RepaymentPhaseStatusTO::Closed);
+
+    let mut entries = use_signal(Vec::<RepaymentEntryTO>::new);
+    let mut loading = use_signal(|| true);
+    let mut selected_ids = use_signal(Vec::<Uuid>::new);
+    let mut status_filter = use_signal(|| StatusFilter::All);
+    let mut delete_confirm_for = use_signal(|| Option::<Uuid>::None);
+
+    let load_entries = move || {
+        spawn(async move {
+            loading.set(true);
+            let config = CONFIG.read().clone();
+            match api::list_repayment_entries(&config, phase_id).await {
+                Ok(list) => entries.set(list),
+                Err(e) => on_error.call(e.message),
+            }
+            loading.set(false);
+        });
+    };
+
+    // Pitfall 8: parallel MEMBERS-Refresh damit Client-Side-Join nicht stale ist
+    use_effect(move || {
+        spawn(async move {
+            crate::service::member::refresh_members().await;
+        });
+        load_entries();
+    });
+
+    // Computed: Member-Liste fuer Client-Side-Join
+    let members_state = MEMBERS.read();
+    let members_vec = members_state.items.clone();
+    let entries_vec = entries.read().clone();
+    let counts = entry_counts_by_status(&entries_vec);
+    let filtered = filter_entries_by_status(&entries_vec, *status_filter.read());
+    let sorted = sort_entries_default(&filtered, &members_vec);
+
+    let selected_count = selected_ids.read().len();
+
+    rsx! {
+        div { class: "flex flex-col gap-4",
+
+            // ── Status-Filter-Tab-Strip-im-Tab (D-12) ──
+            div { class: "flex gap-2 border-b pb-2",
+                StatusFilterTab {
+                    label: format!("{} ({})", i18n.t(Key::RepaymentEntryFilterAll), counts.all),
+                    is_selected: matches!(*status_filter.read(), StatusFilter::All),
+                    on_click: move |_| status_filter.set(StatusFilter::All),
+                }
+                StatusFilterTab {
+                    label: format!("{} ({})", i18n.t(Key::RepaymentEntryStatusOpen), counts.open),
+                    is_selected: matches!(*status_filter.read(), StatusFilter::Open),
+                    on_click: move |_| status_filter.set(StatusFilter::Open),
+                }
+                StatusFilterTab {
+                    label: format!("{} ({})", i18n.t(Key::RepaymentEntryStatusContacted), counts.contacted),
+                    is_selected: matches!(*status_filter.read(), StatusFilter::Contacted),
+                    on_click: move |_| status_filter.set(StatusFilter::Contacted),
+                }
+                StatusFilterTab {
+                    label: format!("{} ({})", i18n.t(Key::RepaymentEntryStatusPaidOut), counts.paidout),
+                    is_selected: matches!(*status_filter.read(), StatusFilter::PaidOut),
+                    on_click: move |_| status_filter.set(StatusFilter::PaidOut),
+                }
+            }
+
+            // ── Header-Action-Leiste (D-11) ──
+            if !readonly_mode {
+                div { class: "flex flex-wrap gap-2 items-center",
+                    button {
+                        r#type: "button",
+                        class: "bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded text-sm min-h-[44px]",
+                        onclick: move |_| on_add.call(()),
+                        "{i18n.t(Key::RepaymentEntryAdd)}"
+                    }
+                    button {
+                        r#type: "button",
+                        class: if selected_count == 0 {
+                            "bg-gray-200 text-gray-500 px-3 py-2 rounded text-sm cursor-not-allowed min-h-[44px]"
+                        } else {
+                            "bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded text-sm min-h-[44px]"
+                        },
+                        disabled: selected_count == 0,
+                        onclick: move |_| {
+                            let ids = selected_ids.read().clone();
+                            on_mail_request.call(ids);
+                        },
+                        "{i18n.t(Key::RepaymentEntryBulkMailButton)} ({selected_count})"
+                    }
+                    button {
+                        r#type: "button",
+                        class: if selected_count == 0 {
+                            "bg-gray-200 text-gray-500 px-3 py-2 rounded text-sm cursor-not-allowed min-h-[44px]"
+                        } else {
+                            "bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded text-sm min-h-[44px]"
+                        },
+                        disabled: selected_count == 0,
+                        onclick: move |_| {
+                            let ids = selected_ids.read().clone();
+                            spawn(async move {
+                                let config = CONFIG.read().clone();
+                                let req = BatchStatusRequest {
+                                    entry_ids: ids,
+                                    target_status: RepaymentEntryStatusTO::Contacted,
+                                };
+                                match api::batch_toggle_repayment_status(&config, &req).await {
+                                    Ok(()) => {
+                                        selected_ids.set(Vec::new());
+                                        on_changed.call(());
+                                    }
+                                    Err(e) => on_error.call(e.message),
+                                }
+                            });
+                        },
+                        "{i18n.t(Key::RepaymentEntryMarkContacted)} ({selected_count})"
+                    }
+                    button {
+                        r#type: "button",
+                        class: if selected_count == 0 {
+                            "bg-gray-200 text-gray-500 px-3 py-2 rounded text-sm cursor-not-allowed min-h-[44px]"
+                        } else {
+                            "bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded text-sm min-h-[44px]"
+                        },
+                        disabled: selected_count == 0,
+                        onclick: move |_| {
+                            let ids: Vec<Uuid> = selected_ids.read().clone();
+                            let selected_entries: Vec<RepaymentEntryTO> = entries
+                                .read()
+                                .iter()
+                                .filter(|e| ids.contains(&e.id))
+                                .cloned()
+                                .collect();
+                            on_paidout_request.call(selected_entries);
+                        },
+                        "{i18n.t(Key::RepaymentEntryMarkPaidOut)} ({selected_count})"
+                    }
+                }
+            }
+
+            // ── Tabelle ──
+            if *loading.read() {
+                p { class: "text-gray-500 text-center py-8", "{i18n.t(Key::Loading)}" }
+            } else if sorted.is_empty() {
+                div { class: "text-center py-12 text-gray-500",
+                    if matches!(*status_filter.read(), StatusFilter::All) && entries_vec.is_empty() {
+                        "{i18n.t(Key::RepaymentEntryEmptyAutoFill)}"
+                    } else {
+                        "{i18n.t(Key::RepaymentEntryEmptyFilter)}"
+                    }
+                }
+            } else {
+                table { class: "min-w-full divide-y divide-gray-200 text-sm",
+                    thead { class: "bg-gray-50",
+                        tr {
+                            if !readonly_mode {
+                                th { class: "px-2 py-2",
+                                    // Header-Checkbox "Alle auswaehlen" (D-11)
+                                    input {
+                                        r#type: "checkbox",
+                                        checked: {
+                                            let sorted_ids: Vec<Uuid> = sorted.iter().map(|e| e.id).collect();
+                                            !sorted_ids.is_empty()
+                                                && sorted_ids.iter().all(|id| selected_ids.read().contains(id))
+                                        },
+                                        onchange: {
+                                            let sorted_ids: Vec<Uuid> = sorted.iter().map(|e| e.id).collect();
+                                            move |ev: Event<FormData>| {
+                                                let checked = ev.value() == "true";
+                                                if checked {
+                                                    selected_ids.set(sorted_ids.clone());
+                                                } else {
+                                                    selected_ids.set(Vec::new());
+                                                }
+                                            }
+                                        },
+                                    }
+                                }
+                            }
+                            th { class: "px-2 py-2 text-left", "{i18n.t(Key::RepaymentEntryColMemberNumber)}" }
+                            th { class: "px-2 py-2 text-left", "{i18n.t(Key::RepaymentEntryColName)}" }
+                            th { class: "px-2 py-2 text-right", "{i18n.t(Key::RepaymentEntryColShares)}" }
+                            th { class: "px-2 py-2 text-right", "{i18n.t(Key::RepaymentEntryColAmount)}" }
+                            th { class: "px-2 py-2 text-left", "{i18n.t(Key::RepaymentEntryColIban)}" }
+                            th { class: "px-2 py-2 text-left", "{i18n.t(Key::RepaymentEntryColStatus)}" }
+                            if !readonly_mode {
+                                th { class: "px-2 py-2 text-right", "{i18n.t(Key::RepaymentEntryColActions)}" }
+                            }
+                        }
+                    }
+                    tbody { class: "divide-y divide-gray-200 bg-white",
+                        for e in sorted.iter() {
+                            {
+                                let entry = e.clone();
+                                let member = member_for_entry(&entry, &members_vec).cloned();
+                                let member_number = member
+                                    .as_ref()
+                                    .map(|m| m.member_number.to_string())
+                                    .unwrap_or_else(|| "—".into());
+                                let name = member
+                                    .as_ref()
+                                    .map(|m| format!("{} {}", m.first_name, m.last_name))
+                                    .unwrap_or_else(|| "—".into());
+                                let iban = member
+                                    .as_ref()
+                                    .and_then(|m| m.bank_account.clone())
+                                    .filter(|s| !s.is_empty())
+                                    .unwrap_or_else(|| "—".into());
+                                let amount_str = format_payout_eur(entry.share_count_to_pay_out, share_value);
+                                let entry_id = entry.id;
+                                let entry_version = entry.version;
+                                let entry_status = entry.status;
+                                let entry_share_count = entry.share_count_to_pay_out;
+                                let is_paidout = matches!(entry_status, RepaymentEntryStatusTO::PaidOut);
+                                let is_selected = selected_ids.read().contains(&entry_id);
+                                rsx! {
+                                    tr { key: "{entry_id}",
+                                        if !readonly_mode {
+                                            td { class: "px-2 py-2",
+                                                input {
+                                                    r#type: "checkbox",
+                                                    checked: is_selected,
+                                                    onchange: move |ev: Event<FormData>| {
+                                                        let checked = ev.value() == "true";
+                                                        if checked {
+                                                            selected_ids.write().push(entry_id);
+                                                        } else {
+                                                            selected_ids.write().retain(|id| *id != entry_id);
+                                                        }
+                                                    },
+                                                }
+                                            }
+                                        }
+                                        td { class: "px-2 py-2", "{member_number}" }
+                                        td { class: "px-2 py-2", "{name}" }
+                                        td { class: "px-2 py-2 text-right",
+                                            if readonly_mode || is_paidout {
+                                                span { "{entry_share_count}" }
+                                            } else {
+                                                EditableShareCountCell {
+                                                    value: entry_share_count,
+                                                    disabled: false,
+                                                    on_save: move |new_count: i32| {
+                                                        let Some(version) = entry_version else {
+                                                            on_error.call(
+                                                                "Eintrag hat keine Version — bitte neu laden".into(),
+                                                            );
+                                                            return;
+                                                        };
+                                                        let req = UpdateRepaymentEntryRequest {
+                                                            share_count_to_pay_out: Some(new_count),
+                                                            status: None,
+                                                            version,
+                                                        };
+                                                        spawn(async move {
+                                                            let config = CONFIG.read().clone();
+                                                            match api::update_repayment_entry(&config, entry_id, &req).await {
+                                                                Ok(_) => on_changed.call(()),
+                                                                Err(e) => on_error.call(e.message),
+                                                            }
+                                                        });
+                                                    },
+                                                }
+                                            }
+                                        }
+                                        td { class: "px-2 py-2 text-right", "{amount_str}" }
+                                        td { class: "px-2 py-2", "{iban}" }
+                                        td { class: "px-2 py-2",
+                                            RepaymentEntryStatusBadge { status: entry_status }
+                                        }
+                                        if !readonly_mode {
+                                            td { class: "px-2 py-2 text-right",
+                                                if !is_paidout {
+                                                    button {
+                                                        r#type: "button",
+                                                        class: "text-red-600 hover:text-red-800 px-2",
+                                                        title: i18n.t(Key::RepaymentEntryDelete).to_string(),
+                                                        onclick: move |_| delete_confirm_for.set(Some(entry_id)),
+                                                        "🗑"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── Delete-Confirm-Modal (D-14) ──
+            if let Some(eid) = *delete_confirm_for.read() {
+                Modal {
+                    div { class: "flex flex-col gap-4",
+                        h2 { class: "text-xl font-semibold", "{i18n.t(Key::RepaymentEntryDeleteConfirm)}" }
+                        div { class: "flex gap-2 justify-end",
+                            button {
+                                r#type: "button",
+                                class: "px-4 py-2 text-gray-700 hover:bg-gray-100 rounded min-h-[44px]",
+                                onclick: move |_| delete_confirm_for.set(None),
+                                "{i18n.t(Key::Cancel)}"
+                            }
+                            button {
+                                r#type: "button",
+                                class: "bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded min-h-[44px]",
+                                onclick: move |_| {
+                                    delete_confirm_for.set(None);
+                                    spawn(async move {
+                                        let config = CONFIG.read().clone();
+                                        match api::delete_repayment_entry(&config, eid).await {
+                                            Ok(()) => on_changed.call(()),
+                                            Err(e) => on_error.call(e.message),
+                                        }
+                                    });
+                                },
+                                "{i18n.t(Key::RepaymentEntryDelete)}"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn StatusFilterTab(label: String, is_selected: bool, on_click: EventHandler<()>) -> Element {
+    let class = if is_selected {
+        "px-3 py-1 rounded bg-blue-500 text-white text-sm min-h-[44px]"
+    } else {
+        "px-3 py-1 rounded bg-gray-200 hover:bg-gray-300 text-gray-700 text-sm min-h-[44px]"
+    };
+    rsx! {
+        button {
+            r#type: "button",
+            class: "{class}",
+            onclick: move |_| on_click.call(()),
+            "{label}"
+        }
+    }
 }
 
 #[cfg(test)]

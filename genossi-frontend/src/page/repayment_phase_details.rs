@@ -19,13 +19,14 @@ use std::str::FromStr;
 use uuid::Uuid;
 
 use crate::api::{
-    self, AppError, CloseConflictResponse, RepaymentPhaseStatusTO, RepaymentPhaseTO,
+    self, AppError, CloseConflictResponse, RepaymentEntryTO, RepaymentPhaseStatusTO,
+    RepaymentPhaseTO,
 };
 use crate::auth::RequirePrivilege;
 use crate::component::repayment_format::{format_payout_eur, parse_euro_to_cents};
 use crate::component::{
-    ErrorAlert, Modal, RepaymentPhaseStatusBadge, TabDef, TabStrip, ToastContainer, TopBar,
-    show_toast,
+    ErrorAlert, Modal, RepaymentEntryList, RepaymentPhaseStatusBadge, TabDef, TabStrip,
+    ToastContainer, TopBar, show_toast,
 };
 use crate::i18n::{use_i18n, Key};
 use crate::page::access_denied::AccessDeniedPage;
@@ -160,10 +161,25 @@ pub fn RepaymentPhaseDetails(id: String) -> Element {
                                                 "{i18n.t(Key::RepaymentEntriesNotOpenYet)}"
                                             }
                                         },
-                                        // Plan 12-08 ersetzt diesen Stub mit RepaymentEntryList
+                                        // Plan 12-08: RepaymentEntryList wired-up.
+                                        // Plans 12-09/12-10/12-13 ersetzen die 3 Toast-Placeholder.
                                         _ => rsx! {
-                                            div { class: "text-center py-12 text-gray-500",
-                                                "TODO Plan 12-08: RepaymentEntryList für phase_id={phase_for_entries.id}"
+                                            RepaymentEntryList {
+                                                phase: phase_for_entries,
+                                                on_changed: move |_| load_phase(),
+                                                on_add: move |_| {
+                                                    // Plan 12-09 verdrahtet hier ein Add-Modal-Signal in der Detail-Page
+                                                    show_toast(&mut toast_messages, &mut toast_counter, "Add-Modal kommt in Plan 12-09".into());
+                                                },
+                                                on_paidout_request: move |_entries: Vec<RepaymentEntryTO>| {
+                                                    // Plan 12-10 verdrahtet hier den PaidOut-Confirm-Modal-Signal
+                                                    show_toast(&mut toast_messages, &mut toast_counter, "PaidOut-Confirm kommt in Plan 12-10".into());
+                                                },
+                                                on_mail_request: move |_ids: Vec<uuid::Uuid>| {
+                                                    // Plan 12-13 verdrahtet hier den Mail-Redirect (/mail?from=repayment&phase_id=...&members=...)
+                                                    show_toast(&mut toast_messages, &mut toast_counter, "Mail-Redirect kommt in Plan 12-13".into());
+                                                },
+                                                on_error: move |msg: String| show_toast(&mut toast_messages, &mut toast_counter, msg),
                                             }
                                         },
                                     },
