@@ -30,38 +30,74 @@ pub struct StatusCounts {
     pub paidout: usize,
 }
 
-// ─── Pure helpers (TDD RED stubs — implemented in GREEN commit) ──────
+// ─── Pure helpers ────────────────────────────────────────────────────
 
+/// D-12: Client-side Filter — Backend liefert immer alle Entries (Phase 8 D-10).
 pub fn filter_entries_by_status(
-    _entries: &[RepaymentEntryTO],
-    _filter: StatusFilter,
+    entries: &[RepaymentEntryTO],
+    filter: StatusFilter,
 ) -> Vec<RepaymentEntryTO> {
-    Vec::new()
+    entries
+        .iter()
+        .filter(|e| match filter {
+            StatusFilter::All => true,
+            StatusFilter::Open => matches!(e.status, RepaymentEntryStatusTO::Open),
+            StatusFilter::Contacted => matches!(e.status, RepaymentEntryStatusTO::Contacted),
+            StatusFilter::PaidOut => matches!(e.status, RepaymentEntryStatusTO::PaidOut),
+        })
+        .cloned()
+        .collect()
 }
 
-pub fn entry_counts_by_status(_entries: &[RepaymentEntryTO]) -> StatusCounts {
-    StatusCounts {
-        all: 0,
+/// D-12: Count-Badges fuer die Tab-Strip-im-Tab Status-Filter.
+pub fn entry_counts_by_status(entries: &[RepaymentEntryTO]) -> StatusCounts {
+    let mut c = StatusCounts {
+        all: entries.len(),
         open: 0,
         contacted: 0,
         paidout: 0,
+    };
+    for e in entries {
+        match e.status {
+            RepaymentEntryStatusTO::Open => c.open += 1,
+            RepaymentEntryStatusTO::Contacted => c.contacted += 1,
+            RepaymentEntryStatusTO::PaidOut => c.paidout += 1,
+        }
     }
+    c
 }
 
+/// Client-Side-Join Member ↔ Entry via MEMBERS-Global-Signal (D-10).
+/// Bei Member-Mismatch (member_id nicht in MEMBERS-Liste) liefert None —
+/// Caller rendert dann "—" als defensive UX (Pitfall 8).
 pub fn member_for_entry<'a>(
-    _entry: &RepaymentEntryTO,
-    _members: &'a [MemberTO],
+    entry: &RepaymentEntryTO,
+    members: &'a [MemberTO],
 ) -> Option<&'a MemberTO> {
-    None
+    members.iter().find(|m| m.id == Some(entry.member_id))
 }
 
 /// D-14 Default-Sort: Mitgliedsnummer ASC, created ASC sekundaer.
 /// Entries ohne Member-Match (member_for_entry == None) sortieren ans Ende.
 pub fn sort_entries_default(
-    _entries: &[RepaymentEntryTO],
-    _members: &[MemberTO],
+    entries: &[RepaymentEntryTO],
+    members: &[MemberTO],
 ) -> Vec<RepaymentEntryTO> {
-    Vec::new()
+    let mut result: Vec<RepaymentEntryTO> = entries.to_vec();
+    result.sort_by(|a, b| {
+        let ma = member_for_entry(a, members);
+        let mb = member_for_entry(b, members);
+        match (ma, mb) {
+            (Some(a_m), Some(b_m)) => a_m
+                .member_number
+                .cmp(&b_m.member_number)
+                .then_with(|| a.created.cmp(&b.created)),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => a.created.cmp(&b.created),
+        }
+    });
+    result
 }
 
 #[cfg(test)]
