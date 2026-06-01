@@ -818,11 +818,36 @@ pub struct ParsedMailContext {
 ///
 /// `search` is the raw search-string (with or without leading `?`).
 /// Tested directly via cargo test against native targets; does not depend on web_sys.
-pub fn parse_mail_query(_search: &str) -> ParsedMailContext {
-    // RED-phase stub — Plan 12-12 Task 1 TDD: deliberately broken to fail tests.
+pub fn parse_mail_query(search: &str) -> ParsedMailContext {
+    let mut phase_id: Option<Uuid> = None;
+    let mut member_ids: Vec<Uuid> = Vec::new();
+
+    let s = search.trim_start_matches('?');
+    for pair in s.split('&') {
+        if pair.is_empty() {
+            continue;
+        }
+        let mut kv = pair.splitn(2, '=');
+        let key = kv.next().unwrap_or("");
+        let value = kv.next().unwrap_or("");
+        match key {
+            "phase_id" => {
+                if let Ok(u) = Uuid::parse_str(value) {
+                    phase_id = Some(u);
+                }
+            }
+            "members" => {
+                member_ids = value
+                    .split(',')
+                    .filter_map(|s| Uuid::parse_str(s.trim()).ok())
+                    .collect();
+            }
+            _ => {}
+        }
+    }
     ParsedMailContext {
-        phase_id: None,
-        member_ids: Vec::new(),
+        phase_id,
+        member_ids,
     }
 }
 
