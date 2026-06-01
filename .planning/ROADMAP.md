@@ -205,7 +205,7 @@ Plans:
 5. `ausbezahlt`-Toggle hat Confirm-Dialog mit Warnung „irreversibel, audit-pflichtig, reduziert current_shares"; Backend-Validation-Fehler (PAYO-03) wird im Frontend als Toast angezeigt
 6. Massenmail-Aktion im Tabellen-Header funktioniert (multi-select → Template-Picker → Versenden); UAT-Checkliste durchgeklickt mit echtem SMTP-Account auf Staging
 
-**Plans:** 8/15 plans executed
+**Plans:** 9/15 plans executed
 
 Plans:
 **Wave 1** *(parallel — foundation: API + i18n + badges + format-helper)*
@@ -227,7 +227,7 @@ Plans:
 - [x] 12-08-PLAN.md — repayment_entry_list component (UI-03) — Multi-Select + Filter + Inline-Edit + Detail-Page-Mount
 
 **Wave 6** *(blocked on Wave 5)*
-- [ ] 12-09-PLAN.md — repayment_entry_add_modal (UI-04) + Detail-Page-Wire
+- [x] 12-09-PLAN.md — repayment_entry_add_modal (UI-04) + Detail-Page-Wire
 
 **Wave 7** *(blocked on Wave 6)*
 - [ ] 12-10-PLAN.md — repayment_entry_paidout_confirm (UI-05) + Sequential-Loop + Detail-Page-Wire
@@ -260,7 +260,7 @@ Plans:
 | 9. Auszahlungs-Buchung (atomisch + auditiert)                   | v1.1      | 5/5 | Complete   | 2026-06-01 |
 | 10. Massenmail-Anbindung + Template-Variablen                   | v1.1      | 8/8 | Complete    | 2026-05-31 |
 | 11. Export (PDF)                                                | v1.1      | 6/6 | Complete    | 2026-06-01 |
-| 12. Frontend (Component-First)                                  | v1.1      | 8/15 | In Progress|  |
+| 12. Frontend (Component-First)                                  | v1.1      | 9/15 | In Progress|  |
 
 ---
 
