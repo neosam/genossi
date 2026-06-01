@@ -260,7 +260,7 @@ Plans:
 | 9. Auszahlungs-Buchung (atomisch + auditiert)                   | v1.1      | 5/5 | Complete   | 2026-06-01 |
 | 10. Massenmail-Anbindung + Template-Variablen                   | v1.1      | 8/8 | Complete    | 2026-05-31 |
 | 11. Export (PDF)                                                | v1.1      | 6/6 | Complete    | 2026-06-01 |
-| 12. Frontend (Component-First)                                  | v1.1      | 15/15 | Complete   | 2026-06-01 |
+| 12. Frontend (Component-First)                                  | v1.1      | 15/15 | Complete    | 2026-06-01 |
 
 ---
 

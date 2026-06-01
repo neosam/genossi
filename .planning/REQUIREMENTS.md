@@ -47,11 +47,11 @@
 
 ### Frontend (Component-First)
 
-- [ ] **UI-01**: Page `/repayment-phases` mit Liste aller Phasen (Status, fiscal_year, share_value, Anzahl Einträge)
-- [ ] **UI-02**: Page `/repayment-phases/{id}` mit Lifecycle-Aktionen (öffnen/schließen), Eintrags-Tabelle, Export-Tab
-- [ ] **UI-03**: Shared Component `RepaymentEntryList` in `genossi-frontend/src/component/` — multi-select, Status-Filter, sortierbar (Mitgliedsnummer, Status)
-- [ ] **UI-04**: Modal/Sub-Page zum manuellen Hinzufügen eines Eintrags (Mitglied-Picker mit Suche, share_count-Eingabe)
-- [ ] **UI-05**: Eintrag-Status-Aktionen mit Confirm-Dialog für `ausbezahlt` (Warnung: irreversibel + auditiert + reduziert current_shares)
+- [x] **UI-01**: Page `/repayment-phases` mit Liste aller Phasen (Status, fiscal_year, share_value, Anzahl Einträge)
+- [x] **UI-02**: Page `/repayment-phases/{id}` mit Lifecycle-Aktionen (öffnen/schließen), Eintrags-Tabelle, Export-Tab
+- [x] **UI-03**: Shared Component `RepaymentEntryList` in `genossi-frontend/src/component/` — multi-select, Status-Filter, sortierbar (Mitgliedsnummer, Status)
+- [x] **UI-04**: Modal/Sub-Page zum manuellen Hinzufügen eines Eintrags (Mitglied-Picker mit Suche, share_count-Eingabe)
+- [x] **UI-05**: Eintrag-Status-Aktionen mit Confirm-Dialog für `ausbezahlt` (Warnung: irreversibel + auditiert + reduziert current_shares)
 - [ ] **UI-06**: Massenmail-Aktion im Tabellen-Header (analog Mitgliederliste-Pattern), Template-Auswahl + Versenden-Button
 
 ## v2 Requirements (deferred)
@@ -112,11 +112,11 @@
 | EXPO-03 | Phase 11 | Complete |
 | EXPO-04 | v2 deferred (D-12) | Deferred |
 | EXPO-05 | Phase 11 | Complete |
-| UI-01 | Phase 12 | Pending |
-| UI-02 | Phase 12 | Pending |
-| UI-03 | Phase 12 | Pending |
-| UI-04 | Phase 12 | Pending |
-| UI-05 | Phase 12 | Pending |
+| UI-01 | Phase 12 | Complete |
+| UI-02 | Phase 12 | Complete |
+| UI-03 | Phase 12 | Complete |
+| UI-04 | Phase 12 | Complete |
+| UI-05 | Phase 12 | Complete |
 | UI-06 | Phase 12 | Pending |
 
 **Coverage:**
