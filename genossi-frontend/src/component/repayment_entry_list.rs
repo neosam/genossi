@@ -121,9 +121,19 @@ pub fn sort_entries_default(
 
 // ─── Component ───────────────────────────────────────────────────────
 
+/// RepaymentEntryList (Phase 12 Plan 12-08, erweitert Plan 12-09).
+///
+/// ## Reload-Trigger
+///
+/// `reload_trigger: u64` ist ein einfacher Counter-Prop. Der Caller (z.B.
+/// Detail-Page) erhoeht den Counter um 1 nach jeder Mutation, die NICHT
+/// vom Component selbst ausgeloest wurde (z.B. nach Add-Modal-on_created).
+/// Der Component lieset den Counter im `use_effect` als implizite Read-
+/// Dependency — jede Counter-Aenderung loest ein neues load_entries() aus.
 #[component]
 pub fn RepaymentEntryList(
     phase: RepaymentPhaseTO,
+    reload_trigger: u64,
     on_changed: EventHandler<()>,
     on_add: EventHandler<()>,
     on_paidout_request: EventHandler<Vec<RepaymentEntryTO>>,
@@ -157,6 +167,10 @@ pub fn RepaymentEntryList(
 
     // Pitfall 8: parallel MEMBERS-Refresh damit Client-Side-Join nicht stale ist
     use_effect(move || {
+        // Plan 12-09: reload_trigger als implizite Dep mitlesen → Counter-Aenderung loest Re-Run aus.
+        // Bei jeder Counter-Inkrementierung vom Caller (z.B. nach Add-Modal-on_created) wird der
+        // Effect erneut gefeuert und ein frischer load_entries() angestossen.
+        let _ = reload_trigger;
         spawn(async move {
             crate::service::member::refresh_members().await;
         });

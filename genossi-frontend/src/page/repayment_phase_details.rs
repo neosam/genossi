@@ -166,6 +166,7 @@ pub fn RepaymentPhaseDetails(id: String) -> Element {
                                         _ => rsx! {
                                             RepaymentEntryList {
                                                 phase: phase_for_entries,
+                                                reload_trigger: 0_u64,
                                                 on_changed: move |_| load_phase(),
                                                 on_add: move |_| {
                                                     // Plan 12-09 verdrahtet hier ein Add-Modal-Signal in der Detail-Page
