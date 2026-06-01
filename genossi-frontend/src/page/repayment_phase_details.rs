@@ -204,9 +204,20 @@ pub fn RepaymentPhaseDetails(id: String) -> Element {
                                                     // Plan 12-10: Modal-Open mit kompletter Auswahl-Liste.
                                                     paidout_modal_entries.set(Some(entries));
                                                 },
-                                                on_mail_request: move |_ids: Vec<uuid::Uuid>| {
-                                                    // Plan 12-13 verdrahtet hier den Mail-Redirect (/mail?from=repayment&phase_id=...&members=...)
-                                                    show_toast(&mut toast_messages, &mut toast_counter, "Mail-Redirect kommt in Plan 12-13".into());
+                                                on_mail_request: move |ids: Vec<uuid::Uuid>| {
+                                                    // Plan 12-13 D-18: Mail-Redirect mit Repayment-Kontext.
+                                                    // Build /mail?from=repayment&phase_id=...&members=...
+                                                    // und navigiere via Browser Full-Page-Reload statt SPA-Push:
+                                                    // dioxus-router Route::MailPage {} kennt keine Query-Param-Felder;
+                                                    // mail_page.rs parst Query-Params in use_effect (Plan 12-12),
+                                                    // das geht nach Full-Reload sauber.
+                                                    if ids.is_empty() {
+                                                        return; // defensive — Button sollte bei 0 Selection disabled sein
+                                                    }
+                                                    let url = build_mail_redirect_url(phase_id, &ids);
+                                                    if let Some(window) = web_sys::window() {
+                                                        let _ = window.location().set_href(&url);
+                                                    }
                                                 },
                                                 on_error: move |msg: String| show_toast(&mut toast_messages, &mut toast_counter, msg),
                                             }
