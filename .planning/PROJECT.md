@@ -80,14 +80,14 @@ Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachv
 
 <!-- v1.1 Anteile-Rückzahlungsphase — Detaillierte REQ-IDs siehe .planning/REQUIREMENTS.md -->
 
-- [ ] `RepaymentPhase`-Entität (DAO/Service/REST/Frontend) mit Lifecycle angelegt → offen → abgeschlossen, `fiscal_year` + `share_value`
-- [ ] `RepaymentEntry`-Entität mit Status offen → angeschrieben → ausbezahlt; mehrere Einträge pro Mitglied+Phase
-- [ ] Auto-Befüllung der Phase aus Vorjahres-Austritten, manuelles Hinzufügen
+- [x] `RepaymentPhase`-Entität (DAO/Service/REST/Frontend) mit Lifecycle angelegt → offen → abgeschlossen, `fiscal_year` + `share_value` — validated in Phase 12 (UI-01, UI-02)
+- [x] `RepaymentEntry`-Entität mit Status offen → angeschrieben → ausbezahlt; mehrere Einträge pro Mitglied+Phase — validated in Phase 12 (UI-03, UI-04, UI-05)
+- [x] Auto-Befüllung der Phase aus Vorjahres-Austritten, manuelles Hinzufügen — validated in Phase 12 (UI-03, UI-04)
 - [x] "ausbezahlt"-Toggle erzeugt automatisch `MemberAction::Verkauf` mit negativem `shares_change` (audited) — validated in Phase 9 (PAYO-01..04)
-- [x] Massenmail-Anbindung mit Auszahlungs-Wert als Template-Variable — validated in Phase 10 (MAIL-01..04)
-- [x] PDF-Export der Auszahlungsliste (vor Phasen-Abschluss verfügbar) für Online-Banking — validated in Phase 11 (EXPO-01, EXPO-02, EXPO-03, EXPO-05)
+- [x] Massenmail-Anbindung mit Auszahlungs-Wert als Template-Variable — validated in Phase 10 (MAIL-01..04), Frontend-Anbindung in Phase 12 (UI-06)
+- [x] PDF-Export der Auszahlungsliste (vor Phasen-Abschluss verfügbar) für Online-Banking — validated in Phase 11 (EXPO-01, EXPO-02, EXPO-03, EXPO-05), Frontend-Tab in Phase 12
 - [ ] CSV-Export für Buchhaltung (deferred to v2 per D-12)
-- [ ] Frontend: shared `RepaymentEntryList`-Component, Phase-Lifecycle-Page, Eintrag-Bearbeiten-Page
+- [x] Frontend: shared `RepaymentEntryList`-Component, Phase-Lifecycle-Page, Eintrag-Bearbeiten-Page — validated in Phase 12 (UI-01..06, 15 Plans, Component-First-Validation bestanden, 6 UAT-Defekte inline RESOLVED)
 
 ### Out of Scope
 
@@ -252,4 +252,4 @@ bestehende admin-only Listing-Route `GET /api/assembly/{id}/helper-tokens`).
 
 ---
 
-*Last updated: 2026-06-01 after Phase 11 (PDF-Export der Auszahlungsliste) complete — neuer REST-Endpoint GET /api/repayment-phase/{phase_id}/export/{format} mit Typst-Template `auszahlungsliste.typ`, Permission-Funnel (Admin vor Phase-Status), Verwendungszweck-Wortlaut "Anteilsrückzahlung GJ ...", Format-Whitelist (PDF only, D-12 CSV deferred), N+1-Member-Reads in derselben Tx, tx.commit vor sync Render (Pitfall #8). 6/6 Plans, 19 Commits, +5 Pure-Function-Tests + 7 REST-Unit-Tests + 8 E2E-Tests, 573 lib + 292 E2E Tests grün, 0 Regression. EXPO-01..03 + EXPO-05 validated.*
+*Last updated: 2026-06-01 after Phase 12 (Frontend Component-First) complete — Vorstand verwaltet RepaymentPhases end-to-end im Browser: Listen-Page mit Anzahl-Einträge-Per-Row, 3-Tab Detail-Page (Stamm/Einträge/Export), Lifecycle-Action-Tiles, RepaymentEntryList (7-Spalten, Multi-Select, Inline-Cell-Edit, Soft-Delete, Status-Filter), AddModal mit MemberSearch + current_shares-Prefill, PaidOut-Confirm-Modal (Sequential-Loop, Per-Entry-Toast, MEMBERS-Refresh), Massenmail-Wiring (3 Var-Buttons, URL-Param-Redirect, Issue #2 fix), Export-Tab (PDF, 3 Radio-Filter). Component-First eingehalten: alle relevanten UI-Blocks als Components in genossi-frontend/src/component/. 15/15 Plans, 11 Waves, 196 Frontend-Tests + alle Backend-Tests grün, 6 UAT-Defekte inline RESOLVED (Dioxus button-reload, toast z-index, mail_page Query-Param-Race, entry-vs-member-ID-Mismatch, Phase-10 pure-member-probe blockt {{ payout_amount }}, /preview-Endpoint mit repayment_phase_id). UI-01..06 validated; Section L Auth-Gate via 12-HUMAN-UAT.md deferred. Milestone v1.1 ist damit funktional komplett.*
