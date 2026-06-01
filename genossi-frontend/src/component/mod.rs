@@ -90,3 +90,6 @@ pub use toast::{ToastContainer, show_toast};
 pub use token_row::TokenRow;
 pub use create_token_form::CreateTokenForm;
 pub use basics_tab::BasicsTab;
+
+// ─── Phase 12 ─── RepaymentPhase / RepaymentEntry helpers + badges ──
+pub mod repayment_format;
