@@ -48,6 +48,26 @@ pub(crate) fn is_share_value_editable(status: RepaymentPhaseStatusTO) -> bool {
     !matches!(status, RepaymentPhaseStatusTO::Closed)
 }
 
+/// Phase 12 D-18 (Plan 12-13): Baut die Redirect-URL fuer Mail-Page aus Repayment-Kontext.
+///
+/// UUIDs sind URL-safe (nur 0-9a-f und Bindestriche) — kein URL-Encoding noetig.
+/// Bei leerer member_ids-Liste wird der members-Param weggelassen (defensive — Button
+/// sollte bei 0 Selection disabled sein; siehe Plan 12-08 RepaymentEntryList Header).
+///
+/// Format: `/mail?from=repayment&phase_id={uuid}&members={uuid,uuid,...}`
+pub(crate) fn build_mail_redirect_url(phase_id: Uuid, member_ids: &[Uuid]) -> String {
+    let members_csv: String = member_ids
+        .iter()
+        .map(|u| u.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    if members_csv.is_empty() {
+        format!("/mail?from=repayment&phase_id={phase_id}")
+    } else {
+        format!("/mail?from=repayment&phase_id={phase_id}&members={members_csv}")
+    }
+}
+
 /// D-04 + Open-Question 5: parses the 409-detail body of POST /api/repayment-phase/{id}/close
 /// into a CloseConflictResponse. Returns None when the body is not a valid
 /// CloseConflictResponse (e.g. non-409 errors, missing detail body, or garbled JSON).
