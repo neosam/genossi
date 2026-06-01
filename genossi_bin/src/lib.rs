@@ -315,6 +315,60 @@ type RepaymentExportService = genossi_service_impl::repayment_export::RepaymentE
     RepaymentExportServiceDependencies,
 >;
 
+// Phase 13 D-13-04 / D-13-10: RepaymentContextResolverImpl — shared aggregation
+// helper used by the Letter-Service (and, after a follow-up /gsd-quick, by the
+// Phase-10 Mail-Worker; D-13-11 pending todo).
+pub struct RepaymentContextResolverDependencies;
+
+unsafe impl Send for RepaymentContextResolverDependencies {}
+unsafe impl Sync for RepaymentContextResolverDependencies {}
+
+impl genossi_service_impl::repayment_context::RepaymentContextResolverDeps
+    for RepaymentContextResolverDependencies
+{
+    type Transaction = Transaction;
+    type RepaymentPhaseDao = RepaymentPhaseDao;
+    type RepaymentEntryDao = RepaymentEntryDao;
+}
+
+type RepaymentContextResolver =
+    genossi_service_impl::repayment_context::RepaymentContextResolverImpl<
+        RepaymentContextResolverDependencies,
+    >;
+
+// Phase 13 D-13-01..11: RepaymentLetterServiceImpl wiring.
+// Ten DAO/Service-deps (5 like RepaymentExport PLUS MemberDocumentDao,
+// AuditLogDao, UuidService, DocumentStorage, RepaymentContextResolver — see
+// genossi_service_impl/src/repayment_letter.rs::RepaymentLetterServiceDeps).
+// PdfGenerator + template_base + document_storage werden inline in
+// RestStateImpl::new() konstruiert ueber die existierenden Arcs (Single-Arc-
+// per-Process pro Plan-10-Pattern: KEIN neuer Arc::new(...) fuer die DAOs).
+pub struct RepaymentLetterServiceDependencies;
+
+unsafe impl Send for RepaymentLetterServiceDependencies {}
+unsafe impl Sync for RepaymentLetterServiceDependencies {}
+
+impl genossi_service_impl::repayment_letter::RepaymentLetterServiceDeps
+    for RepaymentLetterServiceDependencies
+{
+    type Context = Context;
+    type Transaction = Transaction;
+    type RepaymentPhaseDao = RepaymentPhaseDao;
+    type RepaymentEntryDao = RepaymentEntryDao;
+    type MemberDao = MemberDao;
+    type MemberDocumentDao = MemberDocumentDao;
+    type AuditLogDao = AuditLogDao;
+    type PermissionService = PermissionService;
+    type TransactionDao = TransactionDao;
+    type UuidService = UuidService;
+    type RepaymentContextResolver = RepaymentContextResolver;
+    type DocumentStorage = DocumentStorage;
+}
+
+type RepaymentLetterService = genossi_service_impl::repayment_letter::RepaymentLetterServiceImpl<
+    RepaymentLetterServiceDependencies,
+>;
+
 pub struct HelperTokenServiceDependencies;
 
 unsafe impl Send for HelperTokenServiceDependencies {}
@@ -550,6 +604,16 @@ pub struct RestStateImpl {
     // Phase 11 (EXPO-01..03, EXPO-05): RepaymentExportServiceImpl exposed
     // to REST handlers via RepaymentExportRestState (D-DI wiring).
     repayment_export_service: Arc<RepaymentExportService>,
+    // Phase 13 D-13-04 / D-13-10: shared aggregation helper. Cloned into the
+    // letter-service below — kept on the state struct so a future Phase-10
+    // worker-refactor (todo phase-10-worker-refactor-resolver) can also
+    // resolve via the same Arc.
+    #[allow(dead_code)] // kept for D-13-11 follow-up worker refactor
+    repayment_context_resolver: Arc<RepaymentContextResolver>,
+    // Phase 13 D-13-01..11: RepaymentLetterServiceImpl exposed to REST
+    // handlers via RepaymentLetterRestState. Direct-Download Bulk-PDF +
+    // audited MemberDocument persistence per unique member.
+    repayment_letter_service: Arc<RepaymentLetterService>,
     audit_log_dao: Arc<AuditLogDao>,
     // Phase 10 D-11: DAOs shared with the mail-worker for repayment-context
     // aggregation + auditable MemberDocument-create. Same Arcs as the audited
@@ -880,6 +944,43 @@ impl RestStateImpl {
             },
         );
 
+        // Phase 13 D-13-04 / D-13-10: RepaymentContextResolverImpl — shared
+        // aggregation helper. KEIN neuer DAO-Arc: nutzt die existierenden
+        // repayment_phase_dao + repayment_entry_dao Arcs (Single-Arc-per-
+        // Process pro Plan-10 P07 Pattern).
+        let repayment_context_resolver = Arc::new(
+            genossi_service_impl::repayment_context::RepaymentContextResolverImpl::<
+                RepaymentContextResolverDependencies,
+            > {
+                repayment_phase_dao: repayment_phase_dao.clone(),
+                repayment_entry_dao: repayment_entry_dao.clone(),
+            },
+        );
+
+        // Phase 13 D-13-01..11: RepaymentLetterServiceImpl. ALLE 10
+        // Dependencies via .clone() von existierenden lokalen Arcs —
+        // kein neuer DAO-Konstruktor (Single-Arc-per-Process, Plan 10 P07
+        // Lektion). document_storage ist seit Phase 10 ein existierender
+        // Single-Arc (lokales let auf line ~647).
+        let repayment_letter_service = Arc::new(
+            genossi_service_impl::repayment_letter::RepaymentLetterServiceImpl::<
+                RepaymentLetterServiceDependencies,
+            > {
+                repayment_phase_dao: repayment_phase_dao.clone(),
+                repayment_entry_dao: repayment_entry_dao.clone(),
+                member_dao: member_dao.clone(),
+                member_document_dao: member_document_dao.clone(),
+                audit_log_dao: audit_log_dao.clone(),
+                permission_service: permission_service.clone(),
+                transaction_dao: transaction_dao.clone(),
+                uuid_service: uuid_service.clone(),
+                repayment_context_resolver: repayment_context_resolver.clone(),
+                document_storage: document_storage.clone(),
+                pdf_generator: pdf_generator.clone(),
+                template_base: Arc::new(template_storage.base_path().to_path_buf()),
+            },
+        );
+
         // Plan 02-07: HelperTokenServiceImpl with 8 deps (HelperTokenDao,
         // AssemblyDao, AuditLogDao, PermissionService, PermissionDao,
         // SessionService, UuidService, TransactionDao). assembly_dao is cloned
@@ -973,6 +1074,10 @@ impl RestStateImpl {
             attendance_export_service,
             // Phase 11 (EXPO-01..03, EXPO-05)
             repayment_export_service,
+            // Phase 13 D-13-04 / D-13-10
+            repayment_context_resolver,
+            // Phase 13 D-13-01..11
+            repayment_letter_service,
             audit_log_dao,
             // Phase 10 D-11: persist the worker-relevant DAOs (already
             // constructed above via Arc::new(XDao::new(pool.clone())) —
@@ -1527,6 +1632,16 @@ impl genossi_rest::repayment_export::RepaymentExportRestState for RestStateImpl 
 
     fn repayment_export_service(&self) -> Arc<Self::RepaymentExportService> {
         self.repayment_export_service.clone()
+    }
+}
+
+// Phase 13 D-13-01..11: expose RepaymentLetterService to REST handlers
+// generated in genossi_rest::repayment_letter (POST /letters/generate).
+impl genossi_rest::repayment_letter::RepaymentLetterRestState for RestStateImpl {
+    type RepaymentLetterService = RepaymentLetterService;
+
+    fn repayment_letter_service(&self) -> Arc<Self::RepaymentLetterService> {
+        self.repayment_letter_service.clone()
     }
 }
 
