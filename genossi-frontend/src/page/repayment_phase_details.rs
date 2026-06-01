@@ -25,8 +25,8 @@ use crate::api::{
 use crate::auth::RequirePrivilege;
 use crate::component::repayment_format::{format_payout_eur, parse_euro_to_cents};
 use crate::component::{
-    ErrorAlert, Modal, RepaymentEntryAddModal, RepaymentEntryList, RepaymentPhaseStatusBadge,
-    TabDef, TabStrip, ToastContainer, TopBar, show_toast,
+    ErrorAlert, Modal, RepaymentEntryAddModal, RepaymentEntryList, RepaymentEntryPaidOutConfirm,
+    RepaymentPhaseStatusBadge, TabDef, TabStrip, ToastContainer, TopBar, show_toast,
 };
 use crate::i18n::{use_i18n, Key};
 use crate::page::access_denied::AccessDeniedPage;
@@ -82,6 +82,10 @@ pub fn RepaymentPhaseDetails(id: String) -> Element {
     // externer Mutation (z.B. Add-Modal-on_created). Counter-Pattern statt
     // load_phase-Cascade-Hoffen — deterministisch, kein Race mit Phase-Re-Mount.
     let mut entries_reload_trigger = use_signal(|| 0_u64);
+    // Plan 12-10: PaidOut-Bulk-Confirm-Modal — Some(Vec<entries>) = sichtbar,
+    // None = hidden. RepaymentEntryList ruft on_paidout_request mit der vollen
+    // Liste der ausgewaehlten Eintraege; die Detail-Page entscheidet ueber Modal-Open.
+    let mut paidout_modal_entries = use_signal(|| Option::<Vec<RepaymentEntryTO>>::None);
 
     let load_phase = move || {
         spawn(async move {
@@ -176,9 +180,9 @@ pub fn RepaymentPhaseDetails(id: String) -> Element {
                                                 reload_trigger: *entries_reload_trigger.read(),
                                                 on_changed: move |_| load_phase(),
                                                 on_add: move |_| show_add_modal.set(true),
-                                                on_paidout_request: move |_entries: Vec<RepaymentEntryTO>| {
-                                                    // Plan 12-10 verdrahtet hier den PaidOut-Confirm-Modal-Signal
-                                                    show_toast(&mut toast_messages, &mut toast_counter, "PaidOut-Confirm kommt in Plan 12-10".into());
+                                                on_paidout_request: move |entries: Vec<RepaymentEntryTO>| {
+                                                    // Plan 12-10: Modal-Open mit kompletter Auswahl-Liste.
+                                                    paidout_modal_entries.set(Some(entries));
                                                 },
                                                 on_mail_request: move |_ids: Vec<uuid::Uuid>| {
                                                     // Plan 12-13 verdrahtet hier den Mail-Redirect (/mail?from=repayment&phase_id=...&members=...)
@@ -237,6 +241,43 @@ pub fn RepaymentPhaseDetails(id: String) -> Element {
                             load_phase();
                         },
                         on_error: move |msg: String| show_toast(&mut toast_messages, &mut toast_counter, msg),
+                    }
+                }
+            }
+            // Plan 12-10: PaidOut-Bulk-Confirm-Modal (UI-05).
+            //
+            // Modal-Mount nur, wenn paidout_modal_entries.is_some() UND die Phase
+            // geladen ist (share_value wird zum Berechnen der Summe gebraucht).
+            // on_complete bekommt (success, failure) und formuliert den Summary-Toast
+            // hier in der Detail-Page (Caller-Discretion). Danach Counter-Bump fuer
+            // die RepaymentEntryList + load_phase(), damit Status-Spalten aktualisiert
+            // werden (PaidOut-Status + ggf. neue version-UUIDs).
+            if let Some(entries_to_confirm) = paidout_modal_entries.read().clone() {
+                if let Some(p) = phase.read().clone() {
+                    Modal {
+                        RepaymentEntryPaidOutConfirm {
+                            entries: entries_to_confirm,
+                            share_value_cents: p.share_value,
+                            on_close: move |_| paidout_modal_entries.set(None),
+                            on_complete: move |(success, failure): (usize, usize)| {
+                                paidout_modal_entries.set(None);
+                                let total = success + failure;
+                                // D-15 Summary-Toast (deutsch) — Caller-Discretion ueber Wording.
+                                let msg = if failure == 0 {
+                                    format!("{success} Eintraege als ausbezahlt markiert.")
+                                } else {
+                                    format!(
+                                        "{success} von {total} erfolgreich, {failure} fehlgeschlagen — siehe Status-Spalte.",
+                                    )
+                                };
+                                show_toast(&mut toast_messages, &mut toast_counter, msg);
+                                // Counter-Bump + Phase-Reload (Cascade-Effekte sichtbar machen).
+                                let current = *entries_reload_trigger.read();
+                                entries_reload_trigger.set(current.wrapping_add(1));
+                                load_phase();
+                            },
+                            on_error: move |msg: String| show_toast(&mut toast_messages, &mut toast_counter, msg),
+                        }
                     }
                 }
             }
