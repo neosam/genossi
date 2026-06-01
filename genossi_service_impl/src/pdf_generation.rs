@@ -1,8 +1,10 @@
 use genossi_dao::assembly::AssemblyEntity;
 use genossi_dao::attendance::AttendanceMemberRow;
+use genossi_dao::member::MemberEntity;
 use genossi_dao::repayment_phase::RepaymentPhaseEntity;
 use genossi_service::application::Application;
 use genossi_service::member::Member;
+use genossi_service::repayment_context::RepaymentContext;
 use genossi_service::template::TemplateError;
 use genossi_service::ServiceError;
 use std::collections::{HashMap, HashSet};
@@ -825,6 +827,33 @@ fn build_inputs_repayment(
     inputs
 }
 
+/// Phase 13 D-13-01: Inputs fuer EIN Single-Letter-PDF (1 Member).
+///
+/// JSON-Shape spiegelt das Default-Template
+/// `templates/defaults/auszahlungs_anschreiben.typ`. Drei Top-Level-Keys
+/// `member`, `repayment`, `today` werden als JSON-String unter
+/// `sys.inputs.<key>` an Typst gereicht.
+///
+/// TDD-RED-Phase: Stub returnt leeres Dict, damit die Tests fail-en und der
+/// RED-Schritt dokumentiert ist. GREEN-Commit ersetzt den Body.
+fn build_inputs_repayment_letter(
+    _phase: &RepaymentPhaseEntity,
+    _member: &MemberEntity,
+    _ctx: &RepaymentContext,
+) -> Dict {
+    Dict::new()
+}
+
+/// Phase 13 D-13-01: Inputs fuer Bundle-PDF (N Members in EINEM Compile).
+///
+/// TDD-RED-Phase: Stub returnt leeres Dict; GREEN-Commit fuellt den Body.
+fn build_inputs_repayment_letters_bundle(
+    _phase: &RepaymentPhaseEntity,
+    _recipients: &[(MemberEntity, RepaymentContext)],
+) -> Dict {
+    Dict::new()
+}
+
 struct TemplateWorld<'a> {
     library: LazyHash<Library>,
     book: &'a LazyHash<FontBook>,
@@ -1508,5 +1537,203 @@ foo
     fn generator_book() -> LazyHash<FontBook> {
         let fonts = generator_fonts();
         LazyHash::new(FontBook::from_fonts(fonts.iter()))
+    }
+
+    // --- Phase 13 D-13-01 build_inputs_repayment_letter(_bundle) tests --------
+    //
+    // Verifizieren JSON-Shape fuer Single-Letter und Bundle Inputs.
+    // Pitfall #5: bank_account=None → JSON null (Template hat #if-Switch).
+
+    fn sample_member_with_iban() -> MemberEntity {
+        let now = time::OffsetDateTime::now_utc();
+        MemberEntity {
+            id: Uuid::new_v4(),
+            member_number: 1234,
+            first_name: Arc::from("Hans"),
+            last_name: Arc::from("Müller"),
+            salutation: Some(genossi_dao::member::Salutation::Herr),
+            title: Some(Arc::from("Dr.")),
+            email: Some(Arc::from("hans@example.com")),
+            company: None,
+            comment: None,
+            street: Some(Arc::from("Musterstraße")),
+            house_number: Some(Arc::from("42")),
+            postal_code: Some(Arc::from("12345")),
+            city: Some(Arc::from("München")),
+            join_date: time::Date::from_calendar_date(2024, time::Month::January, 15).unwrap(),
+            shares_at_joining: 3,
+            current_shares: 5,
+            current_balance: 15000,
+            action_count: 2,
+            migrated: false,
+            exit_date: None,
+            bank_account: Some(Arc::from("DE89370400440532013000")),
+            status: genossi_dao::member::MemberStatus::Normal,
+            created: time::PrimitiveDateTime::new(now.date(), now.time()),
+            deleted: None,
+            version: Uuid::new_v4(),
+        }
+    }
+
+    fn sample_member_without_iban() -> MemberEntity {
+        MemberEntity {
+            member_number: 5678,
+            first_name: Arc::from("Erika"),
+            last_name: Arc::from("Beispiel"),
+            salutation: Some(genossi_dao::member::Salutation::Frau),
+            title: None,
+            bank_account: None,
+            ..sample_member_with_iban()
+        }
+    }
+
+    fn sample_ctx(share_count: i32, payout_amount: &str, fiscal_year: i32) -> RepaymentContext {
+        RepaymentContext {
+            share_count,
+            payout_amount: payout_amount.to_string(),
+            fiscal_year,
+        }
+    }
+
+    /// Extracts the JSON-string value behind a given Dict key. Panics if the
+    /// key is missing or the value is not a string.
+    fn extract_str_input(dict: &Dict, key: &str) -> String {
+        match dict.get(&Str::from(key)).expect("key missing in dict") {
+            Value::Str(s) => s.to_string(),
+            _ => panic!("expected string value for key {}", key),
+        }
+    }
+
+    #[test]
+    fn test_build_inputs_repayment_letter_has_three_top_level_keys() {
+        let phase = test_repayment_phase();
+        let member = sample_member_with_iban();
+        let ctx = sample_ctx(3, "360,00", 2025);
+        let dict = build_inputs_repayment_letter(&phase, &member, &ctx);
+
+        let keys: Vec<String> = dict
+            .iter()
+            .map(|(k, _)| k.as_str().to_string())
+            .collect();
+        assert!(keys.contains(&"member".to_string()), "missing 'member' key");
+        assert!(
+            keys.contains(&"repayment".to_string()),
+            "missing 'repayment' key"
+        );
+        assert!(keys.contains(&"today".to_string()), "missing 'today' key");
+    }
+
+    #[test]
+    fn test_build_inputs_repayment_letter_member_has_ten_fields() {
+        let phase = test_repayment_phase();
+        let member = sample_member_with_iban();
+        let ctx = sample_ctx(3, "360,00", 2025);
+        let dict = build_inputs_repayment_letter(&phase, &member, &ctx);
+        let member_json: serde_json::Value =
+            serde_json::from_str(extract_str_input(&dict, "member").as_str()).unwrap();
+
+        assert_eq!(member_json["member_number"], 1234);
+        assert_eq!(member_json["first_name"], "Hans");
+        assert_eq!(member_json["last_name"], "Müller");
+        assert_eq!(member_json["salutation"], "Herr");
+        assert_eq!(member_json["title"], "Dr.");
+        assert_eq!(member_json["street"], "Musterstraße");
+        assert_eq!(member_json["house_number"], "42");
+        assert_eq!(member_json["postal_code"], "12345");
+        assert_eq!(member_json["city"], "München");
+        assert_eq!(member_json["bank_account"], "DE89370400440532013000");
+    }
+
+    #[test]
+    fn test_build_inputs_repayment_letter_bank_account_null_is_json_null() {
+        // Pitfall #5: bank_account=None muss als JSON null serialisiert werden.
+        let phase = test_repayment_phase();
+        let member = sample_member_without_iban();
+        let ctx = sample_ctx(3, "360,00", 2025);
+        let dict = build_inputs_repayment_letter(&phase, &member, &ctx);
+        let member_json: serde_json::Value =
+            serde_json::from_str(extract_str_input(&dict, "member").as_str()).unwrap();
+        assert_eq!(member_json["bank_account"], serde_json::Value::Null);
+        assert_eq!(member_json["title"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn test_build_inputs_repayment_letter_repayment_keys() {
+        let phase = test_repayment_phase();
+        let member = sample_member_with_iban();
+        let ctx = sample_ctx(5, "600,00", 2025);
+        let dict = build_inputs_repayment_letter(&phase, &member, &ctx);
+        let repayment_json: serde_json::Value =
+            serde_json::from_str(extract_str_input(&dict, "repayment").as_str()).unwrap();
+        assert_eq!(repayment_json["share_count"], 5);
+        assert_eq!(repayment_json["payout_amount"], "600,00");
+        assert_eq!(repayment_json["fiscal_year"], 2025);
+    }
+
+    #[test]
+    fn test_build_inputs_repayment_letter_today_is_iso_date() {
+        let phase = test_repayment_phase();
+        let member = sample_member_with_iban();
+        let ctx = sample_ctx(1, "120,00", 2025);
+        let dict = build_inputs_repayment_letter(&phase, &member, &ctx);
+        let today = extract_str_input(&dict, "today");
+        // ISO 8601 date: YYYY-MM-DD (10 chars).
+        assert_eq!(today.len(), 10, "today is not ISO date: {}", today);
+        assert!(
+            today.chars().nth(4) == Some('-') && today.chars().nth(7) == Some('-'),
+            "today is not in YYYY-MM-DD format: {}",
+            today
+        );
+    }
+
+    #[test]
+    fn test_build_inputs_bundle_recipients_is_array() {
+        let phase = test_repayment_phase();
+        let recipients = vec![
+            (sample_member_with_iban(), sample_ctx(3, "360,00", 2025)),
+            (sample_member_without_iban(), sample_ctx(2, "240,00", 2025)),
+        ];
+        let dict = build_inputs_repayment_letters_bundle(&phase, &recipients);
+        let recipients_json: serde_json::Value =
+            serde_json::from_str(extract_str_input(&dict, "recipients").as_str()).unwrap();
+        assert!(recipients_json.is_array(), "recipients is not a JSON array");
+        assert_eq!(recipients_json.as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn test_build_inputs_bundle_recipient_has_member_and_repayment_subkeys() {
+        let phase = test_repayment_phase();
+        let recipients = vec![(sample_member_with_iban(), sample_ctx(3, "360,00", 2025))];
+        let dict = build_inputs_repayment_letters_bundle(&phase, &recipients);
+        let recipients_json: serde_json::Value =
+            serde_json::from_str(extract_str_input(&dict, "recipients").as_str()).unwrap();
+        let first = &recipients_json.as_array().unwrap()[0];
+        assert!(first["member"].is_object(), "missing member subkey");
+        assert!(first["repayment"].is_object(), "missing repayment subkey");
+        assert_eq!(first["member"]["member_number"], 1234);
+        assert_eq!(first["repayment"]["share_count"], 3);
+    }
+
+    #[test]
+    fn test_build_inputs_bundle_meta_has_recipient_count() {
+        let phase = test_repayment_phase();
+        let recipients = vec![(sample_member_with_iban(), sample_ctx(3, "360,00", 2025))];
+        let dict = build_inputs_repayment_letters_bundle(&phase, &recipients);
+        let meta_json: serde_json::Value =
+            serde_json::from_str(extract_str_input(&dict, "meta").as_str()).unwrap();
+        assert_eq!(meta_json["recipient_count"], 1);
+        assert_eq!(meta_json["fiscal_year"], phase.fiscal_year);
+    }
+
+    #[test]
+    fn test_build_inputs_bundle_bank_account_null_in_recipient() {
+        // Pitfall #5 im Bundle-Pfad: NULL-IBAN bleibt JSON null.
+        let phase = test_repayment_phase();
+        let recipients = vec![(sample_member_without_iban(), sample_ctx(2, "240,00", 2025))];
+        let dict = build_inputs_repayment_letters_bundle(&phase, &recipients);
+        let recipients_json: serde_json::Value =
+            serde_json::from_str(extract_str_input(&dict, "recipients").as_str()).unwrap();
+        let first = &recipients_json.as_array().unwrap()[0];
+        assert_eq!(first["member"]["bank_account"], serde_json::Value::Null);
     }
 }
