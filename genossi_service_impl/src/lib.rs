@@ -14,6 +14,7 @@ pub mod member_import;
 pub mod pdf_generation;
 pub mod permission;
 pub mod repayment_entry;
+pub mod repayment_export;
 pub mod repayment_phase;
 pub mod rfc3161;
 pub mod session;
