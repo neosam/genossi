@@ -22,7 +22,7 @@ use crate::api::{
     self, AppError, CloseConflictResponse, RepaymentPhaseStatusTO, RepaymentPhaseTO,
 };
 use crate::auth::RequirePrivilege;
-use crate::component::repayment_format::format_payout_eur;
+use crate::component::repayment_format::{format_payout_eur, parse_euro_to_cents};
 use crate::component::{
     ErrorAlert, Modal, RepaymentPhaseStatusBadge, TabDef, TabStrip, ToastContainer, TopBar,
     show_toast,
@@ -208,17 +208,122 @@ fn BasicsTab(
     let phase_id = phase.id;
     let phase_status = phase.status;
 
+    // Plan 12-06: share_value-Inline-Edit (D-05 PHAS-04) — 3 Render-Modi
+    let mut editing_share_value = use_signal(|| false);
+    let initial_input = format!("{:.2}", (phase.share_value as f64) / 100.0).replace('.', ",");
+    let mut share_value_input = use_signal(move || initial_input.clone());
+    let mut saving = use_signal(|| false);
+    let editable = is_share_value_editable(phase_status);
+    let show_audit_hint = matches!(phase_status, RepaymentPhaseStatusTO::Open);
+    let phase_version = phase.version;
+    let phase_fiscal_year_for_save = phase.fiscal_year;
+    let phase_share_value_for_reset = phase.share_value;
+
     rsx! {
         div { class: "flex flex-col gap-6",
-            // Stamm-Daten-Block (read-only in Wave 3; Plan 12-06 erweitert)
+            // Stamm-Daten-Block (read-only fiscal_year + 3-Modi share_value-Edit)
             div { class: "grid grid-cols-2 gap-4",
                 div {
                     span { class: "text-sm text-gray-500", "{i18n.t(Key::RepaymentPhaseFiscalYear)}" }
                     p { class: "text-lg font-semibold", "{phase.fiscal_year}" }
                 }
+                // D-05: 3-Modi-Render fuer share_value
                 div {
                     span { class: "text-sm text-gray-500", "{i18n.t(Key::RepaymentPhaseShareValue)}" }
-                    p { class: "text-lg font-semibold", "{format_payout_eur(1, phase.share_value)}" }
+                    if *editing_share_value.read() && editable {
+                        div { class: "flex flex-col gap-1",
+                            if show_audit_hint {
+                                p { class: "text-xs text-orange-700",
+                                    "{i18n.t(Key::RepaymentPhaseShareValueEditHint)}"
+                                }
+                            }
+                            div { class: "flex items-center gap-2",
+                                input {
+                                    class: "border border-gray-300 rounded px-3 py-2 w-32",
+                                    r#type: "text",
+                                    value: "{share_value_input}",
+                                    oninput: move |e| share_value_input.set(e.value()),
+                                }
+                                span { class: "text-gray-700", "EUR" }
+                                button {
+                                    r#type: "button",
+                                    class: "bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded disabled:opacity-50 min-h-[44px]",
+                                    disabled: *saving.read(),
+                                    onclick: move |_| {
+                                        // Plan 12-02 Kanonik: parse_euro_to_cents (kein lokales Re-Define)
+                                        let cents = match parse_euro_to_cents(&share_value_input.read()) {
+                                            Some(c) => c,
+                                            None => {
+                                                on_error.call(
+                                                    "Bitte gueltigen Wert > 0 angeben (z.B. 60,00)".into(),
+                                                );
+                                                return;
+                                            }
+                                        };
+                                        let version = match phase_version {
+                                            Some(v) => v,
+                                            None => {
+                                                on_error.call(
+                                                    "Phase hat keine Version — bitte neu laden".into(),
+                                                );
+                                                return;
+                                            }
+                                        };
+                                        saving.set(true);
+                                        let req = crate::api::UpdateRepaymentPhaseRequest {
+                                            fiscal_year: phase_fiscal_year_for_save,
+                                            share_value: cents,
+                                            version,
+                                        };
+                                        spawn(async move {
+                                            let config = CONFIG.read().clone();
+                                            match api::update_repayment_phase(&config, phase_id, &req).await {
+                                                Ok(_) => {
+                                                    editing_share_value.set(false);
+                                                    // Pitfall #7: re-fetch statt Response-Version verwenden
+                                                    on_changed.call(());
+                                                }
+                                                Err(e) if e.status == Some(409) => {
+                                                    on_error.call(
+                                                        "Konflikt — Daten wurden zwischenzeitlich geaendert, bitte erneut speichern".into(),
+                                                    );
+                                                    editing_share_value.set(false);
+                                                    on_changed.call(()); // Reload mit neuer Version
+                                                }
+                                                Err(e) => on_error.call(e.message),
+                                            }
+                                            saving.set(false);
+                                        });
+                                    },
+                                    "{i18n.t(Key::Save)}"
+                                }
+                                button {
+                                    r#type: "button",
+                                    class: "px-3 py-2 text-gray-700 hover:bg-gray-100 rounded min-h-[44px]",
+                                    onclick: move |_| {
+                                        // Reset to original value
+                                        share_value_input.set(
+                                            format!("{:.2}", (phase_share_value_for_reset as f64) / 100.0).replace('.', ","),
+                                        );
+                                        editing_share_value.set(false);
+                                    },
+                                    "{i18n.t(Key::Cancel)}"
+                                }
+                            }
+                        }
+                    } else {
+                        div { class: "flex items-center gap-2",
+                            p { class: "text-lg font-semibold", "{format_payout_eur(1, phase.share_value)}" }
+                            if editable {
+                                button {
+                                    r#type: "button",
+                                    class: "text-blue-600 hover:text-blue-800 text-sm underline",
+                                    onclick: move |_| editing_share_value.set(true),
+                                    "{i18n.t(Key::Edit)}"
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
