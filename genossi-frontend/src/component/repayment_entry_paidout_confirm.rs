@@ -16,9 +16,11 @@ use crate::api::RepaymentEntryTO;
 ///
 /// Pure function: total = sum(entry.share_count_to_pay_out * share_value_cents).
 /// Wird im Modal-Footer als "Summe: X €" angezeigt.
-pub fn sum_payout_amounts(_entries: &[RepaymentEntryTO], _share_value_cents: i64) -> i64 {
-    // TDD RED: stub returns wrong constant so tests fail.
-    -1
+pub fn sum_payout_amounts(entries: &[RepaymentEntryTO], share_value_cents: i64) -> i64 {
+    entries
+        .iter()
+        .map(|e| (e.share_count_to_pay_out as i64) * share_value_cents)
+        .sum()
 }
 
 #[cfg(test)]
