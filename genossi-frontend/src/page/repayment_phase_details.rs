@@ -25,8 +25,8 @@ use crate::api::{
 use crate::auth::RequirePrivilege;
 use crate::component::repayment_format::{format_payout_eur, parse_euro_to_cents};
 use crate::component::{
-    ErrorAlert, Modal, RepaymentEntryList, RepaymentPhaseStatusBadge, TabDef, TabStrip,
-    ToastContainer, TopBar, show_toast,
+    ErrorAlert, Modal, RepaymentEntryAddModal, RepaymentEntryList, RepaymentPhaseStatusBadge,
+    TabDef, TabStrip, ToastContainer, TopBar, show_toast,
 };
 use crate::i18n::{use_i18n, Key};
 use crate::page::access_denied::AccessDeniedPage;
@@ -76,6 +76,12 @@ pub fn RepaymentPhaseDetails(id: String) -> Element {
     let mut toast_counter = use_signal(|| 0u64);
     // D-04 + Open-Question 5: 409 CloseConflictResponse via ErrorAlert mit Detail-Expand
     let mut close_conflict = use_signal(|| Option::<CloseConflictResponse>::None);
+    // Plan 12-09: Add-Entry-Modal-Mount + Reload-Trigger fuer RepaymentEntryList
+    let mut show_add_modal = use_signal(|| false);
+    // Plan 12-09 — Counter-Trigger fuer RepaymentEntryList Re-Fetch nach
+    // externer Mutation (z.B. Add-Modal-on_created). Counter-Pattern statt
+    // load_phase-Cascade-Hoffen — deterministisch, kein Race mit Phase-Re-Mount.
+    let mut entries_reload_trigger = use_signal(|| 0_u64);
 
     let load_phase = move || {
         spawn(async move {
@@ -162,16 +168,14 @@ pub fn RepaymentPhaseDetails(id: String) -> Element {
                                             }
                                         },
                                         // Plan 12-08: RepaymentEntryList wired-up.
-                                        // Plans 12-09/12-10/12-13 ersetzen die 3 Toast-Placeholder.
+                                        // Plan 12-09: on_add verdrahtet Add-Modal + reload_trigger Counter.
+                                        // Plans 12-10/12-13 ersetzen die verbliebenen 2 Toast-Placeholder.
                                         _ => rsx! {
                                             RepaymentEntryList {
                                                 phase: phase_for_entries,
-                                                reload_trigger: 0_u64,
+                                                reload_trigger: *entries_reload_trigger.read(),
                                                 on_changed: move |_| load_phase(),
-                                                on_add: move |_| {
-                                                    // Plan 12-09 verdrahtet hier ein Add-Modal-Signal in der Detail-Page
-                                                    show_toast(&mut toast_messages, &mut toast_counter, "Add-Modal kommt in Plan 12-09".into());
-                                                },
+                                                on_add: move |_| show_add_modal.set(true),
                                                 on_paidout_request: move |_entries: Vec<RepaymentEntryTO>| {
                                                     // Plan 12-10 verdrahtet hier den PaidOut-Confirm-Modal-Signal
                                                     show_toast(&mut toast_messages, &mut toast_counter, "PaidOut-Confirm kommt in Plan 12-10".into());
@@ -204,6 +208,36 @@ pub fn RepaymentPhaseDetails(id: String) -> Element {
                     }
                 } else {
                     p { class: "text-red-600 text-center py-8", "Phase not found" }
+                }
+            }
+            // Plan 12-09: Add-Entry-Modal-Mount (UI-04). Modal-Wrapper wird nur
+            // dann gerendert, wenn show_add_modal.read() == true. on_created
+            // inkrementiert entries_reload_trigger (verbatim Counter-Bump) und
+            // ruft zusaetzlich load_phase() damit version + opened_at frisch sind
+            // (Pitfall #7: Mutation invalidiert lokale State-Annahmen).
+            if *show_add_modal.read() {
+                Modal {
+                    RepaymentEntryAddModal {
+                        phase_id,
+                        on_close: move |_| show_add_modal.set(false),
+                        on_created: move |_| {
+                            show_add_modal.set(false);
+                            // ── Plan 12-09 verbatim: Counter-Trigger statt load_phase-Cascade ──
+                            //
+                            // Warum nicht nur load_phase()? load_phase() schreibt nur das
+                            // phase-Signal neu — die RepaymentEntryList hat aber `entries`
+                            // lokal und sein `use_effect` ist an `reload_trigger` (und
+                            // phase-Aenderung) gebunden. Ein Counter-Bump garantiert das
+                            // Re-Fetch deterministisch.
+                            //
+                            // Zusaetzlich load_phase() rufen — damit version + opened_at
+                            // etc. aktuell sind.
+                            let current = *entries_reload_trigger.read();
+                            entries_reload_trigger.set(current.wrapping_add(1));
+                            load_phase();
+                        },
+                        on_error: move |msg: String| show_toast(&mut toast_messages, &mut toast_counter, msg),
+                    }
                 }
             }
             ToastContainer { messages: toast_messages }
