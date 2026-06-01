@@ -40,10 +40,10 @@
 
 ### Export
 
-- [ ] **EXPO-01**: PDF-Export der Auszahlungsliste verfügbar für `Offen`- **und** `Abgeschlossen`-Phasen (vor Phasen-Abschluss verfügbar für Online-Banking-Vorlage)
+- [x] **EXPO-01**: PDF-Export der Auszahlungsliste verfügbar für `Offen`- **und** `Abgeschlossen`-Phasen (vor Phasen-Abschluss verfügbar für Online-Banking-Vorlage)
 - [x] **EXPO-02**: PDF enthält pro Eintrag: Mitgliedsnummer, Name, IBAN, `share_count_to_pay_out`, Auszahlungs-Betrag, Verwendungszweck — sortiert nach Mitgliedsnummer aufsteigend
 - [x] **EXPO-03**: PDF-Export unterstützt Filter `?include=open|all|paid` (Default: `open` für Banking-Vorlage)
-- [ ] **EXPO-05**: Export-Endpoints sind Vorstand-only (OIDC), read-only, kein Audit-Hashchain-Eintrag
+- [x] **EXPO-05**: Export-Endpoints sind Vorstand-only (OIDC), read-only, kein Audit-Hashchain-Eintrag
 
 ### Frontend (Component-First)
 
@@ -107,11 +107,11 @@
 | MAIL-02 | Phase 10 | Complete |
 | MAIL-03 | Phase 10 | Complete |
 | MAIL-04 | Phase 10 | Complete |
-| EXPO-01 | Phase 11 | Pending |
+| EXPO-01 | Phase 11 | Complete |
 | EXPO-02 | Phase 11 | Complete |
 | EXPO-03 | Phase 11 | Complete |
 | EXPO-04 | v2 deferred (D-12) | Deferred |
-| EXPO-05 | Phase 11 | Pending |
+| EXPO-05 | Phase 11 | Complete |
 | UI-01 | Phase 12 | Pending |
 | UI-02 | Phase 12 | Pending |
 | UI-03 | Phase 12 | Pending |

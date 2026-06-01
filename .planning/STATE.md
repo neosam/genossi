@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Anteile-Rückzahlungsphase
 status: executing
-stopped_at: Completed 11-02-PLAN.md (RepaymentExportService trait + domain types)
-last_updated: "2026-06-01T05:21:37.940Z"
+stopped_at: Completed 11-03-PLAN.md (RepaymentExportServiceImpl + Permission-Funnel + 5 service-layer tests)
+last_updated: "2026-06-01T05:35:02.940Z"
 last_activity: 2026-06-01
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 34
-  completed_plans: 30
-  percent: 88
+  completed_plans: 31
+  percent: 91
 ---
 
 # State: Genossi — v1.1 Anteile-Rückzahlungsphase
@@ -30,7 +30,7 @@ progress:
 ## Current Position
 
 Phase: 11 (export-pdf-csv) — EXECUTING
-Plan: 3 of 6
+Plan: 4 of 6
 Status: Ready to execute
 Last activity: 2026-06-01
 
@@ -104,6 +104,7 @@ Overall: 0% complete
 | Phase 10 P10.08 | 18min | 2 tasks | 2 files |
 | Phase 11 P01 | 6min | 2 tasks tasks | 3 files files |
 | Phase 11 P02 | 5min | 1 tasks | 2 files |
+| Phase 11 P03 | 8min | 1 tasks tasks | 2 files files |
 
 ## Accumulated Context
 
@@ -196,6 +197,9 @@ Overall: 0% complete
 | Plan 11-02: TDD-RED via wrong defaults (`ExportInclude::default()=All`, `ExportFormat::Csv`-Stub-Variante) statt `todo!()`-Stub — Compile-Failure auf non-exhaustive match ist semantisch korrekter RED-Trigger für reine Type-Definitionen ohne Funktions-Bodies (kein Runtime-Panic-Noise). Pattern-Anker für künftige Trait/Enum-Module ohne ausführbare Bodies. | Phase 11, Plan 02 |
 | Plan 11-02: `cargo test -p genossi_service` ohne `--features utoipa` schlägt am preexisting `auth_types.rs::ToSchema`-Derive fehl (kein `#[cfg(feature="utoipa")]`-Gate). Workspace-Level `cargo test --workspace --lib repayment_export` ist der korrekte Verify-Pfad — `utoipa`-Feature wird transitiv via `genossi_rest`-dep-graph aktiviert. Out-of-Scope-Cleanup für Future-Plan: Derives in `genossi_service/src/auth_types.rs` `#[cfg]`-gaten. | Phase 11, Plan 02 |
 | Plan 11-02: 1:1-Mirror von `attendance_export.rs` (Phase 6) ohne strukturelle Abweichungen — gleiche Trait-Signatur (`Authentication<Self::Context>`, `MockTransaction`, `ServiceError`), gleiches Debug-Impl-Pattern (`bytes_len` statt Raw-Bytes, Pitfall #6 PII-Guard), gleiche Test-Anordnung. `ExportFormat` als 1-Variant-Enum mit exhaustivem Match-Test = Compile-Time-Guard gegen D-12-Regression (`Csv`-Re-Add bricht Test). `ExportInclude::default()=Open` codifiziert D-03 Banking-Vorlage-Workflow auf Type-Layer. | Phase 11, Plan 02 |
+| Plan 11-03: Pure-Function-Extraktion `filter_and_enrich_rows` als `pub(crate)`-Helper (REVISION-Fix W1/W6) — direkt testbar ohne `mock!`-Setup; eliminiert Async-Boilerplate in 3 von 5 Tests (Filter-Counts, Umlaut-Erhalt, Euro-Format). Pattern-Anker für künftige Service-Tests mit Filter/Sort/Enrichment-Logik. | Phase 11, Plan 03 |
+| Plan 11-03: TDD-RED via zwei `todo!()`-Stubs (`filter_and_enrich_rows` UND `export()` nach Permission-Funnel) — 3 von 5 Tests scheitern mit `not yet implemented`; 2 Tests (Grep-Gate via `include_str!` + B2-Pitfall-#2-Funnel-Order-Mock-Test) laufen schon im RED grün, weil sie Code-Pfade greifen, die NICHT in `todo!()` münden. Saubere semantisch-konsistente RED-Verifikation für Service-Tests, die Source-Inspection oder Funnel-Order vor der Stub-Logik prüfen. | Phase 11, Plan 03 |
+| Plan 11-03: Acceptance-Criterion `grep -c '.abs()' == 0` strikt buchstabengetreu nicht erfüllbar (4 Treffer in Doku/Assertion-Strings wegen Self-Reference-Phänomen). Code-Pfad-`.abs()`-Count == 0 via `grep -v '//' \| grep -v '"' \| wc -l` verifiziert. Plan-Intention (Phase-10-D-04-Konsistenz ohne `.abs()` im Code-Pfad, PATTERNS.md §S9) ist erfüllt. Future Plans formulieren solche Greps mit Self-Reference-Filter-Klausel (Pattern aus Audit-Macros-Grep-Gate). | Phase 11, Plan 03 |
 | One-Time-Use-QR pro Helfer | Verhindert Token-Weitergabe an Unbefugte | Phase 2 |
 | Helfer-Memo-Name = Freitext, kein Identitäts-Anker | Reine UX-Hilfe für Vorstand beim Drucken | Phase 2 |
 | GV-Status final nach Schluss; Vorstand-Korrekturen ohne Re-Open | Vermeidet Status-Pingpong, hält Audit-Story einfach | Phase 1 |
@@ -349,8 +353,19 @@ Details siehe `.planning/v1.0-MILESTONE-AUDIT.md` und `.planning/MILESTONES.md`.
 
 **Last action (2026-05-29, Phase 07 Plan 02):** Plan `07-02-PLAN.md` ausgeführt — `RepaymentPhaseDaoImpl` (SQLite-Impl des Plan-01-Traits) angelegt mit `RepaymentPhaseDb`-Row, `TryFrom` mit guarded i32-Cast (T-07-02-05), `dump_all`/`create`/`update` inkl. Pre-Exists-Check + Optimistic-Locking via `rows_affected == 0 → ConflictError("Version mismatch")`. ORDER BY ist `fiscal_year DESC, created DESC` (Phase-7-spezifisch). `parse_datetime` via `use crate::assembly::parse_datetime` reused (kein Duplikat). 4 grüne Tokio-Integrationstests gegen in-memory SQLite. Modul-Decl in `genossi_dao_impl_sqlite/src/lib.rs` alphabetisch eingefügt. Commit `6f6bf0f` (feat: 367 LOC added).
 
-**Stopped At:** Completed 11-02-PLAN.md (RepaymentExportService trait + domain types)
+**Stopped At:** Completed 11-03-PLAN.md (RepaymentExportServiceImpl + Permission-Funnel + 5 service-layer tests)
 **Resume File:** None
+
+**Last action (2026-06-01, Phase 11 Plan 03):** Plan `11-03-PLAN.md` ausgeführt — `RepaymentExportServiceImpl<Deps>` in `genossi_service_impl/src/repayment_export.rs` (891 LOC) implementiert mit (1) `RepaymentExportServiceDeps`-Trait + 7-Feld-Struct, (2) `check_admin_and_phase_status` Permission-Funnel `load → admin → status` (D-10/D-11/Pitfall #2), (3) extrahierter `pub(crate)` Pure-Function `filter_and_enrich_rows` für In-Memory-Include-Filter (D-01/D-02), Stable-Sort (D-09 `member_number ASC, created ASC`), Pre-Computing Verwendungszweck mit ORIGINAL-Umlaut `Anteilsrückzahlung` (D-04/D-05), und Euro-Format OHNE `.abs()` (REVISION-Fix B3), (4) `export()`-Trait-Impl mit Tx-Lifecycle `commit() VOR pdf_generator.render_*` (Pitfall #8), N+1-Member-Reads, `tracing::info!`-Pattern (D-18), Server-Filename `auszahlung-{fy}-{include}.pdf`. Modul in `lib.rs` deklariert. 5 Service-Layer-Tests grün: `no_audit_macros_used` (EXPO-05 Grep-Gate via `include_str!`), `test_purpose_string_preserves_umlaut_per_d04` (D-04/D-05/W6/B1 mit Source-Literal-freier ASCII-Variant-Negative-Assertion), `test_include_filter_row_counts` (D-01/D-02/W1 mit Open=3/All=4/Paid=1), `test_amount_str_uses_phase_10_d04_pattern_without_abs` (B3 mit "120,00"), `test_non_admin_on_preparation_returns_permission_denied_not_conflict` (B2/Pitfall #2 Mock-Test: Phase-DAO liefert Preparation, PermissionService liefert PermissionDenied → erwartet PermissionDenied, NICHT Conflict). Volle Crate-Test-Suite 283/283 OK (vorher 278, +5 neue, 0 Regression). TDD-Cycle: RED `27cc1bc` (test, 773 LOC neu, 2 `todo!()`-Stubs, 3 Tests scheitern mit `not yet implemented`, 2 Tests laufen schon grün), GREEN `13f8424` (feat, +132 -13 LOC, alle 5 Tests pass). Eine Deviation (Rule 2): `.abs()`-Count Acceptance-Criterion strikt 0 nicht erfüllbar (4 Doku-Treffer); Code-Pfad-Count == 0 via Comment-Filter verifiziert; Plan-Intention (kein `.abs()` im Code-Pfad) erfüllt. Nächster Schritt: Plan 11-04 (REST-Endpoint `/api/repayment-phase/{id}/export`).
+
+**Files written this session (Plan 11-03):**
+
+- `genossi_service_impl/src/repayment_export.rs` (NEW — 891 LOC: Imports + Konstanten + Deps-Trait + ServiceImpl-Struct + `check_admin_and_phase_status` Permission-Funnel + `filter_and_enrich_rows` Pure-Function + `RepaymentExportService`-Trait-Impl + mod tests mit 5 mock!-Blocks + Helper-Builder + 5 Tests)
+- `genossi_service_impl/src/lib.rs` (MOD — +1 LOC: `pub mod repayment_export;` alphabetisch zwischen `pub mod repayment_entry;` und `pub mod repayment_phase;`)
+- `.planning/phases/11-export-pdf-csv/11-03-SUMMARY.md` (NEW)
+- `.planning/STATE.md` (MOD — diese Aktualisierung)
+- `.planning/ROADMAP.md` (MOD — Phase 11 Plan-Progress 3/6 via roadmap.update-plan-progress)
+- `.planning/REQUIREMENTS.md` (MOD — EXPO-01 + EXPO-05 markiert als complete via requirements.mark-complete; EXPO-02 + EXPO-03 waren bereits complete)
 
 **Last action (2026-05-31, Phase 10 Plan 07):** Plan `10.07-genossi-bin-worker-wiring-PLAN.md` ausgeführt — `genossi_bin/src/lib.rs::RestStateImpl` um 5 neue persistierte DAO-Felder erweitert (`member_document_dao`, `repayment_phase_dao`, `repayment_entry_dao`, `mail_template_dao`, `transaction_dao`); `start_mail_worker` Spawn-Block durchgereicht 6 neue Worker-Deps via `self.X.clone()` (8 → 14 args). 2 Move-to-Clone-Konversionen in `new()` (MemberDocumentServiceImpl-init + MailTemplateServiceType::new). Eine Rule-3-Deviation: Plan-Text behauptete `transaction_dao` existiere bereits als RestStateImpl-Feld an Z. 323 — tatsaechlich war das `DbAssemblyStatusProbe.transaction_dao` (mock_auth-only). Auto-Fix ergaenzt das Feld im gleichen Commit wie das Worker-Wiring. Option A enforced: 0 neue `Arc::new(...)` im Spawn-Block; alle 6 Worker-Deps stammen aus persistenten RestStateImpl-Feldern. `cargo build --workspace` exit 0; 740/740 Workspace-lib-tests gruen; rustfmt clean; clippy 0 NEUE Warnings. Smoke-Test (`DATABASE_URL=sqlite::memory: timeout 5 cargo run --bin genossi`) bootet ohne Panic und logged "Mail worker started". 2 Task-Commits (`8f5f690` feat-Task1, `5ba4e7a` feat-Task2). Naechster Schritt: Plan 10.08 (E2E bulk-mail + audit-chain).
 
