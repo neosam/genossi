@@ -13674,3 +13674,158 @@ async fn test_export_repayment_does_not_break_audit_chain() {
         post.broken_links
     );
 }
+
+/// Phase 11 EXPO-03 / D-01 / D-02: Smoke-test for all 3 include variants.
+///
+/// REVISION-Fix W1: Direct row-count verification lives in Plan 11.03
+/// (service-layer mock test `test_include_filter_row_counts`). Here we only
+/// assert: 200 + PDF magic + filename schema for each variant (REVISION-Fix W4).
+///
+/// Setup: 4 members + Open-Phase produce 4 Open entries via auto-fill.
+/// Then: 1 entry -> Contacted (batch-status), 1 entry -> PaidOut (mark-paid-out).
+/// Final state: 2 Open + 1 Contacted + 1 PaidOut.
+#[tokio::test]
+async fn test_export_repayment_include_filter_smoke_all_three_variants() {
+    let server = setup_with_templates().await;
+    let client = reqwest::Client::new();
+
+    let fiscal_year = 2026;
+    // 4 members + Open-Phase -> 4 auto-filled Open entries.
+    for i in 0..4i64 {
+        let _ = create_member_with_exit_date(&client, &server, 400 + i, fiscal_year, 1).await;
+    }
+    let phase = create_open_repayment_phase(&client, &server, fiscal_year, 12000).await;
+
+    // Read 4 entries.
+    let resp = client
+        .get(server.url(&format!("/api/repayment-entry?phase_id={}", phase.id)))
+        .send()
+        .await
+        .unwrap();
+    let entries: Vec<RepaymentEntryTO> = resp.json().await.unwrap();
+    assert_eq!(entries.len(), 4, "auto-fill should produce 4 entries");
+
+    // Toggle entry[0] to Contacted via batch-status.
+    let batch_body = BatchStatusRequest {
+        entry_ids: vec![entries[0].id],
+        target_status: RepaymentEntryStatusTO::Contacted,
+    };
+    let resp = client
+        .post(server.url("/api/repayment-entry/batch-status"))
+        .json(&batch_body)
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        resp.status().is_success(),
+        "batch-status -> Contacted failed: {:?}",
+        resp.text().await.unwrap_or_default()
+    );
+
+    // Mark entry[1] PaidOut.
+    let resp = client
+        .post(server.url(&format!(
+            "/api/repayment-entry/{}/mark-paid-out",
+            entries[1].id
+        )))
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        resp.status().is_success(),
+        "mark-paid-out failed: {:?}",
+        resp.text().await.unwrap_or_default()
+    );
+
+    // Now state: 2 Open + 1 Contacted + 1 PaidOut.
+    // Verify each include variant returns 200 + PDF magic + correct filename.
+    for include in &["open", "all", "paid"] {
+        let resp = client
+            .get(server.url(&format!(
+                "/api/repayment-phase/{}/export/pdf?include={}",
+                phase.id, include
+            )))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::OK,
+            "export include={} failed",
+            include
+        );
+        let cd = resp
+            .headers()
+            .get("content-disposition")
+            .and_then(|h| h.to_str().ok())
+            .unwrap_or("")
+            .to_string();
+        // REVISION-Fix W4: filename assertion per include variant.
+        assert!(
+            cd.contains(&format!("auszahlung-{}-{}.pdf", fiscal_year, include)),
+            "Filename for include={} must follow schema 'auszahlung-{}-{}.pdf'; got '{}'",
+            include,
+            fiscal_year,
+            include,
+            cd
+        );
+        let bytes = resp.bytes().await.unwrap();
+        assert!(
+            bytes.starts_with(b"%PDF-"),
+            "include={} should return PDF",
+            include
+        );
+        assert!(
+            bytes.len() > 500,
+            "include={} PDF too small ({} bytes)",
+            include,
+            bytes.len()
+        );
+    }
+}
+
+/// Phase 11 D-06: Member without IBAN -> PDF renders without crash, IBAN column empty.
+///
+/// REVISION-Fix W4: filename schema assertion.
+///
+/// Setup: 1 member WITH IBAN, 1 member WITHOUT IBAN (via `create_member_without_iban`),
+/// Open-Phase. Export must produce a valid PDF without crashing on the missing IBAN.
+#[tokio::test]
+async fn test_export_repayment_empty_iban_renders_empty_column() {
+    let server = setup_with_templates().await;
+    let client = reqwest::Client::new();
+
+    let fiscal_year = 2026;
+    let _m1 = create_member_with_exit_date(&client, &server, 501, fiscal_year, 1).await;
+    let _m2 = create_member_without_iban(&client, &server, 502, fiscal_year, 1).await;
+    let phase = create_open_repayment_phase(&client, &server, fiscal_year, 12000).await;
+
+    let resp = client
+        .get(server.url(&format!(
+            "/api/repayment-phase/{}/export/pdf?include=open",
+            phase.id
+        )))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "export with empty-IBAN member must succeed"
+    );
+    // REVISION-Fix W4: filename schema assertion.
+    let cd = resp
+        .headers()
+        .get("content-disposition")
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    assert!(
+        cd.contains(&format!("auszahlung-{}-open.pdf", fiscal_year)),
+        "Filename must follow schema even with empty-IBAN member; got '{}'",
+        cd
+    );
+    let bytes = resp.bytes().await.unwrap();
+    assert!(bytes.starts_with(b"%PDF-"));
+    assert!(bytes.len() > 1000);
+}
