@@ -85,8 +85,8 @@ Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachv
 - [ ] Auto-Befüllung der Phase aus Vorjahres-Austritten, manuelles Hinzufügen
 - [x] "ausbezahlt"-Toggle erzeugt automatisch `MemberAction::Verkauf` mit negativem `shares_change` (audited) — validated in Phase 9 (PAYO-01..04)
 - [x] Massenmail-Anbindung mit Auszahlungs-Wert als Template-Variable — validated in Phase 10 (MAIL-01..04)
-- [ ] PDF-Export der Auszahlungsliste (vor Phasen-Abschluss verfügbar) für Online-Banking
-- [ ] CSV-Export für Buchhaltung
+- [x] PDF-Export der Auszahlungsliste (vor Phasen-Abschluss verfügbar) für Online-Banking — validated in Phase 11 (EXPO-01, EXPO-02, EXPO-03, EXPO-05)
+- [ ] CSV-Export für Buchhaltung (deferred to v2 per D-12)
 - [ ] Frontend: shared `RepaymentEntryList`-Component, Phase-Lifecycle-Page, Eintrag-Bearbeiten-Page
 
 ### Out of Scope
@@ -252,4 +252,4 @@ bestehende admin-only Listing-Route `GET /api/assembly/{id}/helper-tokens`).
 
 ---
 
-*Last updated: 2026-05-31 after Phase 10 (Massenmail-Anbindung + Template-Variablen) complete — Bulk-Mail-Endpoint POST /api/mail/send-bulk akzeptiert template_id + repayment_phase_id; Worker aggregiert payout_amount/share_count/fiscal_year per Empfänger; pro Mail auditierter MemberDocument-Eintrag (RepaymentMail) mit erhaltener Hash-Chain; SMTP-Fehler kein All-or-Nothing. 8/8 Plans, 1024/1024 Tests grün, 5 neue E2E-Tests. MAIL-01..04 validated.*
+*Last updated: 2026-06-01 after Phase 11 (PDF-Export der Auszahlungsliste) complete — neuer REST-Endpoint GET /api/repayment-phase/{phase_id}/export/{format} mit Typst-Template `auszahlungsliste.typ`, Permission-Funnel (Admin vor Phase-Status), Verwendungszweck-Wortlaut "Anteilsrückzahlung GJ ...", Format-Whitelist (PDF only, D-12 CSV deferred), N+1-Member-Reads in derselben Tx, tx.commit vor sync Render (Pitfall #8). 6/6 Plans, 19 Commits, +5 Pure-Function-Tests + 7 REST-Unit-Tests + 8 E2E-Tests, 573 lib + 292 E2E Tests grün, 0 Regression. EXPO-01..03 + EXPO-05 validated.*
