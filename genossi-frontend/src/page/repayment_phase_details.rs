@@ -578,4 +578,41 @@ mod tests {
         };
         assert!(parse_close_conflict(&err).is_none());
     }
+
+    // Plan 12-13 D-18: build_mail_redirect_url Pure-Func Tests
+    #[test]
+    fn build_url_with_empty_members() {
+        let pid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
+        let url = build_mail_redirect_url(pid, &[]);
+        assert!(url.starts_with("/mail?from=repayment&phase_id="));
+        assert!(!url.contains("members="));
+    }
+
+    #[test]
+    fn build_url_with_single_member() {
+        let pid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
+        let mid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440001").unwrap();
+        let url = build_mail_redirect_url(pid, &[mid]);
+        assert!(url.contains("members=550e8400-e29b-41d4-a716-446655440001"));
+    }
+
+    #[test]
+    fn build_url_with_multiple_members() {
+        let pid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
+        let m1 = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440001").unwrap();
+        let m2 = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440002").unwrap();
+        let url = build_mail_redirect_url(pid, &[m1, m2]);
+        assert!(url.contains("members="));
+        // Komma-getrennte UUIDs
+        assert!(url.contains(
+            "550e8400-e29b-41d4-a716-446655440001,550e8400-e29b-41d4-a716-446655440002"
+        ));
+    }
+
+    #[test]
+    fn build_url_starts_with_mail_path() {
+        let pid = Uuid::new_v4();
+        let url = build_mail_redirect_url(pid, &[]);
+        assert!(url.starts_with("/mail?"));
+    }
 }
