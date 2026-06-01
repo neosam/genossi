@@ -232,8 +232,18 @@ pub fn RepaymentEntryList(
                         },
                         disabled: selected_count == 0,
                         onclick: move |_| {
-                            let ids = selected_ids.read().clone();
-                            on_mail_request.call(ids);
+                            // UAT-Defekt #4 Fix: on_mail_request erwartet MEMBER-IDs
+                            // (build_mail_redirect_url → /mail?members=<member-uuid>...)
+                            // — selected_ids enthält aber ENTRY-IDs. Wir mappen
+                            // pro Entry auf entry.member_id.
+                            let selected_set = selected_ids.read().clone();
+                            let member_ids: Vec<Uuid> = entries
+                                .read()
+                                .iter()
+                                .filter(|e| selected_set.contains(&e.id))
+                                .map(|e| e.member_id)
+                                .collect();
+                            on_mail_request.call(member_ids);
                         },
                         "{i18n.t(Key::RepaymentEntryBulkMailButton)} ({selected_count})"
                     }
