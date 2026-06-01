@@ -4,14 +4,14 @@ milestone: v1.1
 milestone_name: Anteile-Rückzahlungsphase
 status: executing
 stopped_at: Phase 11 context gathered
-last_updated: "2026-06-01T04:49:23.624Z"
-last_activity: 2026-06-01 -- Phase 11 planning complete
+last_updated: "2026-06-01T05:09:39.260Z"
+last_activity: 2026-06-01
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 34
-  completed_plans: 28
-  percent: 82
+  completed_plans: 29
+  percent: 85
 ---
 
 # State: Genossi — v1.1 Anteile-Rückzahlungsphase
@@ -23,16 +23,16 @@ progress:
 
 **Core Value:** Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachvollziehbar (Audit-Hashchain), mit weniger manueller Arbeit.
 
-**Current Focus:** Phase 10 — massenmail-anbindung-template-variablen
+**Current Focus:** Phase 11 — export-pdf-csv
 
 **Granularity:** coarse (6 Phasen, Backend-First → Service-Logik → Integrationen → Frontend)
 
 ## Current Position
 
-Phase: 11
-Plan: Not started
+Phase: 11 (export-pdf-csv) — EXECUTING
+Plan: 2 of 6
 Status: Ready to execute
-Last activity: 2026-06-01 -- Phase 11 planning complete
+Last activity: 2026-06-01
 
 ## Closure Snapshot (v1.0, 2026-05-29)
 
@@ -102,6 +102,7 @@ Overall: 0% complete
 | Phase 10 P06 | 30min | 2 tasks | 3 files |
 | Phase 10 P07 | 12min | 2 tasks | 1 files |
 | Phase 10 P10.08 | 18min | 2 tasks | 2 files |
+| Phase 11 P01 | 6min | 2 tasks tasks | 3 files files |
 
 ## Accumulated Context
 
@@ -186,6 +187,11 @@ Overall: 0% complete
 | Plan 10-08: SMTP-Stub via host=127.0.0.1, port=1 + RFC5321-fail-fast — deterministisch ohne Mock-Transport-Dependency: lettre's `to.parse()` errort lokal auf `"not-an-email"` mit `AddressError`, syntaktisch gültige Adressen errorn mit `ConnectionRefused` (kein Listener auf Port 1). Beide Failure-Subtypes produzieren `status='failed'` MemberDocuments mit unterscheidbaren `description`-Substrings — SC#4 "kein All-or-Nothing" verifiziert ohne echten SMTP-Mock. "Sent"-Success-Path explizit out-of-scope (T-10-08-01 accepted), Phase-12-UAT-Coverage. Pattern für künftige E2E-Tests mit externen Diensten. | Phase 10, Plan 08 |
 | Plan 10-08 Rule-2 Fix: REST `send_bulk_mail` Validation routet repayment-linked Sends (`repayment_phase_id` non-empty) durch `validate_template_with_repayment` statt `validate_template` — schliesst Plan-10.04 Wiring-Gap. Empty-String wird wie Absent behandelt (konsistent zum existing UUID-parse Match-Guard). Plain Bulk-Sends (ohne repayment_phase_id) behalten plain `validate_template`. D-14 fail-fast-Contract aus Plan 10.05 bleibt unverändert (unguarded `{{ payout_amount }}` wird weiterhin 400). E2E-Test E1 nutzt entsprechend `{% if X is defined %}`-Guards im Template. | Phase 10, Plan 08 |
 | Plan 10-08: Direkte sqlx-Queries auf in-memory Test-Pool (kein test-only REST-Route für member_document) — `setup_with_mail_worker` gibt `(server, pool)` zurück, `query_documents_by_type` liest direkt aus der Tabelle die der Worker geschrieben hat. Pool ist gleicher Arc zwischen spawned Worker und Test-Assertion. PII-Marker-Pattern (`"private-pii@member-data.test"`) für deterministische Detection ohne False-Positive-Risiko. Pattern für künftige E2E-Tests mit Worker-erzeugten DAO-Rows. | Phase 10, Plan 08 |
+| Plan 11-01: PdfGenerator::new() returns Self (NICHT Result) — Plan-Text-Snippet mit `.unwrap()` war falsch, Rule-1-Fix entfernt das. Anker fuer kuenftige Plans, die PdfGenerator-Konstruktion in Tests beschreiben. | Phase 11, Plan 01 |
+| Plan 11-01: time crate 0.3 hat KEIN `From<OffsetDateTime> for PrimitiveDateTime` — explizit via `PrimitiveDateTime::new(now.date(), now.time())` konstruieren (codebase-Konvention aus `repayment_phase.rs:115`). Plan-Text-Snippet mit `.into()` haette nicht compiliert; Rule-1-Fix nutzt die existierende Service-Konvention. | Phase 11, Plan 01 |
+| Plan 11-01: Render-Foundation-Pattern mirror `render_attendance_list` 1:1 — Methode in `PdfGenerator`-impl, `build_inputs_*`-Helper als file-scope `fn` (nicht Method), Pre-computed-Service-Pattern (amount_str + purpose vom Service uebergeben, NICHT im Renderer berechnet). Vorlage fuer Plan 11.03 (RepaymentExportServiceImpl) und kuenftige Render-Methoden. | Phase 11, Plan 01 |
+| Plan 11-01: Summe-Aggregation `format!("{},{:02}", cents / 100, cents % 100)` OHNE `.abs()` — Phase-10-D-04-Pattern-Konsistenz (PATTERNS.md §S9). Domain-Constraint `share_count >= 0` und `share_value > 0` garantieren non-negative total_cents. REVISION-Fix B3. | Phase 11, Plan 01 |
+| Plan 11-01: Test-Pfade via `Path::new(env!("CARGO_MANIFEST_DIR")).join("../templates/defaults/…")` — deterministisch unabhaengig vom Cargo-Working-Dir (Workspace-Root vs. Crate-Dir). REVISION-Fix W5. Vorlage fuer kuenftige Tests mit Workspace-relativen Pfaden. | Phase 11, Plan 01 |
 | One-Time-Use-QR pro Helfer | Verhindert Token-Weitergabe an Unbefugte | Phase 2 |
 | Helfer-Memo-Name = Freitext, kein Identitäts-Anker | Reine UX-Hilfe für Vorstand beim Drucken | Phase 2 |
 | GV-Status final nach Schluss; Vorstand-Korrekturen ohne Re-Open | Vermeidet Status-Pingpong, hält Audit-Story einfach | Phase 1 |
@@ -340,7 +346,7 @@ Details siehe `.planning/v1.0-MILESTONE-AUDIT.md` und `.planning/MILESTONES.md`.
 **Last action (2026-05-29, Phase 07 Plan 02):** Plan `07-02-PLAN.md` ausgeführt — `RepaymentPhaseDaoImpl` (SQLite-Impl des Plan-01-Traits) angelegt mit `RepaymentPhaseDb`-Row, `TryFrom` mit guarded i32-Cast (T-07-02-05), `dump_all`/`create`/`update` inkl. Pre-Exists-Check + Optimistic-Locking via `rows_affected == 0 → ConflictError("Version mismatch")`. ORDER BY ist `fiscal_year DESC, created DESC` (Phase-7-spezifisch). `parse_datetime` via `use crate::assembly::parse_datetime` reused (kein Duplikat). 4 grüne Tokio-Integrationstests gegen in-memory SQLite. Modul-Decl in `genossi_dao_impl_sqlite/src/lib.rs` alphabetisch eingefügt. Commit `6f6bf0f` (feat: 367 LOC added).
 
 **Stopped At:** Phase 11 context gathered
-**Resume File:** .planning/phases/11-export-pdf-csv/11-CONTEXT.md
+**Resume File:** None
 
 **Last action (2026-05-31, Phase 10 Plan 07):** Plan `10.07-genossi-bin-worker-wiring-PLAN.md` ausgeführt — `genossi_bin/src/lib.rs::RestStateImpl` um 5 neue persistierte DAO-Felder erweitert (`member_document_dao`, `repayment_phase_dao`, `repayment_entry_dao`, `mail_template_dao`, `transaction_dao`); `start_mail_worker` Spawn-Block durchgereicht 6 neue Worker-Deps via `self.X.clone()` (8 → 14 args). 2 Move-to-Clone-Konversionen in `new()` (MemberDocumentServiceImpl-init + MailTemplateServiceType::new). Eine Rule-3-Deviation: Plan-Text behauptete `transaction_dao` existiere bereits als RestStateImpl-Feld an Z. 323 — tatsaechlich war das `DbAssemblyStatusProbe.transaction_dao` (mock_auth-only). Auto-Fix ergaenzt das Feld im gleichen Commit wie das Worker-Wiring. Option A enforced: 0 neue `Arc::new(...)` im Spawn-Block; alle 6 Worker-Deps stammen aus persistenten RestStateImpl-Feldern. `cargo build --workspace` exit 0; 740/740 Workspace-lib-tests gruen; rustfmt clean; clippy 0 NEUE Warnings. Smoke-Test (`DATABASE_URL=sqlite::memory: timeout 5 cargo run --bin genossi`) bootet ohne Panic und logged "Mail worker started". 2 Task-Commits (`8f5f690` feat-Task1, `5ba4e7a` feat-Task2). Naechster Schritt: Plan 10.08 (E2E bulk-mail + audit-chain).
 
