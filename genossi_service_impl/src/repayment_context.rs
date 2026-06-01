@@ -1,6 +1,130 @@
 //! Phase 13 D-13-04 / D-13-10: Impl von RepaymentContextResolver.
 //!
-//! TDD RED-Phase: Tests existieren, Implementation noch nicht.
+//! Pure-Function `aggregate_for_member` ist mockless direkt testbar — 1:1
+//! Mirror der Phase-10-Worker-Logik aus `genossi_mail/src/worker.rs:332-360`
+//! (Filter Open+Contacted, SUM share_count, deutsche Euro-Formatierung).
+//!
+//! Trait-Methode `aggregate` ist ein duenner Wrapper (kein DB-Round-Trip),
+//! `resolve` laedt Phase + Entries via DAOs und delegiert an `aggregate`.
+//!
+//! D-13-10: Phase-10-Mail-Worker bleibt UNVERAENDERT — der Worker-Refactor
+//! laeuft als separates `/gsd-quick` nach Phase 13 (Todo
+//! `.planning/todos/pending/phase-10-worker-refactor-resolver.md`).
+
+use std::sync::Arc;
+
+use async_trait::async_trait;
+use uuid::Uuid;
+
+use genossi_dao::repayment_entry::{
+    RepaymentEntryDao, RepaymentEntryEntity, RepaymentEntryStatus,
+};
+use genossi_dao::repayment_phase::{RepaymentPhaseDao, RepaymentPhaseEntity};
+use genossi_dao::Transaction;
+use genossi_service::repayment_context::{RepaymentContext, RepaymentContextResolver};
+use genossi_service::ServiceError;
+
+/// Dependency-Injection-Trait fuer `RepaymentContextResolverImpl`.
+/// Vorbild: `RepaymentExportServiceDeps` (abgespeckt — nur die zwei DAOs,
+/// die Resolver tatsaechlich benoetigt).
+pub trait RepaymentContextResolverDeps: Send + Sync + 'static {
+    type Transaction: Transaction;
+    type RepaymentPhaseDao: RepaymentPhaseDao<Transaction = Self::Transaction> + Send + Sync;
+    type RepaymentEntryDao: RepaymentEntryDao<Transaction = Self::Transaction> + Send + Sync;
+}
+
+/// Konkrete Resolver-Implementation. Plan 13.04 instanziiert sie mit den
+/// Production-`Deps`, die `genossi_bin` bereitstellt.
+pub struct RepaymentContextResolverImpl<Deps: RepaymentContextResolverDeps> {
+    pub repayment_phase_dao: Arc<Deps::RepaymentPhaseDao>,
+    pub repayment_entry_dao: Arc<Deps::RepaymentEntryDao>,
+}
+
+/// Pure aggregation function — direkt ohne Mocks testbar.
+/// 1:1 Spiegel von `genossi_mail/src/worker.rs:332-360`.
+///
+/// Returns `None` wenn keine relevanten Entries (`Open`/`Contacted`,
+/// `deleted IS NULL`, `member_id == X`) fuer das Member existieren.
+///
+/// `payout_amount` wird in deutscher Lokalisierung formatiert
+/// (`format!("{},{:02}", cents/100, cents%100)`) — KEIN Tausenderpunkt,
+/// KEIN Euro-Symbol (Phase 10 D-04 Konvention).
+pub fn aggregate_for_member(
+    phase: &RepaymentPhaseEntity,
+    entries: &[RepaymentEntryEntity],
+    member_id: Uuid,
+) -> Option<RepaymentContext> {
+    let relevant: Vec<&RepaymentEntryEntity> = entries
+        .iter()
+        .filter(|e| {
+            e.deleted.is_none()
+                && e.member_id == member_id
+                && matches!(
+                    e.status,
+                    RepaymentEntryStatus::Open | RepaymentEntryStatus::Contacted,
+                )
+        })
+        .collect();
+
+    if relevant.is_empty() {
+        return None;
+    }
+
+    let share_count: i32 = relevant.iter().map(|e| e.share_count_to_pay_out).sum();
+    let cents: i64 = (share_count as i64) * (phase.share_value);
+    // German Locale "X,YZ" — Phase 10 D-04 Pattern-konstant.
+    let payout_amount = format!("{},{:02}", cents / 100, cents % 100);
+
+    Some(RepaymentContext {
+        share_count,
+        payout_amount,
+        fiscal_year: phase.fiscal_year,
+    })
+}
+
+#[async_trait]
+impl<Deps: RepaymentContextResolverDeps> RepaymentContextResolver
+    for RepaymentContextResolverImpl<Deps>
+{
+    type Transaction = Deps::Transaction;
+
+    async fn resolve(
+        &self,
+        phase_id: Uuid,
+        member_id: Uuid,
+        tx: Self::Transaction,
+    ) -> Result<RepaymentContext, ServiceError> {
+        // 1. Load phase (404 if missing).
+        let phase = self
+            .repayment_phase_dao
+            .find_by_id(phase_id, tx.clone())
+            .await?
+            .ok_or(ServiceError::EntityNotFound(phase_id))?;
+
+        // 2. Load entries fuer die Phase. find_by_phase_id filtert soft-deleted
+        //    via Default-Impl; aggregate filtert nochmal (Defense-in-Depth).
+        let entries: Vec<RepaymentEntryEntity> = self
+            .repayment_entry_dao
+            .find_by_phase_id(phase_id, tx)
+            .await?
+            .iter()
+            .cloned()
+            .collect();
+
+        // 3. Aggregate via Trait-Methode (zentrale Stelle, eine Wahrheits-Quelle).
+        self.aggregate(&phase, &entries, member_id)
+    }
+
+    fn aggregate(
+        &self,
+        phase: &RepaymentPhaseEntity,
+        entries: &[RepaymentEntryEntity],
+        member_id: Uuid,
+    ) -> Result<RepaymentContext, ServiceError> {
+        aggregate_for_member(phase, entries, member_id)
+            .ok_or(ServiceError::EntityNotFound(member_id))
+    }
+}
 
 #[cfg(test)]
 mod tests {
