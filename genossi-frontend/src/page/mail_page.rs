@@ -802,3 +802,81 @@ pub fn MailJobDetail(id: String) -> Element {
         }
     }
 }
+
+// ── Phase 12 D-18 — Query-Param-Parsing for Repayment Mail Redirect ──
+
+/// Phase 12 D-18: Result of parsing the `/mail`-page URL search-string.
+///
+/// `phase_id` is populated only when `?phase_id=<valid-uuid>` is present.
+/// `member_ids` is populated from `?members=<uuid>,<uuid>,...` filtering out invalid UUIDs.
+pub struct ParsedMailContext {
+    pub phase_id: Option<Uuid>,
+    pub member_ids: Vec<Uuid>,
+}
+
+/// Phase 12 D-18: Parse the URL query-string into a `ParsedMailContext`.
+///
+/// `search` is the raw search-string (with or without leading `?`).
+/// Tested directly via cargo test against native targets; does not depend on web_sys.
+pub fn parse_mail_query(_search: &str) -> ParsedMailContext {
+    // RED-phase stub — Plan 12-12 Task 1 TDD: deliberately broken to fail tests.
+    ParsedMailContext {
+        phase_id: None,
+        member_ids: Vec::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_empty() {
+        let r = parse_mail_query("");
+        assert!(r.phase_id.is_none());
+        assert!(r.member_ids.is_empty());
+    }
+
+    #[test]
+    fn parse_invalid_phase_id() {
+        let r = parse_mail_query("?phase_id=abc");
+        assert!(r.phase_id.is_none());
+    }
+
+    #[test]
+    fn parse_valid_phase_id() {
+        let r = parse_mail_query("?phase_id=550e8400-e29b-41d4-a716-446655440000");
+        assert!(r.phase_id.is_some());
+    }
+
+    #[test]
+    fn parse_valid_members() {
+        let r = parse_mail_query(
+            "?members=550e8400-e29b-41d4-a716-446655440000,550e8400-e29b-41d4-a716-446655440001",
+        );
+        assert_eq!(r.member_ids.len(), 2);
+    }
+
+    #[test]
+    fn parse_members_filters_invalid() {
+        let r = parse_mail_query(
+            "?members=550e8400-e29b-41d4-a716-446655440000,invalid,550e8400-e29b-41d4-a716-446655440001",
+        );
+        assert_eq!(r.member_ids.len(), 2);
+    }
+
+    #[test]
+    fn parse_combined() {
+        let r = parse_mail_query(
+            "?from=repayment&phase_id=550e8400-e29b-41d4-a716-446655440000&members=550e8400-e29b-41d4-a716-446655440001",
+        );
+        assert!(r.phase_id.is_some());
+        assert_eq!(r.member_ids.len(), 1);
+    }
+
+    #[test]
+    fn parse_without_leading_question_mark() {
+        let r = parse_mail_query("phase_id=550e8400-e29b-41d4-a716-446655440000");
+        assert!(r.phase_id.is_some());
+    }
+}
