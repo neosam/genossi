@@ -36,13 +36,9 @@ use crate::{error_handler, extract_auth_context, http_util, Context, RestError, 
 /// `PermissionDenied` auf `Unauthorized(401)`. Fuer Export-Endpunkte wollen wir
 /// aber zwischen "Session ungueltig" (401) und "Auth gueltig, aber kein Admin"
 /// (403) unterscheiden — daher dieser lokale Override.
-///
-/// TDD-RED-Stub: returnt `Unauthorized` statt `Forbidden`. Tests werden in
-/// GREEN auf `Forbidden` geflippt.
 fn map_export_error(e: ServiceError) -> RestError {
     match e {
-        // RED-Stub: bewusst falscher Mapping fuer TDD-RED.
-        ServiceError::PermissionDenied => RestError::Unauthorized,
+        ServiceError::PermissionDenied => RestError::Forbidden("forbidden".to_string()),
         other => other.into(),
     }
 }
@@ -61,15 +57,12 @@ pub struct ExportQuery {
 /// Eigener Type damit der REST-Schema-Layer per `derive(Deserialize, ToSchema)`
 /// gebaut werden kann ohne utoipa in das Service-Domain-Crate zu leaken.
 ///
-/// D-03: Default = `Open` (Banking-Vorlage-Use-Case).
-///
-/// TDD-RED-Stub: Default ist `All` statt `Open` — fuer GREEN auf `Open` geflippt.
+/// D-03: Default = `Open` (Banking-Vorlage-Use-Case "noch nicht ausbezahlt").
 #[derive(Debug, Default, Deserialize, ToSchema, PartialEq, Eq, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
 pub enum ExportIncludeQuery {
-    Open,
-    // RED-Stub: Default-Variante ist `All` statt `Open`.
     #[default]
+    Open,
     All,
     Paid,
 }
@@ -131,9 +124,14 @@ pub async fn export_repayment<RestState: RestStateDef + RepaymentExportRestState
             let auth = extract_auth_context(Some(context))?;
 
             // D-12 / Pitfall #3: Format-Whitelist NUR pdf. csv/xlsx/andere -> 400.
-            // TDD-RED-Stub: Whitelist akzeptiert beliebige Formate.
             let format = match format_str.as_str() {
-                _ => ExportFormat::Pdf,
+                "pdf" => ExportFormat::Pdf,
+                other => {
+                    return Err(RestError::BadRequest(format!(
+                        "unknown export format: {}",
+                        other
+                    )))
+                }
             };
 
             let include: ExportInclude = query.include.into();
