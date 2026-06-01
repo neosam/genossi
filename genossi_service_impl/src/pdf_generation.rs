@@ -378,9 +378,54 @@ impl PdfGenerator {
         phase: &RepaymentPhaseEntity,
         rows: &[RepaymentExportRow],
     ) -> Result<Vec<u8>, ServiceError> {
-        let _ = (template_path, template_base, phase, rows);
-        // TDD-RED stub: implementation lands in the GREEN commit.
-        todo!("render_repayment_list — implemented in GREEN commit")
+        let full_path = template_base.join(template_path);
+        let source_text = std::fs::read_to_string(&full_path).map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                ServiceError::InternalError(Arc::from(format!(
+                    "template not found: {}",
+                    full_path.display()
+                )))
+            } else {
+                ServiceError::InternalError(Arc::from(format!("template io error: {}", e)))
+            }
+        })?;
+
+        let inputs = build_inputs_repayment(phase, rows);
+
+        let world = TemplateWorld::new(
+            &source_text,
+            template_path,
+            template_base.to_path_buf(),
+            inputs,
+            &self.fonts,
+            &self.book,
+            &self.package_cache,
+        );
+
+        let result = typst::compile::<PagedDocument>(&world);
+        let document = match result.output {
+            Ok(doc) => doc,
+            Err(diagnostics) => {
+                let messages: Vec<String> = diagnostics
+                    .iter()
+                    .map(|d| format!("{}", d.message))
+                    .collect();
+                return Err(ServiceError::InternalError(Arc::from(format!(
+                    "typst compile errors: {}",
+                    messages.join("\n")
+                ))));
+            }
+        };
+
+        let pdf_bytes =
+            typst_pdf::pdf(&document, &typst_pdf::PdfOptions::default()).map_err(|e| {
+                ServiceError::InternalError(Arc::from(format!(
+                    "typst pdf serialisation failed: {:?}",
+                    e
+                )))
+            })?;
+
+        Ok(pdf_bytes)
     }
 
     fn build_inputs_application(&self, application: &Application) -> Dict {
@@ -689,6 +734,75 @@ fn build_inputs_attendance(
                 "salutation": r.salutation.as_ref().map(|s| s.as_ref()),
                 "title": r.title.as_ref().map(|s| s.as_ref()),
                 "is_present": r.is_present,
+            })
+        })
+        .collect();
+    let rows_json = serde_json::to_string(&serde_json::Value::Array(row_values))
+        .expect("rows json serialisable");
+    inputs.insert(Str::from("rows"), Value::Str(Str::from(rows_json.as_str())));
+
+    inputs
+}
+
+/// Phase 11 (EXPO-02): Build the Typst `sys.inputs` dict for
+/// `auszahlungsliste.typ`.
+///
+/// Produces two string-keyed entries:
+///   * `meta` — JSON of `{ title, date, fiscal_year, row_count,
+///     total_amount_str, phase_id }`. `total_amount_str` is the sum of
+///     `share_count * phase.share_value` formatted as deutsche Euro-String
+///     (z. B. `"360,00"`).
+///   * `rows` — JSON array of `{ member_number, name, iban, share_count,
+///     amount_str, purpose }`. `purpose` and `amount_str` come pre-computed
+///     from the service (D-04 / Phase-10-D-04).
+///
+/// REVISION-Fix B3 (Phase-10-D-04-Pattern-Konsistenz): Summe via
+/// `format!("{},{:02}", cents / 100, cents % 100)` OHNE `.abs()` — Domain-
+/// Constraint `share_count_to_pay_out >= 0` und `share_value > 0` garantieren
+/// non-negative `total_cents`. `.abs()` wuerde Inkonsistenz mit PATTERNS.md §S9
+/// und Phase-10-D-04 einfuehren.
+fn build_inputs_repayment(
+    phase: &RepaymentPhaseEntity,
+    rows: &[RepaymentExportRow],
+) -> Dict {
+    let mut inputs = Dict::new();
+
+    // ISO date string (heute, UTC). Plan 11.03 nutzt eine eigene Quelle (z. B.
+    // `phase.opened_at`); fuer die reine Render-Foundation reicht today.
+    let date_str = time::OffsetDateTime::now_utc().date().to_string();
+
+    // Total amount in cents: SUM(share_count × share_value_cent), formatted
+    // als deutscher Euro-String "EUR,CC".
+    // Cast über i64, um Multiplikations-Overflow bei realistischen Phasen-
+    // groessen (50-100 Eintraege × 4-stelliger share_count × i64-cent) zu
+    // vermeiden.
+    let total_cents: i64 = rows
+        .iter()
+        .map(|r| (r.share_count as i64) * phase.share_value)
+        .sum();
+    let total_amount_str = format!("{},{:02}", total_cents / 100, total_cents % 100);
+
+    let meta = serde_json::json!({
+        "title": format!("Auszahlungsliste Geschaeftsjahr {}", phase.fiscal_year),
+        "date": date_str,
+        "fiscal_year": phase.fiscal_year,
+        "row_count": rows.len(),
+        "total_amount_str": total_amount_str,
+        "phase_id": phase.id.to_string(),
+    });
+    let meta_json = serde_json::to_string(&meta).expect("meta json serialisable");
+    inputs.insert(Str::from("meta"), Value::Str(Str::from(meta_json.as_str())));
+
+    let row_values: Vec<serde_json::Value> = rows
+        .iter()
+        .map(|r| {
+            serde_json::json!({
+                "member_number": r.member_number,
+                "name": r.name,
+                "iban": r.iban,
+                "share_count": r.share_count,
+                "amount_str": r.amount_str,
+                "purpose": r.purpose,
             })
         })
         .collect();
