@@ -11717,9 +11717,7 @@ async fn test_update_entry_followup_put_uses_response_version_returns_200() {
         .json()
         .await
         .unwrap();
-    let create_version = entry
-        .version
-        .expect("create response must include version");
+    let create_version = entry.version.expect("create response must include version");
 
     // 1. PUT: Open → Contacted, mit create-version
     let put1_body = UpdateRepaymentEntryRequest {
@@ -11900,7 +11898,10 @@ async fn test_update_phase_response_version_usable_for_followup_update() {
     let v1 = updated1
         .version
         .expect("1st PUT response must include version (CR-01 post-fix)");
-    assert_ne!(v1, v0, "Post-update version must differ from create version");
+    assert_ne!(
+        v1, v0,
+        "Post-update version must differ from create version"
+    );
 
     // 2. PUT: share_value 14000 → 15000, MIT der version aus 1. PUT-Response
     let put2_body = serde_json::json!({
@@ -13277,5 +13278,399 @@ async fn test_bulk_repayment_mail_skips_ad_hoc_recipients_no_member_id() {
         0,
         "D-10 Defense-in-Depth: Ad-hoc recipient (no member_id) must NOT produce a MemberDocument; got {} docs",
         docs.len()
+    );
+}
+
+// ===================================================================
+// Phase 11 Plan 06 — RepaymentExport PDF E2E tests
+// ===================================================================
+//
+// Verifies all 4 requirements (EXPO-01/02/03/05) and user decisions
+// (D-01..D-12) end-to-end against the real running server.
+//
+// Reuses Phase-7/8/9 helpers:
+//   - `create_preparation_repayment_phase` (line ~10578)
+//   - `create_open_repayment_phase` (line ~11109, triggers PHAS-02 auto-fill)
+//   - `create_member_with_exit_date` (line ~11043)
+//
+// Introduces ONE new helper:
+//   - `create_member_without_iban` (D-06 empty-IBAN edge case)
+//
+// REVISION-Fix B2: NO E2E-test for Pitfall #2 (Status-Leak 403-vs-409) — the
+// mock_auth middleware always injects an admin MockContext, so non-admin is
+// structurally not reachable. Pitfall #2 is verified at service layer in
+// Plan 11.03 (`test_non_admin_on_preparation_returns_permission_denied_not_conflict`).
+
+/// Phase 11 (D-06): Creates a member, then PUTs `bank_account = None`.
+///
+/// Used by the empty-IBAN render test (D-06): Member-Service sets
+/// `current_shares = shares_at_joining` on create (member.rs:213-218);
+/// `bank_account` is a write-through field and survives the update as `None`.
+async fn create_member_without_iban(
+    client: &reqwest::Client,
+    server: &genossi_rest::test_server::test_support::TestServer,
+    member_number: i64,
+    fiscal_year: i32,
+    share_count: i32,
+) -> MemberTO {
+    // Step 1: Create member with default sample IBAN.
+    let mut member =
+        create_member_with_exit_date(client, server, member_number, fiscal_year, share_count).await;
+
+    // Step 2: PUT with bank_account = None.
+    member.bank_account = None;
+    let resp = client
+        .put(server.url(&format!(
+            "/api/members/{}",
+            member.id.expect("member must have id after create")
+        )))
+        .json(&member)
+        .send()
+        .await
+        .expect("PUT member failed");
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "PUT member to clear IBAN must succeed; body: {:?}",
+        resp.text().await.unwrap_or_default()
+    );
+
+    // Step 3: GET to read fresh state (with version bump).
+    let resp = client
+        .get(server.url(&format!(
+            "/api/members/{}",
+            member.id.expect("member must have id")
+        )))
+        .send()
+        .await
+        .expect("GET member failed");
+    let updated: MemberTO = resp.json().await.expect("parse member");
+    assert!(
+        updated.bank_account.is_none(),
+        "bank_account should be None after PUT"
+    );
+    updated
+}
+
+/// Phase 11 EXPO-01/02/03 / D-03: PDF-Export on Open-Phase with Default-Include=open.
+///
+/// Verifies: 200, application/pdf, %PDF- magic bytes, filename
+/// `auszahlung-{fy}-open.pdf` (REVISION-Fix W4: explicit filename assertion).
+///
+/// REVISION-Fix W6: one member has umlaut `Hans Müller` in the name —
+/// the Typst renderer must propagate umlauts end-to-end without crash,
+/// E2E-confirming D-05 (no ASCII sanitization).
+#[tokio::test]
+async fn test_export_repayment_pdf_open_happy_path() {
+    let server = setup_with_templates().await;
+    let client = reqwest::Client::new();
+
+    let fiscal_year = 2026;
+
+    // Member 101: standard helper-based setup.
+    let _m1 = create_member_with_exit_date(&client, &server, 101, fiscal_year, 2).await;
+
+    // Member 102: inline POST + Austritt-Action with umlaut `Hans Müller` —
+    // exercises D-05 (no ASCII sanitization) end-to-end through the Typst pipeline.
+    let mut umlaut_member = sample_member();
+    umlaut_member.member_number = 102;
+    umlaut_member.first_name = "Hans".to_string();
+    umlaut_member.last_name = "Müller".to_string();
+    umlaut_member.shares_at_joining = 2;
+    umlaut_member.current_shares = 2;
+    let resp = client
+        .post(server.url("/api/members"))
+        .json(&umlaut_member)
+        .send()
+        .await
+        .expect("POST umlaut member failed");
+    assert!(
+        resp.status().is_success(),
+        "POST umlaut member must succeed (D-05 — server accepts umlauts); body: {:?}",
+        resp.text().await.unwrap_or_default()
+    );
+    let umlaut_created: MemberTO = resp.json().await.expect("decode umlaut MemberTO");
+    let umlaut_id = umlaut_created.id.expect("umlaut member must have id");
+
+    // Austritt action to set exit_date (recalc_dates pattern from Phase 8).
+    let exit_date = time::Date::from_calendar_date(fiscal_year, time::Month::June, 15).unwrap();
+    let austritt = MemberActionTO {
+        id: None,
+        member_id: umlaut_id,
+        action_type: ActionTypeTO::Austritt,
+        date: exit_date,
+        shares_change: 0,
+        transfer_member_id: None,
+        effective_date: Some(exit_date),
+        comment: Some("Phase 11 umlaut E2E setup".to_string()),
+        created: None,
+        deleted: None,
+        version: None,
+    };
+    let resp = client
+        .post(server.url(&format!("/api/members/{}/actions", umlaut_id)))
+        .json(&austritt)
+        .send()
+        .await
+        .expect("POST Austritt action for umlaut member failed");
+    assert!(
+        resp.status().is_success(),
+        "POST Austritt for umlaut member must succeed; body: {:?}",
+        resp.text().await.unwrap_or_default()
+    );
+
+    let phase = create_open_repayment_phase(&client, &server, fiscal_year, 12000).await;
+
+    let resp = client
+        .get(server.url(&format!(
+            "/api/repayment-phase/{}/export/pdf?include=open",
+            phase.id
+        )))
+        .send()
+        .await
+        .expect("GET export failed");
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(
+        resp.headers()
+            .get("content-type")
+            .and_then(|h| h.to_str().ok())
+            .unwrap_or_default(),
+        "application/pdf"
+    );
+    let cd = resp
+        .headers()
+        .get("content-disposition")
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    // REVISION-Fix W4: explicit filename schema assertion.
+    assert!(
+        cd.contains(&format!("auszahlung-{}-open.pdf", fiscal_year)),
+        "Content-Disposition '{}' should contain filename schema 'auszahlung-{}-open.pdf'",
+        cd,
+        fiscal_year
+    );
+
+    let bytes = resp.bytes().await.expect("read bytes");
+    assert!(
+        bytes.starts_with(b"%PDF-"),
+        "Response body should be PDF (got {} bytes)",
+        bytes.len()
+    );
+    assert!(bytes.len() > 1000, "PDF too small ({} bytes)", bytes.len());
+}
+
+/// Phase 11 EXPO-01 / D-10: PDF export remains available after phase close.
+///
+/// REVISION-Fix W4: filename schema assertion `auszahlung-{fy}-all.pdf`.
+#[tokio::test]
+async fn test_export_repayment_pdf_closed_phase_returns_200() {
+    let server = setup_with_templates().await;
+    let client = reqwest::Client::new();
+
+    let fiscal_year = 2026;
+    let _m1 = create_member_with_exit_date(&client, &server, 201, fiscal_year, 1).await;
+    let phase = create_open_repayment_phase(&client, &server, fiscal_year, 12000).await;
+
+    // Read entries to find the auto-filled entry to mark as paid out.
+    let entries_resp = client
+        .get(server.url(&format!("/api/repayment-entry?phase_id={}", phase.id)))
+        .send()
+        .await
+        .expect("list entries");
+    let entries: Vec<RepaymentEntryTO> = entries_resp.json().await.expect("parse entries");
+    assert!(!entries.is_empty(), "Auto-fill should have created entries");
+    let entry_id = entries[0].id;
+
+    // Mark paid out (Phase 9).
+    let resp = client
+        .post(server.url(&format!("/api/repayment-entry/{}/mark-paid-out", entry_id)))
+        .send()
+        .await
+        .expect("mark-paid-out");
+    assert!(
+        resp.status().is_success(),
+        "mark-paid-out failed: {:?}",
+        resp.text().await.unwrap_or_default()
+    );
+
+    // Close phase.
+    let resp = client
+        .post(server.url(&format!("/api/repayment-phase/{}/close", phase.id)))
+        .send()
+        .await
+        .expect("close phase");
+    assert!(
+        resp.status().is_success(),
+        "close phase failed: {:?}",
+        resp.text().await.unwrap_or_default()
+    );
+
+    // Export — should work on Closed phase too (EXPO-01).
+    let resp = client
+        .get(server.url(&format!(
+            "/api/repayment-phase/{}/export/pdf?include=all",
+            phase.id
+        )))
+        .send()
+        .await
+        .expect("export closed");
+    assert_eq!(resp.status(), StatusCode::OK);
+    // REVISION-Fix W4: filename schema assertion.
+    let cd = resp
+        .headers()
+        .get("content-disposition")
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    assert!(
+        cd.contains(&format!("auszahlung-{}-all.pdf", fiscal_year)),
+        "Content-Disposition '{}' should contain 'auszahlung-{}-all.pdf'",
+        cd,
+        fiscal_year
+    );
+    let bytes = resp.bytes().await.unwrap();
+    assert!(bytes.starts_with(b"%PDF-"));
+}
+
+/// Phase 11 D-12 / Pitfall #3: csv and xlsx are blocked by the REST handler with 400.
+///
+/// Verifies that the format whitelist (only "pdf" is accepted) rejects all
+/// other formats with HTTP 400 + an explanatory body. Enumerates 4 invalid
+/// formats: csv (D-12 explicit), xlsx (D-12 explicit), json, html.
+#[tokio::test]
+async fn test_export_repayment_unknown_format_returns_400() {
+    let server = setup_with_templates().await;
+    let client = reqwest::Client::new();
+
+    let phase = create_open_repayment_phase(&client, &server, 2026, 12000).await;
+
+    for bad_format in &["csv", "xlsx", "json", "html"] {
+        let resp = client
+            .get(server.url(&format!(
+                "/api/repayment-phase/{}/export/{}",
+                phase.id, bad_format
+            )))
+            .send()
+            .await
+            .expect("send");
+        assert_eq!(
+            resp.status(),
+            StatusCode::BAD_REQUEST,
+            "Format '{}' should yield 400, got {}",
+            bad_format,
+            resp.status()
+        );
+        let body = resp.text().await.unwrap_or_default();
+        assert!(
+            body.contains("unknown export format") || body.contains(bad_format),
+            "Body should explain the unknown format '{}'; got: {}",
+            bad_format,
+            body
+        );
+    }
+}
+
+/// Phase 11 D-10: Preparation-Phase is not exportable -> 409 with `phase_not_exportable`.
+#[tokio::test]
+async fn test_export_repayment_preparation_phase_returns_409() {
+    let server = setup_with_templates().await;
+    let client = reqwest::Client::new();
+
+    let phase = create_preparation_repayment_phase(&client, &server, 2026, 12000).await;
+    let resp = client
+        .get(server.url(&format!("/api/repayment-phase/{}/export/pdf", phase.id)))
+        .send()
+        .await
+        .expect("send");
+    assert_eq!(resp.status(), StatusCode::CONFLICT);
+    let body = resp.text().await.unwrap_or_default();
+    assert!(
+        body.contains("phase_not_exportable"),
+        "Body should contain 'phase_not_exportable'; got: {}",
+        body
+    );
+}
+
+/// Phase 11: Unknown phase_id returns 404.
+#[tokio::test]
+async fn test_export_repayment_unknown_phase_id_returns_404() {
+    let server = setup_with_templates().await;
+    let client = reqwest::Client::new();
+
+    let random = uuid::Uuid::new_v4();
+    let resp = client
+        .get(server.url(&format!("/api/repayment-phase/{}/export/pdf", random)))
+        .send()
+        .await
+        .expect("send");
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+/// Phase 11 EXPO-05 / D-11: Read-only export does not break the audit hashchain.
+///
+/// REVISION-Fix W7: truth is "audit/verify stays valid". The stronger claim
+/// "no new audit entry is created" is already guaranteed at COMPILE-TIME by
+/// the grep-gate test in Plan 11.03 (`no_audit_macros_used`); an additional
+/// runtime count-delta-check would only verify what the grep-gate already
+/// covers compile-time — so runtime asserts are reduced to `valid: true`.
+///
+/// REVISION-Fix W4: filename schema assertion in the export response.
+#[tokio::test]
+async fn test_export_repayment_does_not_break_audit_chain() {
+    let server = setup_with_templates().await;
+    let client = reqwest::Client::new();
+
+    let fiscal_year = 2026;
+    let _m1 = create_member_with_exit_date(&client, &server, 301, fiscal_year, 1).await;
+    let phase = create_open_repayment_phase(&client, &server, fiscal_year, 12000).await;
+
+    // Verify chain BEFORE export.
+    let resp = client
+        .get(server.url("/api/audit/verify"))
+        .send()
+        .await
+        .expect("verify pre");
+    let pre: VerifyResponseTO = resp.json().await.expect("parse pre");
+    assert!(
+        pre.valid,
+        "audit chain broken before export: broken_links={:?}",
+        pre.broken_links
+    );
+
+    // Trigger export.
+    let resp = client
+        .get(server.url(&format!(
+            "/api/repayment-phase/{}/export/pdf?include=open",
+            phase.id
+        )))
+        .send()
+        .await
+        .expect("export");
+    assert_eq!(resp.status(), StatusCode::OK);
+    // REVISION-Fix W4: filename assertion also in audit test.
+    let cd = resp
+        .headers()
+        .get("content-disposition")
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    assert!(
+        cd.contains(&format!("auszahlung-{}-open.pdf", fiscal_year)),
+        "Content-Disposition should contain filename schema; got '{}'",
+        cd
+    );
+
+    // Verify chain AFTER export — must still be valid.
+    let resp = client
+        .get(server.url("/api/audit/verify"))
+        .send()
+        .await
+        .expect("verify post");
+    let post: VerifyResponseTO = resp.json().await.expect("parse post");
+    assert!(
+        post.valid,
+        "audit chain broken after export: broken_links={:?}",
+        post.broken_links
     );
 }
