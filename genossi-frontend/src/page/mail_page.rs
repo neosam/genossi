@@ -57,6 +57,12 @@ pub fn MailPage() -> Element {
     let mut sending = use_signal(|| false);
     let mut cached_footer = use_signal(|| String::new());
 
+    // Phase 12 D-18: Kontext aus Query-Params (?phase_id=..&members=..&from=repayment)
+    let mut repayment_phase_id = use_signal(|| Option::<Uuid>::None);
+    // Phase 12 D-18 + Issue #2 BLOCKER-Fix: Template-Auswahl wird ueber on_select_id
+    // gesetzt und als template_id an send_bulk_mail durchgereicht; KEIN hardcoded None mehr.
+    let mut selected_template_id = use_signal(|| Option::<String>::None);
+
     // Attachment state
     let mut available_documents = use_signal(|| Vec::<MemberDocumentTO>::new());
     let mut selected_attachment_ids = use_signal(|| Vec::<Uuid>::new());
@@ -74,6 +80,22 @@ pub fn MailPage() -> Element {
         spawn(async move {
             refresh_members().await;
         });
+    });
+
+    // Phase 12 D-18: Parse Query-Params bei Mount
+    // (?phase_id=..&members=..&from=repayment) → repayment_phase_id + selected_member_ids vorbefuellen
+    use_effect(move || {
+        if let Some(window) = web_sys::window() {
+            if let Ok(search) = window.location().search() {
+                let parsed = parse_mail_query(&search);
+                if parsed.phase_id.is_some() {
+                    repayment_phase_id.set(parsed.phase_id);
+                }
+                if !parsed.member_ids.is_empty() {
+                    selected_member_ids.set(parsed.member_ids);
+                }
+            }
+        }
     });
 
     // Load footer on mount
@@ -376,6 +398,9 @@ pub fn MailPage() -> Element {
                                 on_insert: move |var_text: String| {
                                     body.write().push_str(&var_text);
                                 },
+                                // Phase 12 D-19: zeige Repayment-Var-Buttons nur,
+                                // wenn der Mail-Compose-Flow aus dem Repayment-Kontext kommt.
+                                show_repayment_vars: repayment_phase_id.read().is_some(),
                             }
 
                             MailSubjectInput {
@@ -390,6 +415,11 @@ pub fn MailPage() -> Element {
                                     } else {
                                         body.set(format!("{}\n{}", template_body, footer));
                                     }
+                                },
+                                // Phase 12 D-18 / Issue #2 BLOCKER-Fix:
+                                // store selected template id so send_bulk_mail can use it.
+                                on_select_id: move |id: Option<String>| {
+                                    selected_template_id.set(id);
                                 },
                             }
                             MailBodyEditor {
@@ -511,16 +541,34 @@ pub fn MailPage() -> Element {
                                             })
                                             .collect()
                                     };
+                                    // Phase 12 D-18 + Issue #2 BLOCKER-Fix:
+                                    // resolve template_id from selected_template_id signal
+                                    // (fed by TemplateSelector::on_select_id) and
+                                    // repayment_phase_id from query-param-parsed signal.
+                                    // If no template selected, template_id stays None — that's
+                                    // legitimate for a plain bulk-mail without template-resolution.
+                                    let template_id_owned: Option<String> =
+                                        selected_template_id.read().clone();
+                                    let phase_id = *repayment_phase_id.read();
                                     spawn(async move {
                                         sending.set(true);
                                         error.set(None);
                                         success_msg.set(None);
                                         let config = CONFIG.read().clone();
-                                        // Phase 12-01: send_bulk_mail signature now requires
-                                        // template_id + repayment_phase_id (Phase 10 D-12/D-03).
-                                        // Plan 12-12 replaces these `None, None` defaults with
-                                        // the real values parsed from `?from=repayment&phase_id=…`.
-                                        match api::send_bulk_mail(&config, &recipients, &subj, &b, &att_ids, &static_ids, None, None).await {
+                                        let template_id: Option<&str> =
+                                            template_id_owned.as_deref();
+                                        match api::send_bulk_mail(
+                                            &config,
+                                            &recipients,
+                                            &subj,
+                                            &b,
+                                            &att_ids,
+                                            &static_ids,
+                                            template_id,
+                                            phase_id,
+                                        )
+                                        .await
+                                        {
                                             Ok(_job) => {
                                                 success_msg.set(Some(i18n.t(Key::MailJobCreated).to_string()));
                                                 selected_member_ids.set(Vec::new());
