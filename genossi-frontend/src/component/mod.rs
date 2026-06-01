@@ -108,3 +108,7 @@ pub use repayment_entry_list::{
     entry_counts_by_status, filter_entries_by_status, member_for_entry, sort_entries_default,
     RepaymentEntryList, StatusCounts, StatusFilter,
 };
+
+// ─── Phase 12 Plan 12-09 ─── RepaymentEntryAddModal (UI-04) ─────────
+pub mod repayment_entry_add_modal;
+pub use repayment_entry_add_modal::{validate_create_entry, RepaymentEntryAddModal};
