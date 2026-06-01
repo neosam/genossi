@@ -55,6 +55,9 @@ pub enum DocumentType {
     // Non-singleton (multiple mails per member allowed); no Typst template
     // (the mail body itself is the artifact, no PDF generation).
     RepaymentMail,
+    /// Phase 13 D-LETT-04 / D-13-05: PDF-Anschreiben fuer Auszahlungsphase.
+    /// Persisted file im document_storage. is_singleton=false (D-13-08), template_path=None.
+    RepaymentLetter,
 }
 
 impl DocumentType {
@@ -65,6 +68,7 @@ impl DocumentType {
             DocumentType::ShareIncrease => "share_increase",
             DocumentType::Other => "other",
             DocumentType::RepaymentMail => "repayment_mail",
+            DocumentType::RepaymentLetter => "repayment_letter",
         }
     }
 
@@ -75,10 +79,13 @@ impl DocumentType {
             "share_increase" => Some(DocumentType::ShareIncrease),
             "other" => Some(DocumentType::Other),
             "repayment_mail" => Some(DocumentType::RepaymentMail),
+            "repayment_letter" => Some(DocumentType::RepaymentLetter),
             _ => None,
         }
     }
 
+    /// Phase 13 D-13-08: RepaymentLetter ist NICHT singleton — Re-Generierung erlaubt
+    /// (z.B. nach Anteils-Korrektur). Daher NICHT in der `matches!`-Liste unten.
     pub fn is_singleton(&self) -> bool {
         matches!(
             self,
@@ -88,7 +95,12 @@ impl DocumentType {
 
     /// Returns the Typst template path for document types that support generation.
     /// Returns `None` for types without a template mapping (e.g. `Other`, `ShareIncrease`,
-    /// `RepaymentMail`).
+    /// `RepaymentMail`, `RepaymentLetter`).
+    ///
+    /// Phase 13 D-LETT-04: `RepaymentLetter => None`, weil das Letter-Service die
+    /// Templates mit hardcoded Pfaden (`"auszahlungs_anschreiben.typ"` /
+    /// `"auszahlungs_anschreiben_bundle.typ"`) laedt und nicht ueber dieses Mapping
+    /// auffindet. Explizit-per-Variante-Arm statt Wildcard `_ =>` (Phase-10-Pattern).
     pub fn template_path(&self) -> Option<&str> {
         match self {
             DocumentType::JoinConfirmation => Some("join_confirmation.typ"),
@@ -96,6 +108,7 @@ impl DocumentType {
             DocumentType::ShareIncrease => None,
             DocumentType::Other => None,
             DocumentType::RepaymentMail => None,
+            DocumentType::RepaymentLetter => None,
         }
     }
 }
