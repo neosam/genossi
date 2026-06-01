@@ -32,6 +32,21 @@ const DEFAULT_TEMPLATES: &[DefaultTemplate] = &[
         path: "auszahlungsliste.typ",
         content: include_bytes!("../../templates/defaults/auszahlungsliste.typ"),
     },
+    // Phase 13 D-13-05: RepaymentLetter Single-Letter Default-Template.
+    // UI-editierbar via /templates-Editor; DEFAULT_TEMPLATES liefert nur den Initial-Wert.
+    // RESEARCH §Pitfall #1: ohne diesen Eintrag faellt das Letter-Service
+    // mit "template not found"-InternalError beim ersten Render.
+    DefaultTemplate {
+        path: "auszahlungs_anschreiben.typ",
+        content: include_bytes!("../../templates/defaults/auszahlungs_anschreiben.typ"),
+    },
+    // Phase 13 D-13-01: RepaymentLetter Bundle-Wrapper-Template.
+    // Importiert render-letter aus auszahlungs_anschreiben.typ (Single-Source-of-Truth)
+    // und iteriert ueber recipients[] mit #pagebreak() dazwischen.
+    DefaultTemplate {
+        path: "auszahlungs_anschreiben_bundle.typ",
+        content: include_bytes!("../../templates/defaults/auszahlungs_anschreiben_bundle.typ"),
+    },
 ];
 
 pub struct TemplateStorage {
@@ -502,5 +517,81 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(written, data);
+    }
+
+    // -------------------------------------------------------------------------
+    // Phase 13 D-13-01 / D-13-05 / D-13-06 / D-13-07:
+    // RepaymentLetter Default-Template registriert (Single + Bundle), und
+    // Single-Source-of-Truth-Vertrag: der Brief-Body lebt nur im Single-Template,
+    // das Bundle importiert die `render-letter`-Funktion.
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_default_templates_contains_auszahlungs_anschreiben_single() {
+        assert!(DEFAULT_TEMPLATES
+            .iter()
+            .any(|t| t.path == "auszahlungs_anschreiben.typ"));
+        let entry = DEFAULT_TEMPLATES
+            .iter()
+            .find(|t| t.path == "auszahlungs_anschreiben.typ")
+            .unwrap();
+        assert!(!entry.content.is_empty());
+        let text = std::str::from_utf8(entry.content).expect("template is UTF-8");
+        assert!(text.contains("letter-pro"), "letter-pro-Import muss vorhanden sein");
+        assert!(text.contains("sys.inputs"), "sys.inputs-Pattern muss verwendet werden");
+        assert!(
+            text.contains("bank_account"),
+            "IBAN-Switch muss vorhanden sein (D-13-06)"
+        );
+        assert!(
+            text.contains("Carolin Weidmann"),
+            "Vorstands-Signatur (D-13-06 Baustein 4)"
+        );
+        assert!(
+            text.contains("render-letter"),
+            "render-letter-Funktion muss exportiert sein (Single-Source-of-Truth)"
+        );
+        assert!(
+            !text.contains("Verwendungszweck"),
+            "D-13-07: KEIN SEPA-Verwendungszweck"
+        );
+    }
+
+    #[test]
+    fn test_default_templates_contains_auszahlungs_anschreiben_bundle() {
+        assert!(DEFAULT_TEMPLATES
+            .iter()
+            .any(|t| t.path == "auszahlungs_anschreiben_bundle.typ"));
+        let entry = DEFAULT_TEMPLATES
+            .iter()
+            .find(|t| t.path == "auszahlungs_anschreiben_bundle.typ")
+            .unwrap();
+        assert!(!entry.content.is_empty());
+        let text = std::str::from_utf8(entry.content).expect("template is UTF-8");
+        assert!(
+            text.contains("#import \"auszahlungs_anschreiben.typ\""),
+            "Bundle MUSS render-letter aus Single-Template importieren (Single-Source-of-Truth)"
+        );
+        assert!(
+            text.contains("render-letter"),
+            "Bundle ruft render-letter auf"
+        );
+        assert!(
+            text.contains("pagebreak"),
+            "Bundle MUSS #pagebreak() zwischen Briefen setzen (D-13-01)"
+        );
+        assert!(
+            text.contains("recipients"),
+            "Bundle iteriert ueber recipients-Array"
+        );
+        // Drift-Schutz: Brief-Body-Strings duerfen NICHT im Bundle dupliziert sein.
+        assert!(
+            !text.contains("Carolin Weidmann"),
+            "Drift-Schutz: Vorstands-Signatur lebt NUR im Single-Template (Single-Source-of-Truth)"
+        );
+        assert!(
+            !text.contains("Mitgliedsnummer"),
+            "Drift-Schutz: Reference-Block-Strings leben NUR im Single-Template"
+        );
     }
 }
