@@ -20,6 +20,17 @@ edition = "2021"
 authors = ["Your Name <your.email@example.com>"]
 license = "MIT OR Apache-2.0"
 
+[workspace.lints.clippy]
+# Structural findings that would require API refactors or are stylistic only.
+# Kept as `allow` to keep the layered DAO/Service/REST architecture stable
+# without churn from cosmetic clippy nags.
+too_many_arguments = "allow"
+type_complexity = "allow"
+should_implement_trait = "allow"
+doc_lazy_continuation = "allow"
+doc_overindented_list_items = "allow"
+only_used_in_recursion = "allow"
+
 [workspace.dependencies]
 async-trait = "0.1"
 axum = { version = "0.8.3", features = ["multipart"] }

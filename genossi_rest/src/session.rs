@@ -9,8 +9,6 @@ use genossi_service::permission::MockContext;
 #[cfg(feature = "oidc")]
 use genossi_service::session::SessionService;
 #[cfg(feature = "oidc")]
-use std::sync::Arc;
-#[cfg(feature = "oidc")]
 use tower_cookies::Cookies;
 
 #[cfg(feature = "oidc")]

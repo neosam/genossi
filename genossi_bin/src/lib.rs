@@ -1016,7 +1016,7 @@ impl RestStateImpl {
     pub async fn initialize_audit_snapshot(&self) -> Result<(), Box<dyn std::error::Error>> {
         use genossi_dao::application::ApplicationDao;
         use genossi_dao::audit_log::AuditLogDao;
-        use genossi_dao::auditable::Auditable;
+        
         use genossi_dao::member::MemberDao;
         use genossi_dao::member_action::MemberActionDao;
         use genossi_dao::member_document::MemberDocumentDao;

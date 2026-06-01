@@ -29,7 +29,7 @@ async fn require_export_backup<RestState: RestStateDef>(
     context: Context,
 ) -> Result<(), RestError> {
     let auth = crate::extract_auth_context(Some(context))?;
-    let authentication: Authentication<_> = Authentication::from(auth);
+    let authentication: Authentication<_> = auth;
     rest_state
         .permission_service()
         .check_permission(privileges::EXPORT_BACKUP, authentication)

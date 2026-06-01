@@ -514,8 +514,7 @@ impl StaticDocumentDao for StaticDocumentDaoSqlite {
         if ids.is_empty() {
             return Ok(Arc::from(vec![]));
         }
-        let placeholders = std::iter::repeat("?")
-            .take(ids.len())
+        let placeholders = std::iter::repeat_n("?", ids.len())
             .collect::<Vec<_>>()
             .join(",");
         let query = format!(
@@ -1003,7 +1002,7 @@ impl MailTemplateDao for MailTemplateDaoSqlite {
         let deleted = template
             .deleted
             .as_ref()
-            .map(|d| format_datetime(d))
+            .map(format_datetime)
             .transpose()?;
 
         sqlx::query(

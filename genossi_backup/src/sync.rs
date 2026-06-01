@@ -215,7 +215,7 @@ mod tests {
     impl MockSyncDao {
         fn new(hash: Option<&str>) -> Self {
             Self {
-                hash: std::sync::Mutex::new(hash.map(|h| Arc::from(h))),
+                hash: std::sync::Mutex::new(hash.map(Arc::from)),
                 upserted: std::sync::Mutex::new(Vec::new()),
             }
         }

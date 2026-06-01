@@ -4327,7 +4327,7 @@ async fn test_public_member_count_excludes_exited_and_deleted() {
     // Create Austritt action with past date to make member2 exited
     let austritt = MemberActionTO {
         id: None,
-        member_id: created2.id.clone().unwrap(),
+        member_id: created2.id.unwrap(),
         action_type: ActionTypeTO::Austritt,
         date: time::Date::from_calendar_date(2020, time::Month::January, 1).unwrap(),
         shares_change: 0,

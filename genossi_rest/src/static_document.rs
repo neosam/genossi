@@ -88,7 +88,7 @@ async fn require_admin<RestState: RestStateDef>(
     context: Context,
 ) -> Result<(), RestError> {
     let auth = crate::extract_auth_context(Some(context))?;
-    let authentication: Authentication<_> = Authentication::from(auth);
+    let authentication: Authentication<_> = auth;
     rest_state
         .permission_service()
         .check_permission(ADMIN_PRIVILEGE, authentication)

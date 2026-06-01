@@ -132,16 +132,13 @@ impl From<&SalutationTO> for Salutation {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Default)]
 pub enum MemberStatusTO {
+    #[default]
     Normal,
     FehlerhaftErfasst,
 }
 
-impl Default for MemberStatusTO {
-    fn default() -> Self {
-        MemberStatusTO::Normal
-    }
-}
 
 impl From<&MemberStatus> for MemberStatusTO {
     fn from(s: &MemberStatus) -> Self {

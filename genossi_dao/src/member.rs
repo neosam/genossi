@@ -35,7 +35,9 @@ impl Salutation {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Default)]
 pub enum MemberStatus {
+    #[default]
     Normal,
     FehlerhaftErfasst,
 }
@@ -64,11 +66,6 @@ impl MemberStatus {
     }
 }
 
-impl Default for MemberStatus {
-    fn default() -> Self {
-        MemberStatus::Normal
-    }
-}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MemberEntity {
@@ -179,7 +176,7 @@ pub trait MemberDao {
             .iter()
             .filter(|e| e.deleted.is_none())
             .filter(|e| e.status.is_normal())
-            .filter(|e| e.exit_date.map_or(true, |d| d > today))
+            .filter(|e| e.exit_date.is_none_or(|d| d > today))
             .count();
         Ok(count as u64)
     }

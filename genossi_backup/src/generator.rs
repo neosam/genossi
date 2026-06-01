@@ -176,10 +176,8 @@ pub fn generate_communication_txt(row: &CommunicationBackupRow) -> String {
         if let Some(from) = &row.from_address {
             content.push_str(&format!("Von: {}\n", from));
         }
-    } else {
-        if let Some(to) = &row.to_address {
-            content.push_str(&format!("An: {}\n", to));
-        }
+    } else if let Some(to) = &row.to_address {
+        content.push_str(&format!("An: {}\n", to));
     }
 
     content.push_str(&format!("Betreff: {}\n", row.subject));

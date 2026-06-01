@@ -197,7 +197,7 @@ async fn write_template<RestState: RestStateDef>(
             if path.ends_with('/') {
                 rest_state
                     .template_storage()
-                    .create_directory(&path.trim_end_matches('/'))
+                    .create_directory(path.trim_end_matches('/'))
                     .await
                     .map_err(template_error_to_rest)?;
             } else {

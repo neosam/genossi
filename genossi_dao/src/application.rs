@@ -7,7 +7,9 @@ use crate::member::Salutation;
 use crate::DaoError;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Default)]
 pub enum ApplicationStatus {
+    #[default]
     Offen,
     Bestaetigt,
     Abgelehnt,
@@ -35,11 +37,6 @@ impl ApplicationStatus {
     }
 }
 
-impl Default for ApplicationStatus {
-    fn default() -> Self {
-        ApplicationStatus::Offen
-    }
-}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ApplicationEntity {

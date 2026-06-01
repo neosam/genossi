@@ -81,7 +81,7 @@ impl<Deps: MemberDocumentServiceDeps> MemberDocumentService for MemberDocumentSe
             && upload
                 .description
                 .as_ref()
-                .map_or(true, |d| d.trim().is_empty())
+                .is_none_or(|d| d.trim().is_empty())
         {
             return Err(ServiceError::ValidationError(vec![ValidationFailureItem {
                 field: Arc::from("description"),

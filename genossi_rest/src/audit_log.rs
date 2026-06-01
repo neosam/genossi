@@ -97,7 +97,7 @@ pub async fn get_audit_log<RestState: AuditRestState>(
     error_handler(
         (async {
             let auth = crate::extract_auth_context(Some(context))?;
-            let authentication: Authentication<_> = Authentication::from(auth);
+            let authentication: Authentication<_> = auth;
             rest_state
                 .permission_service()
                 .check_permission("admin", authentication)
@@ -176,7 +176,7 @@ pub async fn get_audit_by_entity<RestState: AuditRestState>(
     error_handler(
         (async {
             let auth = crate::extract_auth_context(Some(context))?;
-            let authentication: Authentication<_> = Authentication::from(auth);
+            let authentication: Authentication<_> = auth;
             rest_state
                 .permission_service()
                 .check_permission("admin", authentication)
@@ -222,7 +222,7 @@ pub async fn verify_chain<RestState: AuditRestState>(
     error_handler(
         (async {
             let auth = crate::extract_auth_context(Some(context))?;
-            let authentication: Authentication<_> = Authentication::from(auth);
+            let authentication: Authentication<_> = auth;
             rest_state
                 .permission_service()
                 .check_permission("admin", authentication)

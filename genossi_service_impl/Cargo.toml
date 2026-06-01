@@ -43,3 +43,5 @@ spki = "0.7"
 tempfile = "3"
 hex-literal = "0.4"
 mockall = { workspace = true }
+[lints]
+workspace = true

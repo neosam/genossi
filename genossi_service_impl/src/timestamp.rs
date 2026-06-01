@@ -313,7 +313,7 @@ mod tests {
     use genossi_config::service::MockConfigService;
     use genossi_dao::audit_log::MockAuditLogDao;
     use genossi_dao::audit_timestamp::MockAuditTimestampDao;
-    use genossi_dao::{DaoError, MockTransaction, MockTransactionDao};
+    use genossi_dao::{MockTransaction, MockTransactionDao};
 
     fn setup_mock_tx() -> MockTransactionDao {
         let mut tx_dao = MockTransactionDao::new();

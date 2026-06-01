@@ -60,7 +60,7 @@ pub async fn list_timestamps<RestState: TimestampRestState>(
     error_handler(
         (async {
             let auth = crate::extract_auth_context(Some(context))?;
-            let authentication: Authentication<_> = Authentication::from(auth);
+            let authentication: Authentication<_> = auth;
             rest_state
                 .permission_service()
                 .check_permission("admin", authentication)
@@ -104,7 +104,7 @@ pub async fn create_timestamp<RestState: TimestampRestState>(
     error_handler(
         (async {
             let auth = crate::extract_auth_context(Some(context))?;
-            let authentication: Authentication<_> = Authentication::from(auth);
+            let authentication: Authentication<_> = auth;
             rest_state
                 .permission_service()
                 .check_permission("admin", authentication)
@@ -182,7 +182,7 @@ pub async fn verify_timestamp<RestState: TimestampRestState>(
     error_handler(
         (async {
             let auth = crate::extract_auth_context(Some(context))?;
-            let authentication: Authentication<_> = Authentication::from(auth);
+            let authentication: Authentication<_> = auth;
             rest_state
                 .permission_service()
                 .check_permission("admin", authentication)

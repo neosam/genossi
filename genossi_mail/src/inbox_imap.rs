@@ -183,10 +183,8 @@ impl InboxImapClient for AsyncImapClient {
             .map_err(|e| err(format!("IMAP LIST: {}", e)))?;
         let items: Vec<_> = folders_stream.collect().await;
         let mut names = Vec::new();
-        for item in items {
-            if let Ok(name) = item {
-                names.push(name.name().to_string());
-            }
+        for name in items.into_iter().flatten() {
+            names.push(name.name().to_string());
         }
         names.sort();
         let _ = session.logout().await;

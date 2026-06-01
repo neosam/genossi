@@ -4,8 +4,6 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-#[cfg(feature = "oidc")]
-use genossi_service::auth_types::AuthenticatedContext;
 #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
 use genossi_service::permission::MockContext;
 use genossi_service::{auth_types::AuthContext, permission::PermissionService, ServiceError};
@@ -148,11 +146,7 @@ fn extract_session_from_cookie(cookie_str: &str) -> Option<String> {
 
 /// Extract bearer token from Authorization header
 fn extract_bearer_token(auth_str: &str) -> Option<String> {
-    if auth_str.starts_with("Bearer ") {
-        Some(auth_str[7..].to_string())
-    } else {
-        None
-    }
+    auth_str.strip_prefix("Bearer ").map(|s| s.to_string())
 }
 
 /// Development middleware that injects a mock authentication context

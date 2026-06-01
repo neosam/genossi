@@ -16,6 +16,12 @@ pub struct PublicStatsCache {
     member_count: RwLock<Option<(u64, Instant)>>,
 }
 
+impl Default for PublicStatsCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PublicStatsCache {
     pub fn new() -> Self {
         Self {

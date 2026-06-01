@@ -49,6 +49,12 @@ pub struct PackageCache {
     downloaded: Mutex<HashSet<String>>,
 }
 
+impl Default for PackageCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PackageCache {
     pub fn new() -> Self {
         let cache_dir = std::env::var("TYPST_PACKAGE_CACHE")
@@ -151,6 +157,12 @@ pub struct PdfGenerator {
     fonts: Vec<Font>,
     book: LazyHash<FontBook>,
     package_cache: PackageCache,
+}
+
+impl Default for PdfGenerator {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl PdfGenerator {

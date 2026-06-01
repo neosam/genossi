@@ -30,7 +30,7 @@ pub mod validation;
 
 use async_trait::async_trait;
 use axum::routing::get;
-use axum::{body::Body, middleware, response::IntoResponse, response::Response, Router};
+use axum::{body::Body, middleware, response::Response, Router};
 #[cfg(feature = "oidc")]
 use genossi_service::auth_types::AuthenticatedContext;
 #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
@@ -45,6 +45,8 @@ use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 use axum::response::Redirect;
+#[cfg(feature = "oidc")]
+use axum::response::IntoResponse;
 
 // Simplified context type to match shifty pattern - just the user ID
 #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
@@ -538,12 +540,12 @@ pub async fn create_app<
     let app = {
         use axum::error_handling::HandleErrorLayer;
         use axum_oidc::error::MiddlewareError;
-        use axum_oidc::{EmptyAdditionalClaims, OidcAuthLayer, OidcLoginLayer};
-        use http::Uri;
-        use time::Duration;
+        use axum_oidc::{EmptyAdditionalClaims, OidcLoginLayer};
+        
+        
         use tower::ServiceBuilder;
-        use tower_sessions::cookie::SameSite;
-        use tower_sessions::{Expiry, MemoryStore, SessionManagerLayer};
+        
+        
 
         let oidc_login_service = ServiceBuilder::new()
             .layer(HandleErrorLayer::new(|e: MiddlewareError| async {
@@ -678,7 +680,7 @@ pub async fn create_app<
     let app = {
         use axum::error_handling::HandleErrorLayer;
         use axum_oidc::error::MiddlewareError;
-        use axum_oidc::{EmptyAdditionalClaims, OidcAuthLayer, OidcLoginLayer};
+        use axum_oidc::{EmptyAdditionalClaims, OidcAuthLayer};
         use http::Uri;
         use time::Duration;
         use tower::ServiceBuilder;

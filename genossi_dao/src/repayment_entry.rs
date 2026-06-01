@@ -13,7 +13,9 @@ use crate::DaoError;
 ///
 /// **D-01-Konvention (analog Phase 7):** Statusstrings in Englisch; Frontend i18n.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Default)]
 pub enum RepaymentEntryStatus {
+    #[default]
     Open,
     Contacted,
     PaidOut,
@@ -41,11 +43,6 @@ impl RepaymentEntryStatus {
     }
 }
 
-impl Default for RepaymentEntryStatus {
-    fn default() -> Self {
-        RepaymentEntryStatus::Open
-    }
-}
 
 /// Auditpflichtige RepaymentEntry-Entity.
 ///

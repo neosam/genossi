@@ -108,7 +108,7 @@ fn validate_action(item: &MemberAction) -> Vec<ValidationFailureItem> {
                     message: Arc::from("Note actions must have shares_change = 0"),
                 });
             }
-            if item.comment.as_ref().map_or(true, |c| c.is_empty()) {
+            if item.comment.as_ref().is_none_or(|c| c.is_empty()) {
                 errors.push(ValidationFailureItem {
                     field: Arc::from("comment"),
                     message: Arc::from("comment is required for Note actions"),

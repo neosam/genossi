@@ -114,7 +114,7 @@ async fn admin_revoke_user_sessions_impl<RestState: RestStateDef>(
 ) -> Result<Response, RestError> {
     // Require admin privilege
     let auth = crate::extract_auth_context(Some(context))?;
-    let authentication: Authentication<_> = Authentication::from(auth);
+    let authentication: Authentication<_> = auth;
     rest_state
         .permission_service()
         .check_permission(ADMIN_PRIVILEGE, authentication)

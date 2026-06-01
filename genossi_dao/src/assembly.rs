@@ -7,7 +7,9 @@ use uuid::Uuid;
 use crate::DaoError;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Default)]
 pub enum AssemblyStatus {
+    #[default]
     Preparation,
     Open,
     Closed,
@@ -35,11 +37,6 @@ impl AssemblyStatus {
     }
 }
 
-impl Default for AssemblyStatus {
-    fn default() -> Self {
-        AssemblyStatus::Preparation
-    }
-}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AssemblyEntity {

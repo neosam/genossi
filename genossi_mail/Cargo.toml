@@ -29,3 +29,6 @@ rustls = { version = "0.23", default-features = false, features = ["ring"] }
 webpki-roots = "0.26"
 mail-parser = "0.9"
 futures = "0.3"
+
+[lints]
+workspace = true

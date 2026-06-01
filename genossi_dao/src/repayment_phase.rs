@@ -7,7 +7,9 @@ use uuid::Uuid;
 use crate::DaoError;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Default)]
 pub enum RepaymentPhaseStatus {
+    #[default]
     Preparation,
     Open,
     Closed,
@@ -35,11 +37,6 @@ impl RepaymentPhaseStatus {
     }
 }
 
-impl Default for RepaymentPhaseStatus {
-    fn default() -> Self {
-        RepaymentPhaseStatus::Preparation
-    }
-}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RepaymentPhaseEntity {

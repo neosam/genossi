@@ -18,3 +18,5 @@ default = ["mock_auth"]
 mock_auth = []
 oidc = []
 utoipa = ["dep:utoipa"]
+[lints]
+workspace = true

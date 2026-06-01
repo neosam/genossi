@@ -355,7 +355,7 @@ impl<Deps: RepaymentPhaseServiceDeps> RepaymentPhaseService for RepaymentPhaseSe
         let all_members = self.member_dao.all(tx.clone()).await?;
         let mut targets: Vec<&genossi_dao::member::MemberEntity> = all_members
             .iter()
-            .filter(|m| m.exit_date.map_or(false, |d| d >= fy_start && d <= fy_end))
+            .filter(|m| m.exit_date.is_some_and(|d| d >= fy_start && d <= fy_end))
             .filter(|m| m.current_shares > 0)
             .collect();
 

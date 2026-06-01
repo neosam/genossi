@@ -1,7 +1,7 @@
 use axum::body::Body;
 use axum::extract::{Path, State};
 use axum::response::Response;
-use axum::routing::{delete, get, post, put};
+use axum::routing::get;
 use axum::Router;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -38,12 +38,6 @@ pub struct UpdateMailTemplateRequest {
     pub subject: String,
     pub body: String,
     pub version: String,
-}
-
-fn format_datetime(dt: &time::PrimitiveDateTime) -> String {
-    dt.assume_utc()
-        .format(&time::format_description::well_known::Iso8601::DEFAULT)
-        .unwrap_or_else(|_| dt.to_string())
 }
 
 impl From<&MailTemplate> for MailTemplateTO {

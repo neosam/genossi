@@ -78,7 +78,7 @@ pub async fn get_all_users<RestState: RestStateDef>(
             let users = permission_service
                 .get_all_users(auth_context)
                 .await
-                .map_err(|e| service_error_to_rest_error(e))?;
+                .map_err(service_error_to_rest_error)?;
 
             Ok(Json(users.as_ref()).into_response())
         })
@@ -114,7 +114,7 @@ pub async fn create_user<RestState: RestStateDef>(
             permission_service
                 .create_user(user, auth_context)
                 .await
-                .map_err(|e| service_error_to_rest_error(e))?;
+                .map_err(service_error_to_rest_error)?;
 
             Ok(Response::builder()
                 .status(StatusCode::CREATED)
@@ -155,7 +155,7 @@ pub async fn delete_user<RestState: RestStateDef>(
             permission_service
                 .delete_user(username, auth_context)
                 .await
-                .map_err(|e| service_error_to_rest_error(e))?;
+                .map_err(service_error_to_rest_error)?;
 
             Ok(Response::builder()
                 .status(StatusCode::NO_CONTENT)
@@ -193,7 +193,7 @@ pub async fn get_all_roles<RestState: RestStateDef>(
             let roles = permission_service
                 .get_all_roles(auth_context)
                 .await
-                .map_err(|e| service_error_to_rest_error(e))?;
+                .map_err(service_error_to_rest_error)?;
 
             Ok(Json(roles.as_ref()).into_response())
         })
@@ -229,7 +229,7 @@ pub async fn create_role<RestState: RestStateDef>(
             permission_service
                 .create_role(role, auth_context)
                 .await
-                .map_err(|e| service_error_to_rest_error(e))?;
+                .map_err(service_error_to_rest_error)?;
 
             Ok(Response::builder()
                 .status(StatusCode::CREATED)
@@ -270,7 +270,7 @@ pub async fn delete_role<RestState: RestStateDef>(
             permission_service
                 .delete_role(role_name, auth_context)
                 .await
-                .map_err(|e| service_error_to_rest_error(e))?;
+                .map_err(service_error_to_rest_error)?;
 
             Ok(Response::builder()
                 .status(StatusCode::NO_CONTENT)
@@ -308,7 +308,7 @@ pub async fn get_all_privileges<RestState: RestStateDef>(
             let privileges = permission_service
                 .get_all_privileges(auth_context)
                 .await
-                .map_err(|e| service_error_to_rest_error(e))?;
+                .map_err(service_error_to_rest_error)?;
 
             Ok(Json(privileges.as_ref()).into_response())
         })
@@ -344,7 +344,7 @@ pub async fn create_privilege<RestState: RestStateDef>(
             permission_service
                 .create_privilege(privilege, auth_context)
                 .await
-                .map_err(|e| service_error_to_rest_error(e))?;
+                .map_err(service_error_to_rest_error)?;
 
             Ok(Response::builder()
                 .status(StatusCode::CREATED)
@@ -385,7 +385,7 @@ pub async fn delete_privilege<RestState: RestStateDef>(
             permission_service
                 .delete_privilege(privilege_name, auth_context)
                 .await
-                .map_err(|e| service_error_to_rest_error(e))?;
+                .map_err(service_error_to_rest_error)?;
 
             Ok(Response::builder()
                 .status(StatusCode::NO_CONTENT)
@@ -426,7 +426,7 @@ pub async fn assign_user_role<RestState: RestStateDef>(
             permission_service
                 .assign_user_role(user_role, auth_context)
                 .await
-                .map_err(|e| service_error_to_rest_error(e))?;
+                .map_err(service_error_to_rest_error)?;
 
             Ok(Response::builder()
                 .status(StatusCode::CREATED)
@@ -465,7 +465,7 @@ pub async fn remove_user_role<RestState: RestStateDef>(
             permission_service
                 .remove_user_role(user_role, auth_context)
                 .await
-                .map_err(|e| service_error_to_rest_error(e))?;
+                .map_err(service_error_to_rest_error)?;
 
             Ok(Response::builder()
                 .status(StatusCode::NO_CONTENT)
@@ -506,7 +506,7 @@ pub async fn get_user_roles<RestState: RestStateDef>(
             let roles = permission_service
                 .get_user_roles(username, auth_context)
                 .await
-                .map_err(|e| service_error_to_rest_error(e))?;
+                .map_err(service_error_to_rest_error)?;
 
             Ok(Json(roles.as_ref()).into_response())
         })
@@ -544,7 +544,7 @@ pub async fn assign_role_privilege<RestState: RestStateDef>(
             permission_service
                 .assign_role_privilege(role_privilege, auth_context)
                 .await
-                .map_err(|e| service_error_to_rest_error(e))?;
+                .map_err(service_error_to_rest_error)?;
 
             Ok(Response::builder()
                 .status(StatusCode::CREATED)
@@ -583,7 +583,7 @@ pub async fn remove_role_privilege<RestState: RestStateDef>(
             permission_service
                 .remove_role_privilege(role_privilege, auth_context)
                 .await
-                .map_err(|e| service_error_to_rest_error(e))?;
+                .map_err(service_error_to_rest_error)?;
 
             Ok(Response::builder()
                 .status(StatusCode::NO_CONTENT)
@@ -624,7 +624,7 @@ pub async fn get_role_privileges<RestState: RestStateDef>(
             let privileges = permission_service
                 .get_role_privileges(role_name, auth_context)
                 .await
-                .map_err(|e| service_error_to_rest_error(e))?;
+                .map_err(service_error_to_rest_error)?;
 
             Ok(Json(privileges.as_ref()).into_response())
         })
@@ -662,7 +662,7 @@ pub async fn get_user_privileges<RestState: RestStateDef>(
             let privileges = permission_service
                 .get_user_privileges(username, auth_context)
                 .await
-                .map_err(|e| service_error_to_rest_error(e))?;
+                .map_err(service_error_to_rest_error)?;
 
             Ok(Json(privileges.as_ref()).into_response())
         })
@@ -702,7 +702,7 @@ pub async fn get_user_preference<RestState: RestStateDef>(
                 .user_preference_service()
                 .get_by_key_for_user(&username, &key, auth_context, None)
                 .await
-                .map_err(|e| service_error_to_rest_error(e))?;
+                .map_err(service_error_to_rest_error)?;
             let to = UserPreferenceTO::from(&pref);
             Ok(Json(to).into_response())
         })
@@ -741,7 +741,7 @@ pub async fn upsert_user_preference<RestState: RestStateDef>(
                 .user_preference_service()
                 .upsert_for_user(&username, &key, &body.value, auth_context, None)
                 .await
-                .map_err(|e| service_error_to_rest_error(e))?;
+                .map_err(service_error_to_rest_error)?;
             let to = UserPreferenceTO::from(&pref);
             Ok(Json(to).into_response())
         })
@@ -777,7 +777,7 @@ fn service_error_to_rest_error(error: ServiceError) -> RestError {
 
 /// Generate router for permission management endpoints
 pub fn generate_route<RestState: RestStateDef>() -> axum::Router<RestState> {
-    use axum::routing::{delete, get, post, put};
+    use axum::routing::{delete, get, post};
 
     axum::Router::new()
         // User management

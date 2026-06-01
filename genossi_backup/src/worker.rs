@@ -19,7 +19,6 @@ struct BackupConfig {
     username: String,
     password: String,
     directory: String,
-    interval_hours: u64,
 }
 
 fn parse_config(entries: &[ConfigEntry]) -> Option<BackupConfig> {
@@ -41,9 +40,6 @@ fn parse_config(entries: &[ConfigEntry]) -> Option<BackupConfig> {
     let directory = find("backup_webdav_directory")
         .unwrap_or("genossi-export")
         .to_string();
-    let interval_hours = find("backup_interval_hours")
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(DEFAULT_INTERVAL_HOURS);
 
     if url.is_empty() || username.is_empty() || password.is_empty() {
         return None;
@@ -54,7 +50,6 @@ fn parse_config(entries: &[ConfigEntry]) -> Option<BackupConfig> {
         username,
         password,
         directory,
-        interval_hours,
     })
 }
 
@@ -93,7 +88,7 @@ async fn run_backup_cycle<C, B, S, CS, D, AL, AT, TD>(
     sync_dao: &S,
     comm_sync_dao: &CS,
     document_storage: &D,
-    config_service: &C,
+    _config_service: &C,
     audit_log_dao: &AL,
     audit_timestamp_dao: &AT,
     transaction_dao: &TD,
@@ -233,7 +228,6 @@ where
     );
 
     // 7. Export audit log as CSV
-    let mut audit_log_exported = false;
     let tx = transaction_dao
         .transaction()
         .await
@@ -250,7 +244,7 @@ where
         .put(&audit_path, audit_csv)
         .await
         .map_err(|e| format!("Failed to upload audit-log.csv: {}", e))?;
-    audit_log_exported = true;
+    let audit_log_exported = true;
     tracing::info!("Uploaded audit-log.csv ({} entries)", audit_entries.len());
 
     // 8. Upload pending .tsr timestamp tokens
@@ -419,7 +413,6 @@ mod tests {
         assert_eq!(config.username, "user");
         assert_eq!(config.password, "pass");
         assert_eq!(config.directory, "my-backup");
-        assert_eq!(config.interval_hours, 12);
     }
 
     #[test]
@@ -463,7 +456,6 @@ mod tests {
         ];
         let config = parse_config(&entries).unwrap();
         assert_eq!(config.directory, "genossi-export");
-        assert_eq!(config.interval_hours, 24);
     }
 
     #[test]

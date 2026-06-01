@@ -246,7 +246,7 @@ impl<Deps: ApplicationServiceDeps> ApplicationService for ApplicationServiceImpl
 
         let filtered: Vec<Application> = all
             .iter()
-            .filter(|e| status_filter.as_ref().map_or(true, |s| e.status == *s))
+            .filter(|e| status_filter.as_ref().is_none_or(|s| e.status == *s))
             .map(Application::from)
             .collect();
 

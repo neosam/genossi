@@ -240,7 +240,7 @@ impl<Deps: AssemblyServiceDeps> AssemblyService for AssemblyServiceImpl<Deps> {
             .iter()
             .filter(|m| m.status.is_normal())
             .filter(|m| m.join_date <= opened_date)
-            .filter(|m| m.exit_date.map_or(true, |d| d > opened_date))
+            .filter(|m| m.exit_date.is_none_or(|d| d > opened_date))
             .map(|m| AssemblyMemberSnapshotEntity {
                 assembly_id: id,
                 member_id: m.id,

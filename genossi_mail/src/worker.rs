@@ -724,7 +724,7 @@ async fn send_mail_for_recipient<C: ConfigService, D: DocumentStorage>(
     let message_id = email
         .headers()
         .get_raw("Message-ID")
-        .and_then(|raw| crate::dao::normalize_message_id(raw));
+        .and_then(crate::dao::normalize_message_id);
     if message_id.is_none() {
         tracing::warn!("Worker: outgoing mail has no Message-ID header");
     }

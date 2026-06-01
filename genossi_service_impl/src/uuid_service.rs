@@ -5,6 +5,12 @@ use uuid::Uuid;
 #[derive(Clone)]
 pub struct UuidServiceImpl;
 
+impl Default for UuidServiceImpl {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl UuidServiceImpl {
     pub fn new() -> Self {
         Self
