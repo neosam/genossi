@@ -15,6 +15,7 @@ pub mod permission;
 pub mod repayment_context;
 pub mod repayment_entry;
 pub mod repayment_export;
+pub mod repayment_letter;
 pub mod repayment_phase;
 pub mod session;
 pub mod template;
