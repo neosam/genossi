@@ -34,7 +34,8 @@ pub fn ToastContainer(messages: ReadOnlySignal<Vec<(u64, String)>>) -> Element {
     }
     rsx! {
         div {
-            class: "fixed z-40 bottom-4 left-1/2 -translate-x-1/2 md:bottom-auto md:left-auto md:top-4 md:right-4 md:translate-x-0 flex flex-col gap-2 max-w-md print:hidden",
+            // z-[60] > TopBar z-50 — sonst werden Desktop-Toasts (md:top-4) verdeckt (UAT Defekt #2).
+            class: "fixed z-[60] bottom-4 left-1/2 -translate-x-1/2 md:bottom-auto md:left-auto md:top-4 md:right-4 md:translate-x-0 flex flex-col gap-2 max-w-md print:hidden",
             for (id, msg) in msgs.iter() {
                 div {
                     key: "{id}",

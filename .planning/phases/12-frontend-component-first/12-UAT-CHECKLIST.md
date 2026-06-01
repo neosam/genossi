@@ -130,6 +130,7 @@
 | # | Beschreibung | Plan-Referenz | Schwere | Gap-Closure-Plan oder Inline-Fix | Status |
 |---|---|---|---|---|---|
 | 1 | A#5: Create-Modal Validation feuert nicht — Submit mit `0`/`0` löst trotz `e.prevent_default()` einen Full-Page-Reload aus (weißer Flash → Liste), Toast erscheint nicht. Bekannter Dioxus-Bug (Memory `feedback_dioxus_button_type`) — `form { onsubmit }` + `r#type:"submit"` reicht nicht. Auch proaktiv in `repayment_entry_add_modal.rs` (UI-04) gefixt. | 12-04 (Listen-Page Create-Form) + 12-09 (Add-Entry-Modal, proaktiv) | Medium | **Inline-Fix angewendet:** `form` → `div`, Submit-Button `r#type:"button"` + `onclick: submit`-Closure. Files: `genossi-frontend/src/page/repayment_phases.rs`, `genossi-frontend/src/component/repayment_entry_add_modal.rs`. | RESOLVED |
+| 2 | A#5: ToastContainer `z-40` vs. TopBar `z-50` → Desktop-Toasts (`md:top-4 md:right-4`) werden komplett von der TopBar verdeckt. Auf Mobile sichtbar (dort positionierten sie sich am Bottom), aber Desktop-Nutzer (Vorstand) sahen Toasts gar nicht. | Component `toast.rs` (außerhalb Phase-12-Scope, aber durch UAT aufgedeckt) | Low | **Inline-Fix angewendet:** `z-40` → `z-[60]` (höher als TopBar). File: `genossi-frontend/src/component/toast.rs`. | RESOLVED |
 
 ## Zusammenfassung
 - Total Items: __
