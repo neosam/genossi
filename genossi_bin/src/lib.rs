@@ -288,6 +288,33 @@ type AttendanceExportService = genossi_service_impl::attendance_export::Attendan
     AttendanceExportServiceDependencies,
 >;
 
+// Phase 11 (EXPO-01..03, EXPO-05): RepaymentExportServiceImpl DI-Aliases.
+// Five DAO/Service-deps. KEIN UuidService, KEIN AuditLogDao (D-11 / EXPO-05 —
+// Export ist nicht auditiert, konsistent mit AttendanceExport-Pattern). PdfGenerator
+// + template_base werden inline in RestStateImpl::new() konstruiert, indem die
+// existierenden `pdf_generator` + `template_storage` Arcs wiederverwendet werden
+// (Single-Arc-per-Process pro Plan-10-Pattern).
+pub struct RepaymentExportServiceDependencies;
+
+unsafe impl Send for RepaymentExportServiceDependencies {}
+unsafe impl Sync for RepaymentExportServiceDependencies {}
+
+impl genossi_service_impl::repayment_export::RepaymentExportServiceDeps
+    for RepaymentExportServiceDependencies
+{
+    type Context = Context;
+    type Transaction = Transaction;
+    type RepaymentPhaseDao = RepaymentPhaseDao;
+    type RepaymentEntryDao = RepaymentEntryDao;
+    type MemberDao = MemberDao;
+    type PermissionService = PermissionService;
+    type TransactionDao = TransactionDao;
+}
+
+type RepaymentExportService = genossi_service_impl::repayment_export::RepaymentExportServiceImpl<
+    RepaymentExportServiceDependencies,
+>;
+
 pub struct HelperTokenServiceDependencies;
 
 unsafe impl Send for HelperTokenServiceDependencies {}
@@ -520,6 +547,9 @@ pub struct RestStateImpl {
     // Phase 6 Plan 03: AttendanceExportServiceImpl exposed to REST handlers via
     // AttendanceExportRestState (D-DI wiring).
     attendance_export_service: Arc<AttendanceExportService>,
+    // Phase 11 (EXPO-01..03, EXPO-05): RepaymentExportServiceImpl exposed
+    // to REST handlers via RepaymentExportRestState (D-DI wiring).
+    repayment_export_service: Arc<RepaymentExportService>,
     audit_log_dao: Arc<AuditLogDao>,
     // Phase 10 D-11: DAOs shared with the mail-worker for repayment-context
     // aggregation + auditable MemberDocument-create. Same Arcs as the audited
@@ -829,6 +859,27 @@ impl RestStateImpl {
             },
         );
 
+        // Phase 11 (EXPO-01..03, EXPO-05): RepaymentExportServiceImpl (D-11 read-only,
+        // D-10 status-gate, D-04 hardcoded purpose).
+        // Re-uses the existing `pdf_generator` and `template_storage` Arcs
+        // (same as Phase 6 attendance_export). KEINE neue PdfGenerator::new()-
+        // Instanz und KEIN zweiter TemplateBase-Allokat. Alle DAOs werden via
+        // Arc::clone aus den bereits konstruierten Arcs geteilt (Single-Arc-
+        // per-Process pro Plan-10-Pattern).
+        let repayment_export_service = Arc::new(
+            genossi_service_impl::repayment_export::RepaymentExportServiceImpl::<
+                RepaymentExportServiceDependencies,
+            > {
+                transaction_dao: transaction_dao.clone(),
+                permission_service: permission_service.clone(),
+                repayment_phase_dao: repayment_phase_dao.clone(),
+                repayment_entry_dao: repayment_entry_dao.clone(),
+                member_dao: member_dao.clone(),
+                pdf_generator: pdf_generator.clone(),
+                template_base: Arc::new(template_storage.base_path().to_path_buf()),
+            },
+        );
+
         // Plan 02-07: HelperTokenServiceImpl with 8 deps (HelperTokenDao,
         // AssemblyDao, AuditLogDao, PermissionService, PermissionDao,
         // SessionService, UuidService, TransactionDao). assembly_dao is cloned
@@ -920,6 +971,8 @@ impl RestStateImpl {
             helper_token_service,
             attendance_service,
             attendance_export_service,
+            // Phase 11 (EXPO-01..03, EXPO-05)
+            repayment_export_service,
             audit_log_dao,
             // Phase 10 D-11: persist the worker-relevant DAOs (already
             // constructed above via Arc::new(XDao::new(pool.clone())) —
@@ -1464,6 +1517,16 @@ impl genossi_rest::attendance_export::AttendanceExportRestState for RestStateImp
 
     fn attendance_export_service(&self) -> Arc<Self::AttendanceExportService> {
         self.attendance_export_service.clone()
+    }
+}
+
+// Phase 11 (EXPO-01..03, EXPO-05): expose RepaymentExportService to REST handlers
+// generated in genossi_rest::repayment_export.
+impl genossi_rest::repayment_export::RepaymentExportRestState for RestStateImpl {
+    type RepaymentExportService = RepaymentExportService;
+
+    fn repayment_export_service(&self) -> Arc<Self::RepaymentExportService> {
+        self.repayment_export_service.clone()
     }
 }
 
