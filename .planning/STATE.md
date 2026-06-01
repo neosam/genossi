@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Anteile-Rückzahlungsphase
-status: ready_to_plan
-stopped_at: Completed 11-06-PLAN.md (8 E2E-Tests fuer RepaymentExport PDF + Helper `create_member_without_iban` — Phase 11 vollstaendig verifiziert, EXPO-01/02/03/05 erfuellt)
-last_updated: "2026-06-01T06:08:01.150Z"
+status: planning
+stopped_at: Phase 12 context gathered
+last_updated: "2026-06-01T09:00:44.260Z"
 last_activity: 2026-06-01
 progress:
   total_phases: 6
-  completed_phases: 6
+  completed_phases: 5
   total_plans: 34
   completed_plans: 34
   percent: 100
@@ -361,8 +361,8 @@ Details siehe `.planning/v1.0-MILESTONE-AUDIT.md` und `.planning/MILESTONES.md`.
 
 **Last action (2026-05-29, Phase 07 Plan 02):** Plan `07-02-PLAN.md` ausgeführt — `RepaymentPhaseDaoImpl` (SQLite-Impl des Plan-01-Traits) angelegt mit `RepaymentPhaseDb`-Row, `TryFrom` mit guarded i32-Cast (T-07-02-05), `dump_all`/`create`/`update` inkl. Pre-Exists-Check + Optimistic-Locking via `rows_affected == 0 → ConflictError("Version mismatch")`. ORDER BY ist `fiscal_year DESC, created DESC` (Phase-7-spezifisch). `parse_datetime` via `use crate::assembly::parse_datetime` reused (kein Duplikat). 4 grüne Tokio-Integrationstests gegen in-memory SQLite. Modul-Decl in `genossi_dao_impl_sqlite/src/lib.rs` alphabetisch eingefügt. Commit `6f6bf0f` (feat: 367 LOC added).
 
-**Stopped At:** Completed 11-06-PLAN.md (8 E2E-Tests für RepaymentExport PDF + Helper `create_member_without_iban` — Phase 11 vollständig verifiziert)
-**Resume File:** None
+**Stopped At:** Phase 12 context gathered
+**Resume File:** .planning/phases/12-frontend-component-first/12-CONTEXT.md
 
 **Last action (2026-06-01, Phase 11 Plan 06):** Plan `11-06-PLAN.md` ausgeführt — 8 E2E-Tests + 1 Helper-Funktion in `genossi_bin/tests/e2e_tests.rs` (+554 LOC) gegen real-running Server mit In-Memory-SQLite hinzugefügt: (1) `test_export_repayment_pdf_open_happy_path` mit Umlaut-Member `Hans Müller` (REVISION-Fix W6 D-05-E2E-Beweis), (2) `test_export_repayment_pdf_closed_phase_returns_200` (EXPO-01 + D-10), (3) `test_export_repayment_unknown_format_returns_400` mit 4 Negative-Formaten csv/xlsx/json/html (D-12 + Pitfall #3), (4) `test_export_repayment_preparation_phase_returns_409` (D-10 Status-Gate), (5) `test_export_repayment_unknown_phase_id_returns_404`, (6) `test_export_repayment_does_not_break_audit_chain` (EXPO-05 + D-11 + REVISION-Fix W7), (7) `test_export_repayment_include_filter_smoke_all_three_variants` Smoke-Test für open/all/paid mit Filename-Assertion (REVISION-Fix W1/W4), (8) `test_export_repayment_empty_iban_renders_empty_column` (D-06 mit Helper). REVISION-Fix W4 (Filename-Schema-Assertion in 5 PDF-Tests), REVISION-Fix W6 (Umlaut-Hans-Müller), REVISION-Fix W7 (Audit-Chain auf valid:true reduziert), REVISION-Fix B2 (KEIN E2E-403-Test — mock_auth-Middleware injiziert immer admin; Pitfall #2 ist durch Plan 11.03 Service-Layer-Mock vollständig abgedeckt). Alle 8 Tests grün on first run (Regression-Lock-In-Pattern aus Plan 08.10); 292 E2E-Tests pass insgesamt (vorher 284, +8, 0 Regression). Plan-11.03-Grep-Gate (`no_audit_macros_used`) und Pitfall-#2-Mock-Test bleiben grün. Eine Deviation (Rule 3): rustfmt-Drift in Plan-Snippets via Nix-Store-rustfmt automatisch korrigiert (Memory-Lektion "Nix-Toolchain nicht sofort aufgeben"). 2 Task-Commits: `67f6957` (test Task 1: 6 Tests + Helper), `33f7e16` (test Task 2: 2 weitere Tests). Phase 11 komplett (6/6 plans). Nächster Schritt: `/gsd-verify-phase 11` oder direkt `/gsd-discuss-phase 12` für das Frontend.
 
