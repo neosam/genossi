@@ -25,8 +25,20 @@ const SECONDARY_VARS: &[(&str, &str)] = &[
     ("email", "E-Mail"),
 ];
 
+/// Phase-12 (D-19) Repayment-spezifische Variablen. Werden nur bei
+/// `show_repayment_vars=true` gerendert. Aufgeloest backend-seitig in
+/// Phase 10 D-05/D-13 (minijinja Strict-Mode mit `{% if X is defined %}`).
+const REPAYMENT_VARS: &[(&str, &str)] = &[
+    ("payout_amount", "Auszahlbetrag"),
+    ("share_count", "Anteile"),
+    ("fiscal_year", "Geschaeftsjahr"),
+];
+
 #[component]
-pub fn TemplateVarButtons(on_insert: EventHandler<String>) -> Element {
+pub fn TemplateVarButtons(
+    on_insert: EventHandler<String>,
+    #[props(default)] show_repayment_vars: bool,
+) -> Element {
     let i18n = use_i18n();
     let mut show_more = use_signal(|| false);
 
@@ -49,6 +61,32 @@ pub fn TemplateVarButtons(on_insert: EventHandler<String>) -> Element {
                                     on_insert.call(format!("{{{{ {} }}}}", vn));
                                 },
                                 "{lbl}"
+                            }
+                        }
+                    }
+                }
+                // Phase-12 D-19: Repayment-Vars nur wenn show_repayment_vars=true
+                if show_repayment_vars {
+                    for (var_name, _label_de) in REPAYMENT_VARS.iter() {
+                        {
+                            let vn = var_name.to_string();
+                            let i18n_key = match *var_name {
+                                "payout_amount" => Key::RepaymentTemplateVarPayoutAmount,
+                                "share_count" => Key::RepaymentTemplateVarShareCount,
+                                "fiscal_year" => Key::RepaymentTemplateVarFiscalYear,
+                                _ => Key::RepaymentTemplateVarPayoutAmount, // unreachable defensive
+                            };
+                            let label = i18n.t(i18n_key).to_string();
+                            rsx! {
+                                button {
+                                    class: "bg-orange-100 hover:bg-orange-200 text-orange-800 px-2 py-1 rounded text-xs font-mono",
+                                    r#type: "button",
+                                    title: "{var_name}",
+                                    onclick: move |_| {
+                                        on_insert.call(format!("{{{{ {} }}}}", vn));
+                                    },
+                                    "{label}"
+                                }
                             }
                         }
                     }
