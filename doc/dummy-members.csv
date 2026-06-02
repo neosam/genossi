@@ -1,0 +1,16 @@
+ID1,Nachname,Vorname(n),Beitritt,Anteile Beitritt,Anteile aktuell,Guthaben aktuell,Anzahl Aktionen,Austritt,Straße,Nr#,PLZ,Ort,Email,Firma,Kommentar,Bankverbindung
+1001,Müller,Anna,15.03.2019,5,8,800.00,3,,Schillerstraße,12,70173,Stuttgart,anna.mueller@example.test,,Aktives Mitglied mit Email und Bank,DE89370400440532013000
+1002,Schäfer,Bernd,01.07.2020,3,3,300.00,1,,Lindenweg,7a,72072,Tübingen,,,Aktiv ohne Email — Briefkandidat (BRIEF-01),DE12500105170648489890
+1003,Schwarz,Carolin,22.11.2018,10,12,1200.00,4,,Marktplatz,3,73430,Aalen,carolin.schwarz@example.test,,Aktiv mit Email aber ohne Bankverbindung,
+1004,Hofmann,Dietrich,05.05.2021,2,2,200.00,1,,Bachstraße,18,89518,Heidenheim,,,Aktiv ohne Email UND ohne Bank — Brief + Bank-Nachfrage,
+1005,Bäcker GmbH,Eduard,12.09.2017,20,25,2500.00,6,,Industriestraße,42,71229,Leonberg,kontakt@baecker-gmbh.example.test,Bäcker Eduard GmbH,Firma als Mitglied,DE02100100100006820101
+1006,Großmann,Friederike,30.01.2015,50,75,7500.00,8,,Hauptstraße,156,70794,Filderstadt,f.grossmann@example.test,,Großanteilseigner — high stake,DE45500700100543210000
+1007,Wagner,Gerlinde,18.06.2022,1,1,100.00,0,,Eichenallee,5,73525,Schwäbisch Gmünd,g.wagner@example.test,,Minimum-Beteiligung — 1 Anteil,DE34500102000123456789
+1008,Köhler,Heinrich,08.04.2016,5,0,0.00,4,15.12.2024,Akazienweg,21,70499,Stuttgart,heinrich.koehler@example.test,,Ausgetreten 2024 — Austritt vollzogen,DE89370400440532013111
+1009,Meyer,Ingrid,12.10.2019,3,3,500.00,2,30.06.2025,Birkenstraße,9,72074,Tübingen,,,Austritt pending mit Restguthaben — Auszahlung offen,DE12500105170648489222
+1010,Neumann,Johann,02.02.2026,2,2,200.00,1,,Buchenring,33,70839,Gerlingen,j.neumann@example.test,,Neuzugang aktuelles Geschäftsjahr,DE89370400440532013444
+1011,Müller-Lüdenscheidt,Klara,14.09.2010,10,15,1500.00,7,,Tannenweg,4,71229,Leonberg,k.mueller-luedenscheidt@example.test,,Alteingesessen seit 2010 — Doppelname Umlaut,DE45500700100543210888
+1012,Schmidt,Leon-Marek,03.07.2023,4,4,400.00,1,,Im Tal,15b,73734,Esslingen,,Schmidt & Söhne GbR,Firma + Vorname mit Bindestrich,DE34500102000123456555
+1013,von der Heide-Wallenstein,Maximiliane,21.05.2014,8,10,1000.00,5,,Königin-Luise-Allee,210a,70378,Stuttgart,m.wallenstein@example.test,,Sehr langer Name + ungewöhnliche Hausnummer,DE89370400440532013777
+1014,Ünal,Nuriye,09.08.2018,5,7,700.00,3,,Hauptstr.,8,73525,Schwäbisch Gmünd,nuriye.uenal@example.test,,Türkische Umlaute (Ünal),DE12500105170648489333
+1015,Lopez,Oliver,25.12.2017,3,3,300.00,1,,,,70173,Stuttgart,oliver.lopez@example.test,,Minimal — nur Pflichtfelder + Email + PLZ + Ort,DE45500700100543210123
