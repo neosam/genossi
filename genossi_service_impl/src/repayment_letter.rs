@@ -105,6 +105,42 @@ pub struct RepaymentLetterServiceImpl<Deps: RepaymentLetterServiceDeps> {
 }
 
 impl<Deps: RepaymentLetterServiceDeps> RepaymentLetterServiceImpl<Deps> {
+    /// WR-05: Konsistenter Constructor fuer DI-Wiring + Tests. Felder bleiben
+    /// `pub` (Backwards-Compat mit existierenden Test-Helpern build_service /
+    /// build_service_with_templates, die direktes Struct-Literal nutzen), aber
+    /// neuer Code SOLLTE `new(...)` verwenden, damit kuenftige Invariant-Checks
+    /// (z.B. template_base.exists()) eine zentrale Stelle haben.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        repayment_phase_dao: Arc<Deps::RepaymentPhaseDao>,
+        repayment_entry_dao: Arc<Deps::RepaymentEntryDao>,
+        member_dao: Arc<Deps::MemberDao>,
+        member_document_dao: Arc<Deps::MemberDocumentDao>,
+        audit_log_dao: Arc<Deps::AuditLogDao>,
+        permission_service: Arc<Deps::PermissionService>,
+        transaction_dao: Arc<Deps::TransactionDao>,
+        uuid_service: Arc<Deps::UuidService>,
+        repayment_context_resolver: Arc<Deps::RepaymentContextResolver>,
+        document_storage: Arc<Deps::DocumentStorage>,
+        pdf_generator: Arc<PdfGenerator>,
+        template_base: Arc<PathBuf>,
+    ) -> Self {
+        Self {
+            repayment_phase_dao,
+            repayment_entry_dao,
+            member_dao,
+            member_document_dao,
+            audit_log_dao,
+            permission_service,
+            transaction_dao,
+            uuid_service,
+            repayment_context_resolver,
+            document_storage,
+            pdf_generator,
+            template_base,
+        }
+    }
+
     /// Permission-Funnel (Pitfall #2): load (404) -> admin (403) -> status (409).
     /// 1:1 Pattern aus `repayment_export.rs:77-110`, Error-String "phase_not_active".
     async fn check_admin_and_phase_status(
