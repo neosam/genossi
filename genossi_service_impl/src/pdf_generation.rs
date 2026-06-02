@@ -1008,11 +1008,7 @@ fn build_inputs_repayment_letter(
     // Quick 260602-r2i: share_value als deutscher Euro-String "X,YZ".
     // Konsistent mit payout_amount-Format (Phase-10-D-04, worker.rs:353).
     // share_value > 0 per D-12-Constraint; kein .abs() noetig.
-    let share_value_str = format!(
-        "{},{:02}",
-        phase.share_value / 100,
-        phase.share_value % 100
-    );
+    let share_value_str = format!("{},{:02}", phase.share_value / 100, phase.share_value % 100);
     let repayment_json = serde_json::json!({
         "share_count": ctx.share_count,
         "payout_amount": ctx.payout_amount,
@@ -1076,11 +1072,7 @@ fn build_inputs_repayment_letters_bundle(
     // Quick 260602-r2i: phase-wide Anteilswert als deutscher Euro-String "X,YZ".
     // Wird in alle drei JSON-Slots (Recipients-Loop, First-Recipient-Compat,
     // Empty-Bundle-Compat) gleichermassen eingefuegt — konstant pro Bundle.
-    let share_value_str = format!(
-        "{},{:02}",
-        phase.share_value / 100,
-        phase.share_value % 100
-    );
+    let share_value_str = format!("{},{:02}", phase.share_value / 100, phase.share_value % 100);
 
     // Compat: first-recipient als `member`+`repayment` Top-Level, damit der
     // Plan-13-01-Bundle-Template-`#import` nicht beim `sys.inputs.at("member")`
