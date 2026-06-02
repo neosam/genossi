@@ -1,5 +1,113 @@
 # Milestones
 
+## v1.1 Anteile-Rückzahlungsphase (Shipped: 2026-06-02)
+
+**Phases completed:** 7 phases (07-13), 56 plans, 91 tasks
+**Timeline:** 2026-04-01 → 2026-06-02 (~62 Tage, 651 commits)
+**Code-Änderungen:** 1.536 Dateien, +345.146 / -2.205 LOC
+**Requirements:** 33/34 v1 satisfied (UI-06 partial → siehe Known Gaps)
+**Tests:** ~600 Workspace-Tests + 292 E2E-Tests grün; Audit-Hashchain bleibt valid
+
+**Delivered:** Vollständige Anteile-Rückzahlungs-Pipeline — vom RepaymentPhase-Aggregat über atomare Auszahlungs-Buchung bis hin zu Massenmail- und Bulk-PDF-Brief-Versand. Ersetzt manuelle Excel-Listen für den Rückzahlungs-Workflow vollständig.
+
+### Key Accomplishments (per Phase)
+
+**Phase 7 — RepaymentPhase Backend Foundation:** Auditpflichtiges Aggregat mit Lifecycle `Vorbereitung → Offen → Abgeschlossen`, i64-Cent-Konvention für `share_value`, 5 Audit-Prozesse, Frozen-Order-Audit-Felder; 7 E2E-Tests verifizieren alle 5 SC + D-04..D-12 inkl. Audit-Hashchain `valid=true`.
+
+**Phase 8 — RepaymentEntry + Auto-Befüllung:** RepaymentEntry-Aggregat (10 Pläne) mit Auto-Befüllung beim Phase-Open (atomar in Status-Übergangs-Tx), manuellem Picker, Status-Toggle `offen ↔ angeschrieben`, Batch-Endpoint mit strukturiertem 409-JSON-Body, Pending-Entry-Validation beim Close, 404-vs-409-Trennung bei missing/soft-deleted Entries; 15 E2E-Tests.
+
+**Phase 9 — Atomare Auszahlungs-Buchung:** 12-Schritt-Cascade `ausbezahlt`-Toggle → `audited_create!(MemberAction::Verkauf)` + `audited_update!(Member, RepaymentEntry)` in einer SQLite-Tx mit gemeinsamem Process-String; PAYO-03/04 final-Semantik; 4 E2E-Tests inkl. Race-Defense (`tokio::join!`) und Audit-Chain-Multi-Endpoint-Verify.
+
+**Phase 10 — Massenmail + Template-Variablen:** Wiederverwendung `POST /api/mail/send-bulk` mit `{{ payout_amount }}`, `{{ share_count }}`, `{{ fiscal_year }}`; minijinja-strict + `{% if X is defined %}`-Pattern; Mail-Worker integriert Repayment-Variablen-Aggregation + audited `MemberDocument`-Create via inlined `worker_audit`-Modul (Cross-Crate-Audit ohne Dependency-Cycle); 5 E2E-Tests mit deterministischem SMTP-Stub (127.0.0.1:1 + RFC5321-fail-fast).
+
+**Phase 11 — Export (PDF):** Typst-basiertes 6-Spalten-Auszahlungslisten-PDF (Nr./Name/IBAN/Anteile/Betrag/Verwendungszweck), Repeat-Header, optionale Summenzeile; Permission-Funnel `load → admin → status`, `tx.commit()` VOR PdfGenerator-Render; Filename-Schema `auszahlung-{fy}-{include}.pdf` + Filter `?include=open|all|paid`; 8 E2E-Tests inkl. Umlaut-Member „Hans Müller".
+
+**Phase 12 — Frontend (Component-First):** 15 Pläne — `/repayment-phases` Liste, `/repayment-phases/{id}` Detail mit 3-Tab-Layout (Stammdaten, Einträge, Export), Shared-Component `RepaymentEntryList` mit Multi-Select + Status-Filter + Inline-Cell-Edit für `share_count_to_pay_out`, Confirm-Dialog für `ausbezahlt` mit Final-Warnung, 4 Pure-Reuse-Bausteine (`format_payout_eur`, `parse_euro_to_cents`, `RepaymentPhaseStatusBadge`, `RepaymentEntryStatusBadge`).
+
+**Phase 13 — RepaymentLetter-Bulk-Anschreiben:** Brief-Kanal für Nicht-Email-Mitglieder — `DocumentType::RepaymentLetter`, `auszahlungs_anschreiben.typ` + `_bundle.typ` mit `#pagebreak()`; `RepaymentContextResolver`-Trait (`resolve` + `aggregate`) eliminiert N+1-DB-Reads; `RepaymentLetterServiceImpl` mit Permission-Funnel + sequential audited MemberDocument-Persistenz + Bundle-PDF-Render; `POST /api/repayment-phase/{id}/letters/generate` mit Direct-Download + `X-Document-Count`-Header für Frontend-Toast-Pluralisierung; Frontend "Anschreiben erzeugen"-Button mit Selection-Preservation (D-13-09); 8 E2E-Tests verifizieren gesamte Pipeline inkl. Audit-Hashchain.
+
+### Known Gaps (Acknowledged at close)
+
+- **UI-06 (partial)** — Massenmail-Aktion im Tabellen-Header (`partial`): Code-Pfade grep-verifiziert (`RequirePrivilege { fallback: AccessDeniedPage }`), Service-Layer-403 unit-getestet, aber 3 HUMAN-UAT-Items pending (Non-Admin-OIDC-Session lokal nicht verfügbar während UAT 2026-06-01).
+
+### Tech-Debt (per Phase, dokumentiert in `v1.1-MILESTONE-AUDIT.md`)
+
+- **Phase 7:** Optimistic-Locking Stale-Retry-Pattern — DAO bumpt DB-Version, propagiert sie aber nicht zurück (codebase-weite Service-Konvention).
+- **Phase 8:** `format_dt`-Helper lokal in `repayment_entry.rs` dupliziert (Phase-7-Variante ist privat, nicht `pub(crate)`).
+- **Phase 9:** SQLITE_BUSY Race-Path im E2E-Test akzeptiert sortierte Statuses `[200, 409|500]` statt strict `[200, 409]`; DAO-Layer-Mapping (SQLite-Lock → ConflictError) wäre Rule-4-Change.
+- **Phase 10:** `DocumentType::is_singleton()` TODO — Idempotency-Storage-Growth bei Re-Generierung (3 deferred Strategien dokumentiert; siehe WR-06 in 13-REVIEW.md).
+- **Phase 11:** `from_env()` defaults zu relativen Pfaden (`./templates`, `./typst-packages`) — unsafe unter parallelen Cargo-Tests (siehe IN-04 in 13-REVIEW.md).
+- **Phase 12:** 3 Auth-Gate-UAT-Items in `12-HUMAN-UAT.md` pending (Helper-OIDC-Session lokal nicht verfügbar).
+- **Phase 13:** Bundle-Template `auszahlungs_anschreiben_bundle.typ` Side-Effect via `#import` des Single-Templates (Refactor zu `default: none`-Pattern als deferred); `std::mem::forget(tempdir)` im Test-Helper leakt `/tmp`-Dirs (IN-01 in 13-REVIEW.md).
+
+**Known deferred items at close: 5** (1 partial requirement, 2 quick-tasks index out-of-sync, 1 low-prio todo `phase-10-worker-refactor-resolver.md`, 1 UAT-status `partial` in Phase 12 — siehe STATE.md Deferred Items)
+
+### Original CLI-extracted Accomplishments (verbose log)
+
+<details>
+<summary>Click to expand full SUMMARY.md one-liner extraction (verbose, raw)</summary>
+
+- SQLite-Implementierung des RepaymentPhaseDao-Traits aus Plan 01 — 1:1-Replikat des Assembly-DAO-Impl-Patterns mit Domain-Substitutionen (`fiscal_year: i32` + `share_value: i64 Cent`, ORDER BY `fiscal_year DESC, created DESC`), 4 grüne Tokio-Integrationstests gegen in-memory SQLite, Optimistic-Locking via Pre-Exists-Check + rows_affected-Detection.
+- SQLite-Implementierung des RepaymentPhaseDao-Traits aus Plan 01 — 1:1-Replikat des Assembly-DAO-Impl-Patterns mit Domain-Substitutionen (`fiscal_year: i32` + `share_value: i64 Cent`, ORDER BY `fiscal_year DESC, created DESC`), 4 grüne Tokio-Integrationstests gegen in-memory SQLite, Optimistic-Locking via Pre-Exists-Check + rows_affected-Detection.
+- Service-Trait (`RepaymentPhaseService` mit 7 Methoden) + Service-Impl (`RepaymentPhaseServiceImpl`) mit Edit-Matrix (D-04), atomarer fiscal_year-Locking in Open (D-07), Lifecycle-Guards (D-05/D-06), Soft-Delete-Restriction (D-09), Field-Validation (D-11/D-12), Optimistic-Locking und 5 Audit-Prozessen — 17 grüne Unit-Tests (4 im Trait, 13 im Impl), 0 direkte DAO-Calls außerhalb Audit-Macros (T-07-03-01 Mitigation verifiziert per Grep-Gate).
+- Phase 7 wird HTTP-bereit: 4 neue TOs in `genossi_rest_types` mit ISO8601-Datetime-Serde + Utoipa-Schemas, 7 REST-Handler in `genossi_rest/src/repayment_phase.rs` (414 LOC) inkl. RestState-Trait + generate_route + ApiDoc, Router-Mount + OpenAPI-Nest in `genossi_rest/src/lib.rs`, Trait-Bound-Erweiterung in `test_server.rs`, vollständige DI-Wiring in `genossi_bin/src/lib.rs` (type-Alias + Deps-Struct + Service-Konstruktion + RestState-Impl + Struct-Field) — `cargo build` und `cargo build --tests -p genossi_bin` grün, 35 neue Tests passed (28 in genossi_rest_types + 4 TO-Tests + 3 Handler-Smoke-Tests).
+- Phase 7 ist verifikations-vollständig: 7 neue End-to-End-Tests gegen den real laufenden In-Memory-HTTP-Server verifizieren alle 5 ROADMAP-Success-Criteria sowie alle Phase-7-Edit-Matrix-/Lifecycle-/Validation-Decisions (D-04..D-12). Lifecycle-Test verifiziert ROADMAP SC#4 (Audit-Hashchain `valid=true` mit `broken_links=[]` nach create→open→update→close) und SC#5 (share_value-Korrektur erzeugt Audit-Entry mit `field_name=\"share_value\"`, `old_value=Some(\"12000\")`, `new_value=Some(\"13000\")` unter Process `\"repayment-phase.update\"`). 6 Negative-Path-Tests prüfen D-04/D-07 (fiscal_year-Change in Open → 409), D-05/D-06 (close from Preparation → 409), D-06 (reopen from Closed → 409), D-09 (DELETE in Open → 409), D-11 (fiscal_year=1999 → 400), D-12 (share_value=0 → 400). Gesamt-Test-Set: 255 passed; 0 failed (Baseline 248 + 7 neu).
+- Migration für `repayment_entry`-Tabelle plus DAO-Trait, Entity, Auditable-Impl und drei Default-Methoden — Foundation für alle nachfolgenden Phase-8-Plans (Service, REST, Phase-Erweiterung, E2E).
+- SQLite-Persistenzschicht fuer RepaymentEntry — dump_all/create/update + Pre-Exists-Check + Optimistic-Locking, 1:1 nach Phase-7-Vorlage (`repayment_phase.rs`) mit 6 gruenen Tokio-Tests gegen in-memory SQLite.
+- Service-Layer für RepaymentEntry-CRUD plus Batch-Toggle: Validation gegen Phase/Member, Edit-Matrix mit PaidOut-Doppel-Guard, all-or-nothing Batch-Tx mit strukturiertem 409-JSON-Body — 19 grüne Unit-Tests; Plan forderte mind. 14.
+- Erweitert die Phase-7-`RepaymentPhaseServiceImpl` um Auto-Befüllung der RepaymentEntries beim `open_phase` und Pending-Entry-Validation beim `close_phase` — beides atomar in der bestehenden Status-Übergangs-Transaktion. 9 neue Unit-Tests grün; alle 14 Phase-7-Tests bleiben unverändert grün. Plan forderte mind. 8 neue Tests.
+- 6 REST-Endpoints unter /api/repayment-entry (CRUD + Batch-Toggle) inkl. Router-Reihenfolge-Mitigation, 7 TOs mit strukturiertem 409-Body (BatchFailureResponse/CloseConflictResponse), DI-Wiring teilt RepaymentEntryDao + RepaymentPhaseDao Arc-shared zwischen RepaymentEntryServiceImpl und RepaymentPhaseServiceImpl — W-02 verifiziert (exakt 1 DAO-Konstruktor pro Prozess). 10 grüne Tests; Workspace baut clean.
+- 15 E2E-Tests gegen real-laufenden HTTP-Server mit in-memory SQLite verifizieren Phase 8 end-to-end: Auto-Fill beim Phase-Open + 3 Edge-Cases (zero-members/no-exit-date/outside-FY), manueller Create + Validation (Phase-not-Open 409 + Range 400), Update-Edit-Matrix (Open↔Contacted + PaidOut-Reject 409), Soft-Delete, Batch-Toggle (Happy + PaidOut-Target 400), Close-Validation (409 mit pending_count + member_number sowie 0-Entry-Erlaubt), und Audit-Hashchain bleibt valid nach komplettem Phase-8-Lifecycle. 270 grüne E2E-Tests (Phase-7-Baseline 255 + 15 neue Phase-8).
+- Re-Read nach audited_update! in update_repayment_entry und batch_toggle_status — Clients erhalten jetzt die frische DAO-generierte version-UUID statt der stale pre-update Version, sodass realistische Edit-Flows keine 409-Endlosschleife mehr produzieren
+- Re-Read nach audited_create! / audited_update! in allen 4 RepaymentPhase-Lifecycle-Methoden (create / update / open / close) — Clients erhalten jetzt die frische DAO-generierte version-UUID statt der stale pre-update Version, sodass realistische Edit- und Lifecycle-Flows keine 409-Endlosschleife mehr produzieren. Phase-7-erbte Bug-Klasse damit beseitigt; selbe Pattern wie 08-07 für RepaymentEntry.
+- Aggregat-Konsistenz im RepaymentEntry: batch_toggle_status mappt missing/soft-deleted entry_id auf HTTP 404 (statt 409 mit "entry not found"-Body), gleicht damit get/update/delete an, und OpenAPI dokumentiert die Trennung 404 vs 409 explizit für Frontend-Clients.
+- 5 E2E-Tests in genossi_bin/tests/e2e_tests.rs (281 LOC) zementieren die 08-07/08/09-Fixes gegen zukünftige Rückfälle und schließen IN-04 (Test-Coverage-Lücke fürs 2nd-PUT-mit-Response-version-Szenario)
+- 12-Schritt-Cascade fuer atomare Auszahlungs-Buchung: 1x audited_create! (MemberAction::Verkauf) + 2x audited_update! (Member, RepaymentEntry) in einer SQLite-Tx mit gemeinsamem Process-String und BL-01 Re-Read-Defense.
+- Ein neuer Axum-Handler `mark_paid_out` exposed den Plan-09-01-Cascade-Service unter `POST /api/repayment-entry/{id}/mark-paid-out` mit kompletter OpenAPI-Dokumentation aller 5 Status-Codes.
+- Workspace-blockierender 2-Zeilen-Fix in `genossi_bin/src/lib.rs`: `type MemberActionDao = MemberActionDao;` im RepaymentEntryServiceDeps-Block + `member_action_dao: member_action_dao.clone(),` im Konstruktor-Aufruf — heilt E0046+E0063 aus Plan 09-01, macht Workspace-Build clean.
+- 4 End-to-End-Tests beweisen den atomaren mark_paid_out-Cascade gegen einen echten HTTP-Server: Happy-Path mit Audit-Chain-Verify, PAYO-03-Validation, PAYO-04-Final-Block und Race-Defense via tokio::join!. Alle 5 ROADMAP-Success-Criteria fuer Phase 9 sind End-to-End verifiziert.
+- Edit 1
+- 1. [Rule 1 — Bug] Acceptance-criterion conflict on `grep DROP COLUMN` returns 0
+- Migration + Auditable-Extension fuer member_document mit 3 neuen Optional-Spalten (template_id, mail_recipient_id, status) und neue DocumentType::RepaymentMail-Variante; FROZEN-Order halt Audit-Hashchain konsistent.
+- 1. [Rule 1 — Bug] Plan example used wrong field name `to_address` in `RecipientInput`
+- SendBulkMailRequest gets two optional `Option<String>` UUID fields (template_id D-12, repayment_phase_id D-03), parsed via `uuid::Uuid::parse_str` with `MailServiceError::BadRequest` -> HTTP 400 echoing the malformed input, replacing the two `TODO(10.04)` placeholders in the bulk-send `create_job(...)` call-site from Plan 10.03's commit 82c8515.
+- merge_repayment_context-Helper + validate_template_with_repayment-D-14-Validator + 5 dedizierte Tests dokumentieren das `{% if X is defined %}`-Pattern unter minijinja-strict; Plan-Spec-Bugs (`..base`-Spread, `{% if %}`-Guard ohne `is defined`, D-14-is_ok-Erwartung) Rule-1-korrigiert.
+- Mail-Worker integriert D-04 Repayment-Variablen-Aggregation und D-10/D-11 audited MemberDocument-Create via inlined worker_audit-Modul (Cross-Crate-Audit ohne Dependency-Cycle); 6 neue Generic-Deps am start_mail_worker, fail-tolerant per Recipient, hash-chain byte-identisch zu genossi_service_impl.
+- RestStateImpl persists 5 new DAO fields (member_document, repayment_phase, repayment_entry, mail_template, transaction) and start_mail_worker Arc::clone-s 6 deps into the spawn block — workspace compiles clean, binary boots without panic, mail worker is now functional with single-hash-chain guarantee preserved.
+- 5 E2E-Tests verifizieren SC#1-4 + Audit-Chain-Integrity + PII-Safety + D-10 ad-hoc-skip end-to-end gegen den live REST-Stack + Mail-Worker; deterministische SMTP-Stub-Strategie via 127.0.0.1:1 + RFC5321-fail-fast; Rule-2 fix in rest.rs routet repayment-linked validations durch validate_template_with_repayment.
+- Typst-basiertes Auszahlungslisten-Rendering mit 6-Spalten-Tabelle (Nr./Name/IBAN/Anteile/Betrag/Verwendungszweck), Repeat-Header, optionaler Summenzeile, UTF-8-Verwendungszweck-Strings und fresh-install Default-Template-Provisioning.
+- Service-Layer-Interface `RepaymentExportService` mit Pdf-only ExportFormat (D-12), Open-default ExportInclude (D-03) und `RepaymentExport`-Bundle (bytes/content_type/filename) — 1:1-Mirror des Phase-6-AttendanceExportService-Patterns, vollständig automock-fähig.
+- `RepaymentExportServiceImpl<Deps>` mit Permission-Funnel `load -> admin -> status` (D-10/D-11/Pitfall #2), N+1-DAO-Read-Pipeline in einer Tx, In-Memory-Include-Filter (D-01/D-02), stabile Sortierung (D-09), Verwendungszweck-Pre-Computing mit ORIGINAL-Umlaut `Anteilsrückzahlung` (D-04/D-05), Euro-Format-Pre-Computing OHNE `.abs()` (REVISION-Fix B3), `tx.commit()` VOR PdfGenerator-Render (Pitfall #8), und 5 Service-Layer-Tests (Grep-Gate + B1/W6 + W1 + B3 + B2/Pitfall #2 Mock).
+- REST-Handler `export_repayment` unter `GET /api/repayment-phase/{phase_id}/export/{format}` mit Format-Whitelist NUR `pdf` (D-12), Default-Include `Open` (D-03), lokales `map_export_error` (PermissionDenied -> 403 per D-11), OpenAPI-Schema mit allen 6 Status-Codes, Router-Generator und vollstaendigem lib.rs-Wiring inkl. RestStateDef-Bound-Count-Sync (REVISION-Fix W2 deterministisch).
+- 5 additive Edit-Stellen in `genossi_bin/src/lib.rs` verdrahten den `RepaymentExportServiceImpl` (Plan 11.03) ueber das `RepaymentExportRestState`-Trait (Plan 11.04) in die `RestStateImpl`. Alle DAOs + `pdf_generator` + `template_storage` werden via Arc::clone aus den bereits konstruierten Arcs geteilt (Single-Arc-per-Process); `cargo build` (full workspace) ist clean.
+- 8 neue E2E-Tests + 1 neuer Helper `create_member_without_iban` in `genossi_bin/tests/e2e_tests.rs` verifizieren die gesamte Phase 11 (EXPO-01/02/03/05) gegen einen real-running Server mit In-Memory-SQLite. Happy-Path inkl. Umlaut-Member `Hans Müller` (REVISION-Fix W6); Filename-Schema `auszahlung-{fy}-{include}.pdf` in jedem PDF-Erfolgsfall asserted (REVISION-Fix W4); Pitfall #2 (Status-Leak) bleibt durch Plan 11.03 Service-Layer-Mock abgedeckt — KEIN E2E-403-Test (REVISION-Fix B2). Plan-11.03-Grep-Gate (`no_audit_macros_used`) und Service-Layer-Pitfall-#2-Test bleiben gruen.
+- One-liner:
+- Vier Pure-Reuse-Bausteine (format_payout_eur, parse_euro_to_cents, RepaymentPhaseStatusBadge, RepaymentEntryStatusBadge) als Component-First-Foundation für alle nachfolgenden Phase-12-Plans.
+- Two new Dioxus Routes (RepaymentPhases + RepaymentPhaseDetails) wired in `src/router.rs`, Stub-Page für Details mit `TODO Plan 12-05` Marker, plus admin-gated 'Anteils-Rückzahlung' NavItem in der Vorstand-TopBar — `/repayment-phases` ist jetzt navigierbar und zeigt die schon in 12-04 implementierte Listen-Page, `/repayment-phases/:id` zeigt die Plan-12-05-Stub-Markierung.
+- One-liner:
+- One-liner:
+- One-liner:
+- Phase-12-Eigen-Design Inline-Cell-Edit-Component fuer share_count_to_pay_out — i32-spezialisiert, status-aware via disabled-Prop, Backend-CHECK-Validierung (n > 0) als testbare pure-fn extrahiert.
+- One-liner:
+- One-liner:
+- One-liner:
+- One-liner:
+- One-liner:
+- One-liner:
+- One-liner:
+- Datei:
+- Neue `RepaymentLetter`-Variante im `DocumentType`-Enum plus zwei Default-Templates (`auszahlungs_anschreiben.typ` + `_bundle.typ`) registriert in `DEFAULT_TEMPLATES`; Single-Source-of-Truth-Vertrag via exportierter Typst-`render-letter`-Funktion mit Drift-Schutz-Tests.
+- Neue `RepaymentContextResolver`-Trait in `genossi_service::repayment_context` mit zwei Methoden (`resolve` + `aggregate`), Impl in `genossi_service_impl::repayment_context` mit Pure-Function `aggregate_for_member` als 1:1-Mirror der Phase-10-Worker-Inline-Aggregation; 19 Unit-Tests gruen, Worker bleibt per D-13-10 unveraendert.
+- PdfGenerator bekommt zwei neue synchrone Render-Methoden — `render_repayment_letter` (1 Member → 1 PDF) und `render_repayment_letter_bundle` (N Members → 1 PDF mit `#pagebreak()`) — plus zwei build_inputs-Helper (sys.inputs JSON-Pattern). TDD RED-GREEN-Cycle pro Task; 9 Helper-Tests + 4 Smoke-Tests; Plan-13-01-Bundle-Template-Bug per Compat-Layer abgefangen.
+- Kern-Service `RepaymentLetterServiceImpl` orchestriert die gesamte Brief-Erzeugung end-to-end: Permission-Funnel (Phase 11 Pattern), Entry-Validation, Multi-Entry-Aggregation via Resolver::aggregate (kein 1+N DB-Read), sequential audited MemberDocument-Persistenz, Bundle-PDF-Render. 12 Unit-Tests + 3 Grep-Gates (D-13-09 dreifach, user_id KEIN Sentinel, aggregate-vs-resolve) — alle gruen.
+- REST-Layer + Binary-Wiring fuer den Bulk-Brief-Service end-to-end: neuer POST-Endpoint mit Direct-Download-Pattern (Phase-11-Konsistenz), 6-Status-Code OpenAPI-Doku inkl. X-Document-Count Header (D-13-04 Frontend-Toast-Pluralisierung), Permission-Override fuer 403-Forbidden, Production-DI mit 10 Letter-Service- + 2 Resolver-Dependencies via Single-Arc-per-Process. Workspace-Build + alle Unit-Tests gruen; baseline Arc-DAO-Count unveraendert bei 25.
+- Frontend-Komplement zu Phase 12 D-18: neuer Bulk-Action-Button "Anschreiben erzeugen" (Purple) neben dem Massenmail-Button in der RepaymentEntryList-Component. POST + JSON-Body mit `entry_ids` der Multi-Selektion, Browser-Save des Bundle-PDFs via `<a download>`-Trick mit revoke_object_url, Toast nutzt `X-Document-Count`-Header (Server-Aggregations-Count nach D-13-04) mit Singular/Plural-aware i18n. Selection bleibt nach Download UNVERAENDERT (D-13-09 Selection-Preservation), damit Vorstand direkt mit dem Phase-8-Batch-Endpoint "Als angeschrieben markieren" auf der gleichen Auswahl fortsetzen kann. cargo check und cargo build --release beide clean.
+- 8 End-to-End-Tests verifizieren das gesamte POST /api/repayment-phase/{id}/letters/generate Pipeline durch echte HTTP-Calls — vom Auth-Funnel über Service-Logik bis MemberDocument-Persistenz und Audit-Hashchain. 7 aktiv (gruen), 1 #[ignore] (mock_auth-Limit dokumentiert). Cross-Phase-Regression-Gate gruen (292 bestehende e2e_tests). Phase 13 ist end-to-end-validiert.
+
+</details>
+
+---
+
 ## v1.0 GV-Anwesenheits-Erfassung (Shipped: 2026-05-29)
 
 **Phases completed:** 5 phases, 34 plans, 68 tasks

@@ -65,25 +65,79 @@
 
 ---
 
+## Milestone: v1.1 — Anteile-Rückzahlungsphase
+
+**Shipped:** 2026-06-02
+**Phases:** 7 (07-13) | **Plans:** 56 | **Tasks:** 91
+
+### What Was Built
+
+Vollständige Anteile-Rückzahlungs-Pipeline als Excel-Ersatz: RepaymentPhase-Aggregat mit Lifecycle Vorbereitung → Offen → Abgeschlossen (Phase 7), RepaymentEntry mit Auto-Befüllung aus Vorjahres-Austritten + manuellem Picker + Batch-Status-Toggle (Phase 8), atomare Auszahlungs-Buchung via 12-Schritt-Cascade `audited_create!(MemberAction::Verkauf) + audited_update!(Member, RepaymentEntry)` in einer SQLite-Tx (Phase 9), Massenmail mit `{{ payout_amount }}`/`{{ share_count }}`/`{{ fiscal_year }}`-Variablen über bestehenden `POST /api/mail/send-bulk` (Phase 10), Typst-basiertes PDF-Export mit 6-Spalten-Banking-Vorlage und Filter `?include=open|all|paid` (Phase 11), Component-First-Frontend mit `RepaymentEntryList` + 3-Tab-Detail-Page + Inline-Cell-Edit (Phase 12), und additive Bulk-PDF-Briefe für Nicht-Email-Mitglieder mit `RepaymentContextResolver`-Aggregation + Direct-Download + auditierten MemberDocuments (Phase 13).
+
+### What Worked
+
+- **Pattern-Replikation als Beschleuniger:** Phase 7 RepaymentPhaseDao + Auditable + Service-Impl waren 1:1-Replikat des v1.0-Assembly-Aggregats mit Domain-Substitutionen (`fiscal_year: i32`, `share_value: i64 Cent`). Phase 8 RepaymentEntry war 1:1-Replikat von Phase 7. Das senkte die Cognitive-Load auf "Domain-Mapping" statt "Architektur erfinden".
+- **Atomare Cascades + Audit-Hashchain als Sicherheitsnetz:** PAYO-Cascade (`audited_create!` + 2× `audited_update!` in einer Tx mit gemeinsamem Process-String) machte die Korrektheit per `/api/audit/verify` end-to-end überprüfbar. Audit-Chain-Multi-Endpoint-Assertion-Pattern (Phase 9 D-Pattern) wurde Vorlage für jede zukünftige Cross-Entity-Cascade.
+- **Defensive Programmierung wo nötig:** `ausbezahlt`-Toggle final (PAYO-04), kein Composite-PK auf (member_id, phase_id) (ENTR-03), Pre-Exists-Check vor UPDATE (trennt NotFound von ConflictError), Edit-Matrix vor Version-Check (klarere Fehlermeldung), Frozen-Order-Audit-Felder mit Index-Tests — alle in den Phasen 7+8 etabliert und in Phase 9 wiederverwendet.
+- **Inline Hotfixes statt separater Bug-Phasen:** 6 UAT-Defekte in Phase 12 (Dioxus button-reload, toast z-index, mail_page Query-Param-Race, entry-vs-member-ID-Mismatch, Phase-10 pure-member-probe blockt `{{ payout_amount }}`, /preview-Endpoint mit `repayment_phase_id`) wurden inline in den Plan-Commits resolved, ohne Bug-Brief-Overhead.
+- **`RepaymentContextResolver` in Phase 13 als Pattern-Konsolidierung:** Trait + Impl mit `resolve()` (1 Entry) und `aggregate()` (N Entries für Bundle, eine DB-Read-Round) eliminierte N+1-Pattern für die Bulk-Brief-Pipeline. Phase-10-Worker bleibt per D-13-10 unverändert (Inline-Aggregation bewährt), aber für künftige Bulk-Operationen ist der Resolver der Anker.
+
+### What Was Inefficient
+
+- **Spät erkannter `format_dt`-Duplikat:** Phase-7-Helper war `fn` privat, Phase 8 musste duplizieren. Hätte mit `pub(crate)` 1 Zeile gespart werden können; Refactor in `crate::dt_helpers` wäre Rule-4-Change und blieb out-of-scope.
+- **Plan-Text-Drift gegenüber Codebase:** Phase 10 Plan 07 behauptete, `transaction_dao` existiere bereits als RestStateImpl-Feld — tatsächlich war es das `DbAssemblyStatusProbe.transaction_dao`-Hilfsstruct (mock_auth-only). Rule-3-Auto-Fix musste das Feld nachreichen. Lesson: vor Move-vs-Clone-Refactors immer per `grep -nE '^\s*field:\s*Arc<...>'` auf der ECHTEN Struct-Definition verifizieren.
+- **`{% if X is defined %}` vs `{% if X %}` Falle:** Plan 10-05 Test-Spec verwendete bare `{% if payout_amount %}` — minijinja-strict erwartete `{% if payout_amount is defined %}`. Hat einen ganzen RED-GREEN-Zyklus gekostet, bis das Pattern korrekt etabliert war. In v1.2 als known-pattern-Pitfall mitnehmen.
+- **Quick-Tasks-Index out-of-sync:** Zwei Quick-Tasks (`260601-pfy`, `260602-c19`) wurden committet, aber ihre Index-Status blieb `missing`. Workflow-Issue, nicht Code-Issue, aber pollutet den Pre-Close-Audit.
+- **Phase-12-Helper-OIDC-Session-Limit:** UI-06 konnte nicht voll-validiert werden, weil lokal keine Non-Admin-OIDC-Session verfügbar war. Tech-Debt für künftige Vorstand-vs-Helper-View-Tests.
+
+### Patterns Established
+
+- **i64-Cent-Konvention:** Alle Money-Werte als i64 Cent (kein Decimal/Float), SQLite INTEGER 8-Byte. Validierung `> 0` ohne Obergrenze (D-12). Vorlage für künftige Auszahlungs-/Einzahlungs-Felder.
+- **Frozen-Order-Audit-Felder mit Index-Tests:** `test_auditable_audit_fields_member_id_first_phase_id_second` (Index-basiert) zusätzlich zu Names-Vec-Test verhindert Refactorings die nur Reihenfolge tauschen. Hash-Chain-Konsistenz garantiert.
+- **404-vs-409-Trennung im Aggregat:** Missing/soft-deleted Entry → 404 `EntityNotFound`; Status-Konflikt (Edit-Matrix-Verletzung) → 409 `Conflict`. Pattern für künftige strukturierte 409-Body-Endpunkte: TO-Schema-Doc dokumentiert explizit welche Status-Codes NICHT abgedeckt sind.
+- **Edit-Matrix-Check vor Version-Check:** Atomare D-07-Ablehnung liefert semantisch klarere Fehlermeldung als generisches `"Version mismatch"`. Mock-update().times(0) verifiziert no-write on violation.
+- **0 direkte DAO-Calls außerhalb `audited_*!`-Macros:** Grep-Gate als Pre-Merge-Check für Repudiation-Defense. Filter `grep -v '^//' | grep -v '^*'` verhindert Self-Invalidation durch Anti-Pattern-Erwähnung in Kommentaren.
+- **Direct-Download-Pattern für Bulk-PDFs:** Bundle-PDF transient als HTTP-Response, Persisted MemberDocuments parallel; `X-Document-Count`-Header für Frontend-Toast-Pluralisierung. Wiederverwendbar für künftige Multi-Document-Export-Endpunkte.
+- **Resolver-Trait für N+1-Elimination:** `RepaymentContextResolver::aggregate` lädt N Entries in einer DB-Round. Pattern-Anker für künftige Bulk-Service-Operationen mit gleichem Aggregations-Pfad.
+
+### Key Lessons
+
+1. **Pattern-Replikation > Pattern-Erfindung:** Phase 7+8+9 waren systematische 1:1-Mirror des v1.0-Assembly-Aggregats. Wo es funktioniert, schneller Replicate als Re-Design.
+2. **Audit-Hashchain als End-to-End-Korrektheits-Beweis:** `/api/audit/verify` + Multi-Endpoint-Field-Assertion macht atomare Cascades verifizierbar ohne externe Tools.
+3. **Minijinja-strict + `is defined`-Guard ist Pflicht:** Bare `{% if X %}` errort auf truly-missing Variablen unter `UndefinedBehavior::Strict`. Templates-Authoring-Konvention für künftige Phase-12+-Frontend-Template-Editoren.
+4. **Workspace-Toolchain via Nix-Store-Suche:** `rustfmt`/`clippy` fehlen oft am direkten PATH, sind aber unter `/nix/store/...` verfügbar. Nicht vorschnell "not installed" reporten — erst nix-store durchsuchen.
+5. **Quick-Task-Tracking parallel zu Phase-Plänen ist Risiko:** Out-of-sync Index pollutet Audit. v1.2: Quick-Tasks atomisch via CLI (`gsd-sdk query quick.commit`) statt manuelle Frontmatter.
+
+### Cost Observations
+
+- **Pattern-Replikation senkt Pro-Phasen-Cost:** Phasen 7+8+9 waren systematisch schneller als Phase 10 (Massenmail mit minijinja-strict, viele Edge-Cases) und Phase 12 (Frontend mit 11 Waves, 15 Plans, 6 inline UAT-Fixes).
+- **Phase 11 (PDF-Export) war single-Phase-Slot mit hoher Iteration:** Typst-Template-Drift (`Anteilsrückzahlung` Umlaut, Verwendungszweck-Strings, B3 Euro-Format ohne `.abs()`) brauchte mehrere REVISION-Fixes.
+- **Phase 13 Bulk-Letter als additive Folge-Phase nach Milestone-Goal:** Reagierte auf Live-Bedarf (Mitglieder ohne E-Mail-Adresse), nicht im ursprünglichen v1.1-Scope. 7 Pläne in 6 Waves, ~2 Wochen. Beweis dass additiv eingeschobene Phasen mit klar geschnittenem Goal funktionieren.
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
 
-| Milestone | Phases | Plans | Skipped | Key Change |
-|-----------|--------|-------|---------|------------|
+| Milestone | Phases | Plans | Skipped/Added | Key Change |
+|-----------|--------|-------|---------------|------------|
 | v1.0 | 5 + 1 SKIPPED | 34 | Phase 5 (Pre-Generalprobe → echte GV) | Erstmaliger Einsatz von GSD im Projekt; Phase 5 SKIP statt formellen Operations-Plan |
+| v1.1 | 7 | 56 | Phase 13 ADDED (Brief-Bulk additiv nach Phase 12) | Pattern-Replikation als dominantes Velocity-Pattern; additive Folge-Phase als legitime Workflow-Option |
 
 ### Cumulative Quality
 
 | Milestone | Tests (Workspace) | E2E-Tests | Notable |
 |-----------|------------------|-----------|---------|
 | v1.0 | ~927 (Backend 819 + Frontend 108) | 239 (E2E) | Race-Test deterministisch über 5 Runs grün; PII-Guard via Whitelist+Blacklist-E2E-Test |
+| v1.1 | ~600 Workspace-Lib | 292 (E2E, +53 ggü. v1.0-Close) | Audit-Hashchain bleibt valid über alle Phase-9-Cascades; Atomic-Tx + Re-Read-Defense in jeder Lifecycle-Methode |
 
 ### Top Lessons (Verified Across Milestones)
 
-*Wird mit weiteren Milestones aufgebaut.*
-
 1. **(v1.0)** Produktive Verifikation schlägt formelle Generalprobe, wenn das Feature ohnehin live einsetzbar ist. SKIPPED-Phasen sind eine legitime Workflow-Option, wenn ihre Voraussetzung durch die Realität bereits erfüllt ist.
+2. **(v1.1)** Pattern-Replikation gegenüber Pattern-Erfindung: wo ein etabliertes Aggregat-Pattern existiert, ist systematisches 1:1-Mirror schneller als Re-Design. Domain-Substitutionen sind reine Mapping-Arbeit.
+3. **(v1.0+v1.1)** Audit-Hashchain als E2E-Korrektheits-Beweis funktioniert über atomare Cascades hinweg. Multi-Endpoint-Field-Assertion ist Pflicht-Pattern für Cross-Entity-Operationen.
+4. **(v1.1)** Additive Folge-Phasen nach Milestone-Goal (z.B. Phase 13 Brief-Bulk) sind legitim, wenn sie auf konkreten Live-Bedarf reagieren und klar geschnittenes Goal haben. Nicht jeder Bug ist eine Quick-Task, nicht jede Erweiterung muss in den nächsten Milestone warten.
 
 ---
 

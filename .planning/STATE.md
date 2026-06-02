@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Anteile-Rückzahlungsphase
-status: milestone_complete
+status: completed
 stopped_at: Phase 13 context gathered
-last_updated: "2026-06-01T21:02:08.351Z"
-last_activity: 2026-06-01 -- Phase 13 planning complete
+last_updated: "2026-06-02T11:52:26.529Z"
+last_activity: 2026-06-02
 progress:
   total_phases: 7
   completed_phases: 7
   total_plans: 56
-  completed_plans: 49
+  completed_plans: 56
   percent: 100
 ---
 
@@ -21,18 +21,25 @@ progress:
 
 ## Project Reference
 
+See: `.planning/PROJECT.md` (updated 2026-06-02 after v1.1 close)
+
 **Core Value:** Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachvollziehbar (Audit-Hashchain), mit weniger manueller Arbeit.
 
-**Current Focus:** Phase 12 — Frontend (Component-First)
-
-**Granularity:** coarse (6 Phasen, Backend-First → Service-Logik → Integrationen → Frontend)
+**Current Focus:** Planning next milestone — run `/gsd-new-milestone`
 
 ## Current Position
 
-Phase: 13
-Plan: Not started
-Status: Milestone complete
-Last activity: 2026-06-02 - Completed quick task 260602-c19: Fix Mail-Preview Repayment-Kontext (share_count immer 1)
+Status: Milestone v1.1 complete (shipped 2026-06-02)
+Last activity: 2026-06-02 — v1.1 Anteile-Rückzahlungsphase shipped (7 phases, 56 plans, 91 tasks)
+Next: `/gsd-new-milestone` to plan v1.2
+
+## Closure Snapshot (v1.1, 2026-06-02)
+
+- Audit: `tech_debt` (kein Blocker; 33/34 Reqs satisfied — UI-06 partial; 7 dokumentierte Tech-Debt-Items)
+- Tests: ~600 Workspace-Tests + 292 E2E-Tests grün; Audit-Hashchain bleibt valid über alle Cascades
+- Timeline: 2026-04-01 → 2026-06-02 (~62 Tage, 651 commits)
+- Code: 1.536 Dateien, +345.146 / -2.205 LOC
+- Archive: `.planning/milestones/v1.1-{ROADMAP,REQUIREMENTS,MILESTONE-AUDIT}.md` + `v1.1-phases/`
 
 ## Closure Snapshot (v1.0, 2026-05-29)
 
@@ -237,7 +244,26 @@ Keine.
 
 ## Deferred Items
 
-Items acknowledged and deferred at milestone close on 2026-05-29:
+### Items acknowledged and deferred at milestone close on 2026-06-02 (v1.1)
+
+| Category | Item | Status | Note |
+|----------|------|--------|------|
+| requirement | UI-06 | partial | Massenmail-Aktion im Tabellen-Header — Code-Pfade grep-verifiziert (3× `RequirePrivilege { fallback: AccessDeniedPage }`), Service-/REST-403-Mapping unit-getestet; 3 HUMAN-UAT-Items pending Non-Admin-OIDC-Session zur visuellen Verifikation |
+| uat_gap | 12-HUMAN-UAT.md | partial | Phase 12 — Helper-OIDC-Session lokal nicht verfügbar während UAT 2026-06-01 |
+| uat_gap | 12-UAT-CHECKLIST.md | unknown | Phase 12 — Status-Flag nicht final gesetzt; alle Scenarios resolved |
+| quick_task | 260601-pfy-warnungen-und-clippy-findings-im-backend | index_missing | Quick-Task-Index out-of-sync (Commit 5c98971e existiert) |
+| quick_task | 260602-c19-fix-mail-preview-repayment-kontext-share | index_missing | Quick-Task-Index out-of-sync (Commits 1a35a01, 1e48b2f, d627e96 existieren) |
+| todo | phase-10-worker-refactor-resolver.md | pending (low) | Phase-10-Mail-Worker auf RepaymentContextResolver migrieren (Resolver kam in Phase 13 dazu; Phase-10-Worker behält Inline-Aggregation per D-13-10) |
+| tech_debt | Phase 7 — Optimistic-Locking Stale-Retry | accepted | DAO bumpt DB-Version, propagiert sie nicht zurück; codebase-weite Konvention |
+| tech_debt | Phase 8 — format_dt-Duplikat | accepted | Lokaler Helper in repayment_entry.rs (Phase-7-Variante privat) |
+| tech_debt | Phase 9 — SQLITE_BUSY Race-Status | accepted | E2E akzeptiert [200, 409\|500]; DAO-Layer-Mapping wäre Rule-4-Change |
+| tech_debt | Phase 10 — DocumentType::is_singleton() | accepted | Idempotency-Storage-Growth bei Re-Generierung (WR-06) |
+| tech_debt | Phase 11 — from_env() Relative-Paths | accepted | Unsafe unter parallelen Cargo-Tests (IN-04) |
+| tech_debt | Phase 13 — Bundle-Template Side-Effect + tempdir leak | accepted | #import-Side-Effect; std::mem::forget(tempdir) (IN-01) |
+
+Details siehe `.planning/milestones/v1.1-MILESTONE-AUDIT.md` und `.planning/MILESTONES.md`.
+
+### Items acknowledged and deferred at milestone close on 2026-05-29 (v1.0)
 
 | Category | Item | Status | Note |
 |----------|------|--------|------|
@@ -245,7 +271,7 @@ Items acknowledged and deferred at milestone close on 2026-05-29:
 | uat_gap | 04-UAT-CHECKLIST.md | unknown (0 pending) | Phase 04 — Status nicht final gesetzt; UAT wurde operativ durch echte GV abgeschlossen (Hotfixes 8e92cfd, e245013, ed754fc, 3cdfbb6) |
 | verification_gap | 02-VERIFICATION.md | human_needed | Phase 02 BLOCKER-04 — validate_code_format Unicode-Lookalike-Bug; im Milestone-Audit als bekannte Spec-Divergenz dokumentiert (kein Security-Bug); Decision pending |
 
-Details siehe `.planning/v1.0-MILESTONE-AUDIT.md` und `.planning/MILESTONES.md`.
+Details siehe `.planning/milestones/v1.0-MILESTONE-AUDIT.md` und `.planning/MILESTONES.md`.
 
 ### Skills / Conventions to Apply
 

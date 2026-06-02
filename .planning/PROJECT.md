@@ -2,35 +2,20 @@
 
 ## What This Is
 
-Mitgliederverwaltungs-Software für Genossenschaften, produktiv im Einsatz. Ersetzt manuelle Excel-Listen durch eine REST-API mit Dioxus-WASM-Frontend, sodass Vorstände Mitgliederdaten verbandskonform pflegen, Anträge bearbeiten, Dokumente erzeugen und Audit-Spuren hinterlegen können. Mit dem v1.0-Milestone (GV-Anwesenheits-Erfassung, shipped 2026-05-29) ist papierlose Anwesenheits-Erfassung auf der Generalversammlung implementiert und auf einer echten Generalversammlung produktiv erprobt.
+Mitgliederverwaltungs-Software für Genossenschaften, produktiv im Einsatz. Ersetzt manuelle Excel-Listen durch eine REST-API mit Dioxus-WASM-Frontend, sodass Vorstände Mitgliederdaten verbandskonform pflegen, Anträge bearbeiten, Dokumente erzeugen und Audit-Spuren hinterlegen können. Mit v1.0 (GV-Anwesenheits-Erfassung, shipped 2026-05-29) ist papierlose Anwesenheits-Erfassung auf der Generalversammlung produktiv erprobt; mit v1.1 (Anteile-Rückzahlungsphase, shipped 2026-06-02) ersetzt Genossi die manuelle Excel-Liste für Auszahlungen — vom RepaymentPhase-Lifecycle über atomare Auszahlungs-Buchung bis zu Massenmail- und Bulk-PDF-Brief-Versand.
 
 ## Core Value
 
-Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachvollziehbar (Audit-Hashchain), und mit weniger manueller Arbeit bei wiederkehrenden Vorgängen wie Anträgen, Dokumenten und Generalversammlungen.
+Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachvollziehbar (Audit-Hashchain), und mit weniger manueller Arbeit bei wiederkehrenden Vorgängen wie Anträgen, Dokumenten, Generalversammlungen und Anteils-Auszahlungen.
 
-## Current Milestone: v1.1 Anteile-Rückzahlungsphase
+## Current State
 
-**Goal:** Ersetzt die Excel-Liste für Anteils-Auszahlungen — Vorstand verwaltet Rückzahlungsphasen direkt in Genossi, schreibt Mitglieder per Massenmail an und exportiert auszahlbare Beträge als PDF zur Online-Banking-Übernahme.
+**Shipped Milestones:**
 
-**Target features:**
+- ✅ **v1.0 GV-Anwesenheits-Erfassung** (2026-05-29) — Helfer-QR-Tokens, Anwesenheits-Erfassung, Teilnehmerlisten-Export PDF/CSV/XLSX
+- ✅ **v1.1 Anteile-Rückzahlungsphase** (2026-06-02) — RepaymentPhase-Lifecycle, atomare Auszahlungs-Buchung, Massenmail mit Auszahlungs-Variablen, PDF-Export für Banking, Bulk-Briefe für Nicht-Email-Mitglieder
 
-- `RepaymentPhase`-Entität pro Geschäftsjahr (Lifecycle angelegt → offen → abgeschlossen; `fiscal_year`, `share_value`)
-- `RepaymentEntry`-Entität pro Mitglied (Status offen → angeschrieben → ausbezahlt; mehrere Einträge pro Mitglied+Phase erlaubt)
-- Auto-Befüllung der Phase aus Vorjahres-Austritten (`exit_date` im `fiscal_year`)
-- Manuelles Hinzufügen für Teil-Abtretungen und verspätet gemeldete Austritte
-- Status-Toggle "angeschrieben" manuell durch Vorstand
-- Status-Toggle "ausbezahlt" erzeugt automatisch `MemberAction::Verkauf` mit negativem `shares_change` (über bestehende Audit-Pipeline)
-- Massenmail-Anbindung an bestehende Mail-Pipeline (analog Mitgliederliste-Pattern); Template kann aktuellen Auszahlungs-Wert pro Mitglied referenzieren
-- PDF-Export der Auszahlungsliste **vor** Phasen-Abschluss (Online-Banking-Übernahme)
-- CSV-Export für Buchhaltung
-- Frontend: shared `RepaymentEntryList`-Component, Phase-Lifecycle-Page, Eintrag-Bearbeiten-Page
-
-**Key context:**
-
-- Datenmodell teilweise schon vorhanden: `Member.current_shares`, `Member.shares_at_joining`, `MemberAction::Verkauf` mit `shares_change` existieren — keine Member-Migration nötig
-- Brief-Anschreiben bleiben manuell (out of scope für diesen Milestone)
-- SEPA pain.001 XML out of scope — PDF genügt für Banking-Vorlage
-- Trigger: spätestens vor GV 2027, da Anteilswerte für GJ 2026 dann berechnet werden
+**Next:** Run `/gsd-new-milestone` to plan v1.2.
 
 ## Requirements
 
@@ -76,18 +61,23 @@ Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachv
 - ✓ Teilnehmerlisten-Export in PDF (Typst) / CSV (Semikolon + UTF-8-BOM) / XLSX (rust_xlsxwriter) für geschlossene GVs; Vorstand-only, read-only, kein Audit-Eintrag — v1.0 (Phase 6, D-01..D-20)
 - ✓ Helfer-Magic-Link via persistierter Code-Spalte — Helfer mit ausgedruckter Karte tippt nichts mehr (ADR-2026-05-06)
 
+**v1.1 Anteile-Rückzahlungsphase (shipped 2026-06-02):**
+
+- ✓ `RepaymentPhase`-Entität (DAO/Service/REST/Frontend) mit Lifecycle Vorbereitung → Offen → Abgeschlossen, `fiscal_year` + `share_value` (i64 Cent), auditpflichtig — v1.1 (PHAS-01..05, Phase 7+12)
+- ✓ `RepaymentEntry`-Entität mit Status offen → angeschrieben → ausbezahlt; mehrere Einträge pro Mitglied+Phase erlaubt (ENTR-03 ohne Composite-PK-Constraint) — v1.1 (ENTR-01..06, Phase 8+12)
+- ✓ Auto-Befüllung beim Phase-Öffnen atomar in Status-Übergangs-Tx, manuelles Hinzufügen mit MemberSearch + current_shares-Prefill — v1.1 (ENTR-01, ENTR-02, Phase 8+12)
+- ✓ `ausbezahlt`-Toggle erzeugt atomar `MemberAction::Verkauf` + reduziert `Member.current_shares` in einer SQLite-Tx mit gemeinsamem Process-String; final-Semantik (PAYO-04 kein Rücksetzen) — v1.1 (PAYO-01..04, Phase 9)
+- ✓ Massenmail-Anbindung mit `{{ payout_amount }}`, `{{ share_count }}`, `{{ fiscal_year }}` Template-Variablen über bestehenden `POST /api/mail/send-bulk`-Endpoint; pro Empfänger ein auditiertes `MemberDocument` — v1.1 (MAIL-01..04, Phase 10+12)
+- ✓ PDF-Export Auszahlungsliste (6-Spalten mit Verwendungszweck, Filter `?include=open|all|paid`, Filename-Schema `auszahlung-{fy}-{include}.pdf`) für offene UND geschlossene Phasen — v1.1 (EXPO-01..03, EXPO-05, Phase 11+12)
+- ✓ Frontend Component-First: `RepaymentEntryList`, `RepaymentPhaseStatusBadge`, `RepaymentEntryStatusBadge`, `format_payout_eur` Helper, 3-Tab-Detail-Page, PaidOut-Confirm-Modal — v1.1 (UI-01..05, Phase 12)
+- ⚠ **UI-06 partial:** Massenmail-Aktion im Tabellen-Header — Code-Pfade grep-verifiziert, Service-Layer-403 unit-getestet, 3 HUMAN-UAT-Items pending Non-Admin-OIDC-Session (siehe Known Gaps)
+- ✓ **(additiv) Bulk-PDF-Anschreiben für Nicht-Email-Mitglieder** — Multi-select auf RepaymentPhase-Detail → `POST /api/repayment-phase/{id}/letters/generate` → pro Member ein auditiertes `MemberDocument` + Bundle-PDF mit `#pagebreak()` als Direct-Download — v1.1 Phase 13 (BRIEF-01)
+
 ### Active
 
-<!-- v1.1 Anteile-Rückzahlungsphase — Detaillierte REQ-IDs siehe .planning/REQUIREMENTS.md -->
+<!-- v1.1 abgeschlossen — Active-Liste leer bis /gsd-new-milestone die nächsten Requirements anlegt -->
 
-- [x] `RepaymentPhase`-Entität (DAO/Service/REST/Frontend) mit Lifecycle angelegt → offen → abgeschlossen, `fiscal_year` + `share_value` — validated in Phase 12 (UI-01, UI-02)
-- [x] `RepaymentEntry`-Entität mit Status offen → angeschrieben → ausbezahlt; mehrere Einträge pro Mitglied+Phase — validated in Phase 12 (UI-03, UI-04, UI-05)
-- [x] Auto-Befüllung der Phase aus Vorjahres-Austritten, manuelles Hinzufügen — validated in Phase 12 (UI-03, UI-04)
-- [x] "ausbezahlt"-Toggle erzeugt automatisch `MemberAction::Verkauf` mit negativem `shares_change` (audited) — validated in Phase 9 (PAYO-01..04)
-- [x] Massenmail-Anbindung mit Auszahlungs-Wert als Template-Variable — validated in Phase 10 (MAIL-01..04), Frontend-Anbindung in Phase 12 (UI-06)
-- [x] PDF-Export der Auszahlungsliste (vor Phasen-Abschluss verfügbar) für Online-Banking — validated in Phase 11 (EXPO-01, EXPO-02, EXPO-03, EXPO-05), Frontend-Tab in Phase 12
-- [ ] CSV-Export für Buchhaltung (deferred to v2 per D-12)
-- [x] Frontend: shared `RepaymentEntryList`-Component, Phase-Lifecycle-Page, Eintrag-Bearbeiten-Page — validated in Phase 12 (UI-01..06, 15 Plans, Component-First-Validation bestanden, 6 UAT-Defekte inline RESOLVED)
+(None — run `/gsd-new-milestone` to define v1.2 requirements)
 
 ### Out of Scope
 
@@ -110,28 +100,41 @@ Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachv
 
 ## Context
 
-**Produktiver Stand (Stand 2026-05-29):**
-- Echte Generalversammlung im Mai 2026 mit Genossi durchgeführt
+**Produktiver Stand (Stand 2026-06-02):**
+- Echte Generalversammlung im Mai 2026 mit Genossi durchgeführt (v1.0 produktiv erprobt)
+- v1.1 shipped 2026-06-02 — Anteils-Rückzahlungs-Pipeline live; erste produktive RepaymentPhase noch nicht durchgeführt (kommt in der Q1/Q2-2026-GJ-Abrechnung)
 - Production-Deployment via `deploy-binaries.sh` auf `shifty.nebenan-unverpackt.de`
-- Hotfixes aus dem Live-Betrieb sind im Repo: `8e92cfd` (live-counter), `e245013` (button type), `ed754fc` (sort by member_number), `3cdfbb6` (token-codes magic-link), `c6f41fd` (form→div Reload-Bug), `bb1be0b` (✓→ja/nein im PDF)
+- Hotfixes aus v1.0-Live-Betrieb: `8e92cfd` (live-counter), `e245013` (button type), `ed754fc` (sort by member_number), `3cdfbb6` (token-codes magic-link), `c6f41fd` (form→div Reload-Bug), `bb1be0b` (✓→ja/nein im PDF)
+- Hotfix-Pattern für v1.1: Dioxus-Button-Reload-Bug (`r#type: "button"` statt form-onsubmit) konsequent in allen RepaymentPhase-Pages befolgt
 
 **Technische Umgebung:**
 - Rust 2021 Workspace mit getrennten Crates für DAO/Service/REST/Binary plus Dioxus-WASM-Frontend
-- ~150k LOC Rust (workspace, ohne vendored deps)
+- ~150k LOC Rust (workspace, ohne vendored deps) + v1.1 fügte ~10k LOC für RepaymentPhase/Entry/Letter hinzu
 - SQLite via SQLx, Migrations in `migrations/sqlite/`, BLOB-UUIDs, ISO8601-Timestamps
 - Axum 0.8 + Utoipa-OpenAPI, Tokio 1.35
 - Auth: axum-oidc gegen Nextcloud, tower-sessions, tower-cookies
 - Frontend: Dioxus 0.6.3, Tailwind, Component-First (`genossi-frontend/src/component/`)
+- Mail: lettre (SMTP), async-imap, minijinja-strict mit `{% if X is defined %}`-Pattern
+- PDF: Typst 0.14 + typst-pdf, fresh-install Default-Template-Provisioning
 - Nix-Toolchain via `flake.nix`
+
+**Bekannte Tech-Debt-Posten aus v1.1:**
+
+- Phase 7 — Optimistic-Locking Stale-Retry-Pattern: DAO bumpt DB-Version, propagiert sie nicht zurück (codebase-weite Service-Konvention)
+- Phase 8 — `format_dt`-Helper lokal in `repayment_entry.rs` dupliziert (Refactor in `crate::dt_helpers` wäre Rule-4-Change)
+- Phase 9 — SQLITE_BUSY Race-Path im E2E-Test akzeptiert sortierte Statuses `[200, 409|500]` statt strict `[200, 409]`
+- Phase 10 — `DocumentType::is_singleton()` TODO: Idempotency-Storage-Growth bei Re-Generierung (3 deferred Strategien in WR-06)
+- Phase 11 — `from_env()` defaults zu relativen Pfaden — unsafe unter parallelen Cargo-Tests (IN-04)
+- Phase 12 — 3 Auth-Gate-UAT-Items pending (Helper-OIDC-Session lokal nicht verfügbar)
+- Phase 13 — Bundle-Template Side-Effect via `#import`; `std::mem::forget(tempdir)` leakt `/tmp`-Dirs in Tests (IN-01)
 
 **Bekannte Tech-Debt-Posten aus v1.0:**
 
 - Phase 02 `validate_code_format` Unicode-Lookalike (`c as u8` truncation) — bekannte Spec-Divergenz, kein Security-Bug, Decision pending
 - Phase 02 FK-Constraints ohne `PRAGMA foreign_keys=ON` im Production-Pool — Fix beim Pool-Setup
 - Phase 04 `dx build --release` Tooling-Debt (`wasm-bindgen-cli@0.2.104`) — Production deployt erfolgreich, Release-Build lokal nicht verifizierbar
-- REQUIREMENTS.md-Checkbox-Drift wurde bei v1.0-Close synchronisiert
 
-Details siehe `.planning/milestones/v1.0-MILESTONE-AUDIT.md`.
+Details siehe `.planning/milestones/v1.0-MILESTONE-AUDIT.md` und `.planning/milestones/v1.1-MILESTONE-AUDIT.md`.
 
 **Bestehende Muster (für nächste Milestones aufgreifbar):**
 - Entity-Struktur: `id` (UUID/BLOB), `created`, `deleted` (Option), `version` (UUID, optimistic locking)
@@ -177,6 +180,14 @@ Details siehe `.planning/milestones/v1.0-MILESTONE-AUDIT.md`.
 | Phase 5 SKIPPED statt Pre-GV-Generalprobe | Echte GV bereits durchgeführt; Pre-Generalprobe obsolet, Hotfixes lieferten echte Erkenntnisse zurück | ✓ Good (v1.0) |
 | Drei Export-Formate parallel (PDF/CSV/XLSX) statt einer | Buchhaltung und Verband konsumieren unterschiedlich; ein einziger DAO-Call genügt für alle drei | ✓ Good (v1.0) — Phase 6 D-01 |
 | Inline ExportTab statt extrahierte Component | Nur eine Seite betroffen; Component-First gilt erst ab Duplikation | ✓ Good (v1.0) — Phase 6 D-20 |
+| i64-Cent für `share_value` statt Decimal/Float | SQLite INTEGER 8-Byte → Rust i64; Floats produzieren Rundungsfehler bei Cent-Multiplikation; Validierung `> 0` ohne Obergrenze | ✓ Good (v1.1) — Phase 7 D-01, durchgezogen bis Phase 11 PDF-Export |
+| KEIN UNIQUE-Constraint auf (member_id, phase_id) im RepaymentEntry | Mehrere Einträge erlauben Teil-Abtretungen, Korrekturen, mehrstufige Auszahlungen; PAYO-Sum-Check via `Member.current_shares` reicht | ✓ Good (v1.1) — Phase 8 ENTR-03 |
+| Atomare Cascade `ausbezahlt`-Toggle in einer SQLite-Tx | Verhindert Inkonsistenz zwischen `MemberAction::Verkauf` und `Member.current_shares`-Reduzierung; gemeinsamer Process-String macht Audit-Story einheitlich | ✓ Good (v1.1) — Phase 9 PAYO-01..04 |
+| PAYO-04 final — kein `ausbezahlt → angeschrieben`-Rücksetzen | Verhindert Audit-Verzerrung und inkonsistente `current_shares`; Rückbuchung wäre zweite manuelle MemberAction | ✓ Good (v1.1) — Phase 9 PAYO-04 |
+| minijinja-strict + `{% if X is defined %}`-Pattern statt `..base`-Spread | Workspace-minijinja 2.19 unterstützt Spread nicht; serde_json round-trip + BTreeMap-Merge ist 1:1-Mirror der Plan-10-Worker-Aggregation | ✓ Good (v1.1) — Phase 10 |
+| Pdf-only Export (kein CSV/XLSX) | Buchhaltung kann Online-Banking-Vorlage direkt aus PDF kopieren; CSV-Export für Buchhaltung in v2 verschoben | ✓ Good (v1.1) — Phase 11 D-12 |
+| Bulk-Brief-Service deduplicated Aggregation via `RepaymentContextResolver::aggregate` | Eliminiert N+1-DB-Read; Phase-10-Worker behält Inline-Aggregation per D-13-10 (nicht refactored, todo `phase-10-worker-refactor-resolver.md` low-prio) | ✓ Good (v1.1) — Phase 13 D-13-04 |
+| Direct-Download Bundle-PDF + persisted MemberDocuments parallel | Vorstand bekommt sofort druckbares Bundle, Audit-Trail behält pro-Member-Dokumente; Selection-Preservation (D-13-09) erlaubt direkt "Als angeschrieben markieren" anschließend | ✓ Good (v1.1) — Phase 13 |
 
 ## Evolution
 
@@ -252,4 +263,4 @@ bestehende admin-only Listing-Route `GET /api/assembly/{id}/helper-tokens`).
 
 ---
 
-*Last updated: 2026-06-01 after Phase 12 (Frontend Component-First) complete — Vorstand verwaltet RepaymentPhases end-to-end im Browser: Listen-Page mit Anzahl-Einträge-Per-Row, 3-Tab Detail-Page (Stamm/Einträge/Export), Lifecycle-Action-Tiles, RepaymentEntryList (7-Spalten, Multi-Select, Inline-Cell-Edit, Soft-Delete, Status-Filter), AddModal mit MemberSearch + current_shares-Prefill, PaidOut-Confirm-Modal (Sequential-Loop, Per-Entry-Toast, MEMBERS-Refresh), Massenmail-Wiring (3 Var-Buttons, URL-Param-Redirect, Issue #2 fix), Export-Tab (PDF, 3 Radio-Filter). Component-First eingehalten: alle relevanten UI-Blocks als Components in genossi-frontend/src/component/. 15/15 Plans, 11 Waves, 196 Frontend-Tests + alle Backend-Tests grün, 6 UAT-Defekte inline RESOLVED (Dioxus button-reload, toast z-index, mail_page Query-Param-Race, entry-vs-member-ID-Mismatch, Phase-10 pure-member-probe blockt {{ payout_amount }}, /preview-Endpoint mit repayment_phase_id). UI-01..06 validated; Section L Auth-Gate via 12-HUMAN-UAT.md deferred. Milestone v1.1 ist damit funktional komplett.*
+*Last updated: 2026-06-02 after v1.1 Anteile-Rückzahlungsphase shipped — 7 Phasen (07-13), 56 Pläne, 91 Tasks, 33/34 v1-Reqs satisfied (UI-06 partial). RepaymentPhase-Aggregat mit Lifecycle Vorbereitung → Offen → Abgeschlossen, atomare Auszahlungs-Buchung via 12-Schritt-Cascade, Massenmail mit `{{ payout_amount }}`-Variablen, PDF-Export mit Banking-Vorlage, Component-First-Frontend mit `RepaymentEntryList` und Inline-Cell-Edit, Bulk-PDF-Briefe für Nicht-Email-Mitglieder (Phase 13 additiv). Tech-Debt: 7 dokumentierte Items (siehe Context); Audit-Hashchain bleibt valid über alle Cascades. Archive: `.planning/milestones/v1.1-{ROADMAP,REQUIREMENTS,MILESTONE-AUDIT}.md` + `v1.1-phases/`.*
