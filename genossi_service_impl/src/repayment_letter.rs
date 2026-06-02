@@ -2442,6 +2442,136 @@ mod tests {
         assert!(result.bundle_bytes.starts_with(b"%PDF-"), "Bundle is PDF");
     }
 
+    /// uo2 Regression-Guard: der idempotente UPDATE-Branch in
+    /// `RepaymentLetterServiceImpl::generate` MUSS dem DAO `entity.version`
+    /// als die ALTE Version des existierenden Docs uebergeben — der DAO
+    /// (`genossi_dao_impl_sqlite/src/member_document.rs:177-178`) liest
+    /// `entity.version` als OLD und rotiert die NEW-Version intern.
+    ///
+    /// Auf dem buggy Code (`version: self.uuid_service.new_v4().await`) wird
+    /// das `.withf(... entity.version == existing_version)`-Predicate nicht
+    /// matchen — mockall panicked mit "no matching expectation" → Test RED.
+    /// Nach dem 1-Zeilen-Fix (`version: existing_doc.version`) matchet das
+    /// Predicate → Test GREEN.
+    #[tokio::test]
+    async fn test_generate_update_branch_passes_existing_version_to_dao() {
+        let phase = test_phase(RepaymentPhaseStatus::Open, 2025);
+        let phase_id = phase.id;
+        let m1 = test_member(101, "Alice", "A");
+        let e1 = test_entry(phase_id, m1.id, RepaymentEntryStatus::Open);
+        let entry_ids: Arc<[Uuid]> = vec![e1.id].into();
+
+        let existing_id = Uuid::new_v4();
+        let existing_version = Uuid::new_v4();
+        let existing_relative_path = format!("{}.pdf", existing_id);
+        let mut existing_doc = existing_repayment_letter_doc(
+            existing_id,
+            m1.id,
+            2025,
+            m1.member_number,
+            &existing_relative_path,
+        );
+        // Override die per-Helper zufaellig generierte Version mit unserer
+        // capturierten `existing_version`, damit der `.withf`-Predicate die
+        // genaue Version vergleichen kann.
+        existing_doc.version = existing_version;
+
+        let phase_clone = phase.clone();
+        let mut phase_dao = MockTestPhaseDao::new();
+        phase_dao
+            .expect_find_by_id()
+            .returning(move |_, _| Ok(Some(phase_clone.clone())));
+
+        let entries_arc: Arc<[RepaymentEntryEntity]> = vec![e1].into();
+        let mut entry_dao = MockTestEntryDao::new();
+        entry_dao
+            .expect_find_by_phase_id()
+            .returning(move |_, _| Ok(entries_arc.clone()));
+        entry_dao.expect_update().times(0);
+        entry_dao.expect_create().times(0);
+
+        let m1_clone = m1.clone();
+        let mut member_dao = MockTestMemberDao::new();
+        member_dao
+            .expect_find_by_id()
+            .returning(move |_, _| Ok(Some(m1_clone.clone())));
+
+        let mut doc_dao = MockTestMemberDocumentDao::new();
+        let existing_doc_for_lookup = existing_doc.clone();
+        doc_dao
+            .expect_find_by_member_id()
+            .returning(move |_, _| Ok(Arc::from(vec![existing_doc_for_lookup.clone()])));
+        doc_dao.expect_create().times(0);
+
+        // Regression-Guard: entity.version MUSS gleich existing_version sein
+        // (DAO-Vertrag: alte Version fuer Optimistic-Lock-Match).
+        doc_dao
+            .expect_update()
+            .times(1)
+            .withf(move |entity, _, _| {
+                entity.id == existing_id && entity.version == existing_version
+            })
+            .returning(|_, _, _| Ok(()));
+
+        // audited_update! laedt das alte Entity per find_by_id.
+        let existing_doc_for_find = existing_doc.clone();
+        doc_dao.expect_find_by_id().returning(move |id, _| {
+            if id == existing_id {
+                Ok(Some(existing_doc_for_find.clone()))
+            } else {
+                Ok(None)
+            }
+        });
+
+        let mut audit_dao = MockTestAuditLogDao::new();
+        audit_dao.expect_get_latest_hash().returning(|_| Ok(None));
+        audit_dao.expect_create_entries().returning(|_, _| Ok(()));
+
+        let mut perm = MockTestPermissionService::new();
+        perm.expect_check_permission().returning(|_, _| Ok(()));
+        perm.expect_current_user_id()
+            .returning(|_| Ok(Some("vorstand-regression-guard".to_string())));
+
+        let tx_dao = tx_dao_permissive();
+
+        let mut resolver = MockTestResolver::new();
+        resolver
+            .expect_aggregate()
+            .returning(|_, _, _| Ok(sample_ctx(1, 2025)));
+
+        let mut storage = MockTestStorage::new();
+        let expected_path_for_save = existing_relative_path.clone();
+        storage
+            .expect_save()
+            .times(1)
+            .withf(move |path, _| path == expected_path_for_save.as_str())
+            .returning(|_, _| Ok(()));
+
+        let mut uuid_svc = MockTestUuidService::new();
+        // Nach dem uo2-Fix wird `new_v4` im UPDATE-Branch NICHT mehr aufgerufen
+        // (der DAO rotiert die Version intern). Test setzt `.times(0..=1)` als
+        // tolerantes Predicate: aktuell (RED, buggy code) ruft der Service
+        // `new_v4` einmal — `.times(0..=1)` laesst das durch, damit das Test
+        // NICHT an dieser Mock-Erwartung scheitert, sondern am `.withf` auf
+        // `doc_dao.expect_update()` (was die eigentliche Regression-Aussage
+        // ist). Nach dem Fix ist der Aufruf 0x — `0..=1` deckt beides ab.
+        uuid_svc.expect_new_v4().times(0..=1).returning(Uuid::new_v4);
+
+        let svc = build_service_with_templates(
+            phase_dao, entry_dao, member_dao, doc_dao, audit_dao, perm, tx_dao, uuid_svc, resolver,
+            storage,
+        );
+
+        let result = svc
+            .generate(phase_id, entry_ids, Authentication::Context(TestContext))
+            .await;
+        assert!(
+            result.is_ok(),
+            "uo2 regression-guard happy path: {:?}",
+            result
+        );
+    }
+
     #[tokio::test]
     async fn test_generate_creates_new_when_no_existing_letter() {
         // Test B — Backwards-Compat: erste Generierung.

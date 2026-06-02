@@ -842,6 +842,22 @@ async fn test_letter_idempotency_d13_08_and_no_status_toggle_d13_09() {
     assert_eq!(resp1.status(), StatusCode::OK, "Bulk-Call #1 muss 200 sein");
     let _ = resp1.bytes().await;
 
+    // q9l-Semantik snapshot: nach Call #1 existiert genau 1 RepaymentLetter-Doc
+    // mit stabilem id/relative_path/created.
+    let docs_after_call_1 = list_member_documents(&client, &server, m_id).await;
+    let letter_docs_after_call_1: Vec<MemberDocumentTO> = docs_after_call_1
+        .iter()
+        .filter(|d| d.document_type == "repayment_letter")
+        .cloned()
+        .collect();
+    assert_eq!(
+        letter_docs_after_call_1.len(),
+        1,
+        "Call #1: genau 1 RepaymentLetter-Doc erwartet; got {}",
+        letter_docs_after_call_1.len()
+    );
+    let doc_after_call_1 = letter_docs_after_call_1[0].clone();
+
     // Bulk-Call #2 (selber Entry).
     let resp2 = client
         .post(server.url(&format!(
@@ -859,7 +875,7 @@ async fn test_letter_idempotency_d13_08_and_no_status_toggle_d13_09() {
     );
     let _ = resp2.bytes().await;
 
-    // Beide Runs erzeugen je 1 MemberDocument → 2 Docs total.
+    // q9l-Semantik: In-Place-Replace — exakt 1 Doc nach 2 Calls.
     let docs = list_member_documents(&client, &server, m_id).await;
     let letter_docs: Vec<_> = docs
         .iter()
@@ -867,9 +883,35 @@ async fn test_letter_idempotency_d13_08_and_no_status_toggle_d13_09() {
         .collect();
     assert_eq!(
         letter_docs.len(),
-        2,
-        "D-13-08: Jeder Bulk-Call erzeugt 1 MemberDocument → 2 Docs nach 2 Calls; got {}",
+        1,
+        "D-13-08 + q9l: Idempotenter regenerate-Pfad ersetzt in place — 1 Doc total nach 2 Calls; got {}",
         letter_docs.len()
+    );
+
+    // q9l-Stabilitaets-Asserts: id/relative_path/created muessen unveraendert
+    // bleiben (UPDATE-Pfad, kein neuer Row), version MUSS sich aendern (DAO
+    // rotiert intern, uo2-Fix in repayment_letter.rs:423 sorgt dafuer dass die
+    // optimistic-locking-Klausel matched).
+    assert_eq!(
+        letter_docs[0].id, doc_after_call_1.id,
+        "q9l: id muss stabil bleiben (in-place replace)"
+    );
+    // PLAN.md zitiert `relative_path`; das Feld ist im REST-TO
+    // (MemberDocumentTO) jedoch nicht exponiert — `file_name` ist die naechste
+    // dem Plan-Intent (stabiler PDF-Identifikator) entsprechende Eigenschaft
+    // im TO und wird beim Regenerate-Pfad in der Service-Schicht
+    // unveraendert aus dem existing_doc uebernommen. Rule-1-Deviation.
+    assert_eq!(
+        letter_docs[0].file_name, doc_after_call_1.file_name,
+        "q9l: file_name muss stabil bleiben (in-place PDF overwrite)"
+    );
+    assert_eq!(
+        letter_docs[0].created, doc_after_call_1.created,
+        "q9l: created ist immutable"
+    );
+    assert_ne!(
+        letter_docs[0].version, doc_after_call_1.version,
+        "uo2: DAO rotiert version intern — muss sich nach UPDATE geaendert haben"
     );
 
     // D-13-09: Status DARF SICH NICHT geaendert haben.
@@ -878,6 +920,20 @@ async fn test_letter_idempotency_d13_08_and_no_status_toggle_d13_09() {
         matches!(status_after, RepaymentEntryStatusTO::Open),
         "D-13-09: Backend MUSS RepaymentEntry.status NICHT auto-togglen — erwartet Open, got {:?}",
         status_after
+    );
+
+    // uo2: Audit-Hashchain MUSS nach idempotentem Regenerate weiter valid sein.
+    let verify = client
+        .get(server.url("/api/audit/verify"))
+        .send()
+        .await
+        .expect("GET audit/verify");
+    assert_eq!(verify.status(), StatusCode::OK);
+    let body: VerifyResponseTO = verify.json().await.expect("decode VerifyResponseTO");
+    assert!(
+        body.valid,
+        "uo2: Audit-Hashchain MUSS nach idempotentem Regenerate weiter valid sein; broken_links={:?}",
+        body.broken_links
     );
 }
 
