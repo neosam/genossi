@@ -206,6 +206,12 @@ impl<Deps: RepaymentLetterServiceDeps> RepaymentLetterService
             }]));
         }
 
+        // WR-01 fix: user_id-Resolution VOR jeder DB-Touche (Defense-in-Depth).
+        // Auth-Validierung ist konzeptuell unabhaengig von der Phase-/Entry-Existenz —
+        // ein transienter Auth-Glitch sollte keine Read-Tx-Ressource verbrauchen.
+        // Konsistent mit der Pre-Validation-Reihenfolge oben (Validation vor jeder DB-Touche).
+        let user_id = self.resolve_user_id_or_deny(&context).await?;
+
         // 1. Read-Tx oeffnen: Funnel + Entry-Validation + Member-Reads alle in
         //    EINER Tx, die VOR dem Render committed wird (Pitfall #2).
         let read_tx = self.transaction_dao.use_transaction(None).await?;
@@ -267,8 +273,7 @@ impl<Deps: RepaymentLetterServiceDeps> RepaymentLetterService
         // 7. Commit Read-Tx VOR Render (Pitfall #2).
         self.transaction_dao.commit(read_tx).await?;
 
-        // 8. user_id extrahieren VOR Render (Fail-Fast, KEIN Sentinel-UUID-Fallback).
-        let user_id = self.resolve_user_id_or_deny(&context).await?;
+        // 8. (user_id wird bereits vor dem Read-Tx-Open resolved — WR-01 Defense-in-Depth.)
 
         // 9. Render N Single-Letter-PDFs (sync, in-memory).
         let mut single_pdfs: Vec<(Uuid, Vec<u8>)> = Vec::with_capacity(recipients.len());
@@ -1154,6 +1159,10 @@ mod tests {
         let audit_dao = MockTestAuditLogDao::new();
 
         let mut perm = MockTestPermissionService::new();
+        // WR-01: current_user_id wird jetzt VOR dem Funnel resolved
+        // (Defense-in-Depth — Auth-Check vor jeder DB-Touche).
+        perm.expect_current_user_id()
+            .returning(|_| Ok(Some("vorstand".to_string())));
         perm.expect_check_permission()
             .withf(|p, _| p == ADMIN_PRIVILEGE)
             .returning(|_, _| Err(ServiceError::PermissionDenied));
@@ -1340,7 +1349,11 @@ mod tests {
         let doc_dao = MockTestMemberDocumentDao::new();
         let audit_dao = MockTestAuditLogDao::new();
 
-        let perm = MockTestPermissionService::new();
+        // WR-01: current_user_id wird jetzt VOR dem Funnel resolved
+        // (Defense-in-Depth — Auth-Check vor jeder DB-Touche).
+        let mut perm = MockTestPermissionService::new();
+        perm.expect_current_user_id()
+            .returning(|_| Ok(Some("vorstand".to_string())));
         let tx_dao = tx_dao_permissive();
         let resolver = MockTestResolver::new();
         let storage = MockTestStorage::new();
@@ -1379,6 +1392,9 @@ mod tests {
         let audit_dao = MockTestAuditLogDao::new();
 
         let mut perm = MockTestPermissionService::new();
+        // WR-01: current_user_id wird jetzt VOR dem Funnel resolved.
+        perm.expect_current_user_id()
+            .returning(|_| Ok(Some("vorstand".to_string())));
         perm.expect_check_permission().returning(|_, _| Ok(()));
 
         let tx_dao = tx_dao_permissive();
@@ -1426,6 +1442,9 @@ mod tests {
         let audit_dao = MockTestAuditLogDao::new();
 
         let mut perm = MockTestPermissionService::new();
+        // WR-01: current_user_id wird jetzt VOR dem Funnel resolved.
+        perm.expect_current_user_id()
+            .returning(|_| Ok(Some("vorstand".to_string())));
         perm.expect_check_permission().returning(|_, _| Ok(()));
 
         let tx_dao = tx_dao_permissive();
