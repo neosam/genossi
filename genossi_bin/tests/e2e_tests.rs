@@ -13829,3 +13829,143 @@ async fn test_export_repayment_empty_iban_renders_empty_column() {
     assert!(bytes.starts_with(b"%PDF-"));
     assert!(bytes.len() > 1000);
 }
+
+// --- Quick-c19 Regression Tests ---
+
+/// Quick-c19 Regression — Mail-Preview rendert echte share_count-Aggregation
+/// statt hartkodierter "1". Verifiziert dass POST /api/mail/preview die
+/// Worker-Logik (genossi_mail/src/worker.rs:332-361) für den Repayment-
+/// Context spiegelt.
+///
+/// Setup: 1 Member mit current_shares=3 + exit_date in FY → Auto-Fill
+/// erzeugt 1 Entry mit share_count_to_pay_out=3 beim Open der Phase.
+/// share_value=12000 Cents → 3 * 120,00 EUR = 360,00 EUR.
+/// Body-Template: "Anteile: {{ share_count }}, Auszahlung: {{ payout_amount }} EUR, Jahr: {{ fiscal_year }}"
+/// Erwartung: rendered_body enthält "Anteile: 3," (NICHT "Anteile: 1,") +
+/// "360,00" + "2026".
+#[tokio::test]
+async fn test_mail_preview_repayment_share_count_aggregates_real_value() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let fiscal_year = 2026;
+
+    // Setup-Reihenfolge (STATE.md "Plan 09-04: Setup-Reihenfolge bei Auto-Fill-Phases"):
+    // Member ZUERST anlegen — Auto-Fill greift erst beim Open der Phase.
+    let member = create_member_with_exit_date(&client, &server, 1, fiscal_year, 3).await;
+    // share_value = 12000 Cents = 120,00 EUR pro Anteil → 3 * 120,00 = 360,00.
+    let phase = create_open_repayment_phase(&client, &server, fiscal_year, 12000).await;
+
+    let preview_body = serde_json::json!({
+        "subject": "Test {{ share_count }}",
+        "body": "Anteile: {{ share_count }}, Auszahlung: {{ payout_amount }} EUR, Jahr: {{ fiscal_year }}",
+        "member_id": member.id.unwrap().to_string(),
+        "repayment_phase_id": phase.id.to_string(),
+    });
+
+    let resp = client
+        .post(server.url("/api/mail/preview"))
+        .json(&preview_body)
+        .send()
+        .await
+        .expect("preview POST failed");
+    assert_eq!(resp.status(), StatusCode::OK, "preview must return 200 OK");
+
+    let json: serde_json::Value = resp.json().await.expect("decode preview response");
+    let rendered_body = json["body"].as_str().expect("body must be string");
+    let rendered_subject = json["subject"].as_str().expect("subject must be string");
+
+    // Regression core: must NOT contain the old hardcoded share_count=1.
+    assert!(
+        !rendered_body.contains("Anteile: 1,"),
+        "BUG c19 regression: preview must NOT render hardcoded share_count=1; got body={:?}",
+        rendered_body
+    );
+    // Positive assertions: actual aggregated values present.
+    assert!(
+        rendered_body.contains("Anteile: 3,"),
+        "preview must render real share_count=3 from RepaymentEntry; got body={:?}",
+        rendered_body
+    );
+    assert!(
+        rendered_body.contains("360,00"),
+        "preview must render payout_amount=360,00 (= 3 * 120,00 EUR); got body={:?}",
+        rendered_body
+    );
+    assert!(
+        rendered_body.contains("2026"),
+        "preview must render fiscal_year=2026; got body={:?}",
+        rendered_body
+    );
+    assert!(
+        rendered_subject.contains('3'),
+        "subject template must also resolve share_count; got subject={:?}",
+        rendered_subject
+    );
+}
+
+/// Quick-c19 Regression — D-05 Symmetrie: Member ohne Open/Contacted-Entries
+/// in der Phase → kein Merge des Repayment-Contexts. Verifiziert per
+/// Negativ-Assertion, dass die Vorschau in diesem Fall NICHT auf den alten
+/// Dummy-Pfad ("Anteile: 1") zurückfällt.
+#[tokio::test]
+async fn test_mail_preview_repayment_no_entries_does_not_default_to_one() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let fiscal_year = 2026;
+
+    // Member OHNE exit_date → kein Auto-Fill-Entry beim Open der Phase.
+    let mut m = sample_member();
+    m.member_number = 4242;
+    let resp = client
+        .post(server.url("/api/members"))
+        .json(&m)
+        .send()
+        .await
+        .expect("create member POST failed");
+    assert!(resp.status().is_success());
+    let member: MemberTO = resp.json().await.expect("decode MemberTO failed");
+    let phase = create_open_repayment_phase(&client, &server, fiscal_year, 12000).await;
+
+    let preview_body = serde_json::json!({
+        "subject": "Plain",
+        // Bewusst KEIN {% if defined %}-Guard — wäre ein versehentliches
+        // Dummy-Merge im Spiel, würde "Anteile: 1" als Render-Success
+        // durchlaufen. Mit dem c19-Fix bleibt share_count undefined und
+        // minijinja strict-env errort den Render.
+        "body": "Anteile: {{ share_count }}",
+        "member_id": member.id.unwrap().to_string(),
+        "repayment_phase_id": phase.id.to_string(),
+    });
+
+    let resp = client
+        .post(server.url("/api/mail/preview"))
+        .json(&preview_body)
+        .send()
+        .await
+        .expect("preview POST failed");
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "preview must return 200 OK even when render errors are collected"
+    );
+
+    let json: serde_json::Value = resp.json().await.expect("decode preview response");
+    let errors = json["errors"].as_array().expect("errors must be array");
+    let body_text = json["body"].as_str().unwrap_or("");
+
+    // Regression core: must NEVER fall back to "Anteile: 1" (= alter Dummy-Pfad).
+    assert!(
+        !body_text.contains("Anteile: 1"),
+        "BUG c19 regression: with no entries, preview must NOT fall back to share_count=1; got body={:?}, errors={:?}",
+        body_text,
+        errors
+    );
+    // Entweder errors-Liste nicht-leer (strict-env errort auf undefined
+    // share_count) ODER body ist leer/Platzhalter — aber NIE "Anteile: 1".
+    assert!(
+        !errors.is_empty() || body_text.is_empty(),
+        "with no entries and unguarded template, expected render error OR empty body; got body={:?}, errors={:?}",
+        body_text,
+        errors
+    );
+}
