@@ -2046,6 +2046,91 @@ foo
         assert_eq!(first["member"]["bank_account"], serde_json::Value::Null);
     }
 
+    // --- Quick 260602-r2i: share_value in Typst-Letter-Render-Pfad ------------
+    //
+    // Anteilswert wird als deutsche Euro-String-Variable `share_value` im
+    // `repayment`-JSON-Objekt mitgereicht (Single + Bundle).
+    // Format identisch zu `payout_amount`: "X,YZ" (z.B. "120,00").
+
+    #[test]
+    fn test_build_inputs_repayment_letter_contains_share_value() {
+        // phase.share_value = 12000 Cent → "120,00" EUR pro Anteil.
+        let phase = test_repayment_phase();
+        let member = sample_member_with_iban();
+        let ctx = sample_ctx(3, "360,00", 2025);
+        let dict = build_inputs_repayment_letter(&phase, &member, &ctx);
+        let repayment_json: serde_json::Value =
+            serde_json::from_str(extract_str_input(&dict, "repayment").as_str()).unwrap();
+
+        // Alte Felder bleiben.
+        assert_eq!(repayment_json["share_count"], 3);
+        assert_eq!(repayment_json["payout_amount"], "360,00");
+        assert_eq!(repayment_json["fiscal_year"], 2025);
+        // Neues Feld.
+        assert_eq!(repayment_json["share_value"], "120,00");
+    }
+
+    #[test]
+    fn test_build_inputs_repayment_letter_share_value_formatting() {
+        // Edge-cases der Format-Konvention "X,YZ".
+        let member = sample_member_with_iban();
+        let ctx = sample_ctx(1, "1,00", 2025);
+
+        // 100 Cent → "1,00"
+        let mut phase = test_repayment_phase();
+        phase.share_value = 100;
+        let dict = build_inputs_repayment_letter(&phase, &member, &ctx);
+        let repayment_json: serde_json::Value =
+            serde_json::from_str(extract_str_input(&dict, "repayment").as_str()).unwrap();
+        assert_eq!(repayment_json["share_value"], "1,00");
+
+        // 9999 Cent → "99,99"
+        phase.share_value = 9999;
+        let dict = build_inputs_repayment_letter(&phase, &member, &ctx);
+        let repayment_json: serde_json::Value =
+            serde_json::from_str(extract_str_input(&dict, "repayment").as_str()).unwrap();
+        assert_eq!(repayment_json["share_value"], "99,99");
+    }
+
+    #[test]
+    fn test_build_inputs_repayment_letters_bundle_contains_share_value() {
+        // 2 recipients, phase.share_value = 5000 Cent → "50,00".
+        let mut phase = test_repayment_phase();
+        phase.share_value = 5000;
+        let recipients = vec![
+            (sample_member_with_iban(), sample_ctx(3, "150,00", 2025)),
+            (sample_member_without_iban(), sample_ctx(2, "100,00", 2025)),
+        ];
+        let dict = build_inputs_repayment_letters_bundle(&phase, &recipients);
+
+        // recipients[i].repayment.share_value pro Eintrag = "50,00".
+        let recipients_json: serde_json::Value =
+            serde_json::from_str(extract_str_input(&dict, "recipients").as_str()).unwrap();
+        let arr = recipients_json.as_array().unwrap();
+        assert_eq!(arr.len(), 2);
+        for r in arr {
+            assert_eq!(r["repayment"]["share_value"], "50,00");
+        }
+
+        // Compat-Top-Level repayment.share_value gleich dem ersten Recipient.
+        let compat_json: serde_json::Value =
+            serde_json::from_str(extract_str_input(&dict, "repayment").as_str()).unwrap();
+        assert_eq!(compat_json["share_value"], "50,00");
+    }
+
+    #[test]
+    fn test_build_inputs_repayment_letters_bundle_empty_share_value() {
+        // Empty-Bundle-Compat: share_value kommt aus phase.share_value,
+        // NICHT hardcoded "0,00" — konsistent zu fiscal_year-Empty-Compat.
+        let mut phase = test_repayment_phase();
+        phase.share_value = 12000; // 120,00 EUR
+        let recipients: Vec<(MemberEntity, RepaymentContext)> = vec![];
+        let dict = build_inputs_repayment_letters_bundle(&phase, &recipients);
+        let compat_json: serde_json::Value =
+            serde_json::from_str(extract_str_input(&dict, "repayment").as_str()).unwrap();
+        assert_eq!(compat_json["share_value"], "120,00");
+    }
+
     // --- Phase 13 D-13-01 render_repayment_letter(_bundle) tests --------------
     //
     // Smoke-Tests gegen ECHTE Plan-13-01-Templates aus templates/defaults/.
