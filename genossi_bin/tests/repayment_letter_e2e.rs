@@ -567,11 +567,19 @@ async fn test_letter_helper_auth_returns_403() {
         .await
         .expect("POST letters/generate");
 
-    // D-13 Vorstand-only Gate sollte 403 oder zumindest 4xx liefern; nie 5xx.
+    // WR-04 fix: EXAKT 403 fordern (nicht nur 4xx). Der vorherige
+    // is_client_error()-Pfad haette auch 401 (Session ungueltig) oder 400
+    // (Validation) durchgewinkt und damit eine echte Regression maskiert.
+    //
+    // Der Test ist weiterhin #[ignore]'d (mock_auth liefert immer Admin) — wenn
+    // er jemals re-aktiviert wird oder versehentlich via `cargo test --ignored`
+    // laeuft, muss er die etablierte 403-Semantik des Permission-Gates
+    // verifizieren, nicht bloss "irgendein 4xx".
     let status = resp.status();
-    assert!(
-        status == StatusCode::FORBIDDEN || status.is_client_error(),
-        "Permission-Gate sollte 4xx (idealerweise 403) liefern; got {}",
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "Permission-Gate muss EXAKT 403 liefern (nicht 401, nicht 400); got {}",
         status
     );
 }
