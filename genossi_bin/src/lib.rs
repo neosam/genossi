@@ -1446,6 +1446,62 @@ impl genossi_mail::rest::MailRestState for RestStateImpl {
                 .collect()
         })
     }
+    /// Quick-c19: mirror of `genossi_mail/src/worker.rs:332-361` for the
+    /// `/api/mail/preview` endpoint. Aggregates the member's Open/Contacted
+    /// RepaymentEntries in the given phase and formats payout_amount in the
+    /// German locale (`X,YZ`). Returns `None` if the phase doesn't exist OR
+    /// the member has no relevant entries (D-05 symmetry with the worker —
+    /// caller must use `{% if share_count is defined %}` guards).
+    fn resolve_repayment_context(
+        &self,
+        phase_id: UuidType,
+        member_id: UuidType,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<(String, i32, i32)>> + Send + '_>>
+    {
+        let pool = self.pool.clone();
+        Box::pin(async move {
+            use genossi_dao::repayment_entry::{RepaymentEntryDao as _, RepaymentEntryStatus};
+            use genossi_dao::repayment_phase::RepaymentPhaseDao as _;
+            use genossi_dao::TransactionDao as _;
+
+            let transaction_dao = TransactionDaoImpl::new(pool.clone());
+            let phase_dao =
+                genossi_dao_impl_sqlite::repayment_phase::RepaymentPhaseDaoImpl::new(pool.clone());
+            let entry_dao =
+                genossi_dao_impl_sqlite::repayment_entry::RepaymentEntryDaoImpl::new(pool);
+
+            let tx = transaction_dao.transaction().await.ok()?;
+            // TransactionImpl is Clone (genossi_dao_impl_sqlite/src/transaction.rs:7),
+            // verified for this implementation. Reuse the same tx for both
+            // read-only DAO calls — identical pattern to the worker
+            // (worker.rs aggregation block reuses agg_tx for phase + entries).
+            let phase = phase_dao.find_by_id(phase_id, tx.clone()).await.ok()??;
+            let entries = entry_dao.find_by_phase_id(phase_id, tx).await.ok()?;
+
+            // Mirror worker.rs:332-361 EXACTLY — D-06 filter + D-05 emptiness check.
+            let share_count: i32 = entries
+                .iter()
+                .filter(|e| {
+                    e.deleted.is_none()
+                        && e.member_id == member_id
+                        && matches!(
+                            e.status,
+                            RepaymentEntryStatus::Open | RepaymentEntryStatus::Contacted
+                        )
+                })
+                .map(|e| e.share_count_to_pay_out)
+                .sum();
+
+            if share_count == 0 {
+                return None;
+            }
+
+            let cents: i64 = (share_count as i64) * phase.share_value;
+            // German locale "X,YZ" — identical format string as worker.rs:353.
+            let payout_amount = format!("{},{:02}", cents / 100, cents % 100);
+            Some((payout_amount, share_count, phase.fiscal_year))
+        })
+    }
     fn resolve_document(
         &self,
         document_id: UuidType,

@@ -45,6 +45,21 @@ pub trait MailRestState: Clone + Send + Sync + 'static {
         &self,
         member_ids: &[uuid::Uuid],
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Vec<MemberEntity>> + Send + '_>>;
+    /// Resolve the per-member repayment context for `/preview` rendering.
+    ///
+    /// Mirrors the aggregation logic in `genossi_mail/src/worker.rs:332-361`
+    /// (filter `deleted IS NULL` + `status IN (Open, Contacted)`, sum
+    /// `share_count_to_pay_out`, format payout in German locale `X,YZ`).
+    ///
+    /// Returns `None` when the phase does not exist OR the member has no
+    /// Open/Contacted entries in the phase (D-05 symmetry with the worker).
+    ///
+    /// Tuple shape: `(payout_amount, share_count, fiscal_year)`.
+    fn resolve_repayment_context(
+        &self,
+        phase_id: uuid::Uuid,
+        member_id: uuid::Uuid,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<(String, i32, i32)>> + Send + '_>>;
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
@@ -148,10 +163,11 @@ pub struct PreviewRequest {
     pub body: String,
     #[schema(example = "123e4567-e89b-12d3-a456-426614174000")]
     pub member_id: String,
-    /// UAT-Defekt #6 (Phase-12): optional Repayment-Kontext — wenn gesetzt,
-    /// rendert /preview mit gemergten Dummy-Werten für `payout_amount` (`60,00`),
-    /// `share_count` (`1`) und `fiscal_year` (Phase.fiscal_year, dummy `2026`).
-    /// Ohne dieses Feld bleibt die alte pure-member-Render-Logik aktiv.
+    /// Optionaler Repayment-Kontext — wenn gesetzt, werden `payout_amount`,
+    /// `share_count` und `fiscal_year` aus den Open/Contacted-RepaymentEntries
+    /// des Members in der referenzierten Phase aggregiert (gleiche Logik wie
+    /// der Send-Worker, siehe `genossi_mail/src/worker.rs:332-361`). Ohne
+    /// dieses Feld bleibt die pure-member-Render-Logik aktiv.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schema(example = "29ae374c-9e60-4cc8-b0b4-ce51c28e7b6e")]
     pub repayment_phase_id: Option<String>,
@@ -491,20 +507,33 @@ pub async fn preview_mail<S: MailRestState>(
                 .await
                 .ok_or(MailServiceError::NotFound)?;
 
-            // UAT-Defekt #6: bei gesetztem repayment_phase_id wird der Context
-            // mit Dummy-Werten für payout_amount/share_count/fiscal_year angereichert,
-            // damit Live-Preview im Phase-12-Mail-Flow nicht an "undefined value"
-            // scheitert. Für reine Member-Previews bleibt der Pfad unverändert.
+            // Quick-c19 fix: bei gesetztem repayment_phase_id werden payout_amount/
+            // share_count/fiscal_year aus den echten RepaymentEntries des Members
+            // aggregiert — gleiche Logik wie der Send-Worker
+            // (`genossi_mail/src/worker.rs:332-361`, Single Source of Truth fuer
+            // Filter/Summe/Format). D-05-Symmetrie: hat der Member keine
+            // Open/Contacted-Entries, wird kein Repayment-Context gemergt; das
+            // Template muss in diesem Fall `{% if share_count is defined %}`
+            // verwenden (Plan 10.05).
             let base_ctx = member_to_template_context(&member);
-            let ctx = if body
-                .repayment_phase_id
-                .as_deref()
-                .map(|s| !s.is_empty())
-                .unwrap_or(false)
-            {
-                crate::template::merge_repayment_context(base_ctx, "60,00", 1, 2026)
-            } else {
-                base_ctx
+            let ctx = match body.repayment_phase_id.as_deref() {
+                Some(s) if !s.is_empty() => {
+                    let phase_id = uuid::Uuid::parse_str(s).map_err(|_| {
+                        MailServiceError::BadRequest(Arc::from("Invalid repayment_phase_id"))
+                    })?;
+                    match state.resolve_repayment_context(phase_id, member_id).await {
+                        Some((payout, share_count, fiscal_year)) => {
+                            crate::template::merge_repayment_context(
+                                base_ctx,
+                                &payout,
+                                share_count,
+                                fiscal_year,
+                            )
+                        }
+                        None => base_ctx,
+                    }
+                }
+                _ => base_ctx,
             };
             let mut errors = Vec::new();
 
