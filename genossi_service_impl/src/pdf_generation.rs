@@ -970,11 +970,12 @@ fn build_inputs_repayment(
 /// serialisiert werden — das Template hat einen `#if m.bank_account != none`
 /// -Switch. KEIN Default-String fuer abwesende IBAN.
 ///
-/// `_phase` ist heute ungenutzt (Subject/Sender/Recipient kommen aus Member +
-/// RepaymentContext); wird mitgereicht fuer kuenftige Erweiterungen
-/// (z.B. phase-spezifische Anrede).
+/// `phase` liefert zusaetzlich zum `RepaymentContext` den Anteilswert
+/// (`phase.share_value`, i64 Cent), der als deutsche Euro-String-Variable
+/// `share_value` (Format "X,YZ") im `repayment`-JSON mitgereicht wird —
+/// Templates koennen `r.share_value` referenzieren (Quick 260602-r2i).
 fn build_inputs_repayment_letter(
-    _phase: &RepaymentPhaseEntity,
+    phase: &RepaymentPhaseEntity,
     member: &MemberEntity,
     ctx: &RepaymentContext,
 ) -> Dict {
@@ -1004,10 +1005,19 @@ fn build_inputs_repayment_letter(
         Value::Str(Str::from(member_str.as_str())),
     );
 
+    // Quick 260602-r2i: share_value als deutscher Euro-String "X,YZ".
+    // Konsistent mit payout_amount-Format (Phase-10-D-04, worker.rs:353).
+    // share_value > 0 per D-12-Constraint; kein .abs() noetig.
+    let share_value_str = format!(
+        "{},{:02}",
+        phase.share_value / 100,
+        phase.share_value % 100
+    );
     let repayment_json = serde_json::json!({
         "share_count": ctx.share_count,
         "payout_amount": ctx.payout_amount,
         "fiscal_year": ctx.fiscal_year,
+        "share_value": share_value_str,
     });
     let repayment_str =
         serde_json::to_string(&repayment_json).expect("repayment json serialisable");
@@ -1063,6 +1073,15 @@ fn build_inputs_repayment_letters_bundle(
         )),
     );
 
+    // Quick 260602-r2i: phase-wide Anteilswert als deutscher Euro-String "X,YZ".
+    // Wird in alle drei JSON-Slots (Recipients-Loop, First-Recipient-Compat,
+    // Empty-Bundle-Compat) gleichermassen eingefuegt — konstant pro Bundle.
+    let share_value_str = format!(
+        "{},{:02}",
+        phase.share_value / 100,
+        phase.share_value % 100
+    );
+
     // Compat: first-recipient als `member`+`repayment` Top-Level, damit der
     // Plan-13-01-Bundle-Template-`#import` nicht beim `sys.inputs.at("member")`
     // -Side-Effect crasht. Diese Keys werden vom Bundle-Loop NICHT genutzt
@@ -1086,6 +1105,7 @@ fn build_inputs_repayment_letters_bundle(
                     "share_count": ctx.share_count,
                     "payout_amount": ctx.payout_amount,
                     "fiscal_year": ctx.fiscal_year,
+                    "share_value": share_value_str,
                 }),
             )
         } else {
@@ -1108,6 +1128,7 @@ fn build_inputs_repayment_letters_bundle(
                     "share_count": 0,
                     "payout_amount": "0,00",
                     "fiscal_year": phase.fiscal_year,
+                    "share_value": share_value_str,
                 }),
             )
         };
@@ -1148,6 +1169,7 @@ fn build_inputs_repayment_letters_bundle(
                     "share_count": ctx.share_count,
                     "payout_amount": ctx.payout_amount,
                     "fiscal_year": ctx.fiscal_year,
+                    "share_value": share_value_str,
                 },
             })
         })

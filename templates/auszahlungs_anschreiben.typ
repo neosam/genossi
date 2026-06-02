@@ -2,6 +2,13 @@
 // Single-Source-of-Truth fuer Brief-Body via `render-letter`-Funktion.
 // Bundle-Variante (auszahlungs_anschreiben_bundle.typ) importiert diese Funktion
 // und iteriert ueber recipients[] — siehe Plan 13-01 must_haves.
+//
+// Verfuegbare Variablen im `r` (RepaymentContext)-Parameter:
+//   r.share_count    — Anzahl Anteile zur Auszahlung (Integer)
+//   r.share_value    — Anteilswert pro Stueck (deutscher Euro-String "X,YZ", z.B. "120,00")
+//                      Quick 260602-r2i: neu — Templates koennen "#r.share_value €" referenzieren.
+//   r.payout_amount  — Gesamtauszahlungsbetrag (deutscher Euro-String "X,YZ")
+//   r.fiscal_year    — Geschaeftsjahr der Phase (Integer)
 
 #import "@preview/letter-pro:3.0.0": letter-simple
 
@@ -66,11 +73,13 @@
   line(length: 16.5cm, stroke: 0.5pt + gray)
 
   // ─── D-13-06 Baustein 1: Reference-Block ────────────────────────────────────
+  // Reihenfolge: Stueck * Wert = Summe (Quick 260602-r2i fuegt Anteilswert ein).
   table(
     columns: (1fr, 1fr),
     stroke: none,
     [*Mitgliedsnummer:*], [#m.member_number],
     [*Anteile zur Auszahlung:*], [#r.share_count],
+    [*Hoehe pro Anteil:*], [#r.share_value €],
     [*Auszahlungsbetrag:*], [#r.payout_amount €],
   )
 
