@@ -21,3 +21,27 @@ Out-of-scope discoveries logged per CLAUDE.md SCOPE BOUNDARY rule.
   Phase-status check funnel reading a stale (cached?) status. Worth comparing
   to similar regression in the audit-chain test that ran cleanly during this
   task.
+
+## Update 2026-06-02 (Quick 260602-uo2)
+
+**Status:** RESOLVED.
+
+**Root cause:** `genossi_service_impl/src/repayment_letter.rs:423` set
+`version: self.uuid_service.new_v4().await` in the q9l idempotent
+UPDATE-Branch. The DAO contract (`MemberDocumentDao::update`,
+`genossi_dao_impl_sqlite/src/member_document.rs:177-178`) reads
+`entity.version` as the OLD version for the `WHERE version = ?` clause and
+rotates the new version internally. The mismatched expectation produced 0
+affected rows -> `DaoError::ConflictError("Version mismatch")` -> HTTP 409
+on the second `POST /letters/generate`.
+
+**Fix:** 1-line change at `repayment_letter.rs:423`:
+`version: existing_doc.version`.
+
+**Verification:** `test_letter_idempotency_d13_08_and_no_status_toggle_d13_09`
+now also asserts q9l-semantic (1 doc total + id/file_name/created stable +
+version rotated) plus audit-hashchain validity after regenerate.
+(Note: PLAN cited `relative_path`; that field is not exposed on
+`MemberDocumentTO` — `file_name` is the TO-level equivalent of stable PDF
+identity. Rule-1 deviation, documented inline in the test.)
+

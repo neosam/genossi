@@ -420,10 +420,10 @@ impl<Deps: RepaymentLetterServiceDeps> RepaymentLetterService for RepaymentLette
                     relative_path: existing_relative_path.clone(),
                     created: existing_doc.created, // immutable.
                     deleted: None,
-                    version: self.uuid_service.new_v4().await, // rotate per optimistic-locking.
-                    template_id: None,                         // D-LETT-04
-                    mail_recipient_id: None,                   // D-LETT-04
-                    status: None,                              // D-LETT-04
+                    version: existing_doc.version, // OLD version — DAO::update rotates internally (genossi_dao_impl_sqlite/src/member_document.rs:178).
+                    template_id: None,             // D-LETT-04
+                    mail_recipient_id: None,       // D-LETT-04
+                    status: None,                  // D-LETT-04
                 };
                 crate::audited_update!(
                     self,
@@ -2418,8 +2418,10 @@ mod tests {
             .returning(|_, _| Ok(()));
 
         let mut uuid_svc = MockTestUuidService::new();
-        // Update-Zweig braucht NUR eine neue `version`-UUID (kein `doc_id`).
-        uuid_svc.expect_new_v4().times(1).returning(Uuid::new_v4);
+        // Nach uo2-Hotfix: Update-Zweig braucht KEINE neue UUID — der DAO
+        // rotiert die `version` intern, der Service uebergibt `existing_doc.version`
+        // (alte Version) fuer den Optimistic-Lock-Match.
+        uuid_svc.expect_new_v4().times(0).returning(Uuid::new_v4);
 
         let svc = build_service_with_templates(
             phase_dao, entry_dao, member_dao, doc_dao, audit_dao, perm, tx_dao, uuid_svc, resolver,
@@ -2555,7 +2557,10 @@ mod tests {
         // NICHT an dieser Mock-Erwartung scheitert, sondern am `.withf` auf
         // `doc_dao.expect_update()` (was die eigentliche Regression-Aussage
         // ist). Nach dem Fix ist der Aufruf 0x — `0..=1` deckt beides ab.
-        uuid_svc.expect_new_v4().times(0..=1).returning(Uuid::new_v4);
+        uuid_svc
+            .expect_new_v4()
+            .times(0..=1)
+            .returning(Uuid::new_v4);
 
         let svc = build_service_with_templates(
             phase_dao, entry_dao, member_dao, doc_dao, audit_dao, perm, tx_dao, uuid_svc, resolver,
@@ -2694,7 +2699,6 @@ mod tests {
         // first-call doc_id via the UuidService mock below).
         let stable_doc_id = Uuid::new_v4();
         let stable_version_v1 = Uuid::new_v4();
-        let stable_version_v2 = Uuid::new_v4();
 
         let phase_clone = phase.clone();
         let mut phase_dao = MockTestPhaseDao::new();
@@ -2782,7 +2786,9 @@ mod tests {
         let mut storage = MockTestStorage::new();
         storage.expect_save().returning(|_, _| Ok(()));
 
-        // UUID-Sequence: Call 1 (CREATE) = doc_id + version. Call 2 (UPDATE) = version only.
+        // UUID-Sequence: Call 1 (CREATE) = doc_id + version. Call 2 (UPDATE) =
+        // KEINE neue UUID (uo2-Hotfix: DAO rotiert version intern, Service
+        // uebergibt existing_doc.version).
         // Mockall `Sequence` koerzt die deterministische Reihenfolge.
         use mockall::Sequence;
         let mut uuid_seq = Sequence::new();
@@ -2797,11 +2803,6 @@ mod tests {
             .times(1)
             .in_sequence(&mut uuid_seq)
             .returning(move || stable_version_v1);
-        uuid_svc
-            .expect_new_v4()
-            .times(1)
-            .in_sequence(&mut uuid_seq)
-            .returning(move || stable_version_v2);
 
         let svc = build_service_with_templates(
             phase_dao, entry_dao, member_dao, doc_dao, audit_dao, perm, tx_dao, uuid_svc, resolver,
