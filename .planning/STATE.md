@@ -30,7 +30,7 @@ See: `.planning/PROJECT.md` (updated 2026-06-02 after v1.1 close)
 ## Current Position
 
 Status: Milestone v1.1 complete (shipped 2026-06-02)
-Last activity: 2026-06-02 — v1.1 Anteile-Rückzahlungsphase shipped (7 phases, 56 plans, 91 tasks)
+Last activity: 2026-06-02 — Completed quick task 260602-q9l: Repayment-Dokument-Regeneration ist idempotent (audited_update! statt -create!)
 Next: `/gsd-new-milestone` to plan v1.2
 
 ## Closure Snapshot (v1.1, 2026-06-02)
@@ -241,6 +241,7 @@ Keine.
 |---|-------------|------|--------|-----------|
 | 260601-pfy | Warnungen und Clippy-Findings im Backend beheben | 2026-06-01 | 5c98971e | [260601-pfy-warnungen-und-clippy-findings-im-backend](./quick/260601-pfy-warnungen-und-clippy-findings-im-backend/) |
 | 260602-c19 | Fix Mail-Preview Repayment-Kontext (share_count immer 1) | 2026-06-02 | 1e48b2f | [260602-c19-fix-mail-preview-repayment-kontext-share](./quick/260602-c19-fix-mail-preview-repayment-kontext-share/) |
+| 260602-q9l | Repayment-Dokumente beim Neugenerieren überschreiben (idempotent, Audit-Trail erhalten) | 2026-06-02 | 7dab193 | [260602-q9l-repayment-dokumente-beim-neugenerieren-b](./quick/260602-q9l-repayment-dokumente-beim-neugenerieren-b/) |
 
 ## Deferred Items
 
