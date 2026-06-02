@@ -649,6 +649,10 @@ pub enum Key {
     RepaymentLetterToastPlural,
     /// Default-Filename-Prefix fuer Bundle-PDF (`auszahlungs_anschreiben_GJ_{year}.pdf`).
     RepaymentLetterFilenamePrefix,
+    /// WR-02: Client-side Bulk-Limit-Toast — `{max}`-Placeholder.
+    /// Mirroring genossi_service_impl MAX_ENTRY_IDS_PER_REQUEST (200) als UX-Vorab-Check,
+    /// damit der Vorstand eine sprechende Fehlermeldung sieht statt einer 400-Generic-Message.
+    RepaymentLetterBulkLimitExceeded,
     RepaymentExportInclude,
     RepaymentExportIncludeOpen,
     RepaymentExportIncludeAll,

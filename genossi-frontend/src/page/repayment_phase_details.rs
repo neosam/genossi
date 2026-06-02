@@ -270,6 +270,19 @@ pub fn RepaymentPhaseDetails(id: String) -> Element {
                                                     if entry_ids.is_empty() {
                                                         return; // defensive — Button ist disabled bei 0 Selection
                                                     }
+                                                    // WR-02: Client-Side Bulk-Limit-Guard (mirrors backend
+                                                    // MAX_ENTRY_IDS_PER_REQUEST=200 in
+                                                    // genossi_service_impl/src/repayment_letter.rs). Statt
+                                                    // einer generischen 400-Toast-Message bekommt der Vorstand
+                                                    // eine klare i18n-Fehlermeldung, die die Maximalanzahl nennt.
+                                                    const MAX_LETTER_BULK: usize = 200;
+                                                    if entry_ids.len() > MAX_LETTER_BULK {
+                                                        let msg = i18n
+                                                            .t(Key::RepaymentLetterBulkLimitExceeded)
+                                                            .replace("{max}", &MAX_LETTER_BULK.to_string());
+                                                        show_toast(&mut toast_messages, &mut toast_counter, msg);
+                                                        return;
+                                                    }
                                                     let phase_id_for_spawn = phase_id;
                                                     let fiscal_year_for_spawn = fiscal_year_for_letters;
                                                     // CR-01 fix: i18n-Strings AM TOP-LEVEL des Components-Renders

@@ -580,6 +580,7 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::RepaymentLetterToastSingular => "1 Brief erzeugt. Vergiss nicht, den Eintrag anschliessend als angeschrieben zu markieren.".into(),
         Key::RepaymentLetterToastPlural => "{count} Briefe erzeugt. Vergiss nicht, die Eintraege anschliessend als angeschrieben zu markieren.".into(),
         Key::RepaymentLetterFilenamePrefix => "auszahlungs_anschreiben".into(),
+        Key::RepaymentLetterBulkLimitExceeded => "Pro Anfrage sind maximal {max} Einträge erlaubt. Bitte Auswahl reduzieren.".into(),
         Key::RepaymentExportInclude => "Welche Einträge einschließen?".into(),
         Key::RepaymentExportIncludeOpen => "Nur offene + angeschriebene (für Banking-Vorlage)".into(),
         Key::RepaymentExportIncludeAll => "Alle Einträge".into(),

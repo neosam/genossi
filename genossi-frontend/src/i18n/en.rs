@@ -580,6 +580,7 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::RepaymentLetterToastSingular => "1 letter generated. Don't forget to mark the entry as contacted afterwards.".into(),
         Key::RepaymentLetterToastPlural => "{count} letters generated. Don't forget to mark the entries as contacted afterwards.".into(),
         Key::RepaymentLetterFilenamePrefix => "auszahlungs_anschreiben".into(),
+        Key::RepaymentLetterBulkLimitExceeded => "Maximum {max} entries allowed per request. Please reduce your selection.".into(),
         Key::RepaymentExportInclude => "Which entries to include?".into(),
         Key::RepaymentExportIncludeOpen => "Only open + contacted (banking template)".into(),
         Key::RepaymentExportIncludeAll => "All entries".into(),
