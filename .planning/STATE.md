@@ -30,7 +30,7 @@ See: `.planning/PROJECT.md` (updated 2026-06-02 after v1.1 close)
 ## Current Position
 
 Status: Milestone v1.1 complete (shipped 2026-06-02)
-Last activity: 2026-06-02 — Completed quick task 260602-r2i: share_value in Repayment-Templates (Typst + Mail)
+Last activity: 2026-06-02 — Completed quick task 260602-sgp: Bulk-Download aller RepaymentLetter-Dokumente einer RepaymentPhase als ZIP oder Bundle-PDF
 Next: `/gsd-new-milestone` to plan v1.2
 
 ## Closure Snapshot (v1.1, 2026-06-02)
@@ -243,6 +243,7 @@ Keine.
 | 260602-c19 | Fix Mail-Preview Repayment-Kontext (share_count immer 1) | 2026-06-02 | 1e48b2f | [260602-c19-fix-mail-preview-repayment-kontext-share](./quick/260602-c19-fix-mail-preview-repayment-kontext-share/) |
 | 260602-q9l | Repayment-Dokumente beim Neugenerieren überschreiben (idempotent, Audit-Trail erhalten) | 2026-06-02 | 7dab193 | [260602-q9l-repayment-dokumente-beim-neugenerieren-b](./quick/260602-q9l-repayment-dokumente-beim-neugenerieren-b/) |
 | 260602-r2i | Anteilswert in Repayment-Templates (Typst + Mail) verfügbar machen | 2026-06-02 | c77d2de | [260602-r2i-anteilswert-in-templates-verf-gbar-mache](./quick/260602-r2i-anteilswert-in-templates-verf-gbar-mache/) |
+| 260602-sgp | Bulk-Download aller RepaymentLetter-Dokumente einer RepaymentPhase als ZIP oder Bundle-PDF | 2026-06-02 | eabfbde | [260602-sgp-bulk-download-aller-repaymentletter-doku](./quick/260602-sgp-bulk-download-aller-repaymentletter-doku/) |
 
 ## Deferred Items
 
