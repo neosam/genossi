@@ -550,15 +550,17 @@ mod tests {
     // ============================================================
 
     #[test]
-    fn test_merge_repayment_context_renders_all_three_vars() {
+    fn test_merge_repayment_context_renders_all_four_vars() {
+        // Quick 260602-r2i: aus "all_three_vars" wurde "all_four_vars" —
+        // share_value ist die 4. Variable.
         let member = make_member("Max", "Mustermann");
         let base = member_to_template_context(&member);
-        let merged = merge_repayment_context(base, "60,00", 3, 2026);
-        let template = "Auszahlung: {{ payout_amount }} EUR, Anteile: {{ share_count }}, Geschaeftsjahr: {{ fiscal_year }}";
+        let merged = merge_repayment_context(base, "60,00", 3, "20,00", 2026);
+        let template = "Auszahlung: {{ payout_amount }} EUR, Anteile: {{ share_count }}, Pro Anteil: {{ share_value }} EUR, Geschaeftsjahr: {{ fiscal_year }}";
         let result = render_template(template, &merged).unwrap();
         assert_eq!(
             result,
-            "Auszahlung: 60,00 EUR, Anteile: 3, Geschaeftsjahr: 2026"
+            "Auszahlung: 60,00 EUR, Anteile: 3, Pro Anteil: 20,00 EUR, Geschaeftsjahr: 2026"
         );
     }
 
@@ -604,7 +606,7 @@ mod tests {
     fn test_merge_preserves_base_context_fields() {
         let member = make_member("Anna", "Schmidt");
         let base = member_to_template_context(&member);
-        let merged = merge_repayment_context(base, "60,00", 3, 2026);
+        let merged = merge_repayment_context(base, "60,00", 3, "20,00", 2026);
         // Both base fields (first_name/last_name) AND new fields are accessible
         let template =
             "Hallo {{ first_name }} {{ last_name }}, Auszahlung: {{ payout_amount }} EUR";
@@ -680,6 +682,77 @@ mod tests {
             result.is_ok(),
             "Guarded template must validate: {:?}",
             result
+        );
+    }
+
+    // ============================================================
+    // Quick 260602-r2i: share_value im MiniJinja-Render-Pfad
+    // ============================================================
+
+    #[test]
+    fn test_merge_repayment_context_includes_share_value() {
+        // Quick 260602-r2i: share_value als 4. Variable im Render-Context.
+        let member = make_member("Max", "Mustermann");
+        let base = member_to_template_context(&member);
+        let merged = merge_repayment_context(base, "60,00", 3, "20,00", 2026);
+        let template = "Auszahlung: {{ payout_amount }}, Anteile: {{ share_count }}, Pro Anteil: {{ share_value }}, GJ: {{ fiscal_year }}";
+        let result = render_template(template, &merged).unwrap();
+        assert_eq!(
+            result,
+            "Auszahlung: 60,00, Anteile: 3, Pro Anteil: 20,00, GJ: 2026"
+        );
+    }
+
+    #[test]
+    fn test_merge_preserves_base_context_fields_with_share_value() {
+        // share_value ist additiv — Member-Felder bleiben erhalten.
+        let member = make_member("Anna", "Schmidt");
+        let base = member_to_template_context(&member);
+        let merged = merge_repayment_context(base, "60,00", 3, "20,00", 2026);
+        let template = "Hallo {{ first_name }} {{ last_name }}, pro Anteil: {{ share_value }} EUR";
+        let result = render_template(template, &merged).unwrap();
+        assert!(
+            result.contains("Anna Schmidt"),
+            "Base fields must be preserved: got {}",
+            result
+        );
+        assert!(
+            result.contains("20,00 EUR"),
+            "share_value must be injected: got {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_share_value_missing_with_if_guard_renders_empty() {
+        // D-13-Strict-Opt-in-Pattern, gespiegelt fuer share_value:
+        // Wenn merge_repayment_context NICHT aufgerufen wird, blendet
+        // `{% if share_value is defined %}` die Variable sauber aus.
+        let member = make_member("Max", "Mustermann");
+        let base = member_to_template_context(&member);
+        let template =
+            "{% if share_value is defined %}Pro Anteil: {{ share_value }}{% endif %}Ende";
+        let result = render_template(template, &base).unwrap();
+        assert_eq!(result, "Ende");
+    }
+
+    #[test]
+    fn test_share_value_missing_without_guard_fails_strict() {
+        // Strict-Env errort fail-fast auf undefined share_value
+        // (T-r2i-03 Mitigation: D-14 Validation faengt das im REST-Layer ab).
+        let member = make_member("Max", "Mustermann");
+        let base = member_to_template_context(&member);
+        let template = "Pro Anteil: {{ share_value }} EUR";
+        let result = render_template(template, &base);
+        assert!(
+            result.is_err(),
+            "Strict-env must error on undefined share_value"
+        );
+        let err_msg = result.unwrap_err().message;
+        assert!(
+            err_msg.contains("share_value") || err_msg.to_lowercase().contains("undefined"),
+            "Error message must reference the missing variable, got: {}",
+            err_msg
         );
     }
 }
