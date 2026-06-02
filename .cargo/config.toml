@@ -1,0 +1,14 @@
+# Workspace-level cargo configuration.
+#
+# The [env] section sets environment variables for every cargo invocation in
+# this workspace. `relative = true` resolves the value relative to the parent
+# directory of THIS file (i.e. the workspace root).
+#
+# TYPST_PACKAGE_CACHE points the Typst PDF renderer at the vendored
+# `letter-pro` package committed under `typst-packages/preview/letter-pro/3.0.0/`.
+# Without this var, `PackageCache::new()` falls back to `./typst-packages`,
+# which is interpreted relative to the *crate* directory (`genossi_service_impl/`)
+# during `cargo test`, not the workspace root — causing Nix-sandbox test failures
+# because the package directory isn't found and live network download is blocked.
+[env]
+TYPST_PACKAGE_CACHE = { value = "typst-packages", relative = true }
