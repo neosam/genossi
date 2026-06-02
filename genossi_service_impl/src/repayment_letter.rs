@@ -21,6 +21,7 @@
 //! danach Render, danach Schreibe-Tx fuer audited_create-Loop.
 
 use std::collections::HashSet;
+use std::io::{Cursor, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -31,16 +32,15 @@ use genossi_dao::audit_log::AuditLogDao;
 use genossi_dao::member::{MemberDao, MemberEntity};
 use genossi_dao::member_document::{MemberDocumentDao, MemberDocumentEntity};
 use genossi_dao::repayment_entry::{RepaymentEntryDao, RepaymentEntryEntity};
-use genossi_dao::repayment_phase::{
-    RepaymentPhaseDao, RepaymentPhaseEntity, RepaymentPhaseStatus,
-};
+use genossi_dao::repayment_phase::{RepaymentPhaseDao, RepaymentPhaseEntity, RepaymentPhaseStatus};
 use genossi_dao::{Transaction, TransactionDao};
 use genossi_service::document_storage::DocumentStorage;
 use genossi_service::member_document::{DocumentType, MemberDocument};
 use genossi_service::permission::{Authentication, PermissionService};
 use genossi_service::repayment_context::{RepaymentContext, RepaymentContextResolver};
 use genossi_service::repayment_letter::{
-    RepaymentLetterBundle, RepaymentLetterService,
+    RepaymentLetterBundle, RepaymentLetterDownload, RepaymentLetterDownloadFormat,
+    RepaymentLetterService,
 };
 use genossi_service::uuid_service::UuidService;
 use genossi_service::{ServiceError, ValidationFailureItem};
@@ -67,16 +67,10 @@ const MAX_ENTRY_IDS_PER_REQUEST: usize = 200;
 pub trait RepaymentLetterServiceDeps: Send + Sync + 'static {
     type Context: Clone + std::fmt::Debug + PartialEq + Eq + Send + Sync + 'static;
     type Transaction: Transaction;
-    type RepaymentPhaseDao: RepaymentPhaseDao<Transaction = Self::Transaction>
-        + Send
-        + Sync;
-    type RepaymentEntryDao: RepaymentEntryDao<Transaction = Self::Transaction>
-        + Send
-        + Sync;
+    type RepaymentPhaseDao: RepaymentPhaseDao<Transaction = Self::Transaction> + Send + Sync;
+    type RepaymentEntryDao: RepaymentEntryDao<Transaction = Self::Transaction> + Send + Sync;
     type MemberDao: MemberDao<Transaction = Self::Transaction> + Send + Sync;
-    type MemberDocumentDao: MemberDocumentDao<Transaction = Self::Transaction>
-        + Send
-        + Sync;
+    type MemberDocumentDao: MemberDocumentDao<Transaction = Self::Transaction> + Send + Sync;
     type AuditLogDao: AuditLogDao<Transaction = Self::Transaction> + Send + Sync;
     type PermissionService: PermissionService<Context = Self::Context> + Send + Sync;
     type TransactionDao: TransactionDao<Transaction = Self::Transaction> + Send + Sync;
@@ -242,9 +236,7 @@ impl<Deps: RepaymentLetterServiceDeps> RepaymentLetterServiceImpl<Deps> {
 }
 
 #[async_trait]
-impl<Deps: RepaymentLetterServiceDeps> RepaymentLetterService
-    for RepaymentLetterServiceImpl<Deps>
-{
+impl<Deps: RepaymentLetterServiceDeps> RepaymentLetterService for RepaymentLetterServiceImpl<Deps> {
     type Context = Deps::Context;
     type Transaction = Deps::Transaction;
 
@@ -265,11 +257,7 @@ impl<Deps: RepaymentLetterServiceDeps> RepaymentLetterService
             return Err(ServiceError::ValidationError(vec![ValidationFailureItem {
                 field: Arc::from("entry_ids"),
                 message: Arc::from(
-                    format!(
-                        "max {} entries per bulk request",
-                        MAX_ENTRY_IDS_PER_REQUEST
-                    )
-                    .as_str(),
+                    format!("max {} entries per bulk request", MAX_ENTRY_IDS_PER_REQUEST).as_str(),
                 ),
             }]));
         }
@@ -298,8 +286,7 @@ impl<Deps: RepaymentLetterServiceDeps> RepaymentLetterService
             .iter()
             .cloned()
             .collect();
-        let phase_entry_set: HashSet<Uuid> =
-            phase_entries.iter().map(|e| e.id).collect();
+        let phase_entry_set: HashSet<Uuid> = phase_entries.iter().map(|e| e.id).collect();
         let requested_set: HashSet<Uuid> = entry_ids.iter().copied().collect();
         if !requested_set.is_subset(&phase_entry_set) {
             // ValidationError -> HTTP 400 (entry_phase_mismatch).
@@ -388,9 +375,7 @@ impl<Deps: RepaymentLetterServiceDeps> RepaymentLetterService
         // (relative_path, &pdf_bytes) — wird erst NACH Tx-Commit auf Disk geschrieben.
         let mut planned_saves: Vec<(String, &Vec<u8>)> = Vec::with_capacity(recipients.len());
         let mut document_ids: Vec<Uuid> = Vec::with_capacity(recipients.len());
-        for ((member, _ctx), (_mid, pdf_bytes)) in
-            recipients.iter().zip(single_pdfs.iter())
-        {
+        for ((member, _ctx), (_mid, pdf_bytes)) in recipients.iter().zip(single_pdfs.iter()) {
             // Quick 260602-q9l: idempotent regenerate -- audited_update if existing.
             //
             // Lookup-Heuristik (member, phase): MemberDocumentEntity hat KEIN
@@ -404,10 +389,8 @@ impl<Deps: RepaymentLetterServiceDeps> RepaymentLetterService
                 .member_document_dao
                 .find_by_member_id(member.id, write_tx.clone())
                 .await?;
-            let existing = Self::find_existing_letter_for_phase(
-                &existing_for_member,
-                phase.fiscal_year,
-            );
+            let existing =
+                Self::find_existing_letter_for_phase(&existing_for_member, phase.fiscal_year);
 
             let now = time::OffsetDateTime::now_utc();
             let file_name = Arc::from(
@@ -438,9 +421,9 @@ impl<Deps: RepaymentLetterServiceDeps> RepaymentLetterService
                     created: existing_doc.created, // immutable.
                     deleted: None,
                     version: self.uuid_service.new_v4().await, // rotate per optimistic-locking.
-                    template_id: None,       // D-LETT-04
-                    mail_recipient_id: None, // D-LETT-04
-                    status: None,            // D-LETT-04
+                    template_id: None,                         // D-LETT-04
+                    mail_recipient_id: None,                   // D-LETT-04
+                    status: None,                              // D-LETT-04
                 };
                 crate::audited_update!(
                     self,
@@ -498,14 +481,11 @@ impl<Deps: RepaymentLetterServiceDeps> RepaymentLetterService
         // korrespondierende MemberDocument als nicht-ladbar im Audit-Log —
         // operativ tolerabler als verwaiste personenbezogene PDF-Files.
         for (path, bytes) in &planned_saves {
-            self.document_storage
-                .save(path, bytes)
-                .await
-                .map_err(|e| {
-                    ServiceError::InternalError(Arc::from(
-                        format!("document_storage save failed: {}", e).as_str(),
-                    ))
-                })?;
+            self.document_storage.save(path, bytes).await.map_err(|e| {
+                ServiceError::InternalError(Arc::from(
+                    format!("document_storage save failed: {}", e).as_str(),
+                ))
+            })?;
         }
 
         // 12. Return Bundle + Metadaten.
@@ -526,6 +506,343 @@ impl<Deps: RepaymentLetterServiceDeps> RepaymentLetterService
             document_ids,
         })
     }
+
+    /// Quick 260602-sgp: Bulk-Download bereits persistierter RepaymentLetter-PDFs.
+    ///
+    /// Reiner Lese-Endpoint — KEIN audited_*! Macro, KEINE Tx-Mutation, KEIN
+    /// PdfGenerator-Render. Pfad:
+    ///
+    ///  1. Read-Tx oeffnen, Funnel (404 / 403 / 409 phase_not_active).
+    ///  2. Phase-Entries laden -> unique member_ids (sort+dedup).
+    ///  3. Pro Member existierendes RepaymentLetter-MemberDocument fuer GENAU
+    ///     diese Phase suchen (Description-Fingerprint "Anschreiben Auszahlung
+    ///     GJ {fy}" via Helper `find_existing_letter_for_phase`).
+    ///  4. 0 persistierte Letters -> `ServiceError::EntityNotFound(phase_id)`.
+    ///  5. Nach member_number ASC sortieren (deterministisch).
+    ///  6. Files aus DocumentStorage laden — fehlende skippen (X-Skipped-Count).
+    ///  7. ZIP-Bau (zip-Crate) ODER lopdf-Merge je nach Format.
+    async fn download_bundle(
+        &self,
+        phase_id: Uuid,
+        format: RepaymentLetterDownloadFormat,
+        context: Authentication<Self::Context>,
+    ) -> Result<RepaymentLetterDownload, ServiceError> {
+        // 1. Read-Tx oeffnen.
+        let read_tx = self.transaction_dao.use_transaction(None).await?;
+
+        // 2. Funnel: load phase (404) -> admin (403) -> status (409).
+        //    Identischer Gate wie POST /letters/generate.
+        let phase = self
+            .check_admin_and_phase_status(phase_id, context.clone(), read_tx.clone())
+            .await?;
+
+        // 3. Phase-Entries laden -> unique member_ids.
+        let phase_entries = self
+            .repayment_entry_dao
+            .find_by_phase_id(phase_id, read_tx.clone())
+            .await?;
+        let mut member_ids: Vec<Uuid> = phase_entries.iter().map(|e| e.member_id).collect();
+        member_ids.sort();
+        member_ids.dedup();
+
+        // 4. Pro Member existierendes RepaymentLetter-MemberDocument suchen.
+        //    Reuse des existing-Helpers stellt sicher, dass wir die GLEICHEN
+        //    Dokumente finden, die `generate()` persistiert hat (single source
+        //    of truth fuer den Description-Fingerprint).
+        let mut found: Vec<(MemberEntity, MemberDocumentEntity)> =
+            Vec::with_capacity(member_ids.len());
+        for mid in &member_ids {
+            let docs = self
+                .member_document_dao
+                .find_by_member_id(*mid, read_tx.clone())
+                .await?;
+            if let Some(doc) = Self::find_existing_letter_for_phase(&docs, phase.fiscal_year) {
+                let member = self
+                    .member_dao
+                    .find_by_id(*mid, read_tx.clone())
+                    .await?
+                    .ok_or(ServiceError::EntityNotFound(*mid))?;
+                found.push((member, doc));
+            }
+        }
+
+        // Read-Tx committen (saubere Trennung Read -> ZIP/PDF-Bau im Speicher).
+        self.transaction_dao.commit(read_tx).await?;
+
+        // 5. Edge-Case: 0 persistierte Letters -> 404.
+        if found.is_empty() {
+            return Err(ServiceError::EntityNotFound(phase_id));
+        }
+
+        // 6. Sort nach member_number ASC (deterministisch).
+        found.sort_by(|a, b| a.0.member_number.cmp(&b.0.member_number));
+
+        // 7. Files aus Storage laden — fehlende skippen.
+        let mut loaded: Vec<(MemberEntity, Vec<u8>)> = Vec::with_capacity(found.len());
+        let mut skipped_count: usize = 0;
+        for (member, doc) in &found {
+            match self.document_storage.load(&doc.relative_path).await {
+                Ok(bytes) => loaded.push((member.clone(), bytes)),
+                Err(e) => {
+                    tracing::warn!(
+                        target: LETTER_TARGET,
+                        member_id = %member.id,
+                        phase_id = %phase_id,
+                        relative_path = %doc.relative_path,
+                        "RepaymentLetter download: missing file in storage: {:?}",
+                        e
+                    );
+                    skipped_count += 1;
+                }
+            }
+        }
+
+        // Edge-Case: alle Files fehlen -> 404.
+        if loaded.is_empty() {
+            return Err(ServiceError::EntityNotFound(phase_id));
+        }
+
+        // 8. ZIP oder Bundle-PDF bauen — KEIN Schreib-Tx, KEIN Audit.
+        let (bytes, content_type, filename): (Vec<u8>, &'static str, String) = match format {
+            RepaymentLetterDownloadFormat::Zip => {
+                let mut zip_buf = Cursor::new(Vec::new());
+                {
+                    let mut zip = zip::ZipWriter::new(&mut zip_buf);
+                    let options = zip::write::SimpleFileOptions::default()
+                        .compression_method(zip::CompressionMethod::Deflated);
+                    for (member, pdf_bytes) in &loaded {
+                        // Filename-Schema: <member_number>_<lastname>_<firstname>.pdf
+                        let safe_last = sanitize_for_filename(&member.last_name);
+                        let safe_first = sanitize_for_filename(&member.first_name);
+                        let fname =
+                            format!("{}_{}_{}.pdf", member.member_number, safe_last, safe_first);
+                        zip.start_file(&fname, options).map_err(|e| {
+                            ServiceError::InternalError(Arc::from(
+                                format!("zip start_file: {}", e).as_str(),
+                            ))
+                        })?;
+                        zip.write_all(pdf_bytes).map_err(|e| {
+                            ServiceError::InternalError(Arc::from(
+                                format!("zip write_all: {}", e).as_str(),
+                            ))
+                        })?;
+                    }
+                    zip.finish().map_err(|e| {
+                        ServiceError::InternalError(Arc::from(
+                            format!("zip finish: {}", e).as_str(),
+                        ))
+                    })?;
+                }
+                let fname = format!("auszahlungs_anschreiben_GJ_{}.zip", phase.fiscal_year);
+                (zip_buf.into_inner(), "application/zip", fname)
+            }
+            RepaymentLetterDownloadFormat::Pdf => {
+                let merged_bytes = merge_pdfs_via_lopdf(&loaded).map_err(|e| {
+                    ServiceError::InternalError(Arc::from(format!("pdf-merge: {}", e).as_str()))
+                })?;
+                let fname = format!("auszahlungs_anschreiben_GJ_{}.pdf", phase.fiscal_year);
+                (merged_bytes, "application/pdf", fname)
+            }
+        };
+
+        tracing::info!(
+            target: LETTER_TARGET,
+            phase_id = %phase_id,
+            fiscal_year = phase.fiscal_year,
+            document_count = loaded.len(),
+            skipped_count,
+            "repayment letters bulk-download built"
+        );
+
+        Ok(RepaymentLetterDownload {
+            bytes,
+            content_type,
+            filename,
+            document_count: loaded.len(),
+            skipped_count,
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Quick 260602-sgp: Bulk-Download-Helpers (free-fns, separate von Service-Impl).
+// ---------------------------------------------------------------------------
+
+/// Filename-Sanitisierung — Replika von `genossi_rest::http_util::sanitize_filename_component`.
+///
+/// Der Helper ist hier dupliziert, weil `genossi_service_impl` nicht auf
+/// `genossi_rest` referenzieren darf (Layer-Inversion REST -> Service ist
+/// nicht erlaubt). Umlaute werden zu ASCII transliteriert, andere Sonderzeichen
+/// werden durch '_' ersetzt; der Output wird am Rand getrimmt.
+fn sanitize_for_filename(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            'ä' | 'Ä' => out.push_str("ae"),
+            'ö' | 'Ö' => out.push_str("oe"),
+            'ü' | 'Ü' => out.push_str("ue"),
+            'ß' => out.push_str("ss"),
+            c if c.is_ascii_alphanumeric() || c == '-' || c == '_' => out.push(c),
+            _ => out.push('_'),
+        }
+    }
+    let trimmed = out.trim_matches('_');
+    if trimmed.is_empty() {
+        "_".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+/// Mergt mehrere PDF-Bytes in EIN Dokument via lopdf.
+///
+/// Reihenfolge: wie in `inputs` uebergeben (Caller sortiert vorher nach
+/// `member_number`). Returns merged PDF bytes oder String-Fehler.
+///
+/// Strategie folgt dem offiziellen `lopdf/examples/merge.rs`-Pattern:
+///   1. Loop: `Document::load_mem` jedes Inputs, `renumber_objects_with(max_id)`,
+///      `get_pages()`, alle Objekte in BTreeMap einsammeln.
+///   2. "Catalog"/"Pages"-Sammelobjekte ermitteln; alle anderen direkt in
+///      neuen `document.objects` einfuegen.
+///   3. Neue Pages-Tree mit allen `Kids` + neuer `Count` bauen.
+///   4. Neue Catalog -> Pages-Verkettung; trailer.set("Root", catalog_id).
+///   5. `document.compress()` weggelassen (CPU-Kosten, Output ist eh inline-Download).
+///   6. `save_to(&mut Vec<u8>)`.
+///
+/// Bei `inputs.len() == 1` shortcircuit: bytes direkt zurueck (kein Re-Encode).
+fn merge_pdfs_via_lopdf(inputs: &[(MemberEntity, Vec<u8>)]) -> Result<Vec<u8>, String> {
+    use lopdf::{Document, Object, ObjectId};
+    use std::collections::BTreeMap;
+
+    if inputs.is_empty() {
+        return Err("empty inputs".to_string());
+    }
+    if inputs.len() == 1 {
+        // Single-PDF -> direkt zurueckliefern (kein Merge noetig).
+        return Ok(inputs[0].1.clone());
+    }
+
+    // Sammel-Container — analog lopdf/examples/merge.rs.
+    let mut max_id: u32 = 1;
+    let mut documents_pages: BTreeMap<ObjectId, Object> = BTreeMap::new();
+    let mut documents_objects: BTreeMap<ObjectId, Object> = BTreeMap::new();
+    let mut document = Document::with_version("1.5");
+
+    for (idx, (_member, bytes)) in inputs.iter().enumerate() {
+        let mut doc =
+            Document::load_mem(bytes).map_err(|e| format!("load_mem (input {}): {}", idx, e))?;
+
+        doc.renumber_objects_with(max_id);
+        max_id = doc.max_id + 1;
+
+        // Pages aus dem Sub-Doc holen + in documents_pages sammeln.
+        let pages = doc.get_pages();
+        for (_page_num, object_id) in pages {
+            if let Ok(obj) = doc.get_object(object_id) {
+                documents_pages.insert(object_id, obj.to_owned());
+            }
+        }
+
+        // Sub-Doc-Objekte komplett uebernehmen (Catalog/Pages werden unten gefiltert).
+        documents_objects.extend(doc.objects);
+    }
+
+    // Catalog + Pages aus den eingesammelten Objekten extrahieren.
+    let mut catalog_object: Option<(ObjectId, Object)> = None;
+    let mut pages_object: Option<(ObjectId, Object)> = None;
+
+    for (object_id, object) in documents_objects.into_iter() {
+        match object.type_name().unwrap_or("") {
+            "Catalog" => {
+                catalog_object = Some((
+                    catalog_object
+                        .as_ref()
+                        .map(|(id, _)| *id)
+                        .unwrap_or(object_id),
+                    object,
+                ));
+            }
+            "Pages" => {
+                if let Ok(dictionary) = object.as_dict() {
+                    let mut dictionary = dictionary.clone();
+                    if let Some((_, ref existing)) = pages_object {
+                        if let Ok(old_dict) = existing.as_dict() {
+                            dictionary.extend(old_dict);
+                        }
+                    }
+                    pages_object = Some((
+                        pages_object
+                            .as_ref()
+                            .map(|(id, _)| *id)
+                            .unwrap_or(object_id),
+                        Object::Dictionary(dictionary),
+                    ));
+                }
+            }
+            "Page" => { /* spaeter via documents_pages */ }
+            "Outlines" | "Outline" => { /* not supported in merged output */ }
+            _ => {
+                document.objects.insert(object_id, object);
+            }
+        }
+    }
+
+    let pages_root =
+        pages_object.ok_or_else(|| "no Pages root found in any input PDF".to_string())?;
+    let catalog_root =
+        catalog_object.ok_or_else(|| "no Catalog root found in any input PDF".to_string())?;
+
+    // Pages -> Parent neu setzen.
+    for (object_id, object) in documents_pages.iter() {
+        if let Ok(dictionary) = object.as_dict() {
+            let mut dictionary = dictionary.clone();
+            dictionary.set("Parent", pages_root.0);
+            document
+                .objects
+                .insert(*object_id, Object::Dictionary(dictionary));
+        }
+    }
+
+    // /Pages /Kids + /Count neu schreiben.
+    let (pages_id, pages_obj) = pages_root;
+    if let Ok(dict) = pages_obj.as_dict() {
+        let mut dictionary = dict.clone();
+        dictionary.set("Count", documents_pages.len() as u32);
+        dictionary.set(
+            "Kids",
+            documents_pages
+                .keys()
+                .map(|id| Object::Reference(*id))
+                .collect::<Vec<_>>(),
+        );
+        document
+            .objects
+            .insert(pages_id, Object::Dictionary(dictionary));
+    }
+
+    // /Catalog /Pages neu setzen; /Outlines droppen.
+    let (catalog_id, catalog_obj) = catalog_root;
+    if let Ok(dict) = catalog_obj.as_dict() {
+        let mut dictionary = dict.clone();
+        dictionary.set("Pages", pages_id);
+        dictionary.remove(b"Outlines");
+        document
+            .objects
+            .insert(catalog_id, Object::Dictionary(dictionary));
+    }
+
+    document.trailer.set("Root", catalog_id);
+
+    // Max-ID hochziehen, danach renumbern und Bookmarks-zero-pages adjusten.
+    document.max_id = document.objects.len() as u32;
+    document.renumber_objects();
+    document.adjust_zero_pages();
+
+    let mut out: Vec<u8> = Vec::new();
+    document
+        .save_to(&mut out)
+        .map_err(|e| format!("save_to: {}", e))?;
+    Ok(out)
 }
 
 // ---------------------------------------------------------------------------
@@ -1104,20 +1421,17 @@ mod tests {
         let base = dir.path().to_path_buf();
 
         // Single + Bundle template aus Plan 13-01.
-        let single_src = std::fs::read_to_string(
-            "../templates/defaults/auszahlungs_anschreiben.typ",
-        )
-        .expect("read single template");
-        let bundle_src = std::fs::read_to_string(
-            "../templates/defaults/auszahlungs_anschreiben_bundle.typ",
-        )
-        .expect("read bundle template");
+        let single_src =
+            std::fs::read_to_string("../templates/defaults/auszahlungs_anschreiben.typ")
+                .expect("read single template");
+        let bundle_src =
+            std::fs::read_to_string("../templates/defaults/auszahlungs_anschreiben_bundle.typ")
+                .expect("read bundle template");
         fs::write(base.join("auszahlungs_anschreiben.typ"), single_src).unwrap();
         fs::write(base.join("auszahlungs_anschreiben_bundle.typ"), bundle_src).unwrap();
 
         // Logo (Plan 13-03 deferred-item 3 -> Pattern fuer Tests).
-        let logo = std::fs::read("../templates/nebenan-unverpackt-logo.svg")
-            .expect("read logo");
+        let logo = std::fs::read("../templates/nebenan-unverpackt-logo.svg").expect("read logo");
         fs::write(base.join("nebenan-unverpackt-logo.svg"), logo).unwrap();
 
         // TempDir muss am Leben bleiben — Arc::new + leaken via std::mem::forget.
@@ -1194,17 +1508,15 @@ mod tests {
         let m1_clone = m1.clone();
         let m2_clone = m2.clone();
         let mut member_dao = MockTestMemberDao::new();
-        member_dao
-            .expect_find_by_id()
-            .returning(move |id, _| {
-                if id == m1_clone.id {
-                    Ok(Some(m1_clone.clone()))
-                } else if id == m2_clone.id {
-                    Ok(Some(m2_clone.clone()))
-                } else {
-                    Ok(None)
-                }
-            });
+        member_dao.expect_find_by_id().returning(move |id, _| {
+            if id == m1_clone.id {
+                Ok(Some(m1_clone.clone()))
+            } else if id == m2_clone.id {
+                Ok(Some(m2_clone.clone()))
+            } else {
+                Ok(None)
+            }
+        });
 
         // Doc-DAO: create wird 2x aufgerufen (unique members).
         let mut doc_dao = MockTestMemberDocumentDao::new();
@@ -1217,12 +1529,8 @@ mod tests {
 
         // Audit-DAO: get_latest_hash + create_entries (audited_create Internals).
         let mut audit_dao = MockTestAuditLogDao::new();
-        audit_dao
-            .expect_get_latest_hash()
-            .returning(|_| Ok(None));
-        audit_dao
-            .expect_create_entries()
-            .returning(|_, _| Ok(()));
+        audit_dao.expect_get_latest_hash().returning(|_| Ok(None));
+        audit_dao.expect_create_entries().returning(|_, _| Ok(()));
 
         let mut perm = MockTestPermissionService::new();
         perm.expect_check_permission()
@@ -1242,21 +1550,15 @@ mod tests {
             .returning(|_, _, _| Ok(sample_ctx(1, 2025)));
 
         let mut storage = MockTestStorage::new();
-        storage
-            .expect_save()
-            .times(2)
-            .returning(|_, _| Ok(()));
+        storage.expect_save().times(2).returning(|_, _| Ok(()));
 
         // UUID-Service: id + version pro Doc = 2 calls pro Doc, 2 Docs = 4 calls.
         let mut uuid_svc = MockTestUuidService::new();
-        uuid_svc
-            .expect_new_v4()
-            .times(4)
-            .returning(Uuid::new_v4);
+        uuid_svc.expect_new_v4().times(4).returning(Uuid::new_v4);
 
         let svc = build_service_with_templates(
-            phase_dao, entry_dao, member_dao, doc_dao, audit_dao, perm, tx_dao, uuid_svc,
-            resolver, storage,
+            phase_dao, entry_dao, member_dao, doc_dao, audit_dao, perm, tx_dao, uuid_svc, resolver,
+            storage,
         );
 
         let result = svc
@@ -1303,8 +1605,8 @@ mod tests {
         let uuid_svc = MockTestUuidService::new();
 
         let svc = build_service(
-            phase_dao, entry_dao, member_dao, doc_dao, audit_dao, perm, tx_dao, uuid_svc,
-            resolver, storage,
+            phase_dao, entry_dao, member_dao, doc_dao, audit_dao, perm, tx_dao, uuid_svc, resolver,
+            storage,
         );
 
         let entry_ids: Arc<[Uuid]> = vec![Uuid::new_v4()].into();
@@ -1381,8 +1683,8 @@ mod tests {
         uuid_svc.expect_new_v4().returning(Uuid::new_v4);
 
         let svc = build_service_with_templates(
-            phase_dao, entry_dao, member_dao, doc_dao, audit_dao, perm, tx_dao, uuid_svc,
-            resolver, storage,
+            phase_dao, entry_dao, member_dao, doc_dao, audit_dao, perm, tx_dao, uuid_svc, resolver,
+            storage,
         );
 
         let result = svc
@@ -1463,8 +1765,8 @@ mod tests {
         uuid_svc.expect_new_v4().times(2).returning(Uuid::new_v4);
 
         let svc = build_service_with_templates(
-            phase_dao, entry_dao, member_dao, doc_dao, audit_dao, perm, tx_dao, uuid_svc,
-            resolver, storage,
+            phase_dao, entry_dao, member_dao, doc_dao, audit_dao, perm, tx_dao, uuid_svc, resolver,
+            storage,
         );
 
         let result = svc
@@ -1500,8 +1802,8 @@ mod tests {
         let uuid_svc = MockTestUuidService::new();
 
         let svc = build_service(
-            phase_dao, entry_dao, member_dao, doc_dao, audit_dao, perm, tx_dao, uuid_svc,
-            resolver, storage,
+            phase_dao, entry_dao, member_dao, doc_dao, audit_dao, perm, tx_dao, uuid_svc, resolver,
+            storage,
         );
 
         let entry_ids: Arc<[Uuid]> = vec![Uuid::new_v4()].into();
@@ -1543,8 +1845,8 @@ mod tests {
         let uuid_svc = MockTestUuidService::new();
 
         let svc = build_service(
-            phase_dao, entry_dao, member_dao, doc_dao, audit_dao, perm, tx_dao, uuid_svc,
-            resolver, storage,
+            phase_dao, entry_dao, member_dao, doc_dao, audit_dao, perm, tx_dao, uuid_svc, resolver,
+            storage,
         );
 
         let entry_ids: Arc<[Uuid]> = vec![Uuid::new_v4()].into();
@@ -1593,8 +1895,8 @@ mod tests {
         let uuid_svc = MockTestUuidService::new();
 
         let svc = build_service(
-            phase_dao, entry_dao, member_dao, doc_dao, audit_dao, perm, tx_dao, uuid_svc,
-            resolver, storage,
+            phase_dao, entry_dao, member_dao, doc_dao, audit_dao, perm, tx_dao, uuid_svc, resolver,
+            storage,
         );
 
         // entry_ids enthaelt fremde UUID, die nicht zur phase gehoert.
@@ -1633,8 +1935,8 @@ mod tests {
         let uuid_svc = MockTestUuidService::new();
 
         let svc = build_service(
-            phase_dao, entry_dao, member_dao, doc_dao, audit_dao, perm, tx_dao, uuid_svc,
-            resolver, storage,
+            phase_dao, entry_dao, member_dao, doc_dao, audit_dao, perm, tx_dao, uuid_svc, resolver,
+            storage,
         );
 
         let entry_ids: Arc<[Uuid]> = vec![].into();
@@ -1736,8 +2038,8 @@ mod tests {
         uuid_svc.expect_new_v4().returning(Uuid::new_v4);
 
         let svc = build_service_with_templates(
-            phase_dao, entry_dao, member_dao, doc_dao, audit_dao, perm, tx_dao, uuid_svc,
-            resolver, storage,
+            phase_dao, entry_dao, member_dao, doc_dao, audit_dao, perm, tx_dao, uuid_svc, resolver,
+            storage,
         );
 
         let result = svc
@@ -1826,8 +2128,8 @@ mod tests {
         uuid_svc.expect_new_v4().returning(Uuid::new_v4);
 
         let svc = build_service_with_templates(
-            phase_dao, entry_dao, member_dao, doc_dao, audit_dao, perm, tx_dao, uuid_svc,
-            resolver, storage,
+            phase_dao, entry_dao, member_dao, doc_dao, audit_dao, perm, tx_dao, uuid_svc, resolver,
+            storage,
         );
 
         let result = svc
@@ -1957,8 +2259,8 @@ mod tests {
         uuid_svc.expect_new_v4().returning(Uuid::new_v4);
 
         let svc = build_service_with_templates(
-            phase_dao, entry_dao, member_dao, doc_dao, audit_dao, perm, tx_dao, uuid_svc,
-            resolver, storage,
+            phase_dao, entry_dao, member_dao, doc_dao, audit_dao, perm, tx_dao, uuid_svc, resolver,
+            storage,
         );
 
         let result = svc
@@ -2060,9 +2362,7 @@ mod tests {
         let existing_doc_for_lookup = existing_doc.clone();
         doc_dao
             .expect_find_by_member_id()
-            .returning(move |_, _| {
-                Ok(Arc::from(vec![existing_doc_for_lookup.clone()]))
-            });
+            .returning(move |_, _| Ok(Arc::from(vec![existing_doc_for_lookup.clone()])));
         // KEIN create — Update-Zweig.
         doc_dao.expect_create().times(0);
         // GENAU EIN update via audited_update! — `id` muss dem bestehenden
@@ -2074,33 +2374,26 @@ mod tests {
             .withf(move |entity, _, _| {
                 entity.id == existing_id
                     && entity.member_id == m1.id
-                    && entity.document_type.as_ref()
-                        == DocumentType::RepaymentLetter.as_str()
+                    && entity.document_type.as_ref() == DocumentType::RepaymentLetter.as_str()
                     && entity.relative_path.as_ref() == expected_path.as_str()
             })
             .returning(|_, _, _| Ok(()));
         // audited_update! laedt das alte Entity per find_by_id.
         let existing_doc_for_find = existing_doc.clone();
-        doc_dao
-            .expect_find_by_id()
-            .returning(move |id, _| {
-                if id == existing_id {
-                    Ok(Some(existing_doc_for_find.clone()))
-                } else {
-                    Ok(None)
-                }
-            });
+        doc_dao.expect_find_by_id().returning(move |id, _| {
+            if id == existing_id {
+                Ok(Some(existing_doc_for_find.clone()))
+            } else {
+                Ok(None)
+            }
+        });
 
         let mut audit_dao = MockTestAuditLogDao::new();
         // Hash-Chain extends — get_latest_hash + create_entries werden gerufen,
         // genauso wie im CREATE-Pfad. Audit-Eintraege sind UPDATE-Klasse,
         // verifiziert indirekt durch `doc_dao.expect_update().times(1)`.
-        audit_dao
-            .expect_get_latest_hash()
-            .returning(|_| Ok(None));
-        audit_dao
-            .expect_create_entries()
-            .returning(|_, _| Ok(()));
+        audit_dao.expect_get_latest_hash().returning(|_| Ok(None));
+        audit_dao.expect_create_entries().returning(|_, _| Ok(()));
 
         let mut perm = MockTestPermissionService::new();
         perm.expect_check_permission().returning(|_, _| Ok(()));
@@ -2129,8 +2422,8 @@ mod tests {
         uuid_svc.expect_new_v4().times(1).returning(Uuid::new_v4);
 
         let svc = build_service_with_templates(
-            phase_dao, entry_dao, member_dao, doc_dao, audit_dao, perm, tx_dao, uuid_svc,
-            resolver, storage,
+            phase_dao, entry_dao, member_dao, doc_dao, audit_dao, perm, tx_dao, uuid_svc, resolver,
+            storage,
         );
 
         let result = svc
@@ -2146,10 +2439,7 @@ mod tests {
             result.document_ids[0], existing_id,
             "row identity preserved across regeneration"
         );
-        assert!(
-            result.bundle_bytes.starts_with(b"%PDF-"),
-            "Bundle is PDF"
-        );
+        assert!(result.bundle_bytes.starts_with(b"%PDF-"), "Bundle is PDF");
     }
 
     #[tokio::test]
@@ -2237,8 +2527,8 @@ mod tests {
         uuid_svc.expect_new_v4().returning(Uuid::new_v4);
 
         let svc = build_service_with_templates(
-            phase_dao, entry_dao, member_dao, doc_dao, audit_dao, perm, tx_dao, uuid_svc,
-            resolver, storage,
+            phase_dao, entry_dao, member_dao, doc_dao, audit_dao, perm, tx_dao, uuid_svc, resolver,
+            storage,
         );
 
         let result = svc
@@ -2310,16 +2600,14 @@ mod tests {
             &created_relative_path,
         );
         let mut doc_dao = MockTestMemberDocumentDao::new();
-        doc_dao
-            .expect_find_by_member_id()
-            .returning(move |_, _| {
-                let n = lookup_calls_clone.fetch_add(1, Ordering::SeqCst);
-                if n == 0 {
-                    Ok(Arc::from(Vec::<MemberDocumentEntity>::new()))
-                } else {
-                    Ok(Arc::from(vec![created_doc_for_lookup.clone()]))
-                }
-            });
+        doc_dao.expect_find_by_member_id().returning(move |_, _| {
+            let n = lookup_calls_clone.fetch_add(1, Ordering::SeqCst);
+            if n == 0 {
+                Ok(Arc::from(Vec::<MemberDocumentEntity>::new()))
+            } else {
+                Ok(Arc::from(vec![created_doc_for_lookup.clone()]))
+            }
+        });
         doc_dao.expect_create().times(1).returning(|_, _, _| Ok(()));
         doc_dao.expect_update().times(1).returning(|_, _, _| Ok(()));
         // audited_update! benoetigt find_by_id -> Doc von Call 1.
@@ -2330,15 +2618,13 @@ mod tests {
             m1.member_number,
             &created_relative_path,
         );
-        doc_dao
-            .expect_find_by_id()
-            .returning(move |id, _| {
-                if id == stable_doc_id {
-                    Ok(Some(created_doc_for_find.clone()))
-                } else {
-                    Ok(None)
-                }
-            });
+        doc_dao.expect_find_by_id().returning(move |id, _| {
+            if id == stable_doc_id {
+                Ok(Some(created_doc_for_find.clone()))
+            } else {
+                Ok(None)
+            }
+        });
 
         let mut audit_dao = MockTestAuditLogDao::new();
         audit_dao.expect_get_latest_hash().returning(|_| Ok(None));
@@ -2388,8 +2674,8 @@ mod tests {
             .returning(move || stable_version_v2);
 
         let svc = build_service_with_templates(
-            phase_dao, entry_dao, member_dao, doc_dao, audit_dao, perm, tx_dao, uuid_svc,
-            resolver, storage,
+            phase_dao, entry_dao, member_dao, doc_dao, audit_dao, perm, tx_dao, uuid_svc, resolver,
+            storage,
         );
 
         // Call 1 — CREATE.
@@ -2418,5 +2704,450 @@ mod tests {
             result1.document_ids[0], result2.document_ids[0],
             "first and second generate return SAME document_id (idempotent)"
         );
+    }
+
+    // ----------------------------------------------------------------------
+    // Quick 260602-sgp — Bulk-Download download_bundle (5+ Unit-Tests).
+    // ----------------------------------------------------------------------
+
+    /// Helper: persistiertes RepaymentLetter-MemberDocument fuer (member, phase)
+    /// erzeugen, exakt mit dem Description-Fingerprint, den
+    /// `find_existing_letter_for_phase` erwartet.
+    fn persisted_letter_doc(
+        doc_id: Uuid,
+        member_id: Uuid,
+        fiscal_year: i32,
+        relative_path: &str,
+    ) -> MemberDocumentEntity {
+        MemberDocumentEntity {
+            id: doc_id,
+            member_id,
+            document_type: Arc::from(DocumentType::RepaymentLetter.as_str()),
+            description: Some(Arc::from(
+                format!("Anschreiben Auszahlung GJ {}", fiscal_year).as_str(),
+            )),
+            file_name: Arc::from("foo.pdf"),
+            mime_type: Arc::from("application/pdf"),
+            relative_path: Arc::from(relative_path),
+            created: datetime!(2026 - 01 - 01 00:00:00),
+            deleted: None,
+            version: Uuid::new_v4(),
+            template_id: None,
+            mail_recipient_id: None,
+            status: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_download_bundle_zero_letters_returns_not_found() {
+        // Setup: phase exists, 0 RepaymentLetter-MemberDocuments.
+        let phase = test_phase(RepaymentPhaseStatus::Open, 2025);
+        let phase_id = phase.id;
+        let m1 = test_member(101, "Alice", "A");
+        let e1 = test_entry(phase_id, m1.id, RepaymentEntryStatus::Open);
+
+        let phase_clone = phase.clone();
+        let mut phase_dao = MockTestPhaseDao::new();
+        phase_dao
+            .expect_find_by_id()
+            .returning(move |_, _| Ok(Some(phase_clone.clone())));
+
+        let entries_arc: Arc<[RepaymentEntryEntity]> = vec![e1].into();
+        let mut entry_dao = MockTestEntryDao::new();
+        entry_dao
+            .expect_find_by_phase_id()
+            .returning(move |_, _| Ok(entries_arc.clone()));
+        entry_dao.expect_update().times(0);
+        entry_dao.expect_create().times(0);
+
+        // member_dao is NEVER consulted because find_by_member_id returns empty
+        // (no docs match the RepaymentLetter description filter).
+        let member_dao = MockTestMemberDao::new();
+
+        let mut doc_dao = MockTestMemberDocumentDao::new();
+        doc_dao
+            .expect_find_by_member_id()
+            .returning(|_, _| Ok(Arc::from(Vec::<MemberDocumentEntity>::new())));
+        // KEIN create / update — pure Read.
+        doc_dao.expect_create().times(0);
+        doc_dao.expect_update().times(0);
+
+        let mut audit_dao = MockTestAuditLogDao::new();
+        // Reiner Lese-Endpoint: KEIN create_entries.
+        audit_dao.expect_create_entries().times(0);
+
+        let mut perm = MockTestPermissionService::new();
+        perm.expect_check_permission().returning(|_, _| Ok(()));
+
+        let tx_dao = tx_dao_permissive();
+        let resolver = MockTestResolver::new();
+        let storage = MockTestStorage::new();
+        let uuid_svc = MockTestUuidService::new();
+
+        let svc = build_service(
+            phase_dao, entry_dao, member_dao, doc_dao, audit_dao, perm, tx_dao, uuid_svc, resolver,
+            storage,
+        );
+
+        let result = svc
+            .download_bundle(
+                phase_id,
+                RepaymentLetterDownloadFormat::Zip,
+                Authentication::Context(TestContext),
+            )
+            .await;
+        assert!(
+            matches!(result, Err(ServiceError::EntityNotFound(id)) if id == phase_id),
+            "0 persistierte Letters -> EntityNotFound(phase_id); got: {:?}",
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn test_download_bundle_zip_happy_path_sorted_by_member_number() {
+        // Setup: 2 RepaymentLetter-Docs fuer Member 005 + Member 020.
+        // Expectation: ZIP enthaelt 2 Files, Member 005 zuerst (ASC-Sort).
+        let phase = test_phase(RepaymentPhaseStatus::Open, 2025);
+        let phase_id = phase.id;
+        let m_low = test_member(5, "First", "Low");
+        let m_high = test_member(20, "Second", "High");
+        // Phase-Entry-Sequence absichtlich umgekehrt — High zuerst —
+        // damit der ASC-Sort wirklich umordnet (Detection von Bug).
+        let e_high = test_entry(phase_id, m_high.id, RepaymentEntryStatus::Open);
+        let e_low = test_entry(phase_id, m_low.id, RepaymentEntryStatus::Open);
+
+        let doc_low = persisted_letter_doc(Uuid::new_v4(), m_low.id, 2025, "path/low.pdf");
+        let doc_high = persisted_letter_doc(Uuid::new_v4(), m_high.id, 2025, "path/high.pdf");
+
+        let phase_clone = phase.clone();
+        let mut phase_dao = MockTestPhaseDao::new();
+        phase_dao
+            .expect_find_by_id()
+            .returning(move |_, _| Ok(Some(phase_clone.clone())));
+
+        let entries_arc: Arc<[RepaymentEntryEntity]> = vec![e_high, e_low].into();
+        let mut entry_dao = MockTestEntryDao::new();
+        entry_dao
+            .expect_find_by_phase_id()
+            .returning(move |_, _| Ok(entries_arc.clone()));
+        entry_dao.expect_update().times(0);
+
+        let m_low_clone = m_low.clone();
+        let m_high_clone = m_high.clone();
+        let m_low_id = m_low.id;
+        let m_high_id = m_high.id;
+        let mut member_dao = MockTestMemberDao::new();
+        member_dao.expect_find_by_id().returning(move |id, _| {
+            if id == m_low_clone.id {
+                Ok(Some(m_low_clone.clone()))
+            } else if id == m_high_clone.id {
+                Ok(Some(m_high_clone.clone()))
+            } else {
+                Ok(None)
+            }
+        });
+
+        let mut doc_dao = MockTestMemberDocumentDao::new();
+        let doc_low_clone = doc_low.clone();
+        let doc_high_clone = doc_high.clone();
+        doc_dao.expect_find_by_member_id().returning(move |mid, _| {
+            if mid == m_low_id {
+                Ok(Arc::from(vec![doc_low_clone.clone()]))
+            } else if mid == m_high_id {
+                Ok(Arc::from(vec![doc_high_clone.clone()]))
+            } else {
+                Ok(Arc::from(Vec::<MemberDocumentEntity>::new()))
+            }
+        });
+        doc_dao.expect_create().times(0);
+        doc_dao.expect_update().times(0);
+
+        let mut audit_dao = MockTestAuditLogDao::new();
+        audit_dao.expect_create_entries().times(0);
+
+        let mut perm = MockTestPermissionService::new();
+        perm.expect_check_permission().returning(|_, _| Ok(()));
+
+        let tx_dao = tx_dao_permissive();
+        let resolver = MockTestResolver::new();
+        let uuid_svc = MockTestUuidService::new();
+
+        // Storage liefert valide Minimal-PDF-Bytes (ZIP-Bau braucht KEINEN echten PDF).
+        let mut storage = MockTestStorage::new();
+        let pdf_low: Vec<u8> = b"%PDF-1.4 low".to_vec();
+        let pdf_high: Vec<u8> = b"%PDF-1.4 high".to_vec();
+        let pdf_low_clone = pdf_low.clone();
+        let pdf_high_clone = pdf_high.clone();
+        storage.expect_load().returning(move |path| {
+            if path == "path/low.pdf" {
+                Ok(pdf_low_clone.clone())
+            } else if path == "path/high.pdf" {
+                Ok(pdf_high_clone.clone())
+            } else {
+                Err(StorageError::NotFound)
+            }
+        });
+
+        let svc = build_service(
+            phase_dao, entry_dao, member_dao, doc_dao, audit_dao, perm, tx_dao, uuid_svc, resolver,
+            storage,
+        );
+
+        let result = svc
+            .download_bundle(
+                phase_id,
+                RepaymentLetterDownloadFormat::Zip,
+                Authentication::Context(TestContext),
+            )
+            .await
+            .expect("zip happy path Ok");
+
+        assert_eq!(result.document_count, 2, "2 docs erfolgreich gepackt");
+        assert_eq!(result.skipped_count, 0, "keine fehlenden Files");
+        assert_eq!(result.content_type, "application/zip");
+        assert!(
+            result.filename.contains("2025"),
+            "filename embeds fiscal_year: {}",
+            result.filename
+        );
+        assert!(
+            result.filename.ends_with(".zip"),
+            "filename .zip-Suffix: {}",
+            result.filename
+        );
+        // ZIP-Magic 0x504B0304 (PK\x03\x04) — Standard-Local-File-Header.
+        assert!(
+            result.bytes.starts_with(&[0x50, 0x4B, 0x03, 0x04]),
+            "Output muss mit ZIP-Magic beginnen"
+        );
+
+        // Decodiere ZIP-Inhalt: Reihenfolge der Eintraege MUSS ASC by member_number sein.
+        let cursor = std::io::Cursor::new(&result.bytes);
+        let mut archive = zip::ZipArchive::new(cursor).expect("read zip");
+        assert_eq!(archive.len(), 2, "ZIP enthaelt 2 Files");
+        // Entry-Reihenfolge: Low (5) zuerst, High (20) danach.
+        let name0 = archive.by_index(0).expect("entry 0").name().to_string();
+        let name1 = archive.by_index(1).expect("entry 1").name().to_string();
+        assert!(
+            name0.starts_with("5_"),
+            "Erstes Entry muss member_number 5 sein (ASC-Sort); got: {}",
+            name0
+        );
+        assert!(
+            name1.starts_with("20_"),
+            "Zweites Entry muss member_number 20 sein; got: {}",
+            name1
+        );
+    }
+
+    #[tokio::test]
+    async fn test_download_bundle_skipped_missing_files() {
+        // Setup: 2 RepaymentLetter-Docs, nur 1 davon im Storage (1x StorageError).
+        // Expectation: document_count == 1, skipped_count == 1, KEIN Error-Return.
+        let phase = test_phase(RepaymentPhaseStatus::Open, 2025);
+        let phase_id = phase.id;
+        let m_ok = test_member(1, "OK", "Member");
+        let m_missing = test_member(2, "Missing", "Member");
+        let e_ok = test_entry(phase_id, m_ok.id, RepaymentEntryStatus::Open);
+        let e_missing = test_entry(phase_id, m_missing.id, RepaymentEntryStatus::Open);
+
+        let doc_ok = persisted_letter_doc(Uuid::new_v4(), m_ok.id, 2025, "ok.pdf");
+        let doc_missing = persisted_letter_doc(Uuid::new_v4(), m_missing.id, 2025, "gone.pdf");
+
+        let phase_clone = phase.clone();
+        let mut phase_dao = MockTestPhaseDao::new();
+        phase_dao
+            .expect_find_by_id()
+            .returning(move |_, _| Ok(Some(phase_clone.clone())));
+
+        let entries_arc: Arc<[RepaymentEntryEntity]> = vec![e_ok, e_missing].into();
+        let mut entry_dao = MockTestEntryDao::new();
+        entry_dao
+            .expect_find_by_phase_id()
+            .returning(move |_, _| Ok(entries_arc.clone()));
+
+        let m_ok_clone = m_ok.clone();
+        let m_missing_clone = m_missing.clone();
+        let m_ok_id = m_ok.id;
+        let m_missing_id = m_missing.id;
+        let mut member_dao = MockTestMemberDao::new();
+        member_dao.expect_find_by_id().returning(move |id, _| {
+            if id == m_ok_clone.id {
+                Ok(Some(m_ok_clone.clone()))
+            } else if id == m_missing_clone.id {
+                Ok(Some(m_missing_clone.clone()))
+            } else {
+                Ok(None)
+            }
+        });
+
+        let mut doc_dao = MockTestMemberDocumentDao::new();
+        let doc_ok_clone = doc_ok.clone();
+        let doc_missing_clone = doc_missing.clone();
+        doc_dao.expect_find_by_member_id().returning(move |mid, _| {
+            if mid == m_ok_id {
+                Ok(Arc::from(vec![doc_ok_clone.clone()]))
+            } else if mid == m_missing_id {
+                Ok(Arc::from(vec![doc_missing_clone.clone()]))
+            } else {
+                Ok(Arc::from(Vec::<MemberDocumentEntity>::new()))
+            }
+        });
+        doc_dao.expect_create().times(0);
+
+        let mut audit_dao = MockTestAuditLogDao::new();
+        audit_dao.expect_create_entries().times(0);
+
+        let mut perm = MockTestPermissionService::new();
+        perm.expect_check_permission().returning(|_, _| Ok(()));
+
+        let tx_dao = tx_dao_permissive();
+        let resolver = MockTestResolver::new();
+        let uuid_svc = MockTestUuidService::new();
+
+        let mut storage = MockTestStorage::new();
+        storage.expect_load().returning(|path| {
+            if path == "ok.pdf" {
+                Ok(b"%PDF-1.4".to_vec())
+            } else {
+                Err(StorageError::NotFound)
+            }
+        });
+
+        let svc = build_service(
+            phase_dao, entry_dao, member_dao, doc_dao, audit_dao, perm, tx_dao, uuid_svc, resolver,
+            storage,
+        );
+
+        let result = svc
+            .download_bundle(
+                phase_id,
+                RepaymentLetterDownloadFormat::Zip,
+                Authentication::Context(TestContext),
+            )
+            .await
+            .expect("skipped-missing-files Ok");
+        assert_eq!(result.document_count, 1, "1 erfolgreich");
+        assert_eq!(result.skipped_count, 1, "1 file missing -> skipped");
+    }
+
+    #[tokio::test]
+    async fn test_download_bundle_preparation_status_returns_conflict() {
+        // Setup: phase im Preparation-Status -> 409 phase_not_active.
+        let phase = test_phase(RepaymentPhaseStatus::Preparation, 2025);
+        let phase_id = phase.id;
+        let phase_clone = phase.clone();
+
+        let mut phase_dao = MockTestPhaseDao::new();
+        phase_dao
+            .expect_find_by_id()
+            .returning(move |_, _| Ok(Some(phase_clone.clone())));
+
+        let entry_dao = MockTestEntryDao::new();
+        let member_dao = MockTestMemberDao::new();
+        let doc_dao = MockTestMemberDocumentDao::new();
+        let mut audit_dao = MockTestAuditLogDao::new();
+        audit_dao.expect_create_entries().times(0);
+
+        let mut perm = MockTestPermissionService::new();
+        perm.expect_check_permission().returning(|_, _| Ok(()));
+
+        let tx_dao = tx_dao_permissive();
+        let resolver = MockTestResolver::new();
+        let storage = MockTestStorage::new();
+        let uuid_svc = MockTestUuidService::new();
+
+        let svc = build_service(
+            phase_dao, entry_dao, member_dao, doc_dao, audit_dao, perm, tx_dao, uuid_svc, resolver,
+            storage,
+        );
+
+        let result = svc
+            .download_bundle(
+                phase_id,
+                RepaymentLetterDownloadFormat::Zip,
+                Authentication::Context(TestContext),
+            )
+            .await;
+        assert!(
+            matches!(&result, Err(ServiceError::Conflict(msg)) if msg.as_ref() == "phase_not_active"),
+            "Preparation -> 409 phase_not_active, got: {:?}",
+            result
+        );
+    }
+
+    #[tokio::test]
+    async fn test_download_bundle_permission_denied_returns_403() {
+        // Setup: Helper-Auth -> PermissionDenied vom Permission-Service.
+        let phase = test_phase(RepaymentPhaseStatus::Open, 2025);
+        let phase_id = phase.id;
+        let phase_clone = phase.clone();
+
+        let mut phase_dao = MockTestPhaseDao::new();
+        phase_dao
+            .expect_find_by_id()
+            .returning(move |_, _| Ok(Some(phase_clone.clone())));
+
+        let entry_dao = MockTestEntryDao::new();
+        let member_dao = MockTestMemberDao::new();
+        let doc_dao = MockTestMemberDocumentDao::new();
+        let mut audit_dao = MockTestAuditLogDao::new();
+        audit_dao.expect_create_entries().times(0);
+
+        let mut perm = MockTestPermissionService::new();
+        perm.expect_check_permission()
+            .returning(|_, _| Err(ServiceError::PermissionDenied));
+
+        let tx_dao = tx_dao_permissive();
+        let resolver = MockTestResolver::new();
+        let storage = MockTestStorage::new();
+        let uuid_svc = MockTestUuidService::new();
+
+        let svc = build_service(
+            phase_dao, entry_dao, member_dao, doc_dao, audit_dao, perm, tx_dao, uuid_svc, resolver,
+            storage,
+        );
+
+        let result = svc
+            .download_bundle(
+                phase_id,
+                RepaymentLetterDownloadFormat::Zip,
+                Authentication::Context(TestContext),
+            )
+            .await;
+        assert!(
+            matches!(result, Err(ServiceError::PermissionDenied)),
+            "Helper -> PermissionDenied, got: {:?}",
+            result
+        );
+    }
+
+    // ──────────────────────────────────────────────────────────────────
+    // Free-Fn-Tests (sanitize_for_filename + merge_pdfs_via_lopdf).
+    // ──────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_sanitize_for_filename_umlauts() {
+        // Umlaute werden in Lowercase-Replacement abgebildet (case-collapse).
+        assert_eq!(super::sanitize_for_filename("Müller"), "Mueller");
+        assert_eq!(super::sanitize_for_filename("Strauß"), "Strauss");
+        // 'Ü' -> "ue" (Lowercase), daher "Über" -> "ueber".
+        assert_eq!(super::sanitize_for_filename("Über"), "ueber");
+    }
+
+    #[test]
+    fn test_sanitize_for_filename_special_chars() {
+        assert_eq!(super::sanitize_for_filename("Foo/Bar.pdf"), "Foo_Bar_pdf");
+        assert_eq!(super::sanitize_for_filename("a-b_c"), "a-b_c");
+        assert_eq!(super::sanitize_for_filename("___"), "_");
+    }
+
+    #[test]
+    fn test_merge_pdfs_via_lopdf_single_input_passthrough() {
+        // Single-Input -> direkter Return ohne Re-Encode.
+        let m = test_member(1, "Foo", "Bar");
+        let bytes = b"%PDF-1.4 dummy".to_vec();
+        let result = super::merge_pdfs_via_lopdf(&[(m, bytes.clone())]).expect("single-input Ok");
+        assert_eq!(result, bytes, "Single-Input wird unveraendert returned");
     }
 }

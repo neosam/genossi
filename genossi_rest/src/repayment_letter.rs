@@ -15,17 +15,20 @@ use std::sync::Arc;
 
 use axum::{
     body::Body,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     response::Response,
-    routing::post,
+    routing::{get, post},
     Extension, Json, Router,
 };
 use serde::Deserialize;
 use tracing::instrument;
-use utoipa::{OpenApi, ToSchema};
+use utoipa::{IntoParams, OpenApi, ToSchema};
 use uuid::Uuid;
 
-use genossi_service::repayment_letter::{RepaymentLetterBundle, RepaymentLetterService};
+use genossi_service::repayment_letter::{
+    RepaymentLetterBundle, RepaymentLetterDownload, RepaymentLetterDownloadFormat,
+    RepaymentLetterService,
+};
 use genossi_service::ServiceError;
 
 use crate::{error_handler, extract_auth_context, http_util, Context, RestError, RestStateDef};
@@ -53,6 +56,16 @@ fn map_letter_error(e: ServiceError) -> RestError {
 pub struct GenerateLettersRequest {
     /// IDs der RepaymentEntries fuer die Briefe generiert werden sollen.
     pub entry_ids: Vec<Uuid>,
+}
+
+/// Quick 260602-sgp: Query-Params fuer `GET /letters/download`.
+///
+/// `format` MUSS einer von `"zip"` oder `"pdf"` sein — alles andere liefert
+/// 400 BadRequest mit Klartext-Hinweis.
+#[derive(Debug, Deserialize, IntoParams)]
+pub struct DownloadQuery {
+    /// Format: `"zip"` (Archiv mit Einzel-PDFs) oder `"pdf"` (gemerged Bundle-PDF).
+    pub format: String,
 }
 
 /// State-Accessor-Trait fuer den Repayment-Letter-REST-Handler.
@@ -143,6 +156,80 @@ pub async fn generate_letters<RestState: RestStateDef + RepaymentLetterRestState
     )
 }
 
+/// Quick 260602-sgp: `GET /api/repayment-phase/{phase_id}/letters/download?format=zip|pdf`
+///
+/// Bulk-Download aller bereits persistierten RepaymentLetter-PDFs der Phase.
+/// NICHT-Neu-Render: Service laedt MemberDocuments mit
+/// `DocumentType::RepaymentLetter` aus dem Document-Storage. Fehlende Files
+/// werden geskippt; Count im `X-Skipped-Count`-Header.
+///
+/// Response-Header:
+/// - `Content-Type: application/zip` ODER `application/pdf`
+/// - `Content-Disposition: attachment; filename="auszahlungs_anschreiben_GJ_{fy}.{zip|pdf}"`
+/// - `X-Document-Count: N` — Anzahl erfolgreich zusammengefasster Letters
+/// - `X-Skipped-Count: M` — Anzahl fehlender Files im Storage
+#[utoipa::path(
+    get,
+    path = "/api/repayment-phase/{phase_id}/letters/download",
+    params(
+        ("phase_id" = Uuid, Path, description = "RepaymentPhase UUID — phase muss Open oder Closed sein"),
+        DownloadQuery,
+    ),
+    responses(
+        (status = 200,
+            description = "Bulk-Download als ZIP oder Bundle-PDF",
+            content_type = "application/octet-stream"),
+        (status = 400, description = "Ungueltiges format (nur 'zip' und 'pdf' erlaubt)"),
+        (status = 401, description = "Session ungueltig oder fehlt"),
+        (status = 403, description = "Auth gueltig, aber kein Vorstand (Helfer-Auth)"),
+        (status = 404, description = "Phase nicht gefunden ODER keine persistierten Letters"),
+        (status = 409, description = "Phase im Preparation-Status — phase_not_active"),
+    ),
+    tag = "RepaymentLetter"
+)]
+#[instrument(skip(rest_state))]
+pub async fn download_letters<RestState: RestStateDef + RepaymentLetterRestState>(
+    rest_state: State<RestState>,
+    Extension(context): Extension<Context>,
+    Path(phase_id): Path<Uuid>,
+    Query(query): Query<DownloadQuery>,
+) -> Response {
+    error_handler(
+        (async {
+            let auth = extract_auth_context(Some(context))?;
+
+            let format = match query.format.as_str() {
+                "zip" => RepaymentLetterDownloadFormat::Zip,
+                "pdf" => RepaymentLetterDownloadFormat::Pdf,
+                other => {
+                    return Err(RestError::BadRequest(format!(
+                        "invalid format '{}': use 'zip' or 'pdf'",
+                        other
+                    )));
+                }
+            };
+
+            let result: RepaymentLetterDownload = rest_state
+                .repayment_letter_service()
+                .download_bundle(phase_id, format, auth)
+                .await
+                .map_err(map_letter_error)?;
+
+            let cd = http_util::content_disposition_attachment(&result.filename);
+
+            Ok(Response::builder()
+                .status(200)
+                .header("Content-Type", result.content_type)
+                .header("Content-Disposition", &cd)
+                .header("X-Document-Count", result.document_count.to_string())
+                .header("X-Skipped-Count", result.skipped_count.to_string())
+                .body(Body::from(result.bytes))
+                .unwrap())
+        })
+        .await,
+    )
+}
+
 /// Router-Generator. Mount via
 /// `.nest("/api/repayment-phase", generate_letter_route::<RestState>())`.
 ///
@@ -151,15 +238,20 @@ pub async fn generate_letters<RestState: RestStateDef + RepaymentLetterRestState
 /// ist disjunkt von `/{phase_id}/export/{format}`.
 pub fn generate_letter_route<RestState: RestStateDef + RepaymentLetterRestState>(
 ) -> Router<RestState> {
-    Router::new().route(
-        "/{phase_id}/letters/generate",
-        post(generate_letters::<RestState>),
-    )
+    Router::new()
+        .route(
+            "/{phase_id}/letters/generate",
+            post(generate_letters::<RestState>),
+        )
+        .route(
+            "/{phase_id}/letters/download",
+            get(download_letters::<RestState>),
+        )
 }
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(generate_letters),
+    paths(generate_letters, download_letters),
     components(schemas(GenerateLettersRequest)),
     tags(
         (name = "RepaymentLetter",
@@ -211,5 +303,37 @@ mod tests {
         let json = r#"{"entry_ids":[]}"#;
         let req: GenerateLettersRequest = serde_json::from_str(json).unwrap();
         assert_eq!(req.entry_ids.len(), 0);
+    }
+
+    // ── Quick 260602-sgp: DownloadQuery deserialization ───────────────
+
+    #[test]
+    fn test_download_query_zip() {
+        let q: DownloadQuery = DownloadQuery {
+            format: "zip".to_string(),
+        };
+        assert_eq!(q.format, "zip");
+    }
+
+    #[test]
+    fn test_download_query_pdf() {
+        let q: DownloadQuery = DownloadQuery {
+            format: "pdf".to_string(),
+        };
+        assert_eq!(q.format, "pdf");
+    }
+
+    #[test]
+    fn test_download_query_json_deserialization_zip() {
+        // Verifiziert dass das serde-Mapping in Axum's Query-Extractor
+        // einen `format=zip`-String akzeptiert (form-urlencoded).
+        let q: DownloadQuery = serde_json::from_str(r#"{"format":"zip"}"#).unwrap();
+        assert_eq!(q.format, "zip");
+    }
+
+    #[test]
+    fn test_download_query_json_deserialization_pdf() {
+        let q: DownloadQuery = serde_json::from_str(r#"{"format":"pdf"}"#).unwrap();
+        assert_eq!(q.format, "pdf");
     }
 }

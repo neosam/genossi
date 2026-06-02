@@ -26,6 +26,33 @@ pub struct RepaymentLetterBundle {
     pub document_ids: Vec<Uuid>,
 }
 
+/// Quick 260602-sgp: Format-Wahl fuer Bulk-Download. ZIP packt Einzel-PDFs;
+/// PDF mergt sie zu einer Datei.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RepaymentLetterDownloadFormat {
+    Zip,
+    Pdf,
+}
+
+/// Quick 260602-sgp: Output des Bulk-Download-Service.
+///
+/// `bytes` ist application/zip ODER application/pdf je nach format.
+/// `document_count` zaehlt erfolgreich eingepackte Letters,
+/// `skipped_count` zaehlt MemberDocuments deren Files im Storage fehlten.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RepaymentLetterDownload {
+    /// Output bytes — entweder ZIP-Archiv oder gemerged Bundle-PDF.
+    pub bytes: Vec<u8>,
+    /// MIME type — "application/zip" oder "application/pdf".
+    pub content_type: &'static str,
+    /// Filename fuer Content-Disposition.
+    pub filename: String,
+    /// Anzahl erfolgreich zusammengefasster Letters.
+    pub document_count: usize,
+    /// Anzahl MemberDocuments deren Files im Storage fehlten (skipped).
+    pub skipped_count: usize,
+}
+
 /// Bulk-Brief-Service. Generiert pro Member EIN auditiertes MemberDocument-PDF
 /// und ein transientes Bundle-PDF fuer den Druck-Workflow.
 ///
@@ -50,6 +77,27 @@ pub trait RepaymentLetterService: Send + Sync + 'static {
         entry_ids: Arc<[Uuid]>,
         context: Authentication<Self::Context>,
     ) -> Result<RepaymentLetterBundle, ServiceError>;
+
+    /// Quick 260602-sgp: Bulk-Download aller bereits persistierten RepaymentLetter-PDFs einer Phase.
+    ///
+    /// NICHT-Neu-Render: liest ausschliesslich MemberDocuments mit
+    /// `DocumentType::RepaymentLetter`, deren description "Anschreiben Auszahlung GJ {fy}"
+    /// zur Phase passt. Bei `RepaymentLetterDownloadFormat::Zip` werden Einzel-PDFs
+    /// in einem ZIP-Archiv geliefert; bei `Pdf` werden sie via `lopdf` zu einer
+    /// Bundle-PDF zusammengefuegt.
+    ///
+    /// Returns:
+    /// - 0 persistierte Letters -> `ServiceError::EntityNotFound(phase_id)` (REST -> 404)
+    /// - Files im Storage teilweise fehlend -> erfolgreiche werden gepackt,
+    ///   `skipped_count` zaehlt fehlende (REST liefert sie als Header)
+    ///
+    /// Reiner Lese-Endpoint — KEIN audited_*! Macro, KEIN MemberDocument-Mutation.
+    async fn download_bundle(
+        &self,
+        phase_id: Uuid,
+        format: RepaymentLetterDownloadFormat,
+        context: Authentication<Self::Context>,
+    ) -> Result<RepaymentLetterDownload, ServiceError>;
 }
 
 #[cfg(test)]
@@ -70,6 +118,37 @@ mod tests {
 
     #[test]
     fn test_mock_letter_service_compiles() {
+        let _m = MockRepaymentLetterService::new();
+    }
+
+    // ─── Quick 260602-sgp ───────────────────────────────────────────
+
+    #[test]
+    fn test_download_format_enum_variants() {
+        assert_ne!(
+            RepaymentLetterDownloadFormat::Zip,
+            RepaymentLetterDownloadFormat::Pdf
+        );
+    }
+
+    #[test]
+    fn test_download_struct_fields() {
+        let d = RepaymentLetterDownload {
+            bytes: vec![1, 2, 3],
+            content_type: "application/zip",
+            filename: "x.zip".to_string(),
+            document_count: 2,
+            skipped_count: 1,
+        };
+        assert_eq!(d.bytes.len(), 3);
+        assert_eq!(d.content_type, "application/zip");
+        assert_eq!(d.document_count, 2);
+        assert_eq!(d.skipped_count, 1);
+    }
+
+    #[test]
+    fn test_mock_download_bundle_compiles() {
+        // Smoke-Test fuer automock-Generation auf die neue Methode.
         let _m = MockRepaymentLetterService::new();
     }
 }

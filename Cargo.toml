@@ -58,5 +58,7 @@ calamine = "0.26"
 axum-oidc = "0.6"
 http = "1.1"
 lettre = { version = "0.11", default-features = false, features = ["tokio1-rustls-tls", "smtp-transport", "builder", "hostname"] }
+lopdf = "0.34"
 typst = "0.14"
 typst-pdf = "0.14"
+zip = { version = "2", default-features = false, features = ["deflate"] }
