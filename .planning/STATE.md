@@ -32,7 +32,7 @@ progress:
 Phase: 13
 Plan: Not started
 Status: Milestone complete
-Last activity: 2026-06-02
+Last activity: 2026-06-02 - Completed quick task 260602-c19: Fix Mail-Preview Repayment-Kontext (share_count immer 1)
 
 ## Closure Snapshot (v1.0, 2026-05-29)
 
@@ -233,6 +233,7 @@ Keine.
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260601-pfy | Warnungen und Clippy-Findings im Backend beheben | 2026-06-01 | 5c98971e | [260601-pfy-warnungen-und-clippy-findings-im-backend](./quick/260601-pfy-warnungen-und-clippy-findings-im-backend/) |
+| 260602-c19 | Fix Mail-Preview Repayment-Kontext (share_count immer 1) | 2026-06-02 | 1e48b2f | [260602-c19-fix-mail-preview-repayment-kontext-share](./quick/260602-c19-fix-mail-preview-repayment-kontext-share/) |
 
 ## Deferred Items
 
