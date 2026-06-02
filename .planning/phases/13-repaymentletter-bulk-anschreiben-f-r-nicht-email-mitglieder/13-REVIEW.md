@@ -32,7 +32,32 @@ findings:
   warning: 6
   info: 4
   total: 12
-status: issues_found
+status: clean
+fixes_applied:
+  - id: CR-01
+    status: fixed
+    commit: 6256618
+  - id: CR-02
+    status: fixed
+    commit: 397c8d9
+  - id: WR-01
+    status: fixed
+    commit: b7fe99a
+  - id: WR-02
+    status: fixed
+    commit: 506bffa
+  - id: WR-03
+    status: fixed
+    commit: d760a60
+  - id: WR-04
+    status: fixed
+    commit: 903c8c3
+  - id: WR-05
+    status: fixed
+    commit: f72f049
+  - id: WR-06
+    status: fixed
+    commit: 170b15a
 ---
 
 # Phase 13: Code Review Report — RepaymentLetter Bulk-Anschreiben
@@ -57,6 +82,7 @@ Daneben sechs WARNINGs (Cleanup nach Bundle-Render-Fehler nicht abgedeckt, Bulk-
 
 ### CR-01: Dioxus-Hook im async `spawn`-Block (Hook-Rules-Verletzung)
 
+**Status:** fixed (commit 6256618)
 **File:** `genossi-frontend/src/page/repayment_phase_details.rs:305`
 **Issue:** Innerhalb des `on_letter_request`-Handlers wird `use_i18n()` in der async `spawn`-Closure aufgerufen, nachdem die Letter-Response zurückgekommen ist:
 
@@ -102,6 +128,7 @@ spawn(async move {
 
 ### CR-02: Verwaiste PDF-Dateien bei Audit-Create-Fehler im Schreibe-Tx-Loop
 
+**Status:** fixed (commit 397c8d9 — Variant A atomic-then-persist)
 **File:** `genossi_service_impl/src/repayment_letter.rs:296-354`
 **Issue:** Der Schreibe-Tx-Loop speichert pro Recipient zuerst das PDF auf dem Filesystem, dann persistiert das `MemberDocument` via `audited_create!`:
 
@@ -191,6 +218,7 @@ Hinweis: das Service-Test `test_generate_sequential_audited_create_pitfall_4` de
 
 ### WR-01: Bundle-Render-Fehler nach Read-Tx-Commit lässt user_id-Resolution-Fehler unklar
 
+**Status:** fixed (commit b7fe99a — user_id-Resolution vor Read-Tx-Open, 4 Funnel-Tests an neue Mock-Erwartung angepasst)
 **File:** `genossi_service_impl/src/repayment_letter.rs:268-293`
 **Issue:** Reihenfolge:
 1. `commit(read_tx)` (Zeile 268)
@@ -204,6 +232,7 @@ Wenn `resolve_user_id_or_deny` zwischen Read-Tx-Commit und Render fehlschlägt (
 
 ### WR-02: Bulk-Limit 200 vs. Frontend ohne clientseitige Begrenzung
 
+**Status:** fixed (commit 506bffa — Client-Side-Guard mit MAX_LETTER_BULK=200 + neuer i18n-Key RepaymentLetterBulkLimitExceeded in de/en)
 **File:** `genossi_service_impl/src/repayment_letter.rs:62` (`MAX_ENTRY_IDS_PER_REQUEST: usize = 200`) und `genossi-frontend/src/component/repayment_entry_list.rs:259-282` (Letter-Button)
 **Issue:** Das Backend lehnt Requests mit > 200 entry_ids mit `ValidationError`/400 ab — sinnvoll als DoS-Schutz. Aber das Frontend kennt diese Grenze NICHT:
 
@@ -219,6 +248,7 @@ In der Praxis ist das selten, weil eine GV typischerweise <100 Austritte hat. Ab
 
 ### WR-03: `X-Document-Count`-Header wird vom Browser CORS-bedingt NICHT exponiert
 
+**Status:** fixed (commit d760a60 — `.expose_headers([x-document-count, content-disposition])` zu `build_cors_layer` ergänzt)
 **File:** `genossi_rest/src/lib.rs:415` (CORS-Layer) und `genossi_rest/src/repayment_letter.rs:138` (Header-Setzung)
 **Issue:** Der Backend setzt `X-Document-Count: N` und das Frontend liest ihn in `api.rs:2018-2024`:
 
@@ -257,6 +287,7 @@ Plus: explicit unit/integration-Test im Frontend-API-Layer, der das CORS-Header-
 
 ### WR-04: `test_letter_helper_auth_returns_403` akzeptiert auch 5xx-Folge-Fehler
 
+**Status:** fixed (commit 903c8c3 — `assert!` → `assert_eq!(status, StatusCode::FORBIDDEN)`; #[ignore] bleibt)
 **File:** `genossi_bin/tests/repayment_letter_e2e.rs:570-577`
 **Issue:** Der ignorierte Test enthält folgende Assertion:
 
@@ -288,6 +319,7 @@ Wenn `mock_auth` keinen non-admin-Pfad bietet, ist der Test ohnehin nutzlos — 
 
 ### WR-05: `RepaymentLetterServiceImpl`-Felder sind `pub` — bypassed DI-Constructor
 
+**Status:** fixed (commit f72f049 — `pub fn new(...)`-Constructor mit 12 Parametern hinzugefügt; pub-Felder bleiben für Backwards-Compat mit Test-Helpern)
 **File:** `genossi_service_impl/src/repayment_letter.rs:92-105`
 **Issue:** Alle Service-Felder sind `pub`:
 
@@ -336,6 +368,7 @@ impl<Deps: RepaymentLetterServiceDeps> RepaymentLetterServiceImpl<Deps> {
 
 ### WR-06: Idempotente Re-Generierung erzeugt N Storage-Files OHNE Cleanup-Strategie
 
+**Status:** fixed-documented (commit 170b15a — TODO-Doc-Kommentar auf `DocumentType::is_singleton()` mit den drei deferred-Strategien; behavioural fix bleibt für phase-14+ Follow-up wie im Scope vorgegeben)
 **File:** `genossi_service_impl/src/repayment_letter.rs:295-352` (Schreibe-Tx-Loop) und `genossi_service/src/member_document.rs:87-94` (`is_singleton == false`)
 **Issue:** D-13-08 erlaubt Re-Generierung explizit — jeder Bulk-Letter-Call erzeugt N neue MemberDocuments pro Member, jedes mit eigenem `id.pdf` im Storage. Der E2E-Test `test_letter_idempotency_d13_08_and_no_status_toggle_d13_09` (`repayment_letter_e2e.rs:782-866`) bestätigt: nach 2 Calls existieren 2 MemberDocuments + 2 PDFs für denselben Member.
 
