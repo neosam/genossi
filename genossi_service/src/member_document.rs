@@ -86,6 +86,20 @@ impl DocumentType {
 
     /// Phase 13 D-13-08: RepaymentLetter ist NICHT singleton — Re-Generierung erlaubt
     /// (z.B. nach Anteils-Korrektur). Daher NICHT in der `matches!`-Liste unten.
+    ///
+    /// WR-06 (Storage-Wachstum): D-13-08 ist intentional, aber jede Re-Generierung
+    /// erzeugt ein zusaetzliches MemberDocument + PDF-File pro Member. Bei N Korrekturen
+    /// in derselben Phase wachsen Storage und UI-Liste linear. Keine Cleanup-/
+    /// History-Strategie implementiert.
+    ///
+    /// TODO(phase-14+): Eine der drei Strategien umsetzen:
+    ///   1) Soft-Delete frueherer RepaymentLetter-Dokumente pro (member, phase) beim
+    ///      Re-Generate (audited_delete macht den Vorgang nachvollziehbar).
+    ///   2) Storage-Cleanup-Worker fuer orphan-PDFs (z.B. 30-Tage-Retention).
+    ///   3) UI-Filter: nur juengstes RepaymentLetter pro Phase prominent, aelteres unter
+    ///      "Verlauf" (UI-only, kein Backend-Change).
+    /// Plus: Member-Delete-Cascade-Test, der verifiziert dass ALLE N RepaymentLetter-
+    /// Files mit aufgeraeumt werden (DSGVO-Loeschpflicht).
     pub fn is_singleton(&self) -> bool {
         matches!(
             self,
