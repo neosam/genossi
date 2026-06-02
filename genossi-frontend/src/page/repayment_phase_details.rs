@@ -272,6 +272,12 @@ pub fn RepaymentPhaseDetails(id: String) -> Element {
                                                     }
                                                     let phase_id_for_spawn = phase_id;
                                                     let fiscal_year_for_spawn = fiscal_year_for_letters;
+                                                    // CR-01 fix: i18n-Strings AM TOP-LEVEL des Components-Renders
+                                                    // resolven (use_i18n() ist ein Hook und darf NICHT in einer
+                                                    // async spawn-Closure laufen). Strings via move-capture in
+                                                    // die Closure — Pattern wie in BasicsTab/ExportTab.
+                                                    let toast_singular = i18n.t(Key::RepaymentLetterToastSingular).to_string();
+                                                    let toast_plural_template = i18n.t(Key::RepaymentLetterToastPlural).to_string();
                                                     spawn(async move {
                                                         let cfg = CONFIG.read().clone();
                                                         match api::generate_repayment_letters(
@@ -302,12 +308,14 @@ pub fn RepaymentPhaseDetails(id: String) -> Element {
                                                                 }
                                                                 // D-13-04: Server-Document-Count nutzen (NICHT entry_ids.len()).
                                                                 // Singular/Plural-aware Toast (deutsche Grammatik).
-                                                                let i18n_for_toast = use_i18n();
+                                                                // CR-01 fix: i18n-Strings sind via move-capture aus
+                                                                // dem Component-Top-Level uebergeben (KEIN use_i18n()
+                                                                // in der async spawn-Closure — Dioxus-Hook-Rules).
                                                                 let toast_msg = if result.document_count == 1 {
-                                                                    i18n_for_toast.t(Key::RepaymentLetterToastSingular).to_string()
+                                                                    toast_singular
                                                                 } else {
                                                                     let count_str = result.document_count.to_string();
-                                                                    i18n_for_toast.t(Key::RepaymentLetterToastPlural).replace("{count}", &count_str)
+                                                                    toast_plural_template.replace("{count}", &count_str)
                                                                 };
                                                                 show_toast(&mut toast_messages, &mut toast_counter, toast_msg);
 
