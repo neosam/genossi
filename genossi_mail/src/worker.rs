@@ -351,11 +351,18 @@ pub async fn start_mail_worker<C, J, R, A, SA, D, M, IB, MD, AL, MT, RE, RP, TX>
                                 let cents: i64 = (share_count as i64) * (phase.share_value);
                                 // German locale "X,YZ" (Plan 10.05-aligned formatting).
                                 let payout_amount = format!("{},{:02}", cents / 100, cents % 100);
+                                // Quick 260602-r2i: share_value phase-wide als Euro-String.
+                                let share_value_str = format!(
+                                    "{},{:02}",
+                                    phase.share_value / 100,
+                                    phase.share_value % 100
+                                );
 
                                 ctx = merge_repayment_context(
                                     ctx,
                                     &payout_amount,
                                     share_count,
+                                    &share_value_str,
                                     phase.fiscal_year,
                                 );
                             }

@@ -117,29 +117,33 @@ pub fn validate_template(
 
 /// Phase 10 D-04 (MAIL-02): merge per-recipient repayment-context into a base context.
 ///
-/// Adds three variables to a minijinja context that the Worker pre-computed from
+/// Adds four variables to a minijinja context that the Worker pre-computed from
 /// RepaymentEntry aggregation + RepaymentPhase lookup:
 /// - `payout_amount`: German-localized euro string, format "X,YZ" (e.g. "60,00").
 /// - `share_count`: total share count being paid out (i32).
+/// - `share_value`: phase-wide Anteilswert pro Anteil, German-localized euro
+///   string, format "X,YZ" (e.g. "20,00"). Quick 260602-r2i.
 /// - `fiscal_year`: phase.fiscal_year (i32, e.g. 2026).
 ///
 /// The base context (typically produced by `member_to_template_context`) is
-/// preserved verbatim. The three new fields are appended; if base happens to
+/// preserved verbatim. The four new fields are appended; if base happens to
 /// contain a clashing name, the new value wins (Phase 10 accepts that — the
 /// worker only calls this for repayment-flagged jobs).
 ///
 /// D-13 strict opt-in: if the worker does NOT call this helper (D-05 edge-case
 /// where a member has 0 Open/Contacted entries), templates that reference
-/// `payout_amount`/`share_count`/`fiscal_year` without `{% if %}`-guards will
-/// fail render under strict-env → triggers `mark_recipient_failed`.
+/// `payout_amount`/`share_count`/`share_value`/`fiscal_year` without
+/// `{% if %}`-guards will fail render under strict-env → triggers
+/// `mark_recipient_failed`.
 ///
 /// Implementation note: `context! { ..base, ... }`-spread is not supported by
 /// minijinja 2.19; we round-trip `base` through `serde_json` into a `BTreeMap`,
-/// insert the three new fields, and convert back via `Value::from_serialize`.
+/// insert the four new fields, and convert back via `Value::from_serialize`.
 pub fn merge_repayment_context(
     base: Value,
     payout_amount: &str,
     share_count: i32,
+    share_value: &str,
     fiscal_year: i32,
 ) -> Value {
     use std::collections::BTreeMap;
@@ -152,7 +156,7 @@ pub fn merge_repayment_context(
         _ => BTreeMap::new(),
     };
 
-    // Step 2: insert the 3 new fields (overwrites base if name clashes).
+    // Step 2: insert the 4 new fields (overwrites base if name clashes).
     map.insert(
         "payout_amount".to_string(),
         serde_json::Value::String(payout_amount.to_string()),
@@ -160,6 +164,10 @@ pub fn merge_repayment_context(
     map.insert(
         "share_count".to_string(),
         serde_json::Value::Number(serde_json::Number::from(share_count)),
+    );
+    map.insert(
+        "share_value".to_string(),
+        serde_json::Value::String(share_value.to_string()),
     );
     map.insert(
         "fiscal_year".to_string(),
@@ -208,7 +216,10 @@ pub fn validate_template_with_repayment(
     };
     for member in members {
         let base = member_to_template_context(member);
-        let merged = merge_repayment_context(base, "0,00", 0, 2026);
+        // Quick 260602-r2i: share_value als 4. Variable (Dummy "0,00") fuer
+        // Validation-Probe — Templates die {{ share_value }} ungeguarded
+        // referenzieren werden so abgefangen.
+        let merged = merge_repayment_context(base, "0,00", 0, "0,00", 2026);
         if let Err(e) = subject_tmpl.render(&merged) {
             errors.push(format!(
                 "Subject render error with repayment context for member #{}: {}",

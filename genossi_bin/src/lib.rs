@@ -1456,8 +1456,9 @@ impl genossi_mail::rest::MailRestState for RestStateImpl {
         &self,
         phase_id: UuidType,
         member_id: UuidType,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<(String, i32, i32)>> + Send + '_>>
-    {
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Option<(String, i32, String, i32)>> + Send + '_>,
+    > {
         let pool = self.pool.clone();
         Box::pin(async move {
             use genossi_dao::repayment_entry::{RepaymentEntryDao as _, RepaymentEntryStatus};
@@ -1499,7 +1500,13 @@ impl genossi_mail::rest::MailRestState for RestStateImpl {
             let cents: i64 = (share_count as i64) * phase.share_value;
             // German locale "X,YZ" — identical format string as worker.rs:353.
             let payout_amount = format!("{},{:02}", cents / 100, cents % 100);
-            Some((payout_amount, share_count, phase.fiscal_year))
+            // Quick 260602-r2i: share_value (phase-wide Anteilswert) als Euro-String.
+            let share_value_str = format!(
+                "{},{:02}",
+                phase.share_value / 100,
+                phase.share_value % 100
+            );
+            Some((payout_amount, share_count, share_value_str, phase.fiscal_year))
         })
     }
     fn resolve_document(

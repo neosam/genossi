@@ -54,12 +54,16 @@ pub trait MailRestState: Clone + Send + Sync + 'static {
     /// Returns `None` when the phase does not exist OR the member has no
     /// Open/Contacted entries in the phase (D-05 symmetry with the worker).
     ///
-    /// Tuple shape: `(payout_amount, share_count, fiscal_year)`.
+    /// Tuple shape: `(payout_amount, share_count, share_value, fiscal_year)`.
+    /// `share_value` is the phase-wide Anteilswert pro Stueck as German euro
+    /// string `X,YZ` (e.g. "120,00") — Quick 260602-r2i.
     fn resolve_repayment_context(
         &self,
         phase_id: uuid::Uuid,
         member_id: uuid::Uuid,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<(String, i32, i32)>> + Send + '_>>;
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Option<(String, i32, String, i32)>> + Send + '_>,
+    >;
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
@@ -522,11 +526,12 @@ pub async fn preview_mail<S: MailRestState>(
                         MailServiceError::BadRequest(Arc::from("Invalid repayment_phase_id"))
                     })?;
                     match state.resolve_repayment_context(phase_id, member_id).await {
-                        Some((payout, share_count, fiscal_year)) => {
+                        Some((payout, share_count, share_value, fiscal_year)) => {
                             crate::template::merge_repayment_context(
                                 base_ctx,
                                 &payout,
                                 share_count,
+                                &share_value,
                                 fiscal_year,
                             )
                         }
