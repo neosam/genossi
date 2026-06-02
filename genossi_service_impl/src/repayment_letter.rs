@@ -293,26 +293,33 @@ impl<Deps: RepaymentLetterServiceDeps> RepaymentLetterService
         )?;
 
         // 11. Schreibe-Tx: alle MemberDocuments via audited_create (sequential — Pitfall #4).
+        //
+        // CR-02 fix (atomic-then-persist): File-Saves wurden vorher PRO Recipient
+        // VOR audited_create ausgefuehrt. Wenn audited_create fuer Recipient N
+        // fehlschlug, rollbackte SQLite alle vorherigen INSERTs, aber die N-1
+        // bereits geschriebenen PDF-Files blieben verwaist (Storage-vs-DB-Drift,
+        // DSGVO-relevant da personenbezogene Daten unverlinkt).
+        //
+        // Neu: a) alle audited_create-Calls + commit zuerst in der Schreibe-Tx,
+        //      b) erst NACH erfolgreichem commit die PDF-Files aufs Filesystem
+        //         schreiben (planned_saves-Liste).
+        //
+        // Tradeoff: Wenn das File-Write nach dem commit fehlschlaegt, gibt es
+        // umgekehrt einen MemberDocument-DB-Row OHNE PDF-File. Das ist
+        // operativ tolerabler (der Vorstand sieht ein nicht-ladbares Doc und
+        // kann re-generieren, statt unbemerkt verwaiste Personendaten zu hinter-
+        // lassen). Wir return-en bei File-Fehler trotzdem mit Err — der Caller
+        // weiss damit, dass die Operation nicht vollstaendig durchgelaufen ist.
         let write_tx = self.transaction_dao.use_transaction(None).await?;
 
+        // (relative_path, &pdf_bytes) — wird erst NACH Tx-Commit auf Disk geschrieben.
+        let mut planned_saves: Vec<(String, &Vec<u8>)> = Vec::with_capacity(recipients.len());
         let mut document_ids: Vec<Uuid> = Vec::with_capacity(recipients.len());
         for ((member, _ctx), (_mid, pdf_bytes)) in
             recipients.iter().zip(single_pdfs.iter())
         {
             let doc_id = self.uuid_service.new_v4().await;
             let relative_path = format!("{}.pdf", doc_id);
-
-            // File-Save VOR audited_create (kein verwaistes MemberDocument
-            // bei DAO-Fehler; verwaiste Files bei DAO-Erfolg muss Operator
-            // ggf. aufraeumen — siehe threat_model "Verwaiste Files").
-            self.document_storage
-                .save(&relative_path, pdf_bytes)
-                .await
-                .map_err(|e| {
-                    ServiceError::InternalError(Arc::from(
-                        format!("document_storage save failed: {}", e).as_str(),
-                    ))
-                })?;
 
             let now = time::OffsetDateTime::now_utc();
             let new_doc = MemberDocument {
@@ -348,10 +355,28 @@ impl<Deps: RepaymentLetterServiceDeps> RepaymentLetterService
                 &user_id,
                 write_tx
             );
+            planned_saves.push((relative_path, pdf_bytes));
             document_ids.push(doc_id);
         }
 
+        // Commit FIRST — Audit-Hashchain + MemberDocument-Rows sind nun
+        // atomar persistiert. Bei Tx-Fehler wurde NICHTS aufs Filesystem
+        // geschrieben (planned_saves wird nie ausgefuehrt).
         self.transaction_dao.commit(write_tx).await?;
+
+        // NACH commit: PDF-Files persistieren. Bei File-Fehler bleibt das
+        // korrespondierende MemberDocument als nicht-ladbar im Audit-Log —
+        // operativ tolerabler als verwaiste personenbezogene PDF-Files.
+        for (path, bytes) in &planned_saves {
+            self.document_storage
+                .save(path, bytes)
+                .await
+                .map_err(|e| {
+                    ServiceError::InternalError(Arc::from(
+                        format!("document_storage save failed: {}", e).as_str(),
+                    ))
+                })?;
+        }
 
         // 12. Return Bundle + Metadaten.
         let filename = format!("auszahlungs_anschreiben_GJ_{}.pdf", phase.fiscal_year);
