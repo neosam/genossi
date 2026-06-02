@@ -1,6 +1,6 @@
 [package]
 name = "genossi-frontend"
-version = "2026.153.1"
+version = "2026.153.2-dev"
 authors = ["Genossi Team"]
 edition = "2021"
 
