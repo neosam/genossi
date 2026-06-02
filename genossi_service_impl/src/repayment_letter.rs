@@ -177,6 +177,38 @@ impl<Deps: RepaymentLetterServiceDeps> RepaymentLetterServiceImpl<Deps> {
         Ok(phase)
     }
 
+    /// Quick 260602-q9l: idempotente Regenerate-Lookup.
+    ///
+    /// Sucht das (aktive) RepaymentLetter-MemberDocument fuer den uebergebenen
+    /// `fiscal_year` aus einer bereits per `find_by_member_id` geladenen
+    /// Doc-Liste. Reine Funktion (kein DI, kein async) — leicht unit-testbar.
+    ///
+    /// Filter:
+    ///   - `deleted is None`         (Defense-in-Depth; `find_by_member_id`
+    ///     filtert das bereits, aber wir wollen die Regel hier explizit halten.)
+    ///   - `document_type == "repayment_letter"`
+    ///   - `description == "Anschreiben Auszahlung GJ {fiscal_year}"`
+    ///
+    /// Das Description-Feld ist hier der per-Row-Fingerprint fuer
+    /// (member, phase): `MemberDocumentEntity` hat kein `phase_id` /
+    /// `fiscal_year`-Feld, daher dient die Description als deterministische
+    /// Identifikation. Aenderungen an dem Description-Format MUESSEN mit dieser
+    /// Funktion synchron gehalten werden (siehe Konstruktionsstelle weiter unten
+    /// im `generate()`-write-tx-Loop).
+    fn find_existing_letter_for_phase(
+        docs: &[MemberDocumentEntity],
+        fiscal_year: i32,
+    ) -> Option<MemberDocumentEntity> {
+        let expected_desc = format!("Anschreiben Auszahlung GJ {}", fiscal_year);
+        docs.iter()
+            .find(|d| {
+                d.deleted.is_none()
+                    && d.document_type.as_ref() == DocumentType::RepaymentLetter.as_str()
+                    && d.description.as_deref() == Some(expected_desc.as_str())
+            })
+            .cloned()
+    }
+
     /// user_id-Resolution. **KEIN Sentinel-UUID-Fallback** — bei
     /// nicht-extrahierbarer user_id wird `ServiceError::PermissionDenied`
     /// geworfen, damit der audit_log.user_id-String NIE leer ist und
@@ -359,45 +391,102 @@ impl<Deps: RepaymentLetterServiceDeps> RepaymentLetterService
         for ((member, _ctx), (_mid, pdf_bytes)) in
             recipients.iter().zip(single_pdfs.iter())
         {
-            let doc_id = self.uuid_service.new_v4().await;
-            let relative_path = format!("{}.pdf", doc_id);
+            // Quick 260602-q9l: idempotent regenerate -- audited_update if existing.
+            //
+            // Lookup-Heuristik (member, phase): MemberDocumentEntity hat KEIN
+            // `phase_id`/`fiscal_year`-Feld; wir scopen daher in zwei Stufen:
+            //   1) DAO-Read `find_by_member_id` (filtert bereits deleted IS NULL).
+            //   2) In-Memory-Filter ueber document_type + description-Fingerprint.
+            // Description-Format MUSS exakt dem Konstruktor unten entsprechen
+            // ("Anschreiben Auszahlung GJ {fiscal_year}") — siehe
+            // `find_existing_letter_for_phase`.
+            let existing_for_member = self
+                .member_document_dao
+                .find_by_member_id(member.id, write_tx.clone())
+                .await?;
+            let existing = Self::find_existing_letter_for_phase(
+                &existing_for_member,
+                phase.fiscal_year,
+            );
 
             let now = time::OffsetDateTime::now_utc();
-            let new_doc = MemberDocument {
-                id: doc_id,
-                member_id: member.id,
-                document_type: DocumentType::RepaymentLetter,
-                description: Some(Arc::from(
-                    format!("Anschreiben Auszahlung GJ {}", phase.fiscal_year).as_str(),
-                )),
-                file_name: Arc::from(
-                    format!(
-                        "auszahlungs_anschreiben_{}_GJ_{}.pdf",
-                        member.member_number, phase.fiscal_year
-                    )
-                    .as_str(),
-                ),
-                mime_type: Arc::from("application/pdf"),
-                relative_path: Arc::from(relative_path.as_str()),
-                created: time::PrimitiveDateTime::new(now.date(), now.time()),
-                deleted: None,
-                version: self.uuid_service.new_v4().await,
-                template_id: None,       // D-LETT-04
-                mail_recipient_id: None, // D-LETT-04
-                status: None,            // D-LETT-04
-            };
-
-            let doc_entity: MemberDocumentEntity = (&new_doc).into();
-            crate::audited_create!(
-                self,
-                self.member_document_dao,
-                &doc_entity,
-                REPAYMENT_LETTER_PROCESS,
-                &user_id,
-                write_tx
+            let file_name = Arc::from(
+                format!(
+                    "auszahlungs_anschreiben_{}_GJ_{}.pdf",
+                    member.member_number, phase.fiscal_year
+                )
+                .as_str(),
             );
-            planned_saves.push((relative_path, pdf_bytes));
-            document_ids.push(doc_id);
+            let description = Some(Arc::from(
+                format!("Anschreiben Auszahlung GJ {}", phase.fiscal_year).as_str(),
+            ));
+
+            if let Some(existing_doc) = existing {
+                // UPDATE-Zweig: gleiche `id` + gleiches `relative_path` ->
+                // PDF-File auf Disk wird in place ueberschrieben; audit_log
+                // bekommt UPDATE-Eintraege fuer geaenderte Felder.
+                let existing_id = existing_doc.id;
+                let existing_relative_path = existing_doc.relative_path.clone();
+                let updated_doc = MemberDocumentEntity {
+                    id: existing_id,
+                    member_id: existing_doc.member_id,
+                    document_type: Arc::from(DocumentType::RepaymentLetter.as_str()),
+                    description,
+                    file_name,
+                    mime_type: Arc::from("application/pdf"),
+                    relative_path: existing_relative_path.clone(),
+                    created: existing_doc.created, // immutable.
+                    deleted: None,
+                    version: self.uuid_service.new_v4().await, // rotate per optimistic-locking.
+                    template_id: None,       // D-LETT-04
+                    mail_recipient_id: None, // D-LETT-04
+                    status: None,            // D-LETT-04
+                };
+                crate::audited_update!(
+                    self,
+                    self.member_document_dao,
+                    existing_id,
+                    &updated_doc,
+                    REPAYMENT_LETTER_PROCESS,
+                    &user_id,
+                    write_tx
+                );
+                planned_saves.push((existing_relative_path.to_string(), pdf_bytes));
+                document_ids.push(existing_id);
+            } else {
+                // CREATE-Zweig: unveraenderte Backwards-Compat fuer erste
+                // Generierung. Fresh `doc_id` + `relative_path = "{doc_id}.pdf"`.
+                let doc_id = self.uuid_service.new_v4().await;
+                let relative_path = format!("{}.pdf", doc_id);
+
+                let new_doc = MemberDocument {
+                    id: doc_id,
+                    member_id: member.id,
+                    document_type: DocumentType::RepaymentLetter,
+                    description,
+                    file_name,
+                    mime_type: Arc::from("application/pdf"),
+                    relative_path: Arc::from(relative_path.as_str()),
+                    created: time::PrimitiveDateTime::new(now.date(), now.time()),
+                    deleted: None,
+                    version: self.uuid_service.new_v4().await,
+                    template_id: None,       // D-LETT-04
+                    mail_recipient_id: None, // D-LETT-04
+                    status: None,            // D-LETT-04
+                };
+
+                let doc_entity: MemberDocumentEntity = (&new_doc).into();
+                crate::audited_create!(
+                    self,
+                    self.member_document_dao,
+                    &doc_entity,
+                    REPAYMENT_LETTER_PROCESS,
+                    &user_id,
+                    write_tx
+                );
+                planned_saves.push((relative_path, pdf_bytes));
+                document_ids.push(doc_id);
+            }
         }
 
         // Commit FIRST — Audit-Hashchain + MemberDocument-Rows sind nun
@@ -1119,6 +1208,11 @@ mod tests {
 
         // Doc-DAO: create wird 2x aufgerufen (unique members).
         let mut doc_dao = MockTestMemberDocumentDao::new();
+        // Quick 260602-q9l: idempotente Lookup-Vorabfrage liefert leere Liste
+        // -> fall-through zum unveraenderten CREATE-Zweig.
+        doc_dao
+            .expect_find_by_member_id()
+            .returning(|_, _| Ok(Arc::from(Vec::<MemberDocumentEntity>::new())));
         doc_dao.expect_create().times(2).returning(|_, _, _| Ok(()));
 
         // Audit-DAO: get_latest_hash + create_entries (audited_create Internals).
@@ -1257,6 +1351,11 @@ mod tests {
             .returning(move |_, _| Ok(Some(m1_clone.clone())));
 
         let mut doc_dao = MockTestMemberDocumentDao::new();
+        // Quick 260602-q9l: idempotente Lookup-Vorabfrage liefert leere Liste
+        // -> fall-through zum unveraenderten CREATE-Zweig.
+        doc_dao
+            .expect_find_by_member_id()
+            .returning(|_, _| Ok(Arc::from(Vec::<MemberDocumentEntity>::new())));
         doc_dao.expect_create().returning(|_, _, _| Ok(()));
 
         let mut audit_dao = MockTestAuditLogDao::new();
@@ -1329,6 +1428,11 @@ mod tests {
             .returning(move |_, _| Ok(Some(m1_clone.clone())));
 
         let mut doc_dao = MockTestMemberDocumentDao::new();
+        // Quick 260602-q9l: idempotente Lookup-Vorabfrage liefert leere Liste
+        // -> fall-through zum unveraenderten CREATE-Zweig.
+        doc_dao
+            .expect_find_by_member_id()
+            .returning(|_, _| Ok(Arc::from(Vec::<MemberDocumentEntity>::new())));
         // EIN audited_create (1 unique member, NICHT 2 — D-13-04).
         doc_dao.expect_create().times(1).returning(|_, _, _| Ok(()));
 
@@ -1591,6 +1695,13 @@ mod tests {
 
         let mut seq = Sequence::new();
         let mut doc_dao = MockTestMemberDocumentDao::new();
+        // Quick 260602-q9l: idempotente Lookup-Vorabfrage liefert leere Liste
+        // -> fall-through zum unveraenderten CREATE-Zweig (Sequence bleibt
+        // damit fuer `create` deterministisch; `find_by_member_id` ist nicht
+        // Teil der `Sequence`).
+        doc_dao
+            .expect_find_by_member_id()
+            .returning(|_, _| Ok(Arc::from(Vec::<MemberDocumentEntity>::new())));
         doc_dao
             .expect_create()
             .times(1)
@@ -1681,6 +1792,11 @@ mod tests {
         });
 
         let mut doc_dao = MockTestMemberDocumentDao::new();
+        // Quick 260602-q9l: idempotente Lookup-Vorabfrage liefert leere Liste
+        // -> fall-through zum unveraenderten CREATE-Zweig.
+        doc_dao
+            .expect_find_by_member_id()
+            .returning(|_, _| Ok(Arc::from(Vec::<MemberDocumentEntity>::new())));
         doc_dao.expect_create().times(3).returning(|_, _, _| Ok(()));
 
         let mut audit_dao = MockTestAuditLogDao::new();
@@ -1793,6 +1909,11 @@ mod tests {
             .returning(move |_, _| Ok(Some(m1_clone.clone())));
 
         let mut doc_dao = MockTestMemberDocumentDao::new();
+        // Quick 260602-q9l: idempotente Lookup-Vorabfrage liefert leere Liste
+        // -> fall-through zum unveraenderten CREATE-Zweig.
+        doc_dao
+            .expect_find_by_member_id()
+            .returning(|_, _| Ok(Arc::from(Vec::<MemberDocumentEntity>::new())));
         doc_dao.expect_create().returning(|_, _, _| Ok(()));
 
         // KRITISCH: jede AuditLogEntry.user_id muss "vorstand-explizit" sein.
@@ -1847,6 +1968,455 @@ mod tests {
         assert!(
             user_check_calls.load(Ordering::SeqCst) > 0,
             "audit create_entries must have been called and user_id verified"
+        );
+    }
+
+    // ----------------------------------------------------------------------
+    // Quick 260602-q9l — Idempotent regenerate via audited_update! (3 Tests).
+    // ----------------------------------------------------------------------
+
+    /// Helper: build an existing RepaymentLetter-MemberDocumentEntity for a
+    /// given member + fiscal_year. Description fingerprint matches the format
+    /// used by `generate()` so `find_existing_letter_for_phase` finds it.
+    fn existing_repayment_letter_doc(
+        doc_id: Uuid,
+        member_id: Uuid,
+        fiscal_year: i32,
+        member_number: i64,
+        relative_path: &str,
+    ) -> MemberDocumentEntity {
+        MemberDocumentEntity {
+            id: doc_id,
+            member_id,
+            document_type: Arc::from(DocumentType::RepaymentLetter.as_str()),
+            description: Some(Arc::from(
+                format!("Anschreiben Auszahlung GJ {}", fiscal_year).as_str(),
+            )),
+            file_name: Arc::from(
+                format!(
+                    "auszahlungs_anschreiben_{}_GJ_{}.pdf",
+                    member_number, fiscal_year
+                )
+                .as_str(),
+            ),
+            mime_type: Arc::from("application/pdf"),
+            relative_path: Arc::from(relative_path),
+            created: datetime!(2026 - 01 - 01 00:00:00),
+            deleted: None,
+            version: Uuid::new_v4(),
+            template_id: None,
+            mail_recipient_id: None,
+            status: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_generate_overwrites_existing_repayment_letter_in_place() {
+        // Test A — idempotenter Regenerate-Pfad.
+        // Pre-Condition: `find_by_member_id` liefert EIN bestehendes
+        // RepaymentLetter-MemberDocument fuer (m1, GJ 2025).
+        // Erwartung: doc_dao.create NIE, doc_dao.update GENAU 1x; storage.save
+        // mit dem EXISTIERENDEN relative_path; entry_dao.update/.create NIE
+        // (D-13-09); document_ids[0] == existing_id.
+        let phase = test_phase(RepaymentPhaseStatus::Open, 2025);
+        let phase_id = phase.id;
+        let m1 = test_member(101, "Alice", "A");
+        let e1 = test_entry(phase_id, m1.id, RepaymentEntryStatus::Open);
+        let entry_ids: Arc<[Uuid]> = vec![e1.id].into();
+
+        let existing_id = Uuid::new_v4();
+        let existing_relative_path = format!("{}.pdf", existing_id);
+        let existing_doc = existing_repayment_letter_doc(
+            existing_id,
+            m1.id,
+            2025,
+            m1.member_number,
+            &existing_relative_path,
+        );
+
+        let phase_clone = phase.clone();
+        let mut phase_dao = MockTestPhaseDao::new();
+        phase_dao
+            .expect_find_by_id()
+            .returning(move |_, _| Ok(Some(phase_clone.clone())));
+
+        let entries_arc: Arc<[RepaymentEntryEntity]> = vec![e1].into();
+        let mut entry_dao = MockTestEntryDao::new();
+        entry_dao
+            .expect_find_by_phase_id()
+            .returning(move |_, _| Ok(entries_arc.clone()));
+        // D-13-09 Invariant: NIE RepaymentEntryDao::update / .create.
+        entry_dao.expect_update().times(0);
+        entry_dao.expect_create().times(0);
+
+        let m1_clone = m1.clone();
+        let mut member_dao = MockTestMemberDao::new();
+        member_dao
+            .expect_find_by_id()
+            .returning(move |_, _| Ok(Some(m1_clone.clone())));
+
+        let mut doc_dao = MockTestMemberDocumentDao::new();
+        // Lookup-Vorabfrage liefert das bestehende Doc.
+        let existing_doc_for_lookup = existing_doc.clone();
+        doc_dao
+            .expect_find_by_member_id()
+            .returning(move |_, _| {
+                Ok(Arc::from(vec![existing_doc_for_lookup.clone()]))
+            });
+        // KEIN create — Update-Zweig.
+        doc_dao.expect_create().times(0);
+        // GENAU EIN update via audited_update! — `id` muss dem bestehenden
+        // Doc entsprechen, `relative_path` darf nicht rotiert worden sein.
+        let expected_path = existing_relative_path.clone();
+        doc_dao
+            .expect_update()
+            .times(1)
+            .withf(move |entity, _, _| {
+                entity.id == existing_id
+                    && entity.member_id == m1.id
+                    && entity.document_type.as_ref()
+                        == DocumentType::RepaymentLetter.as_str()
+                    && entity.relative_path.as_ref() == expected_path.as_str()
+            })
+            .returning(|_, _, _| Ok(()));
+        // audited_update! laedt das alte Entity per find_by_id.
+        let existing_doc_for_find = existing_doc.clone();
+        doc_dao
+            .expect_find_by_id()
+            .returning(move |id, _| {
+                if id == existing_id {
+                    Ok(Some(existing_doc_for_find.clone()))
+                } else {
+                    Ok(None)
+                }
+            });
+
+        let mut audit_dao = MockTestAuditLogDao::new();
+        // Hash-Chain extends — get_latest_hash + create_entries werden gerufen,
+        // genauso wie im CREATE-Pfad. Audit-Eintraege sind UPDATE-Klasse,
+        // verifiziert indirekt durch `doc_dao.expect_update().times(1)`.
+        audit_dao
+            .expect_get_latest_hash()
+            .returning(|_| Ok(None));
+        audit_dao
+            .expect_create_entries()
+            .returning(|_, _| Ok(()));
+
+        let mut perm = MockTestPermissionService::new();
+        perm.expect_check_permission().returning(|_, _| Ok(()));
+        perm.expect_current_user_id()
+            .returning(|_| Ok(Some("vorstand-regenerate".to_string())));
+
+        let tx_dao = tx_dao_permissive();
+
+        let mut resolver = MockTestResolver::new();
+        resolver
+            .expect_aggregate()
+            .returning(|_, _, _| Ok(sample_ctx(1, 2025)));
+
+        let mut storage = MockTestStorage::new();
+        // storage.save MUSS mit dem EXISTIERENDEN relative_path gerufen werden,
+        // damit das PDF in-place ueberschrieben wird (kein verwaister File-Pfad).
+        let expected_path_for_save = existing_relative_path.clone();
+        storage
+            .expect_save()
+            .times(1)
+            .withf(move |path, _| path == expected_path_for_save.as_str())
+            .returning(|_, _| Ok(()));
+
+        let mut uuid_svc = MockTestUuidService::new();
+        // Update-Zweig braucht NUR eine neue `version`-UUID (kein `doc_id`).
+        uuid_svc.expect_new_v4().times(1).returning(Uuid::new_v4);
+
+        let svc = build_service_with_templates(
+            phase_dao, entry_dao, member_dao, doc_dao, audit_dao, perm, tx_dao, uuid_svc,
+            resolver, storage,
+        );
+
+        let result = svc
+            .generate(phase_id, entry_ids, Authentication::Context(TestContext))
+            .await
+            .expect("regenerate Ok");
+        assert_eq!(
+            result.document_ids.len(),
+            1,
+            "1 member -> 1 doc (idempotent — kein duplicate)"
+        );
+        assert_eq!(
+            result.document_ids[0], existing_id,
+            "row identity preserved across regeneration"
+        );
+        assert!(
+            result.bundle_bytes.starts_with(b"%PDF-"),
+            "Bundle is PDF"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_generate_creates_new_when_no_existing_letter() {
+        // Test B — Backwards-Compat: erste Generierung.
+        // Pre-Condition: `find_by_member_id` liefert NUR unrelated Dokumente
+        // (document_type = "join_declaration") — die NICHT zum Update-Pfad
+        // filtern duerfen.
+        // Erwartung: doc_dao.update NIE, doc_dao.create GENAU 1x; fresh UUID
+        // in document_ids[0].
+        let phase = test_phase(RepaymentPhaseStatus::Open, 2025);
+        let phase_id = phase.id;
+        let m1 = test_member(101, "Alice", "A");
+        let e1 = test_entry(phase_id, m1.id, RepaymentEntryStatus::Open);
+        let entry_ids: Arc<[Uuid]> = vec![e1.id].into();
+
+        // Unrelated doc: gleicher Member, ABER document_type != repayment_letter.
+        // Description ist absichtlich aehnlich, um Regression zu fangen.
+        let unrelated_doc = MemberDocumentEntity {
+            id: Uuid::new_v4(),
+            member_id: m1.id,
+            document_type: Arc::from(DocumentType::JoinDeclaration.as_str()),
+            description: Some(Arc::from("Anschreiben Auszahlung GJ 2025")),
+            file_name: Arc::from("beitritt.pdf"),
+            mime_type: Arc::from("application/pdf"),
+            relative_path: Arc::from("xyz.pdf"),
+            created: datetime!(2026 - 01 - 01 00:00:00),
+            deleted: None,
+            version: Uuid::new_v4(),
+            template_id: None,
+            mail_recipient_id: None,
+            status: None,
+        };
+
+        let phase_clone = phase.clone();
+        let mut phase_dao = MockTestPhaseDao::new();
+        phase_dao
+            .expect_find_by_id()
+            .returning(move |_, _| Ok(Some(phase_clone.clone())));
+
+        let entries_arc: Arc<[RepaymentEntryEntity]> = vec![e1].into();
+        let mut entry_dao = MockTestEntryDao::new();
+        entry_dao
+            .expect_find_by_phase_id()
+            .returning(move |_, _| Ok(entries_arc.clone()));
+        entry_dao.expect_update().times(0);
+        entry_dao.expect_create().times(0);
+
+        let m1_clone = m1.clone();
+        let mut member_dao = MockTestMemberDao::new();
+        member_dao
+            .expect_find_by_id()
+            .returning(move |_, _| Ok(Some(m1_clone.clone())));
+
+        let mut doc_dao = MockTestMemberDocumentDao::new();
+        let unrelated_clone = unrelated_doc.clone();
+        doc_dao
+            .expect_find_by_member_id()
+            .returning(move |_, _| Ok(Arc::from(vec![unrelated_clone.clone()])));
+        // CREATE-Zweig.
+        doc_dao.expect_create().times(1).returning(|_, _, _| Ok(()));
+        // NIE update, sonst regression im document_type-Filter.
+        doc_dao.expect_update().times(0);
+
+        let mut audit_dao = MockTestAuditLogDao::new();
+        audit_dao.expect_get_latest_hash().returning(|_| Ok(None));
+        audit_dao.expect_create_entries().returning(|_, _| Ok(()));
+
+        let mut perm = MockTestPermissionService::new();
+        perm.expect_check_permission().returning(|_, _| Ok(()));
+        perm.expect_current_user_id()
+            .returning(|_| Ok(Some("vorstand".to_string())));
+
+        let tx_dao = tx_dao_permissive();
+
+        let mut resolver = MockTestResolver::new();
+        resolver
+            .expect_aggregate()
+            .returning(|_, _, _| Ok(sample_ctx(1, 2025)));
+
+        let mut storage = MockTestStorage::new();
+        storage.expect_save().times(1).returning(|_, _| Ok(()));
+
+        let mut uuid_svc = MockTestUuidService::new();
+        uuid_svc.expect_new_v4().returning(Uuid::new_v4);
+
+        let svc = build_service_with_templates(
+            phase_dao, entry_dao, member_dao, doc_dao, audit_dao, perm, tx_dao, uuid_svc,
+            resolver, storage,
+        );
+
+        let result = svc
+            .generate(phase_id, entry_ids, Authentication::Context(TestContext))
+            .await
+            .expect("first generate Ok");
+        assert_eq!(
+            result.document_ids.len(),
+            1,
+            "1 member -> 1 doc (CREATE-Zweig)"
+        );
+        assert_ne!(
+            result.document_ids[0], unrelated_doc.id,
+            "fresh document MUST NOT collide with unrelated docs"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_generate_idempotent_two_calls_same_doc_id() {
+        // Test C — zwei aufeinanderfolgende generate()-Calls.
+        // Erster Call: find_by_member_id liefert []   -> CREATE.
+        // Zweiter Call: find_by_member_id liefert [just-created] -> UPDATE,
+        // SAME id wie im ersten Call.
+        // Erwartung: doc_dao.create.times(1), doc_dao.update.times(1),
+        // beide Calls liefern dieselbe `document_ids[0]`.
+        let phase = test_phase(RepaymentPhaseStatus::Open, 2025);
+        let phase_id = phase.id;
+        let m1 = test_member(101, "Alice", "A");
+        let e1 = test_entry(phase_id, m1.id, RepaymentEntryStatus::Open);
+        let entry_ids: Arc<[Uuid]> = vec![e1.id].into();
+
+        // Pre-determined doc_id for the create-branch (forces deterministic
+        // first-call doc_id via the UuidService mock below).
+        let stable_doc_id = Uuid::new_v4();
+        let stable_version_v1 = Uuid::new_v4();
+        let stable_version_v2 = Uuid::new_v4();
+
+        let phase_clone = phase.clone();
+        let mut phase_dao = MockTestPhaseDao::new();
+        phase_dao
+            .expect_find_by_id()
+            .returning(move |_, _| Ok(Some(phase_clone.clone())));
+
+        let entries_arc: Arc<[RepaymentEntryEntity]> = vec![e1].into();
+        let mut entry_dao = MockTestEntryDao::new();
+        entry_dao
+            .expect_find_by_phase_id()
+            .returning(move |_, _| Ok(entries_arc.clone()));
+        entry_dao.expect_update().times(0);
+        entry_dao.expect_create().times(0);
+
+        let m1_clone = m1.clone();
+        let mut member_dao = MockTestMemberDao::new();
+        member_dao
+            .expect_find_by_id()
+            .returning(move |_, _| Ok(Some(m1_clone.clone())));
+
+        // Mock find_by_member_id: call 1 -> empty; call 2 -> [created_doc].
+        // AtomicUsize-Pattern (identisch zum existing user_id-test).
+        let lookup_calls = Arc::new(AtomicUsize::new(0));
+        let lookup_calls_clone = lookup_calls.clone();
+        let m1_id = m1.id;
+        let created_relative_path = format!("{}.pdf", stable_doc_id);
+        let created_doc_for_lookup = existing_repayment_letter_doc(
+            stable_doc_id,
+            m1_id,
+            2025,
+            m1.member_number,
+            &created_relative_path,
+        );
+        let mut doc_dao = MockTestMemberDocumentDao::new();
+        doc_dao
+            .expect_find_by_member_id()
+            .returning(move |_, _| {
+                let n = lookup_calls_clone.fetch_add(1, Ordering::SeqCst);
+                if n == 0 {
+                    Ok(Arc::from(Vec::<MemberDocumentEntity>::new()))
+                } else {
+                    Ok(Arc::from(vec![created_doc_for_lookup.clone()]))
+                }
+            });
+        doc_dao.expect_create().times(1).returning(|_, _, _| Ok(()));
+        doc_dao.expect_update().times(1).returning(|_, _, _| Ok(()));
+        // audited_update! benoetigt find_by_id -> Doc von Call 1.
+        let created_doc_for_find = existing_repayment_letter_doc(
+            stable_doc_id,
+            m1_id,
+            2025,
+            m1.member_number,
+            &created_relative_path,
+        );
+        doc_dao
+            .expect_find_by_id()
+            .returning(move |id, _| {
+                if id == stable_doc_id {
+                    Ok(Some(created_doc_for_find.clone()))
+                } else {
+                    Ok(None)
+                }
+            });
+
+        let mut audit_dao = MockTestAuditLogDao::new();
+        audit_dao.expect_get_latest_hash().returning(|_| Ok(None));
+        audit_dao.expect_create_entries().returning(|_, _| Ok(()));
+
+        let mut perm = MockTestPermissionService::new();
+        perm.expect_check_permission().returning(|_, _| Ok(()));
+        perm.expect_current_user_id()
+            .returning(|_| Ok(Some("vorstand".to_string())));
+
+        // Zwei aufeinanderfolgende generate()-Calls -> 4 commits total
+        // (Read-Tx + Write-Tx pro Call). Daher KEIN tx_dao_permissive (das
+        // erlaubt nur 0..=2 commits — Quick-260602-q9l Test-C-spezifisch).
+        let mut tx_dao = MockTestTxDao::new();
+        tx_dao
+            .expect_use_transaction()
+            .returning(|_| Ok(TestTransaction));
+        tx_dao.expect_commit().times(4).returning(|_| Ok(()));
+
+        let mut resolver = MockTestResolver::new();
+        resolver
+            .expect_aggregate()
+            .returning(|_, _, _| Ok(sample_ctx(1, 2025)));
+
+        let mut storage = MockTestStorage::new();
+        storage.expect_save().returning(|_, _| Ok(()));
+
+        // UUID-Sequence: Call 1 (CREATE) = doc_id + version. Call 2 (UPDATE) = version only.
+        // Mockall `Sequence` koerzt die deterministische Reihenfolge.
+        use mockall::Sequence;
+        let mut uuid_seq = Sequence::new();
+        let mut uuid_svc = MockTestUuidService::new();
+        uuid_svc
+            .expect_new_v4()
+            .times(1)
+            .in_sequence(&mut uuid_seq)
+            .returning(move || stable_doc_id);
+        uuid_svc
+            .expect_new_v4()
+            .times(1)
+            .in_sequence(&mut uuid_seq)
+            .returning(move || stable_version_v1);
+        uuid_svc
+            .expect_new_v4()
+            .times(1)
+            .in_sequence(&mut uuid_seq)
+            .returning(move || stable_version_v2);
+
+        let svc = build_service_with_templates(
+            phase_dao, entry_dao, member_dao, doc_dao, audit_dao, perm, tx_dao, uuid_svc,
+            resolver, storage,
+        );
+
+        // Call 1 — CREATE.
+        let result1 = svc
+            .generate(
+                phase_id,
+                entry_ids.clone(),
+                Authentication::Context(TestContext),
+            )
+            .await
+            .expect("first generate Ok");
+        assert_eq!(result1.document_ids.len(), 1);
+        assert_eq!(result1.document_ids[0], stable_doc_id);
+
+        // Call 2 — UPDATE auf gleichem `id`.
+        let result2 = svc
+            .generate(phase_id, entry_ids, Authentication::Context(TestContext))
+            .await
+            .expect("second generate Ok");
+        assert_eq!(result2.document_ids.len(), 1);
+        assert_eq!(
+            result2.document_ids[0], stable_doc_id,
+            "row identity MUST be preserved across regenerations"
+        );
+        assert_eq!(
+            result1.document_ids[0], result2.document_ids[0],
+            "first and second generate return SAME document_id (idempotent)"
         );
     }
 }

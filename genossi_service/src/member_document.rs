@@ -92,9 +92,17 @@ impl DocumentType {
     /// in derselben Phase wachsen Storage und UI-Liste linear. Keine Cleanup-/
     /// History-Strategie implementiert.
     ///
-    /// TODO(phase-14+): Eine der drei Strategien umsetzen:
-    ///   1) Soft-Delete frueherer RepaymentLetter-Dokumente pro (member, phase) beim
-    ///      Re-Generate (audited_delete macht den Vorgang nachvollziehbar).
+    /// DONE (quick-260602-q9l, option 1): RepaymentLetter regeneration overwrites
+    /// the existing (member, phase) MemberDocument-Row in place via `audited_update!`.
+    /// Lookup-Schluessel im Service: (member_id, document_type=="repayment_letter",
+    /// description=="Anschreiben Auszahlung GJ {fiscal_year}"). Storage-/UI-Wachstum
+    /// pro Phase ist damit beseitigt; der Hash-Chain extends mit UPDATE-Eintraegen
+    /// statt einer neuen CREATE-Reihe. Implementierung: `RepaymentLetterServiceImpl::generate`
+    /// + `find_existing_letter_for_phase`.
+    ///
+    /// Optionen 2 und 3 bleiben offen, sind aber jetzt nice-to-have, nicht mehr
+    /// pflicht — sie wuerden nur noch verwaiste PDF-Files (Backup/DSGVO) bzw.
+    /// UI-Cleanup adressieren, nicht den ehemaligen linearen Wachstum.
     ///   2) Storage-Cleanup-Worker fuer orphan-PDFs (z.B. 30-Tage-Retention).
     ///   3) UI-Filter: nur juengstes RepaymentLetter pro Phase prominent, aelteres unter
     ///      "Verlauf" (UI-only, kein Backend-Change).
