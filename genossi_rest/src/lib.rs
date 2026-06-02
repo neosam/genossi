@@ -413,6 +413,20 @@ fn build_cors_layer(cors_allowed_origins: Option<&str>) -> CorsLayer {
             Method::OPTIONS,
         ])
         .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION, header::COOKIE])
+        // WR-03 fix: Browser blendet alle custom Response-Header standardmaessig
+        // bei cross-origin requests aus — sie muessen explizit via Access-Control-
+        // Expose-Headers freigegeben werden, sonst liest das Frontend `None`.
+        //
+        // - x-document-count (Phase 13 D-13-04): Frontend nutzt den Header fuer
+        //   Toast-Pluralisierung "N Briefe erzeugt" nach Aggregation. Ohne expose
+        //   greift der Fallback `entry_ids.len()` und das Toast-Wording wird falsch.
+        // - content-disposition: enthaelt den Filename fuer Browser-Save. Heute
+        //   wird der Filename clientseitig konstruiert, daher latent — wir
+        //   exponieren ihn trotzdem fuer kuenftige Direct-Save-Pfade.
+        .expose_headers([
+            http::HeaderName::from_static("x-document-count"),
+            http::HeaderName::from_static("content-disposition"),
+        ])
 }
 
 fn apply_security_headers(router: Router) -> Router {
