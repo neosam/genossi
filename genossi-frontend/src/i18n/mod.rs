@@ -661,6 +661,19 @@ pub enum Key {
     RepaymentTemplateVarPayoutAmount,
     RepaymentTemplateVarShareCount,
     RepaymentTemplateVarFiscalYear,
+    // ─── Quick 260602-sgp ─── Bulk-Download RepaymentLetter ──
+    /// Button-Label: "Als ZIP herunterladen".
+    RepaymentLetterDownloadZipButton,
+    /// Button-Label: "Als Bundle-PDF herunterladen".
+    RepaymentLetterDownloadPdfButton,
+    /// Toast-Singular: "1 Brief heruntergeladen."
+    RepaymentLetterDownloadToastSingular,
+    /// Toast-Plural mit `{count}`-Placeholder.
+    RepaymentLetterDownloadToastPlural,
+    /// Suffix bei skipped > 0 mit `{skipped}`-Placeholder.
+    RepaymentLetterDownloadToastSkipped,
+    /// Fehler-Template mit `{error}`-Placeholder.
+    RepaymentLetterDownloadToastFailure,
 }
 
 pub struct I18n {

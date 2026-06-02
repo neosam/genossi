@@ -25,8 +25,9 @@ use crate::api::{
 use crate::auth::RequirePrivilege;
 use crate::component::repayment_format::{format_payout_eur, parse_euro_to_cents};
 use crate::component::{
-    ErrorAlert, Modal, RepaymentEntryAddModal, RepaymentEntryList, RepaymentEntryPaidOutConfirm,
-    RepaymentPhaseStatusBadge, TabDef, TabStrip, ToastContainer, TopBar, show_toast,
+    show_toast, ErrorAlert, Modal, RepaymentEntryAddModal, RepaymentEntryList,
+    RepaymentEntryPaidOutConfirm, RepaymentLetterDownloadButton, RepaymentPhaseStatusBadge, TabDef,
+    TabStrip, ToastContainer, TopBar,
 };
 use crate::i18n::{use_i18n, Key};
 use crate::page::access_denied::AccessDeniedPage;
@@ -193,6 +194,20 @@ pub fn RepaymentPhaseDetails(id: String) -> Element {
                                 )),
                             },
                             on_dismiss: Some(EventHandler::new(move |_| close_conflict.set(None))),
+                        }
+                    }
+
+                    // Quick 260602-sgp: Bulk-Download bereits persistierter
+                    // RepaymentLetter-PDFs. Nur rendern wenn Phase NICHT in
+                    // Preparation ist (Backend-Status-Gate ist hier gespiegelt
+                    // damit der User nicht aufs 409 lauft).
+                    if !matches!(p.status, RepaymentPhaseStatusTO::Preparation) {
+                        div { class: "mb-4 p-3 bg-gray-50 rounded border",
+                            RepaymentLetterDownloadButton {
+                                phase_id,
+                                fiscal_year: p.fiscal_year,
+                                on_toast: move |msg: String| show_toast(&mut toast_messages, &mut toast_counter, msg),
+                            }
                         }
                     }
 
@@ -765,7 +780,9 @@ mod tests {
 
     #[test]
     fn close_button_only_in_open() {
-        assert!(!should_show_close_button(RepaymentPhaseStatusTO::Preparation));
+        assert!(!should_show_close_button(
+            RepaymentPhaseStatusTO::Preparation
+        ));
         assert!(should_show_close_button(RepaymentPhaseStatusTO::Open));
         assert!(!should_show_close_button(RepaymentPhaseStatusTO::Closed));
     }
@@ -799,7 +816,8 @@ mod tests {
 
     #[test]
     fn parse_close_conflict_returns_some_on_valid_body() {
-        let body = r#"{"error":"pending entries","pending_count":2,"pending_member_numbers":["42","43"]}"#;
+        let body =
+            r#"{"error":"pending entries","pending_count":2,"pending_member_numbers":["42","43"]}"#;
         let err = AppError {
             status: Some(409),
             message: "Conflict".into(),
@@ -848,9 +866,8 @@ mod tests {
         let url = build_mail_redirect_url(pid, &[m1, m2]);
         assert!(url.contains("members="));
         // Komma-getrennte UUIDs
-        assert!(url.contains(
-            "550e8400-e29b-41d4-a716-446655440001,550e8400-e29b-41d4-a716-446655440002"
-        ));
+        assert!(url
+            .contains("550e8400-e29b-41d4-a716-446655440001,550e8400-e29b-41d4-a716-446655440002"));
     }
 
     #[test]

@@ -110,7 +110,10 @@ fn parse_415_message(body: &str) -> String {
     }
     if let Ok(parsed) = serde_json::from_str::<FileTypeError>(body) {
         if let Some(exts) = parsed.allowed_extensions {
-            return format!("Dateityp nicht erlaubt. Erlaubte Typen: {}", exts.join(", "));
+            return format!(
+                "Dateityp nicht erlaubt. Erlaubte Typen: {}",
+                exts.join(", ")
+            );
         }
     }
     "Dateityp nicht erlaubt".to_string()
@@ -351,8 +354,7 @@ pub async fn upload_member_document(
     let request = web_sys::Request::new_with_str_and_init(&url, &opts)
         .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
 
-    let window = web_sys::window()
-        .ok_or_else(|| AppError::new(None, "Verbindungsfehler", None))?;
+    let window = web_sys::window().ok_or_else(|| AppError::new(None, "Verbindungsfehler", None))?;
     let resp_value = JsFuture::from(window.fetch_with_request(&request))
         .await
         .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
@@ -520,8 +522,7 @@ pub async fn render_template_pdf(
     let request = web_sys::Request::new_with_str_and_init(&url, &opts)
         .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
 
-    let window = web_sys::window()
-        .ok_or_else(|| AppError::new(None, "Verbindungsfehler", None))?;
+    let window = web_sys::window().ok_or_else(|| AppError::new(None, "Verbindungsfehler", None))?;
     let resp_value = JsFuture::from(window.fetch_with_request(&request))
         .await
         .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
@@ -576,8 +577,7 @@ pub async fn render_template_pdf_application(
     let request = web_sys::Request::new_with_str_and_init(&url, &opts)
         .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
 
-    let window = web_sys::window()
-        .ok_or_else(|| AppError::new(None, "Verbindungsfehler", None))?;
+    let window = web_sys::window().ok_or_else(|| AppError::new(None, "Verbindungsfehler", None))?;
     let resp_value = JsFuture::from(window.fetch_with_request(&request))
         .await
         .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
@@ -744,10 +744,7 @@ pub async fn get_application(config: &Config, id: Uuid) -> Result<ApplicationTO,
     Ok(response.json().await?)
 }
 
-pub async fn confirm_application(
-    config: &Config,
-    id: Uuid,
-) -> Result<ApplicationTO, AppError> {
+pub async fn confirm_application(config: &Config, id: Uuid) -> Result<ApplicationTO, AppError> {
     info!("Confirming application {id}");
     let url = format!("{}/api/applications/{}/confirm", config.backend, id);
     let response = reqwest::Client::new().post(url).send().await?;
@@ -804,10 +801,7 @@ pub async fn update_application(
     Ok(response.json().await?)
 }
 
-pub async fn reject_application(
-    config: &Config,
-    id: Uuid,
-) -> Result<ApplicationTO, AppError> {
+pub async fn reject_application(config: &Config, id: Uuid) -> Result<ApplicationTO, AppError> {
     info!("Rejecting application {id}");
     let url = format!("{}/api/applications/{}/reject", config.backend, id);
     let response = reqwest::Client::new().post(url).send().await?;
@@ -1070,11 +1064,7 @@ pub async fn get_user_roles(
     Ok(response.json().await?)
 }
 
-pub async fn assign_user_role(
-    config: &Config,
-    user: &str,
-    role: &str,
-) -> Result<(), AppError> {
+pub async fn assign_user_role(config: &Config, user: &str, role: &str) -> Result<(), AppError> {
     info!("Assigning role {role} to user {user}");
     let url = format!("{}/api/permission/user-role", config.backend);
     let body = UserRoleTO {
@@ -1086,11 +1076,7 @@ pub async fn assign_user_role(
     Ok(())
 }
 
-pub async fn remove_user_role(
-    config: &Config,
-    user: &str,
-    role: &str,
-) -> Result<(), AppError> {
+pub async fn remove_user_role(config: &Config, user: &str, role: &str) -> Result<(), AppError> {
     info!("Removing role {role} from user {user}");
     let url = format!("{}/api/permission/user-role", config.backend);
     let body = UserRoleTO {
@@ -1167,9 +1153,7 @@ pub struct StaticDocumentTO {
     pub created: String,
 }
 
-pub async fn list_static_documents(
-    config: &Config,
-) -> Result<Vec<StaticDocumentTO>, AppError> {
+pub async fn list_static_documents(config: &Config) -> Result<Vec<StaticDocumentTO>, AppError> {
     info!("Fetching static documents");
     let url = format!("{}/api/static-documents", config.backend);
     let response = check_response(reqwest::get(url).await?).await?;
@@ -1202,8 +1186,7 @@ pub async fn upload_static_document(
     let request = web_sys::Request::new_with_str_and_init(&url, &opts)
         .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
 
-    let window = web_sys::window()
-        .ok_or_else(|| AppError::new(None, "Verbindungsfehler", None))?;
+    let window = web_sys::window().ok_or_else(|| AppError::new(None, "Verbindungsfehler", None))?;
     let resp_value = JsFuture::from(window.fetch_with_request(&request))
         .await
         .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
@@ -1415,7 +1398,11 @@ pub async fn reply_inbox_mail(
         "subject": subject,
         "body": body,
     });
-    let response = reqwest::Client::new().post(url).json(&payload).send().await?;
+    let response = reqwest::Client::new()
+        .post(url)
+        .json(&payload)
+        .send()
+        .await?;
     check_response(response).await?;
     Ok(())
 }
@@ -1461,9 +1448,7 @@ pub async fn get_audit_by_entity(
     Ok(response.json().await?)
 }
 
-pub async fn verify_audit_chain(
-    config: &Config,
-) -> Result<rest_types::VerifyResponseTO, AppError> {
+pub async fn verify_audit_chain(config: &Config) -> Result<rest_types::VerifyResponseTO, AppError> {
     let url = format!("{}/api/audit/verify", config.backend);
     let response = check_response(reqwest::get(url).await?).await?;
     Ok(response.json().await?)
@@ -1764,11 +1749,7 @@ pub async fn create_helper_token(
         config.backend
     );
     let body = CreateHelperTokenRequest { memo };
-    let response = reqwest::Client::new()
-        .post(url)
-        .json(&body)
-        .send()
-        .await?;
+    let response = reqwest::Client::new().post(url).json(&body).send().await?;
     let response = check_response(response).await?;
     Ok(response.json().await?)
 }
@@ -1909,8 +1890,7 @@ pub async fn export_attendance_url(
     let request = web_sys::Request::new_with_str_and_init(&url, &opts)
         .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
 
-    let window = web_sys::window()
-        .ok_or_else(|| AppError::new(None, "Verbindungsfehler", None))?;
+    let window = web_sys::window().ok_or_else(|| AppError::new(None, "Verbindungsfehler", None))?;
     let resp_value = JsFuture::from(window.fetch_with_request(&request))
         .await
         .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
@@ -1979,7 +1959,10 @@ pub async fn generate_repayment_letters(
         "{}/api/repayment-phase/{}/letters/generate",
         config.backend, phase_id
     );
-    info!("Generating repayment letters: {url} ({} entries)", entry_ids.len());
+    info!(
+        "Generating repayment letters: {url} ({} entries)",
+        entry_ids.len()
+    );
 
     let body = serde_json::json!({ "entry_ids": entry_ids }).to_string();
     let entry_ids_len = entry_ids.len();
@@ -1998,8 +1981,7 @@ pub async fn generate_repayment_letters(
     let request = web_sys::Request::new_with_str_and_init(&url, &opts)
         .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
 
-    let window = web_sys::window()
-        .ok_or_else(|| AppError::new(None, "Verbindungsfehler", None))?;
+    let window = web_sys::window().ok_or_else(|| AppError::new(None, "Verbindungsfehler", None))?;
     let resp_value = JsFuture::from(window.fetch_with_request(&request))
         .await
         .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
@@ -2038,6 +2020,156 @@ pub async fn generate_repayment_letters(
         blob_url,
         document_count,
     })
+}
+
+// ─── Quick 260602-sgp ─── RepaymentLetter Bulk-Download ─────────────
+
+/// Quick 260602-sgp: Ergebnis von [`download_repayment_letters`].
+///
+/// `blob_url` ist die per `URL.createObjectURL` erzeugte Blob-URL fuer das
+/// gepackte Artefakt (vom Caller in `<a download>`-Click verpackt, danach
+/// `Url::revoke_object_url` aufrufen).
+///
+/// `document_count` kommt aus dem `X-Document-Count`-Header und reflektiert
+/// die Anzahl der erfolgreich zusammengefuegten Letters. `skipped_count` aus
+/// `X-Skipped-Count` zeigt fehlende Files im Document-Storage an (Storage-
+/// Drift-Indikator) — Frontend zeigt das in einer Sub-Note des Toasts.
+///
+/// `filename` wird aus dem Content-Disposition-Header gelesen und vom Caller
+/// als `<a download>`-Attribute benutzt.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DownloadedLettersResult {
+    pub blob_url: String,
+    pub document_count: usize,
+    pub skipped_count: usize,
+    pub filename: String,
+}
+
+/// Quick 260602-sgp: GET `/api/repayment-phase/{phase_id}/letters/download?format=zip|pdf`.
+///
+/// Bulk-Download bereits persistierter RepaymentLetter-PDFs. NICHT-Neu-Render —
+/// Backend laedt MemberDocuments aus dem Storage und liefert sie als ZIP-
+/// Archiv (Einzel-PDFs) ODER gemerged Bundle-PDF (lopdf-Merge).
+///
+/// Caller MUSS `web_sys::Url::revoke_object_url(&result.blob_url)` nach dem
+/// `<a download>`-Click aufrufen (T-06-16 mitigation).
+pub async fn download_repayment_letters(
+    config: &Config,
+    phase_id: Uuid,
+    format: &str, // "zip" oder "pdf"
+) -> Result<DownloadedLettersResult, AppError> {
+    use wasm_bindgen::JsCast;
+    use wasm_bindgen_futures::JsFuture;
+
+    let url = format!(
+        "{}/api/repayment-phase/{}/letters/download?format={}",
+        config.backend, phase_id, format
+    );
+    info!("Downloading repayment letters: {url}");
+
+    let mut opts = web_sys::RequestInit::new();
+    opts.set_method("GET");
+
+    let request = web_sys::Request::new_with_str_and_init(&url, &opts)
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
+
+    let window = web_sys::window().ok_or_else(|| AppError::new(None, "Verbindungsfehler", None))?;
+    let resp_value = JsFuture::from(window.fetch_with_request(&request))
+        .await
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
+
+    let resp: web_sys::Response = resp_value
+        .dyn_into()
+        .map_err(|_| AppError::new(None, "Verbindungsfehler", None))?;
+
+    if !resp.ok() {
+        return Err(map_web_response_error(&resp).await);
+    }
+
+    // X-Document-Count + X-Skipped-Count (Backend setzt beide immer).
+    let document_count: usize = resp
+        .headers()
+        .get("X-Document-Count")
+        .ok()
+        .flatten()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(0);
+    let skipped_count: usize = resp
+        .headers()
+        .get("X-Skipped-Count")
+        .ok()
+        .flatten()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(0);
+
+    // Content-Disposition -> filename ablesen (Fallback: synthetisiert).
+    let filename = resp
+        .headers()
+        .get("Content-Disposition")
+        .ok()
+        .flatten()
+        .and_then(|cd| extract_filename_from_content_disposition(&cd))
+        .unwrap_or_else(|| format!("auszahlungs_anschreiben.{}", format));
+
+    let blob = JsFuture::from(resp.blob().unwrap())
+        .await
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
+
+    let blob: web_sys::Blob = blob
+        .dyn_into()
+        .map_err(|_| AppError::new(None, "Verbindungsfehler", None))?;
+
+    let blob_url = web_sys::Url::create_object_url_with_blob(&blob)
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
+
+    Ok(DownloadedLettersResult {
+        blob_url,
+        document_count,
+        skipped_count,
+        filename,
+    })
+}
+
+/// Quick 260602-sgp: Helper — extrahiert den `filename`-Anteil aus einem
+/// Content-Disposition-Header. Bevorzugt `filename*=UTF-8''...` (RFC 5987),
+/// fallback auf `filename="..."`. Returns None wenn beides fehlt.
+fn extract_filename_from_content_disposition(cd: &str) -> Option<String> {
+    // RFC 5987 filename*=UTF-8''...
+    if let Some(idx) = cd.find("filename*=UTF-8''") {
+        let after = &cd[idx + "filename*=UTF-8''".len()..];
+        let end = after.find(';').unwrap_or(after.len());
+        let encoded = &after[..end];
+        // Percent-decode (sehr einfach — Header hat eh nur unreserved + %HEX).
+        if let Some(decoded) = percent_decode_utf8(encoded) {
+            return Some(decoded);
+        }
+    }
+    // Fallback: filename="..."
+    if let Some(idx) = cd.find("filename=\"") {
+        let after = &cd[idx + "filename=\"".len()..];
+        if let Some(end) = after.find('"') {
+            return Some(after[..end].to_string());
+        }
+    }
+    None
+}
+
+fn percent_decode_utf8(s: &str) -> Option<String> {
+    let bytes = s.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            let hex = std::str::from_utf8(&bytes[i + 1..i + 3]).ok()?;
+            let byte = u8::from_str_radix(hex, 16).ok()?;
+            out.push(byte);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).ok()
 }
 
 // ─── Phase 12 ─── RepaymentPhase / RepaymentEntry TOs ───────────────
@@ -2152,10 +2284,7 @@ pub async fn list_repayment_phases(config: &Config) -> Result<Vec<RepaymentPhase
     Ok(response.json().await?)
 }
 
-pub async fn get_repayment_phase(
-    config: &Config,
-    id: Uuid,
-) -> Result<RepaymentPhaseTO, AppError> {
+pub async fn get_repayment_phase(config: &Config, id: Uuid) -> Result<RepaymentPhaseTO, AppError> {
     info!("Fetching repayment phase {id}");
     let url = format!("{}/api/repayment-phase/{id}", config.backend);
     let response = check_response(reqwest::get(url).await?).await?;
@@ -2188,10 +2317,7 @@ pub async fn update_repayment_phase(
     Ok(response.json().await?)
 }
 
-pub async fn open_repayment_phase(
-    config: &Config,
-    id: Uuid,
-) -> Result<RepaymentPhaseTO, AppError> {
+pub async fn open_repayment_phase(config: &Config, id: Uuid) -> Result<RepaymentPhaseTO, AppError> {
     info!("Opening repayment phase {id}");
     let url = format!("{}/api/repayment-phase/{id}/open", config.backend);
     let response = reqwest::Client::new().post(url).send().await?;
@@ -2217,18 +2343,12 @@ pub async fn list_repayment_entries(
     phase_id: Uuid,
 ) -> Result<Vec<RepaymentEntryTO>, AppError> {
     info!("Listing repayment entries for phase {phase_id}");
-    let url = format!(
-        "{}/api/repayment-entry?phase_id={phase_id}",
-        config.backend
-    );
+    let url = format!("{}/api/repayment-entry?phase_id={phase_id}", config.backend);
     let response = check_response(reqwest::get(url).await?).await?;
     Ok(response.json().await?)
 }
 
-pub async fn get_repayment_entry(
-    config: &Config,
-    id: Uuid,
-) -> Result<RepaymentEntryTO, AppError> {
+pub async fn get_repayment_entry(config: &Config, id: Uuid) -> Result<RepaymentEntryTO, AppError> {
     info!("Fetching repayment entry {id}");
     let url = format!("{}/api/repayment-entry/{id}", config.backend);
     let response = check_response(reqwest::get(url).await?).await?;
@@ -2273,10 +2393,7 @@ pub async fn batch_toggle_repayment_status(
     config: &Config,
     req: &BatchStatusRequest,
 ) -> Result<(), AppError> {
-    info!(
-        "Batch-toggling {} repayment entries",
-        req.entry_ids.len()
-    );
+    info!("Batch-toggling {} repayment entries", req.entry_ids.len());
     let url = format!("{}/api/repayment-entry/batch-status", config.backend);
     let response = reqwest::Client::new().post(url).json(req).send().await?;
     check_response(response).await?;
@@ -2288,10 +2405,7 @@ pub async fn mark_repayment_entry_paid_out(
     id: Uuid,
 ) -> Result<RepaymentEntryTO, AppError> {
     info!("Marking repayment entry {id} paid-out");
-    let url = format!(
-        "{}/api/repayment-entry/{id}/mark-paid-out",
-        config.backend
-    );
+    let url = format!("{}/api/repayment-entry/{id}/mark-paid-out", config.backend);
     let response = reqwest::Client::new().post(url).send().await?;
     let response = check_response(response).await?;
     Ok(response.json().await?)
@@ -2320,10 +2434,7 @@ mod tests {
         assert_eq!(status_to_message(410), "Bereits eingelöst");
         assert_eq!(status_to_message(415), "Dateityp nicht erlaubt");
         assert_eq!(status_to_message(422), "Validierungsfehler");
-        assert_eq!(
-            status_to_message(429),
-            "Zu viele Anfragen — bitte warten"
-        );
+        assert_eq!(status_to_message(429), "Zu viele Anfragen — bitte warten");
         assert_eq!(
             status_to_message(500),
             "Serverfehler — bitte später erneut versuchen"
@@ -2374,7 +2485,11 @@ mod tests {
 
     #[test]
     fn test_app_error_new() {
-        let err = AppError::new(Some(422), "Validierungsfehler", Some("field invalid".into()));
+        let err = AppError::new(
+            Some(422),
+            "Validierungsfehler",
+            Some("field invalid".into()),
+        );
         assert_eq!(err.status, Some(422));
         assert_eq!(err.message, "Validierungsfehler");
         assert_eq!(err.detail.as_deref(), Some("field invalid"));

@@ -93,10 +93,12 @@ async fn setup_with_templates() -> TestServer {
         }
         tokio::fs::copy(&logo_source, &logo_target)
             .await
-            .unwrap_or_else(|e| panic!(
-                "Failed to copy logo asset from {:?} to {:?}: {}",
-                logo_source, logo_target, e
-            ));
+            .unwrap_or_else(|e| {
+                panic!(
+                    "Failed to copy logo asset from {:?} to {:?}: {}",
+                    logo_source, logo_target, e
+                )
+            });
     }
 
     start_test_server(rest_state).await
@@ -367,8 +369,11 @@ async fn test_letter_happy_path_3_entries_2_members() {
     let m2_id = m2.id.expect("m2 id");
     let extra = create_manual_entry(&client, &server, phase.id, m1_id, 2).await;
 
-    let entry_ids: Vec<uuid::Uuid> =
-        entries.iter().map(|e| e.id).chain(std::iter::once(extra.id)).collect();
+    let entry_ids: Vec<uuid::Uuid> = entries
+        .iter()
+        .map(|e| e.id)
+        .chain(std::iter::once(extra.id))
+        .collect();
     assert!(entry_ids.len() >= 3);
 
     // POST /letters/generate — Header- + Status- + Body-Assertions in einer
@@ -752,7 +757,10 @@ async fn test_letter_audit_chain_valid_after_bulk() {
 
     let entries = list_entries_for_phase(&client, &server, phase.id).await;
     let entry_ids: Vec<uuid::Uuid> = entries.iter().map(|e| e.id).collect();
-    assert!(!entry_ids.is_empty(), "Auto-Fill muss Entries erzeugt haben");
+    assert!(
+        !entry_ids.is_empty(),
+        "Auto-Fill muss Entries erzeugt haben"
+    );
 
     let resp = client
         .post(server.url(&format!(
@@ -870,5 +878,352 @@ async fn test_letter_idempotency_d13_08_and_no_status_toggle_d13_09() {
         matches!(status_after, RepaymentEntryStatusTO::Open),
         "D-13-09: Backend MUSS RepaymentEntry.status NICHT auto-togglen — erwartet Open, got {:?}",
         status_after
+    );
+}
+
+// ============================================================================
+// Quick 260602-sgp — Bulk-Download GET /letters/download
+// ============================================================================
+
+/// Helper: triggere POST /letters/generate damit MemberDocuments im Storage liegen.
+/// Nachgeschalteter GET /letters/download erwartet diese persistierten Files.
+async fn seed_persisted_letters(
+    client: &reqwest::Client,
+    server: &TestServer,
+    phase_id: uuid::Uuid,
+    entry_ids: &[uuid::Uuid],
+) {
+    let resp = client
+        .post(server.url(&format!(
+            "/api/repayment-phase/{}/letters/generate",
+            phase_id
+        )))
+        .json(&json!({ "entry_ids": entry_ids }))
+        .send()
+        .await
+        .expect("seed_persisted_letters POST letters/generate failed");
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "seed POST /letters/generate must be 200; got {}",
+        resp.status()
+    );
+    // Body konsumieren damit Connection-Pool wieder frei wird.
+    let _ = resp.bytes().await;
+}
+
+/// Test 1 (Happy Path, Quick 260602-sgp):
+/// 2 persistierte Letters -> GET ?format=zip -> 200 + application/zip +
+/// X-Document-Count: 2 + X-Skipped-Count: 0 + ZIP-Magic Body.
+#[tokio::test]
+async fn test_download_letters_zip_happy_path() {
+    let server = setup_with_templates().await;
+    let client = reqwest::Client::new();
+    let fiscal_year = 2026;
+
+    // 2 Members + Phase + Auto-Fill -> 2 Entries.
+    let _m1 = create_member_with_exit_date_and_iban(
+        &client,
+        &server,
+        710,
+        fiscal_year,
+        Some("DE89370400440532013000"),
+    )
+    .await;
+    let _m2 = create_member_with_exit_date_and_iban(
+        &client,
+        &server,
+        711,
+        fiscal_year,
+        Some("DE91100000000123456789"),
+    )
+    .await;
+    let phase = create_open_repayment_phase(&client, &server, fiscal_year, 12000).await;
+    let entries = list_entries_for_phase(&client, &server, phase.id).await;
+    let entry_ids: Vec<uuid::Uuid> = entries.iter().map(|e| e.id).collect();
+    assert!(entry_ids.len() >= 2);
+
+    // Seed persistierte Letters via POST /letters/generate.
+    seed_persisted_letters(&client, &server, phase.id, &entry_ids).await;
+
+    // GET /letters/download?format=zip
+    let resp = client
+        .get(server.url(&format!(
+            "/api/repayment-phase/{}/letters/download?format=zip",
+            phase.id
+        )))
+        .send()
+        .await
+        .expect("GET letters/download");
+
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "zip happy path expected 200; got {}",
+        resp.status()
+    );
+
+    let ct = resp
+        .headers()
+        .get("content-type")
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    assert_eq!(ct, "application/zip");
+
+    let cd = resp
+        .headers()
+        .get("content-disposition")
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    assert!(
+        cd.contains(&format!("auszahlungs_anschreiben_GJ_{}.zip", fiscal_year)),
+        "Content-Disposition muss filename auszahlungs_anschreiben_GJ_{}.zip enthalten; got {}",
+        fiscal_year,
+        cd
+    );
+
+    let doc_count = resp
+        .headers()
+        .get("X-Document-Count")
+        .and_then(|h| h.to_str().ok())
+        .map(str::to_string)
+        .unwrap_or_default();
+    assert_eq!(doc_count, "2", "X-Document-Count == 2; got '{}'", doc_count);
+    let skipped = resp
+        .headers()
+        .get("X-Skipped-Count")
+        .and_then(|h| h.to_str().ok())
+        .map(str::to_string)
+        .unwrap_or_default();
+    assert_eq!(skipped, "0", "X-Skipped-Count == 0; got '{}'", skipped);
+
+    let bytes = resp.bytes().await.expect("read body");
+    // ZIP-Magic 0x504B0304.
+    assert!(
+        bytes.starts_with(&[0x50, 0x4B, 0x03, 0x04]),
+        "Body muss ZIP-Magic haben (PK\\x03\\x04)"
+    );
+    assert!(bytes.len() > 100, "ZIP > 100 Bytes; got {}", bytes.len());
+}
+
+/// Test 2 (PDF-Bundle Happy Path):
+/// 2 persistierte Letters -> GET ?format=pdf -> 200 + application/pdf +
+/// %PDF- magic + parseable durch lopdf.
+#[tokio::test]
+async fn test_download_letters_pdf_happy_path() {
+    let server = setup_with_templates().await;
+    let client = reqwest::Client::new();
+    let fiscal_year = 2026;
+
+    let _m1 = create_member_with_exit_date_and_iban(
+        &client,
+        &server,
+        720,
+        fiscal_year,
+        Some("DE89370400440532013000"),
+    )
+    .await;
+    let _m2 = create_member_with_exit_date_and_iban(
+        &client,
+        &server,
+        721,
+        fiscal_year,
+        Some("DE91100000000123456789"),
+    )
+    .await;
+    let phase = create_open_repayment_phase(&client, &server, fiscal_year, 12000).await;
+    let entries = list_entries_for_phase(&client, &server, phase.id).await;
+    let entry_ids: Vec<uuid::Uuid> = entries.iter().map(|e| e.id).collect();
+
+    seed_persisted_letters(&client, &server, phase.id, &entry_ids).await;
+
+    let resp = client
+        .get(server.url(&format!(
+            "/api/repayment-phase/{}/letters/download?format=pdf",
+            phase.id
+        )))
+        .send()
+        .await
+        .expect("GET letters/download pdf");
+
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "pdf happy path expected 200; got {}",
+        resp.status()
+    );
+
+    let ct = resp
+        .headers()
+        .get("content-type")
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    assert_eq!(ct, "application/pdf");
+
+    let cd = resp
+        .headers()
+        .get("content-disposition")
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    assert!(
+        cd.contains(&format!("auszahlungs_anschreiben_GJ_{}.pdf", fiscal_year)),
+        "Content-Disposition muss filename auszahlungs_anschreiben_GJ_{}.pdf enthalten; got {}",
+        fiscal_year,
+        cd
+    );
+
+    let doc_count = resp
+        .headers()
+        .get("X-Document-Count")
+        .and_then(|h| h.to_str().ok())
+        .map(str::to_string)
+        .unwrap_or_default();
+    assert_eq!(doc_count, "2");
+
+    let bytes = resp.bytes().await.expect("read body");
+    assert!(bytes.starts_with(b"%PDF-"), "Body muss mit %PDF- starten");
+    // Body laesst sich mit lopdf parsen (smoke-Test).
+    let parsed = lopdf::Document::load_mem(&bytes);
+    assert!(
+        parsed.is_ok(),
+        "Merged PDF muss durch lopdf parseable sein: {:?}",
+        parsed.err()
+    );
+}
+
+/// Test 3 (0 persistierte Letters -> 404):
+/// Phase OHNE persistierte Letters (POST /letters/generate NICHT aufgerufen).
+#[tokio::test]
+async fn test_download_letters_zero_persisted_returns_404() {
+    let server = setup_with_templates().await;
+    let client = reqwest::Client::new();
+    let fiscal_year = 2026;
+
+    let _m1 = create_member_with_exit_date_and_iban(
+        &client,
+        &server,
+        730,
+        fiscal_year,
+        Some("DE89370400440532013000"),
+    )
+    .await;
+    let phase = create_open_repayment_phase(&client, &server, fiscal_year, 12000).await;
+
+    // KEINE seed_persisted_letters -> 0 persistierte Letters.
+
+    let resp = client
+        .get(server.url(&format!(
+            "/api/repayment-phase/{}/letters/download?format=zip",
+            phase.id
+        )))
+        .send()
+        .await
+        .expect("GET letters/download");
+
+    assert_eq!(
+        resp.status(),
+        StatusCode::NOT_FOUND,
+        "0 persistierte Letters -> 404; got {}",
+        resp.status()
+    );
+}
+
+/// Test 4 (Helper-Auth -> 403):
+/// Im mock_auth-Stack ist der 403-Pfad nicht direkt E2E reproduzierbar (siehe
+/// existierenden Comment in `test_letter_helper_auth_returns_403`). Wir markieren
+/// diesen Test analog #[ignore]; der 403-Pfad ist unit-getestet via
+/// `test_download_bundle_permission_denied_returns_403` im ServiceImpl.
+#[ignore = "mock_auth context_extractor injiziert IMMER Admin (DEVUSER) — non-admin nicht E2E darstellbar; 403-Pfad ist auf Service-Layer-Ebene unit-getestet (test_download_bundle_permission_denied_returns_403)"]
+#[tokio::test]
+async fn test_download_letters_helper_auth_returns_403() {
+    let server = setup_with_templates().await;
+    let client = reqwest::Client::new();
+    let fiscal_year = 2026;
+    let phase = create_open_repayment_phase(&client, &server, fiscal_year, 12000).await;
+
+    let resp = client
+        .get(server.url(&format!(
+            "/api/repayment-phase/{}/letters/download?format=zip",
+            phase.id
+        )))
+        .send()
+        .await
+        .expect("GET letters/download");
+
+    assert_eq!(
+        resp.status(),
+        StatusCode::FORBIDDEN,
+        "Helper-Auth -> 403; got {}",
+        resp.status()
+    );
+}
+
+/// Test 5 (Phase im Preparation-Status -> 409 phase_not_active):
+#[tokio::test]
+async fn test_download_letters_preparation_phase_returns_409() {
+    let server = setup_with_templates().await;
+    let client = reqwest::Client::new();
+    let fiscal_year = 2026;
+
+    // Phase im Preparation-Status — NICHT oeffnen.
+    let phase = create_preparation_repayment_phase(&client, &server, fiscal_year, 12000).await;
+    assert!(matches!(phase.status, RepaymentPhaseStatusTO::Preparation));
+
+    let resp = client
+        .get(server.url(&format!(
+            "/api/repayment-phase/{}/letters/download?format=zip",
+            phase.id
+        )))
+        .send()
+        .await
+        .expect("GET letters/download");
+
+    assert_eq!(
+        resp.status(),
+        StatusCode::CONFLICT,
+        "Preparation -> 409; got {}",
+        resp.status()
+    );
+    let body = resp.text().await.unwrap_or_default();
+    assert!(
+        body.contains("phase_not_active"),
+        "Body muss 'phase_not_active' enthalten; got: {}",
+        body
+    );
+}
+
+/// Test 6 (Invalid format -> 400):
+/// GET /letters/download?format=docx -> 400 mit Hinweis "use 'zip' or 'pdf'".
+#[tokio::test]
+async fn test_download_letters_invalid_format_returns_400() {
+    let server = setup_with_templates().await;
+    let client = reqwest::Client::new();
+    let fiscal_year = 2026;
+    let phase = create_open_repayment_phase(&client, &server, fiscal_year, 12000).await;
+
+    let resp = client
+        .get(server.url(&format!(
+            "/api/repayment-phase/{}/letters/download?format=docx",
+            phase.id
+        )))
+        .send()
+        .await
+        .expect("GET letters/download");
+
+    assert_eq!(
+        resp.status(),
+        StatusCode::BAD_REQUEST,
+        "Invalid format -> 400; got {}",
+        resp.status()
+    );
+    let body = resp.text().await.unwrap_or_default();
+    assert!(
+        body.contains("use 'zip' or 'pdf'"),
+        "Body muss 'use 'zip' or 'pdf'' enthalten; got: {}",
+        body
     );
 }

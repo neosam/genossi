@@ -589,5 +589,19 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::RepaymentTemplateVarPayoutAmount => "Auszahlbetrag".into(),
         Key::RepaymentTemplateVarShareCount => "Anteile".into(),
         Key::RepaymentTemplateVarFiscalYear => "Geschäftsjahr".into(),
+        // ── Quick 260602-sgp ── Bulk-Download RepaymentLetter ──
+        Key::RepaymentLetterDownloadZipButton => "Alle Briefe als ZIP herunterladen".into(),
+        Key::RepaymentLetterDownloadPdfButton => "Alle Briefe als Bundle-PDF herunterladen".into(),
+        Key::RepaymentLetterDownloadToastSingular => {
+            "1 Brief heruntergeladen.".into()
+        }
+        Key::RepaymentLetterDownloadToastPlural => {
+            "{count} Briefe heruntergeladen.".into()
+        }
+        Key::RepaymentLetterDownloadToastSkipped => {
+            "{skipped} Datei(en) im Storage nicht gefunden — bitte erneut generieren."
+                .into()
+        }
+        Key::RepaymentLetterDownloadToastFailure => "Download fehlgeschlagen: {error}".into(),
     }
 }

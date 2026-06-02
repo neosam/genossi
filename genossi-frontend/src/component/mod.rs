@@ -31,8 +31,8 @@ pub use application_form::{ApplicationForm, ApplicationFormMode};
 pub use application_list::ApplicationList;
 pub use application_search::ApplicationSearch;
 pub use collapsible_section::CollapsibleSection;
-pub use error_alert::ErrorAlert;
 pub use communication_timeline::CommunicationTimeline;
+pub use error_alert::ErrorAlert;
 pub use footer::Footer;
 pub use member_search::MemberSearch;
 pub use modal::Modal;
@@ -48,55 +48,55 @@ pub use wordpress_integration::WordPressIntegrationSection;
 // ─── Phase 4 Plan 04 ─── shared attendance components ────────────
 pub mod attendance_list;
 pub mod attendance_search;
-pub mod live_counter;
 pub mod connection_banner;
+pub mod live_counter;
 
 // ─── Phase 4 Plan 05 ─── helper login components ─────────────────
-pub mod manual_code_input;
-pub mod qr_scanner;
-pub mod qr_card;
 pub mod helper_shell;
+pub mod manual_code_input;
+pub mod qr_card;
+pub mod qr_scanner;
 
 // ─── Phase 4 Plan 06 ─── vorstand layout components ──────────────
-pub mod assembly_status_badge;
 pub mod assembly_list_row;
+pub mod assembly_status_badge;
 pub mod tab_strip;
 pub mod toast;
 
 // ─── Phase 4 Plan 06 (W-04 extraction from assembly_details) ─────
-pub mod token_row;
-pub mod create_token_form;
 pub mod basics_tab;
+pub mod create_token_form;
+pub mod token_row;
 
 // ─── Phase 4 Plan 04 ─── shared attendance components ────────────
 pub use attendance_list::{AttendanceList, AttendanceToggleRequest};
 pub use attendance_search::AttendanceSearch;
-pub use live_counter::{ConnState, LiveCounter};
 pub use connection_banner::ConnectionBanner;
+pub use live_counter::{ConnState, LiveCounter};
 
 // ─── Phase 4 Plan 05 ─── helper login components ─────────────────
-pub use manual_code_input::ManualCodeInput;
-pub use qr_scanner::{CameraPath, QrScanner, decide_camera_path};
-pub use qr_card::QrCard;
 pub use helper_shell::HelperShell;
+pub use manual_code_input::ManualCodeInput;
+pub use qr_card::QrCard;
+pub use qr_scanner::{decide_camera_path, CameraPath, QrScanner};
 
 // ─── Phase 4 Plan 06 ─── vorstand layout components ──────────────
-pub use assembly_status_badge::AssemblyStatusBadge;
 pub use assembly_list_row::AssemblyListRow;
+pub use assembly_status_badge::AssemblyStatusBadge;
 pub use tab_strip::{TabDef, TabStrip};
-pub use toast::{ToastContainer, show_toast};
+pub use toast::{show_toast, ToastContainer};
 
 // ─── Phase 4 Plan 06 (W-04 extraction from assembly_details) ─────
-pub use token_row::TokenRow;
-pub use create_token_form::CreateTokenForm;
 pub use basics_tab::BasicsTab;
+pub use create_token_form::CreateTokenForm;
+pub use token_row::TokenRow;
 
 // ─── Phase 12 ─── RepaymentPhase / RepaymentEntry helpers + badges ──
+pub mod repayment_entry_status_badge;
 pub mod repayment_format;
 pub mod repayment_phase_status_badge;
-pub mod repayment_entry_status_badge;
-pub use repayment_phase_status_badge::RepaymentPhaseStatusBadge;
 pub use repayment_entry_status_badge::RepaymentEntryStatusBadge;
+pub use repayment_phase_status_badge::RepaymentPhaseStatusBadge;
 
 // ─── Phase 12 ─── EditableShareCountCell (D-13 Inline-Edit) ─────────
 pub mod editable_share_count_cell;
@@ -115,6 +115,8 @@ pub use repayment_entry_add_modal::{validate_create_entry, RepaymentEntryAddModa
 
 // ─── Phase 12 Plan 12-10 ─── RepaymentEntryPaidOutConfirm (UI-05) ────
 pub mod repayment_entry_paidout_confirm;
-pub use repayment_entry_paidout_confirm::{
-    sum_payout_amounts, RepaymentEntryPaidOutConfirm,
-};
+pub use repayment_entry_paidout_confirm::{sum_payout_amounts, RepaymentEntryPaidOutConfirm};
+
+// ─── Quick 260602-sgp ─── RepaymentLetterDownloadButton ─────────────
+pub mod repayment_letter_download_button;
+pub use repayment_letter_download_button::RepaymentLetterDownloadButton;

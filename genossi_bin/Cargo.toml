@@ -59,6 +59,7 @@ rust_xlsxwriter = { workspace = true }
 tempfile = "3"
 csv = { workspace = true }
 zip = "2"
+lopdf = { workspace = true }
 
 [lints]
 workspace = true

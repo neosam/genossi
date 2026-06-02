@@ -589,5 +589,14 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::RepaymentTemplateVarPayoutAmount => "Payout amount".into(),
         Key::RepaymentTemplateVarShareCount => "Shares".into(),
         Key::RepaymentTemplateVarFiscalYear => "Fiscal year".into(),
+        // ── Quick 260602-sgp ── Bulk-Download RepaymentLetter ──
+        Key::RepaymentLetterDownloadZipButton => "Download all letters as ZIP".into(),
+        Key::RepaymentLetterDownloadPdfButton => "Download all letters as Bundle-PDF".into(),
+        Key::RepaymentLetterDownloadToastSingular => "1 letter downloaded.".into(),
+        Key::RepaymentLetterDownloadToastPlural => "{count} letters downloaded.".into(),
+        Key::RepaymentLetterDownloadToastSkipped => {
+            "{skipped} file(s) missing in storage — please regenerate.".into()
+        }
+        Key::RepaymentLetterDownloadToastFailure => "Download failed: {error}".into(),
     }
 }
