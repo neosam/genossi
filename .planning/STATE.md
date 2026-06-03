@@ -30,7 +30,7 @@ See: `.planning/PROJECT.md` (updated 2026-06-02 after v1.1 close)
 ## Current Position
 
 Status: Milestone v1.1 complete (shipped 2026-06-02)
-Last activity: 2026-06-03 — Completed quick task 260603-jtf: Mail-Templates Test-Funktion auf der Template-Editor-Seite — Member-Picker + Live-Preview + Test-Versand an separates Empfänger-Feld (Privacy: nie an Member-Mail), neuer Endpoint POST /api/mail/test-with-template, 7 Tests
+Last activity: 2026-06-03 — Completed quick task 260603-kon: Dummy-Repayment-Daten in Template-Tests (Mail + Typst) — wenn kein aktiver RepaymentContext gefunden wird, fallen Test-Endpoints auf Sentinel-Werte zurück (99,99 / 99 / 2099); neuer Typst-Endpoint POST /api/templates/render-repayment-test/*, amber Hinweis-Banner im Mail-TemplatePreview, 8 neue Tests
 Next: `/gsd-new-milestone` to plan v1.2
 
 ## Closure Snapshot (v1.1, 2026-06-02)
@@ -252,6 +252,7 @@ Keine.
 | 260603-h0r | Phase-10-Mail-Worker auf RepaymentContextResolver migriert (DRY-Refactor: Inline-Aggregation entfernt, Worker + Letter-Service teilen Resolver-Service, byte-equivalent zu altem Verhalten) | 2026-06-03 | 4dd6e7f | [260603-h0r-phase-10-mail-worker-auf-repaymentcontex](./quick/260603-h0r-phase-10-mail-worker-auf-repaymentcontex/) |
 | 260603-hw7 | NixOS-Modul-Optionen applicationTitle/isProd/envShortDescription — Stable kann „Genossi DEV"-Suffix im Menü abschalten oder umlabeln; config.json wird über builtins.toJSON erzeugt, Defaults verhaltens-äquivalent | 2026-06-03 | 9514716 | [260603-hw7-konfigurierbares-environment-label-genos](./quick/260603-hw7-konfigurierbares-environment-label-genos/) |
 | 260603-jtf | Mail-Templates: Test-Funktion auf der Template-Editor-Seite — `TemplateTester`-Komponente mit Member-Picker, Live-Preview und Test-Versand an separates Empfänger-Feld (Privacy: nie an Member-Mail); neuer Endpoint `POST /api/mail/test-with-template` + 7 Tests | 2026-06-03 | e246980e | [260603-jtf-mail-templates-test-funktion-auf-der-tem](./quick/260603-jtf-mail-templates-test-funktion-auf-der-tem/) |
+| 260603-kon | Dummy-Repayment-Daten in Template-Tests (Mail + Typst): wenn `resolve_repayment_context` `None` liefert, fallen Test-Endpoints auf auffällige Sentinel-Werte zurück (`99,99 €`, 99 Zahlungen, `99,99` Anteilswert, Jahr 2099); neuer Typst-Endpoint `POST /api/templates/render-repayment-test/*path/{member_id}`; `PreviewResponse.used_dummy_repayment` triggert amber Hinweis-Banner im Mail-TemplatePreview; Worker-Pfad bleibt unverändert; 8 neue Tests | 2026-06-03 | 44a38793 | [260603-kon-beim-testen-von-templates-fehlen-dummy-d](./quick/260603-kon-beim-testen-von-templates-fehlen-dummy-d/) |
 
 ## Deferred Items
 
