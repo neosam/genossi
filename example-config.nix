@@ -23,7 +23,12 @@
     # forceSSL = true;  # Default: true - Redirects HTTP to HTTPS
     features = [ "oidc" ];
     logLevel = "info";
-    
+
+    # Frontend environment label (rendered into /config.json):
+    isProd = true;                      # Hides the env-suffix next to "Genossi" in the menu
+    # envShortDescription = "PROD";     # Only used when isProd = false
+    # applicationTitle = "Genossi";     # Override the menu/browser-tab title
+
     extraEnvironment = {
       OIDC_ISSUER = "https://auth.example.com";
       OIDC_CLIENT_ID = "genossi";
@@ -38,6 +43,9 @@
     domain = "staging.local";
     ssl = false;  # HTTP only, no certificates
     features = [ "mock_auth" ];
+
+    # Frontend environment label: keep isProd = false so the suffix is visible.
+    envShortDescription = "STAGING";
   };
 
   # Example 4: Multiple production instances on different subdomains

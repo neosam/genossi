@@ -61,7 +61,35 @@ in
           default = {};
           description = "Additional environment variables";
         };
-        
+
+        applicationTitle = lib.mkOption {
+          type = lib.types.str;
+          default = "Genossi";
+          example = "Genossi Musterstadt";
+          description = "Application title shown in the frontend title bar and browser tab.";
+        };
+
+        isProd = lib.mkOption {
+          type = lib.types.bool;
+          default = false;
+          description = ''
+            If true, the environment short description (envShortDescription) is
+            hidden in the frontend menu. Set this to true on stable/production
+            deployments so the menu does not show the "DEV" suffix.
+          '';
+        };
+
+        envShortDescription = lib.mkOption {
+          type = lib.types.str;
+          default = "DEV";
+          example = "STAGING";
+          description = ''
+            Short environment label shown next to the application title in the
+            frontend menu when isProd is false (e.g. "DEV", "STAGING", "TEST").
+            Ignored when isProd is true.
+          '';
+        };
+
         oidc = {
           enable = lib.mkOption {
             type = lib.types.bool;
@@ -194,13 +222,14 @@ in
 
     {
       # Create etc directories
-      environment.etc = lib.mapAttrs' (name: instanceCfg: 
+      environment.etc = lib.mapAttrs' (name: instanceCfg:
         lib.nameValuePair "genossi-${name}/config.json" {
-          text = lib.mkIf instanceCfg.enable ''
-            {
-              "backend": "https://${instanceCfg.domain}/api"
-            }
-          '';
+          text = lib.mkIf instanceCfg.enable (builtins.toJSON {
+            backend = "https://${instanceCfg.domain}/api";
+            application_title = instanceCfg.applicationTitle;
+            is_prod = instanceCfg.isProd;
+            env_short_description = instanceCfg.envShortDescription;
+          });
         }) cfg;
     }
 
