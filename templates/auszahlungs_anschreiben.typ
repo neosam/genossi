@@ -95,7 +95,7 @@
   // ─── D-13-06 Baustein 3: IBAN-Switch (Pitfall #5) ───────────────────────────
   if m.bank_account != none [
     Wir überweisen den Betrag in Höhe von #r.payout_amount € auf deine
-    hinterlegte IBAN: *#m.bank_account*.
+    hinterlegte IBAN: *#m.masked_bank_account*.
   ] else [
     *Wir haben keine IBAN von dir hinterlegt* — bitte teile sie uns unter
     #link("mailto:mv@nebenan-unverpackt.de")[mv\@nebenan-unverpackt.de] mit,
