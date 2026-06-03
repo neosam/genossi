@@ -30,7 +30,7 @@ See: `.planning/PROJECT.md` (updated 2026-06-02 after v1.1 close)
 ## Current Position
 
 Status: Milestone v1.1 complete (shipped 2026-06-02)
-Last activity: 2026-06-03 — Completed quick task 260603-evf: UI-Anzeige no_repayment_letter-Status pro Empfaenger im Bulk-Mail-Job-Detail (Badge + Action-Button + Toast-Feedback, 14 neue Tests)
+Last activity: 2026-06-03 — Completed quick task 260603-h0r: Phase-10-Mail-Worker auf RepaymentContextResolver migriert (DRY-Refactor, behavior-equivalent, Worker + Letter-Service teilen jetzt Single Source of Truth)
 Next: `/gsd-new-milestone` to plan v1.2
 
 ## Closure Snapshot (v1.1, 2026-06-02)
@@ -249,6 +249,7 @@ Keine.
 | 260603-cz6 | Bulk-Mail: RepaymentLetter automatisch als per-Empfänger-Attachment (Opt-in attach_repayment_letter, Worker resolved via fiscal_year-Description-Fingerprint) | 2026-06-03 | 62e62b7 | [260603-cz6-bulk-mail-repaymentletter-automatisch-al](./quick/260603-cz6-bulk-mail-repaymentletter-automatisch-al/) |
 | 260603-e6p | Frontend-Checkbox für attach_repayment_letter in mail_page.rs (conditional, nur bei gesetzter repayment_phase_id; i18n de+en) | 2026-06-03 | 910f986 | [260603-e6p-frontend-checkbox-f-r-attach-repayment-l](./quick/260603-e6p-frontend-checkbox-f-r-attach-repayment-l/) |
 | 260603-evf | UI-Anzeige no_repayment_letter-Status pro Empfänger im Bulk-Mail-Job-Detail (amber Badge + Brief-generieren-und-Retry Action-Button mit Toast-Feedback; MailJobTO exponiert repayment_phase_id) | 2026-06-03 | db8694e | [260603-evf-ui-anzeige-no-repayment-letter-status-pr](./quick/260603-evf-ui-anzeige-no-repayment-letter-status-pr/) |
+| 260603-h0r | Phase-10-Mail-Worker auf RepaymentContextResolver migriert (DRY-Refactor: Inline-Aggregation entfernt, Worker + Letter-Service teilen Resolver-Service, byte-equivalent zu altem Verhalten) | 2026-06-03 | 4dd6e7f | [260603-h0r-phase-10-mail-worker-auf-repaymentcontex](./quick/260603-h0r-phase-10-mail-worker-auf-repaymentcontex/) |
 
 ## Deferred Items
 
