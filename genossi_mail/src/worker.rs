@@ -11,6 +11,12 @@ use crate::template::{
 use genossi_config::service::ConfigService;
 use genossi_service::document_storage::DocumentStorage;
 use genossi_service::member_document::DocumentType;
+// Quick 260603-h0r: Phase 10 D-04 / D-06 aggregation delegated to the shared
+// resolver (Single Source of Truth with the Letter-Service — Phase 13 D-13-04 /
+// D-13-10). Replaces the inline filter+sum+German-format block that used to
+// live in start_mail_worker().
+use genossi_service::repayment_context::RepaymentContextResolver;
+use genossi_service::ServiceError;
 
 const DEFAULT_SEND_INTERVAL_SECONDS: u64 = 36;
 const IDLE_POLL_SECONDS: u64 = 5;
@@ -194,7 +200,7 @@ async fn mark_recipient_failed<R: MailRecipientDao, J: MailJobDao>(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub async fn start_mail_worker<C, J, R, A, SA, D, M, IB, MD, AL, MT, RE, RP, TX>(
+pub async fn start_mail_worker<C, J, R, A, SA, D, M, IB, MD, AL, MT, RE, RP, TX, RCR>(
     config_service: Arc<C>,
     job_dao: Arc<J>,
     recipient_dao: Arc<R>,
@@ -210,6 +216,11 @@ pub async fn start_mail_worker<C, J, R, A, SA, D, M, IB, MD, AL, MT, RE, RP, TX>
     repayment_entry_dao: Arc<RE>,
     repayment_phase_dao: Arc<RP>,
     transaction_dao: Arc<TX>,
+    // --- Quick 260603-h0r: shared aggregation resolver (Phase 13 D-13-04 /
+    //     D-13-10). Same Arc as the Letter-Service uses — Single Source of
+    //     Truth for the Phase-10 D-04 (German euro format) + D-06 (status
+    //     filter Open+Contacted + soft-delete IS NULL) aggregation rule.
+    repayment_context_resolver: Arc<RCR>,
 ) where
     C: ConfigService,
     J: MailJobDao,
@@ -231,6 +242,7 @@ pub async fn start_mail_worker<C, J, R, A, SA, D, M, IB, MD, AL, MT, RE, RP, TX>
         + Sync
         + 'static,
     TX: genossi_dao::TransactionDao<Transaction = MD::Transaction> + Send + Sync + 'static,
+    RCR: RepaymentContextResolver<Transaction = MD::Transaction> + Send + Sync + 'static,
 {
     loop {
         let next = match recipient_dao.next_pending().await {
@@ -438,42 +450,62 @@ pub async fn start_mail_worker<C, J, R, A, SA, D, M, IB, MD, AL, MT, RE, RP, TX>
                                 }
                             };
 
-                            // D-06 filter: deleted IS NULL AND status IN (Open, Contacted).
-                            // PaidOut and Declined explicitly excluded (semantically already paid out / refused).
-                            let relevant: Vec<_> = entries
-                                .iter()
-                                .filter(|e| {
-                                    e.deleted.is_none()
-                                        && e.member_id == member.id
-                                        && matches!(
-                                            e.status,
-                                            genossi_dao::repayment_entry::RepaymentEntryStatus::Open
-                                            | genossi_dao::repayment_entry::RepaymentEntryStatus::Contacted
-                                        )
-                                })
-                                .collect();
-
-                            // D-05: only merge if at least one relevant entry exists.
-                            if !relevant.is_empty() {
-                                let share_count: i32 =
-                                    relevant.iter().map(|e| e.share_count_to_pay_out).sum();
-                                let cents: i64 = (share_count as i64) * (phase.share_value);
-                                // German locale "X,YZ" (Plan 10.05-aligned formatting).
-                                let payout_amount = format!("{},{:02}", cents / 100, cents % 100);
-                                // Quick 260602-r2i: share_value phase-wide als Euro-String.
-                                let share_value_str = format!(
-                                    "{},{:02}",
-                                    phase.share_value / 100,
-                                    phase.share_value % 100
-                                );
-
-                                ctx = merge_repayment_context(
-                                    ctx,
-                                    &payout_amount,
-                                    share_count,
-                                    &share_value_str,
-                                    phase.fiscal_year,
-                                );
+                            // Quick 260603-h0r: Phase 10 D-04 / D-06 aggregation delegated
+                            // to RepaymentContextResolver (Phase 13 D-13-04 / D-13-10 — Single
+                            // Source of Truth shared with RepaymentLetterServiceImpl). The
+                            // resolver returns share_count + German-locale payout_amount +
+                            // fiscal_year; share_value_str is the phase-wide Anteilswert and
+                            // is derived from phase.share_value locally because the resolver's
+                            // RepaymentContext does not carry it (Quick 260602-r2i kept the
+                            // share_value variable in the merged template context; resolver
+                            // was scoped to per-recipient aggregation only).
+                            let share_value_str = format!(
+                                "{},{:02}",
+                                phase.share_value / 100,
+                                phase.share_value % 100,
+                            );
+                            match repayment_context_resolver.aggregate(
+                                &phase,
+                                &entries,
+                                member.id,
+                            ) {
+                                Ok(rc) => {
+                                    // D-05: at least one relevant entry -> merge full context.
+                                    ctx = merge_repayment_context(
+                                        ctx,
+                                        &rc.payout_amount,
+                                        rc.share_count,
+                                        &share_value_str,
+                                        rc.fiscal_year,
+                                    );
+                                }
+                                Err(ServiceError::EntityNotFound(_)) => {
+                                    // D-05 edge-case: no Open/Contacted entries for this member.
+                                    // Skip merge — strict-env template render will fail on any
+                                    // referenced payout_amount/share_count/fiscal_year var
+                                    // without `{% if X is defined %}`-guard, which triggers
+                                    // mark_recipient_failed downstream. This preserves the
+                                    // pre-refactor behavior byte-for-byte (the old inline
+                                    // `if !relevant.is_empty()` block was a no-op when empty).
+                                }
+                                Err(e) => {
+                                    mark_recipient_failed(
+                                        recipient_dao.as_ref(),
+                                        job_dao.as_ref(),
+                                        &next,
+                                        &mut job,
+                                        &format!(
+                                            "Worker: repayment_context aggregate failed: {:?}",
+                                            e
+                                        ),
+                                    )
+                                    .await;
+                                    let interval =
+                                        get_send_interval(config_service.as_ref()).await;
+                                    tokio::time::sleep(std::time::Duration::from_secs(interval))
+                                        .await;
+                                    continue;
+                                }
                             }
                         }
 
