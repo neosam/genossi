@@ -826,6 +826,48 @@ impl PdfGenerator {
     }
 }
 
+/// Quick 260603-kon: Dummy-Sentinel-Werte fuer Typst-Repayment-Letter-Tests.
+///
+/// Liefert ein synthetisches `(RepaymentPhaseEntity, RepaymentContext)`-Paar
+/// mit auffallend hohen Sentinel-Werten (`fiscal_year=2099`,
+/// `share_value=9999` Cent = "99,99" EUR, `share_count=99`,
+/// `payout_amount="99,99"`), damit Vorstand das Auszahlungs-Anschreiben
+/// via `/api/templates/render-repayment-test/{*path}/{member_id}` auch in
+/// Ruhe-Phasen zwischen Generalversammlungen testen kann.
+///
+/// **WARNUNG — Test-Endpoints only:** Diese Funktion darf AUSSCHLIESSLICH
+/// vom REST-Test-Handler `render_repayment_letter_test` (siehe
+/// `genossi_rest/src/template.rs`) aufgerufen werden. NIEMALS aus
+/// `genossi_service_impl/src/repayment_letter.rs` (Produktiv-Bundle-Render)
+/// oder dem Mail-Worker. Sentinel-Werte wuerden sonst in Audit-Logs
+/// (MemberDocument-Eintraege) und reale Briefe an Mitglieder lecken.
+///
+/// **Privacy-Note:** Der Test-Handler laedt echte Member-Daten zur
+/// Adressdarstellung im Brief. Vorstand darf das Test-PDF NICHT
+/// weiterverteilen — es enthaelt korrekte Member-Daten in Kombination
+/// mit erfundenen Auszahlungsbetraegen. Konsistent mit der
+/// `TemplateTester`-Privacy-Disziplin (Mail-Tester).
+pub fn dummy_repayment_context_for_typst() -> (RepaymentPhaseEntity, RepaymentContext) {
+    let now = time::OffsetDateTime::now_utc();
+    let phase = RepaymentPhaseEntity {
+        id: uuid::Uuid::nil(),
+        fiscal_year: 2099,
+        share_value: 9999, // 99,99 EUR in Cent
+        status: genossi_dao::repayment_phase::RepaymentPhaseStatus::Preparation,
+        opened_at: None,
+        closed_at: None,
+        created: time::PrimitiveDateTime::new(now.date(), now.time()),
+        deleted: None,
+        version: uuid::Uuid::nil(),
+    };
+    let ctx = RepaymentContext {
+        share_count: 99,
+        payout_amount: "99,99".to_string(),
+        fiscal_year: 2099,
+    };
+    (phase, ctx)
+}
+
 /// Build the Typst `sys.inputs` dict for the Teilnehmerliste template.
 ///
 /// Produces two string-keyed entries:
@@ -2453,5 +2495,47 @@ foo
             .get("masked_bank_account")
             .expect("compat member missing masked_bank_account");
         assert!(masked.is_null(), "expected JSON null, got: {masked:?}");
+    }
+
+    // ============================================================
+    // Quick 260603-kon: dummy_repayment_context_for_typst tests
+    // ============================================================
+
+    /// Quick 260603-kon: Lock-Test der Sentinel-Werte. Wenn jemand die
+    /// Werte aendert, BRECHEN dieses Test UND die Mail-Variante
+    /// (`genossi_mail::template::dummy_repayment_context`) — beide muessen
+    /// synchron sein.
+    #[test]
+    fn test_dummy_repayment_context_for_typst_sentinel_values_locked() {
+        let (phase, ctx) = dummy_repayment_context_for_typst();
+        assert_eq!(phase.fiscal_year, 2099);
+        assert_eq!(phase.share_value, 9999);
+        assert_eq!(ctx.share_count, 99);
+        assert_eq!(ctx.payout_amount, "99,99");
+        assert_eq!(ctx.fiscal_year, 2099);
+    }
+
+    /// Quick 260603-kon: End-to-End-Beweis — die Sentinel-Werte gehen
+    /// durch den echten Typst-Compile-Pfad und das resultierende PDF hat
+    /// gueltige Magic-Bytes. Damit ist verifiziert, dass der Test-Handler
+    /// im REST-Layer ein valides PDF zurueckliefern kann.
+    #[test]
+    fn test_render_repayment_letter_with_dummy_context() {
+        let template_base = provision_letter_templates();
+        let generator = PdfGenerator::new();
+        let (phase, ctx) = dummy_repayment_context_for_typst();
+        let member = sample_member_with_iban();
+
+        let pdf = generator
+            .render_repayment_letter(
+                "auszahlungs_anschreiben.typ",
+                template_base.path(),
+                &phase,
+                &member,
+                &ctx,
+            )
+            .expect("render with dummy ctx must succeed");
+        assert!(pdf.starts_with(b"%PDF-"), "missing PDF magic bytes");
+        assert!(pdf.len() > 1000, "PDF too small ({} bytes)", pdf.len());
     }
 }

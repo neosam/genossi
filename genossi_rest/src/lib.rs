@@ -599,6 +599,13 @@ pub async fn create_app<
             "/api/templates/render-application",
             template::generate_render_application_route(),
         )
+        // Quick 260603-kon: Test-Route fuer Repayment-Letter-Templates mit
+        // Dummy-Sentinel-Werten. Strikt OFF-Pfad — kein Audit, kein
+        // MemberDocument-Insert. Siehe Doc-Comment in template.rs:render_repayment_letter_test.
+        .nest(
+            "/api/templates/render-repayment-test",
+            template::generate_render_repayment_test_route(),
+        )
         .nest("/api/user-preferences", user_preference::generate_route())
         .nest("/api/config", genossi_config::rest::generate_route())
         .nest("/api/mail", genossi_mail::rest::generate_route())

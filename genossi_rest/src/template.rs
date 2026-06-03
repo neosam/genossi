@@ -47,6 +47,24 @@ pub fn generate_render_application_route<RestState: RestStateDef + ApplicationRe
     )
 }
 
+/// Quick 260603-kon: Test-Route fuer Repayment-Letter-Templates.
+///
+/// Vorstand kann ein Auszahlungs-Anschreiben rendern, auch wenn die
+/// referenzierten Member keine aktive RepaymentPhase haben — der Handler
+/// uebergibt eine Dummy-Phase + Dummy-RepaymentContext (Sentinel-Werte
+/// `fiscal_year=2099`, `share_value=9999`, `payout_amount="99,99"`,
+/// `share_count=99`) an `PdfGenerator::render_repayment_letter`.
+///
+/// Strictly nicht-auditiert: KEIN `audited_create!`, KEIN MemberDocument-
+/// Insert. Reines Test-Render-Pfad fuer Vorschau / Iteration im
+/// Typst-Editor.
+pub fn generate_render_repayment_test_route<RestState: RestStateDef>() -> Router<RestState> {
+    Router::new().route(
+        "/{*path}",
+        axum::routing::post(render_repayment_letter_test::<RestState>),
+    )
+}
+
 #[utoipa::path(
     get,
     path = "/",
@@ -326,6 +344,100 @@ async fn render_template<RestState: RestStateDef>(
     )
 }
 
+/// Quick 260603-kon: Test-Handler fuer das Auszahlungs-Anschreiben.
+///
+/// Laedt den durch `{member_id}` referenzierten Member (echte Daten —
+/// Vorstand sieht im Test-PDF den korrekten Namen + Adresse), kombiniert
+/// ihn mit Sentinel-Dummy-Werten fuer die Repayment-Phase/-Context und
+/// rendert ein PDF.
+///
+/// **Privacy:** Das Test-PDF enthaelt korrekte Member-Daten plus erfundene
+/// Auszahlungsbetraege. Vorstand sollte das PDF NICHT weiterverteilen.
+/// Konsistent mit der `TemplateTester`-Privacy-Disziplin im Mail-Tester.
+///
+/// **Audit-Pfad-Schutz:** Dieser Handler ruft KEIN `audited_*!`-Macro auf
+/// und erzeugt KEIN MemberDocument. Sentinel-Werte koennen nicht in
+/// Audit-Logs oder in der Produktiv-Brief-Pipeline auftauchen.
+#[utoipa::path(
+    post,
+    path = "/{path}",
+    params(
+        ("path" = String, Path, description = "Template file path followed by member ID"),
+    ),
+    responses(
+        (status = 200, description = "Rendered PDF with dummy repayment context"),
+        (status = 400, description = "Render error"),
+        (status = 404, description = "Template or member not found"),
+    ),
+    tag = "Templates"
+)]
+async fn render_repayment_letter_test<RestState: RestStateDef>(
+    rest_state: State<RestState>,
+    Extension(context): Extension<Context>,
+    Path(path): Path<String>,
+) -> Response {
+    error_handler(
+        (async {
+            let auth = crate::extract_auth_context(Some(context))?;
+            rest_state
+                .permission_service()
+                .check_permission("manage_members", auth.clone())
+                .await
+                .map_err(|_| RestError::Unauthorized)?;
+
+            let (template_path, member_id_str) = parse_render_path(&path)?;
+
+            let member_id: uuid::Uuid = member_id_str
+                .parse()
+                .map_err(|_| RestError::BadRequest("Invalid member ID".to_string()))?;
+
+            let member = rest_state
+                .member_service()
+                .get(member_id, auth, None)
+                .await
+                .map_err(RestError::from)?;
+            // render_repayment_letter erwartet die DAO-Entity, MemberService
+            // liefert das Service-TO; From<&Member> for MemberEntity ist in
+            // genossi_service/src/member.rs definiert (PII-1:1-Mapping).
+            let member_entity: genossi_dao::member::MemberEntity = (&member).into();
+
+            // Quick 260603-kon: Dummy-Sentinel-Werte aus dem Helper im
+            // genossi_service_impl::pdf_generation. NIEMALS aus dem
+            // Produktiv-Bundle-Render-Pfad aufrufen.
+            let (dummy_phase, dummy_ctx) =
+                genossi_service_impl::pdf_generation::dummy_repayment_context_for_typst();
+
+            let pdf_bytes = rest_state
+                .pdf_generator()
+                .render_repayment_letter(
+                    &template_path,
+                    rest_state.template_storage().base_path(),
+                    &dummy_phase,
+                    &member_entity,
+                    &dummy_ctx,
+                )
+                .map_err(|e| RestError::InternalError(format!("render error: {:?}", e)))?;
+
+            let filename = template_path
+                .rsplit('/')
+                .next()
+                .unwrap_or(&template_path)
+                .replace(".typ", ".pdf");
+
+            Ok(Response::builder()
+                .status(200)
+                .header("Content-Type", "application/pdf")
+                .header(
+                    "Content-Disposition",
+                    format!("attachment; filename=\"{}\"", filename),
+                )
+                .body(Body::from(pdf_bytes))
+                .unwrap())
+        })
+        .await,
+    )
+}
+
 #[utoipa::path(
     post,
     path = "/{path}",
@@ -423,6 +535,7 @@ fn parse_render_path(path: &str) -> Result<(String, String), RestError> {
         delete_template,
         render_template,
         render_application_template,
+        render_repayment_letter_test,
     ),
     tags(
         (name = "Templates", description = "Template management and PDF generation")
