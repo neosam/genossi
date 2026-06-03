@@ -646,7 +646,32 @@ pub async fn preview_mail<S: MailRestState>(
                         }
                     }
                 }
-                _ => (base_ctx, false),
+                _ => {
+                    // Quick 260603-n3m: Caller (z.B. Template-Editor) hat
+                    // KEINE repayment_phase_id geschickt. Wenn das Template
+                    // trotzdem `{{ payout_amount }}` / `share_count` /
+                    // `share_value` / `fiscal_year` referenziert, mergen
+                    // wir den Dummy-Repayment-Context — sonst wuerde
+                    // strict-env minijinja mit "undefined variable" failen
+                    // und der Editor-Preview waere unbenutzbar.
+                    // Symmetrisch zum Typst-Test-Endpoint aus 260603-kon.
+                    if crate::template::template_uses_repayment_vars(&body.subject, &body.body) {
+                        let (payout, share_count, share_value, fiscal_year) =
+                            crate::template::dummy_repayment_context();
+                        (
+                            crate::template::merge_repayment_context(
+                                base_ctx,
+                                payout,
+                                share_count,
+                                share_value,
+                                fiscal_year,
+                            ),
+                            true,
+                        )
+                    } else {
+                        (base_ctx, false)
+                    }
+                }
             };
             let mut errors = Vec::new();
 
@@ -794,7 +819,32 @@ pub async fn send_test_mail_with_template<S: MailRestState>(
                         }
                     }
                 }
-                _ => (base_ctx, false),
+                _ => {
+                    // Quick 260603-n3m: Caller (z.B. Template-Editor) hat
+                    // KEINE repayment_phase_id geschickt. Wenn das Template
+                    // trotzdem `{{ payout_amount }}` / `share_count` /
+                    // `share_value` / `fiscal_year` referenziert, mergen
+                    // wir den Dummy-Repayment-Context — sonst wuerde
+                    // strict-env minijinja mit "undefined variable" failen
+                    // und der Editor-Preview waere unbenutzbar.
+                    // Symmetrisch zum Typst-Test-Endpoint aus 260603-kon.
+                    if crate::template::template_uses_repayment_vars(&body.subject, &body.body) {
+                        let (payout, share_count, share_value, fiscal_year) =
+                            crate::template::dummy_repayment_context();
+                        (
+                            crate::template::merge_repayment_context(
+                                base_ctx,
+                                payout,
+                                share_count,
+                                share_value,
+                                fiscal_year,
+                            ),
+                            true,
+                        )
+                    } else {
+                        (base_ctx, false)
+                    }
+                }
             };
 
             let rendered_subject = render_template(&body.subject, &ctx).map_err(|e| {
@@ -1191,5 +1241,82 @@ mod tests {
         let json = serde_json::to_string(&original).expect("must serialize");
         let parsed: PreviewResponse = serde_json::from_str(&json).expect("must deserialize");
         assert!(parsed.used_dummy_repayment);
+    }
+
+    // ── Quick 260603-n3m — None-arm Dummy-Fallback via template detection ──
+
+    /// Quick 260603-n3m: Wenn das Template `{{ payout_amount }}` enthaelt,
+    /// liefert `template_uses_repayment_vars` `true`, und das Render mit
+    /// gemergtem Dummy-Context muss `"99,99"` enthalten — Sentinel-Lock auf
+    /// derselben Render-Pipeline, die die beiden Handler nutzen.
+    #[test]
+    fn test_dummy_merge_applies_when_no_phase_id_and_template_uses_repayment_var() {
+        use crate::template::{
+            dummy_repayment_context, member_to_template_context, merge_repayment_context,
+            render_template, template_uses_repayment_vars,
+        };
+        use genossi_dao::member::{MemberEntity, MemberStatus, Salutation};
+        use std::sync::Arc;
+
+        let date = time::Date::from_calendar_date(2025, time::Month::January, 15).unwrap();
+        let datetime = time::PrimitiveDateTime::new(date, time::Time::MIDNIGHT);
+        let member = MemberEntity {
+            id: uuid::Uuid::new_v4(),
+            member_number: 7,
+            first_name: Arc::from("Max"),
+            last_name: Arc::from("Mustermann"),
+            salutation: Some(Salutation::Herr),
+            title: None,
+            email: Some(Arc::from("max@example.com")),
+            company: None,
+            comment: None,
+            street: None,
+            house_number: None,
+            postal_code: None,
+            city: None,
+            join_date: date,
+            shares_at_joining: 1,
+            current_shares: 3,
+            current_balance: 15000,
+            action_count: 0,
+            migrated: false,
+            exit_date: None,
+            bank_account: None,
+            status: MemberStatus::Normal,
+            created: datetime,
+            deleted: None,
+            version: uuid::Uuid::new_v4(),
+        };
+
+        let subject = "Subject";
+        let body = "Auszahlung: {{ payout_amount }} EUR";
+
+        // Detection: ja, template referenziert Repayment-Var.
+        assert!(template_uses_repayment_vars(subject, body));
+
+        // Dummy-Merge: dieselbe Call-Shape wie der None-Arm beider Handler.
+        let base = member_to_template_context(&member);
+        let (payout, share_count, share_value, fiscal_year) = dummy_repayment_context();
+        let ctx = merge_repayment_context(base, payout, share_count, share_value, fiscal_year);
+        let rendered = render_template(body, &ctx).expect("must render with dummy ctx");
+        assert!(
+            rendered.contains("99,99"),
+            "merged dummy ctx must inject sentinel 99,99, got: {rendered}",
+        );
+    }
+
+    /// Quick 260603-n3m: Template OHNE Repayment-Vars darf NICHT den
+    /// Dummy-Pfad ziehen — `template_uses_repayment_vars` ist die korrekte
+    /// Detection-Boundary, sonst wuerde der `used_dummy_repayment`-Banner
+    /// im Editor luegen.
+    #[test]
+    fn test_dummy_merge_does_not_apply_for_pure_member_template() {
+        use crate::template::template_uses_repayment_vars;
+        let subject = "Subject";
+        let body = "Hallo {{ first_name }} {{ last_name }}";
+        assert!(
+            !template_uses_repayment_vars(subject, body),
+            "pure member-var template must NOT trigger the dummy-merge fallback"
+        );
     }
 }

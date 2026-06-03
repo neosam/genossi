@@ -212,6 +212,36 @@ pub fn dummy_repayment_context() -> (&'static str, i32, &'static str, i32) {
     ("99,99", 99, "99,99", 2099)
 }
 
+/// Quick 260603-n3m: Detektiert, ob ein Template (subject ODER body) eine
+/// der vier Repayment-Variablen referenziert (`payout_amount`,
+/// `share_count`, `share_value`, `fiscal_year`).
+///
+/// Wird von den Test-Endpoints (`preview_mail` /
+/// `send_test_mail_with_template`) in `rest.rs` aufgerufen, um zu
+/// entscheiden, ob der Dummy-Repayment-Context auch dann gemergt werden
+/// muss, wenn der Caller (Template-Editor) gar kein `repayment_phase_id`
+/// geschickt hat.
+///
+/// Implementierungs-Entscheidung: simple Substring-Suche statt
+/// AST-Parsing. Jinja-Ausdruecke wie `{{ payout_amount }}`,
+/// `{% if payout_amount is defined %}` und sogar Kommentare
+/// `{# payout_amount #}` enthalten den Variablen-Namen als Substring.
+/// False-Positives bei Literalen, die zufaellig "payout_amount" als
+/// Plain-Text enthalten (unwahrscheinlich), sind harmlos: der Dummy-Merge
+/// ist additiv und ueberschreibt nichts.
+///
+/// Trade-off versus "immer mergen": waeren wir immer-merge, wuerden auch
+/// Non-Repayment-Templates `used_dummy_repayment: true` setzen und der
+/// amber Banner wuerde luegen ("Vorsicht, Dummy-Daten" — aber das Template
+/// nutzt sie gar nicht). Detection haelt den Banner vertrauenswuerdig.
+pub fn template_uses_repayment_vars(subject: &str, body: &str) -> bool {
+    const REPAYMENT_VARS: [&str; 4] =
+        ["payout_amount", "share_count", "share_value", "fiscal_year"];
+    REPAYMENT_VARS
+        .iter()
+        .any(|v| subject.contains(v) || body.contains(v))
+}
+
 /// Phase 10 D-14 (additive, Planner-Discretion): probe-render templates against
 /// both Member-context AND a dummy Repayment-context. Catches references like
 /// `{{ payout_amount }}` without `{% if %}`-guards before the worker actually
@@ -820,8 +850,14 @@ mod tests {
         member.bank_account = Some(Arc::from("AT611904300234573201"));
         let ctx = member_to_template_context(&member);
         let result = render_template("{{ masked_bank_account }}", &ctx).unwrap();
-        assert!(result.starts_with("AT"), "expected AT prefix, got: {result}");
-        assert!(result.ends_with("3201"), "expected 3201 suffix, got: {result}");
+        assert!(
+            result.starts_with("AT"),
+            "expected AT prefix, got: {result}"
+        );
+        assert!(
+            result.ends_with("3201"),
+            "expected 3201 suffix, got: {result}"
+        );
     }
 
     #[test]
@@ -879,9 +915,74 @@ mod tests {
         let merged = merge_repayment_context(base, dummy.0, dummy.1, dummy.2, dummy.3);
         let template = "{{ payout_amount }} EUR fuer {{ share_count }} Anteile a {{ share_value }} EUR ({{ fiscal_year }})";
         let result = render_template(template, &merged).unwrap();
-        assert_eq!(
-            result,
-            "99,99 EUR fuer 99 Anteile a 99,99 EUR (2099)"
-        );
+        assert_eq!(result, "99,99 EUR fuer 99 Anteile a 99,99 EUR (2099)");
+    }
+
+    // ============================================================
+    // Quick 260603-n3m: template_uses_repayment_vars detection
+    // ============================================================
+
+    #[test]
+    fn test_template_uses_repayment_vars_pure_member_template() {
+        // Nur Member-Vars -> false (Editor-Template ohne Repayment-Bezug)
+        assert!(!template_uses_repayment_vars(
+            "Hallo {{ first_name }}",
+            "Lieber {{ last_name }}, willkommen!"
+        ));
+    }
+
+    #[test]
+    fn test_template_uses_repayment_vars_detects_payout_amount_in_body() {
+        assert!(template_uses_repayment_vars(
+            "Subject",
+            "Auszahlung: {{ payout_amount }} EUR"
+        ));
+    }
+
+    #[test]
+    fn test_template_uses_repayment_vars_detects_share_count() {
+        assert!(template_uses_repayment_vars(
+            "Subject",
+            "{{ share_count }} Anteile"
+        ));
+    }
+
+    #[test]
+    fn test_template_uses_repayment_vars_detects_share_value() {
+        assert!(template_uses_repayment_vars(
+            "Subject",
+            "{{ share_value }} EUR pro Anteil"
+        ));
+    }
+
+    #[test]
+    fn test_template_uses_repayment_vars_detects_fiscal_year() {
+        assert!(template_uses_repayment_vars(
+            "Subject",
+            "Geschaeftsjahr {{ fiscal_year }}"
+        ));
+    }
+
+    #[test]
+    fn test_template_uses_repayment_vars_detects_in_subject() {
+        // Subject-only hit muss auch zaehlen (Vorstand setzt z.B.
+        // `Auszahlung {{ payout_amount }} EUR` in den Subject-Slot)
+        assert!(template_uses_repayment_vars(
+            "Auszahlung {{ payout_amount }} EUR",
+            "Plain body"
+        ));
+    }
+
+    #[test]
+    fn test_template_uses_repayment_vars_detects_guarded_reference() {
+        // {% if ... is defined %}-Guards enthalten den Variablen-Namen
+        // weiterhin als Substring -> werden detektiert. Das ist korrekt:
+        // ohne Dummy-Merge wuerde der Render trotzdem auf undefined laufen,
+        // wenn der else-Zweig ebenfalls die Variable nutzt — sicherer ist,
+        // den Dummy-Context auch bei guarded References zu liefern.
+        assert!(template_uses_repayment_vars(
+            "Subject",
+            "{% if payout_amount is defined %}Auszahlung: {{ payout_amount }}{% endif %}"
+        ));
     }
 }
