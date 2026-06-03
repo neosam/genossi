@@ -205,6 +205,11 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::MailTemplatePreview => "Vorschau".into(),
         Key::MailTemplatePreviewSelect => "Mitglied für Vorschau auswählen".into(),
         Key::MailTemplateError => "Template-Fehler".into(),
+        Key::MailTemplateTestDummyRepaymentHint => {
+            "Test-Modus: Mitglied hat keine aktive Rückzahlung — Repayment-Platzhalter \
+             werden mit Dummy-Werten gefüllt (99,99 EUR, 99 Anteile, Jahr 2099)."
+                .into()
+        }
         Key::MailAttachRepaymentLetter => {
             "RepaymentLetter (Anschreiben) als persönliches PDF anhängen".into()
         }

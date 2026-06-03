@@ -932,6 +932,13 @@ pub struct PreviewResponse {
     pub body: String,
     #[serde(default)]
     pub errors: Vec<String>,
+    /// Quick 260603-kon: Backend liefert dieses Feld nur wenn `true` —
+    /// das Frontend zeigt darauf einen amber Hinweis-Banner, weil
+    /// Dummy-Sentinel-Werte gerendert wurden. `#[serde(default)]` macht
+    /// das Feld backward-kompatibel mit Backend-Responses, die das
+    /// Feld nicht liefern (alte Caches, Phase-10-Era Responses).
+    #[serde(default)]
+    pub used_dummy_repayment: bool,
 }
 
 pub async fn preview_mail(
@@ -2781,6 +2788,43 @@ mod tests {
         assert!(
             !json_legacy.contains("repayment_phase_id"),
             "skip_serializing_if must omit None, got: {json_legacy}",
+        );
+    }
+
+    /// Quick 260603-kon: Backend liefert `used_dummy_repayment: true` wenn
+    /// die Test-Endpoints den Dummy-Fallback aktiviert haben (Member ohne
+    /// aktive Repayment-Phase). Frontend MUSS das Feld lesen koennen, um
+    /// den amber Hinweis-Banner zu triggern.
+    #[test]
+    fn test_preview_response_deserialize_used_dummy_repayment_true() {
+        let json = r#"{
+            "subject": "S",
+            "body": "Auszahlung: 99,99 EUR fuer 99 Anteile",
+            "errors": [],
+            "used_dummy_repayment": true
+        }"#;
+        let response: PreviewResponse = serde_json::from_str(json).expect("must deserialize");
+        assert!(response.used_dummy_repayment);
+        // Sentinel-Werte muessen durchkommen (Backend-Lock-Test-Spiegel).
+        assert!(response.body.contains("99,99"));
+    }
+
+    /// Quick 260603-kon: Backward-Compat — Backend-Responses ohne das
+    /// Feld (skip_serializing_if hat es weggelassen, ODER Cache aus
+    /// Phase-10-Era) MUESSEN sauber deserialisieren und `false` defaulten.
+    /// Wenn das bricht, sieht das Frontend einen Parse-Fehler bei jeder
+    /// Preview ohne aktive Phase.
+    #[test]
+    fn test_preview_response_deserialize_backward_compat_without_dummy_flag() {
+        let json = r#"{
+            "subject": "S",
+            "body": "Hallo Max",
+            "errors": []
+        }"#;
+        let response: PreviewResponse = serde_json::from_str(json).expect("must deserialize");
+        assert!(
+            !response.used_dummy_repayment,
+            "missing field MUST default to false"
         );
     }
 }

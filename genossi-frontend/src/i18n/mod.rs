@@ -259,6 +259,11 @@ pub enum Key {
     MailTemplatePreview,
     MailTemplatePreviewSelect,
     MailTemplateError,
+    // Quick 260603-kon: amber Hinweis-Banner im TemplatePreview, wenn
+    // Backend mit Dummy-Sentinel-Werten gerendert hat (Member ohne aktive
+    // Repayment-Phase). Sentinel-Werte (99,99 / 99 / 2099) sind im Text
+    // sichtbar, damit User die Dummy-Daten visuell erkennt.
+    MailTemplateTestDummyRepaymentHint,
     // Quick 260603-e6p: opt-in checkbox to auto-attach the per-recipient
     // DocumentType::RepaymentLetter PDF in the bulk-mail compose flow.
     MailAttachRepaymentLetter,

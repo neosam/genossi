@@ -205,6 +205,11 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::MailTemplatePreview => "Preview".into(),
         Key::MailTemplatePreviewSelect => "Select member for preview".into(),
         Key::MailTemplateError => "Template error".into(),
+        Key::MailTemplateTestDummyRepaymentHint => {
+            "Test mode: member has no active repayment — Repayment placeholders \
+             rendered with dummy values (99.99 EUR, 99 shares, year 2099)."
+                .into()
+        }
         Key::MailAttachRepaymentLetter => {
             "Attach RepaymentLetter (cover letter) as personal PDF".into()
         }

@@ -31,6 +31,9 @@ fn trigger_preview(
                 subject: String::new(),
                 body: String::new(),
                 errors: vec![e.to_string()],
+                // Quick 260603-kon: Frontend-Default — Render-Fehler haben
+                // keinen Dummy-Banner-Bezug.
+                used_dummy_repayment: false,
             })),
         }
         preview_loading.set(false);
@@ -120,6 +123,18 @@ pub fn TemplatePreview(
                         }
                         pre { class: "whitespace-pre-wrap text-gray-600 mt-2",
                             "{preview.body}"
+                        }
+                    }
+                    // Quick 260603-kon: Dummy-Repayment-Hinweis. Inline-RSX
+                    // ist OK weil aktuell nur ein Verwender (TemplatePreview).
+                    // TODO: Falls ein zweiter Verwender (z.B. Typst-Test im
+                    // Template-Editor) auftaucht, in eigene Component
+                    // `DummyRepaymentBanner` unter
+                    // `genossi-frontend/src/component/` extrahieren
+                    // (Component-First, siehe genossi-frontend/CLAUDE.md).
+                    if preview.used_dummy_repayment {
+                        div { class: "mt-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800",
+                            {i18n.t(Key::MailTemplateTestDummyRepaymentHint)}
                         }
                     }
                 }
