@@ -168,14 +168,20 @@ mod tests {
     #[test]
     fn mask_iban_preserves_country_code() {
         let result = mask_iban("AT611904300234573201");
-        assert!(result.starts_with("AT"), "expected AT prefix, got: {result}");
+        assert!(
+            result.starts_with("AT"),
+            "expected AT prefix, got: {result}"
+        );
     }
 
     #[test]
     fn mask_iban_preserves_last_four() {
         let result = mask_iban("AT611904300234573201");
         // Letzte 4 Zeichen der bereinigten IBAN sind "3201".
-        assert!(result.ends_with("3201"), "expected 3201 suffix, got: {result}");
+        assert!(
+            result.ends_with("3201"),
+            "expected 3201 suffix, got: {result}"
+        );
     }
 
     #[test]
@@ -190,7 +196,10 @@ mod tests {
     fn mask_iban_short_input_fully_masked() {
         // Länge ≤ 6: alles maskieren (defensive Variante).
         // "ABCDEF" → 6× • → gruppiert: "•••• ••"
-        assert_eq!(mask_iban("ABCDEF"), "\u{2022}\u{2022}\u{2022}\u{2022} \u{2022}\u{2022}");
+        assert_eq!(
+            mask_iban("ABCDEF"),
+            "\u{2022}\u{2022}\u{2022}\u{2022} \u{2022}\u{2022}"
+        );
     }
 
     #[test]

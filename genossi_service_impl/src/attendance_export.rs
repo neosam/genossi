@@ -204,11 +204,7 @@ impl<Deps: AttendanceExportServiceDeps> AttendanceExportService
         );
 
         let (bytes, content_type, ext) = match format {
-            ExportFormat::Csv => (
-                render_csv(&rows)?,
-                "text/csv; charset=utf-8",
-                "csv",
-            ),
+            ExportFormat::Csv => (render_csv(&rows)?, "text/csv; charset=utf-8", "csv"),
             ExportFormat::Xlsx => (
                 render_xlsx(&rows)?,
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -316,9 +312,7 @@ fn render_xlsx(rows: &[AttendanceMemberRow]) -> Result<Vec<u8>, ServiceError> {
     for (col, h) in headers.iter().enumerate() {
         sheet
             .write_string_with_format(0, col as u16, *h, &bold)
-            .map_err(|e| {
-                ServiceError::InternalError(Arc::from(format!("xlsx header: {}", e)))
-            })?;
+            .map_err(|e| ServiceError::InternalError(Arc::from(format!("xlsx header: {}", e))))?;
     }
 
     for (idx, r) in rows.iter().enumerate() {
@@ -327,9 +321,7 @@ fn render_xlsx(rows: &[AttendanceMemberRow]) -> Result<Vec<u8>, ServiceError> {
         // Mitgliedsnummer as numeric so Excel sorts it correctly.
         sheet
             .write_number(row_num, 0, r.member_number as f64)
-            .map_err(|e| {
-                ServiceError::InternalError(Arc::from(format!("xlsx number: {}", e)))
-            })?;
+            .map_err(|e| ServiceError::InternalError(Arc::from(format!("xlsx number: {}", e))))?;
         sheet
             .write_string(row_num, 1, r.last_name.as_ref())
             .map_err(|e| {
@@ -350,9 +342,7 @@ fn render_xlsx(rows: &[AttendanceMemberRow]) -> Result<Vec<u8>, ServiceError> {
             .map_err(|e| ServiceError::InternalError(Arc::from(format!("xlsx title: {}", e))))?;
         sheet
             .write_string(row_num, 5, if r.is_present { "ja" } else { "nein" })
-            .map_err(|e| {
-                ServiceError::InternalError(Arc::from(format!("xlsx present: {}", e)))
-            })?;
+            .map_err(|e| ServiceError::InternalError(Arc::from(format!("xlsx present: {}", e))))?;
     }
 
     workbook
@@ -687,7 +677,12 @@ mod tests {
             PathBuf::from("templates"),
         );
         let res = svc
-            .export(aid, ExportFormat::Csv, ExportInclude::All, Authentication::Full)
+            .export(
+                aid,
+                ExportFormat::Csv,
+                ExportInclude::All,
+                Authentication::Full,
+            )
             .await
             .expect("export should succeed");
         assert_eq!(res.content_type, "text/csv; charset=utf-8");
@@ -711,7 +706,12 @@ mod tests {
             PathBuf::from("templates"),
         );
         let res = svc
-            .export(aid, ExportFormat::Csv, ExportInclude::All, Authentication::Full)
+            .export(
+                aid,
+                ExportFormat::Csv,
+                ExportInclude::All,
+                Authentication::Full,
+            )
             .await;
         match res {
             Err(ServiceError::Conflict(msg)) => assert_eq!(msg.as_ref(), "assembly_not_closed"),
@@ -736,7 +736,12 @@ mod tests {
             PathBuf::from("templates"),
         );
         let res = svc
-            .export(aid, ExportFormat::Csv, ExportInclude::All, Authentication::Full)
+            .export(
+                aid,
+                ExportFormat::Csv,
+                ExportInclude::All,
+                Authentication::Full,
+            )
             .await;
         assert!(
             matches!(&res, Err(ServiceError::Conflict(msg)) if msg.as_ref() == "assembly_not_closed"),
@@ -787,9 +792,7 @@ mod tests {
     async fn not_found_returns_entity_not_found() {
         let aid = Uuid::new_v4();
         let mut assembly_dao = MockTestAssemblyDao::new();
-        assembly_dao
-            .expect_find_by_id()
-            .returning(|_, _| Ok(None));
+        assembly_dao.expect_find_by_id().returning(|_, _| Ok(None));
         let svc = build_service(
             MockTestAttendanceDao::new(),
             assembly_dao,
@@ -798,7 +801,12 @@ mod tests {
             PathBuf::from("templates"),
         );
         let res = svc
-            .export(aid, ExportFormat::Csv, ExportInclude::All, Authentication::Full)
+            .export(
+                aid,
+                ExportFormat::Csv,
+                ExportInclude::All,
+                Authentication::Full,
+            )
             .await;
         assert!(
             matches!(res, Err(ServiceError::EntityNotFound(uid)) if uid == aid),
@@ -883,7 +891,11 @@ mod tests {
         let text = std::str::from_utf8(body).expect("utf8");
         let row_count = text.lines().filter(|l| !l.is_empty()).count();
         // Header + 2 present rows = 3 non-empty lines.
-        assert_eq!(row_count, 3, "expected header + 2 present rows, got {}", row_count);
+        assert_eq!(
+            row_count, 3,
+            "expected header + 2 present rows, got {}",
+            row_count
+        );
     }
 
     // ----------------------------------------------------------------------
@@ -911,7 +923,12 @@ mod tests {
             PathBuf::from("templates"),
         );
         let res = svc
-            .export(aid, ExportFormat::Csv, ExportInclude::All, Authentication::Full)
+            .export(
+                aid,
+                ExportFormat::Csv,
+                ExportInclude::All,
+                Authentication::Full,
+            )
             .await
             .expect("export ok");
         // BOM check
@@ -934,8 +951,16 @@ mod tests {
             first_line
         );
         // ja/nein anwesend column
-        assert!(body.contains(";ja"), "CSV should have at least one ;ja cell: {:?}", body);
-        assert!(body.contains(";nein"), "CSV should have at least one ;nein cell: {:?}", body);
+        assert!(
+            body.contains(";ja"),
+            "CSV should have at least one ;ja cell: {:?}",
+            body
+        );
+        assert!(
+            body.contains(";nein"),
+            "CSV should have at least one ;nein cell: {:?}",
+            body
+        );
         // Row count = 1 header + 3 rows (include=All)
         let row_count = body.lines().filter(|l| !l.is_empty()).count();
         assert_eq!(row_count, 4, "expected 1 header + 3 rows");
@@ -962,7 +987,12 @@ mod tests {
             PathBuf::from("templates"),
         );
         let res = svc
-            .export(aid, ExportFormat::Xlsx, ExportInclude::All, Authentication::Full)
+            .export(
+                aid,
+                ExportFormat::Xlsx,
+                ExportInclude::All,
+                Authentication::Full,
+            )
             .await
             .expect("export ok");
         assert!(
@@ -987,11 +1017,7 @@ mod tests {
         // Verify filename for all three formats with assembly date 2026-05-15.
         let aid = Uuid::new_v4();
         for (fmt, expected_ext, expected_ct) in [
-            (
-                ExportFormat::Csv,
-                "csv",
-                "text/csv; charset=utf-8",
-            ),
+            (ExportFormat::Csv, "csv", "text/csv; charset=utf-8"),
             (
                 ExportFormat::Xlsx,
                 "xlsx",
@@ -1103,7 +1129,12 @@ mod tests {
             PathBuf::from("templates"),
         );
         let res = svc
-            .export(aid, ExportFormat::Csv, ExportInclude::All, Authentication::Full)
+            .export(
+                aid,
+                ExportFormat::Csv,
+                ExportInclude::All,
+                Authentication::Full,
+            )
             .await
             .expect("export ok");
         // Header + 5 rows = 6 non-empty lines after BOM.
@@ -1152,7 +1183,12 @@ Anwesend: #meta.present
             dir.path().to_path_buf(),
         );
         let res = svc
-            .export(aid, ExportFormat::Pdf, ExportInclude::All, Authentication::Full)
+            .export(
+                aid,
+                ExportFormat::Pdf,
+                ExportInclude::All,
+                Authentication::Full,
+            )
             .await
             .expect("PDF export should succeed");
         assert!(res.bytes.starts_with(b"%PDF"), "PDF magic missing");

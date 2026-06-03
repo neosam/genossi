@@ -1119,7 +1119,7 @@ impl RestStateImpl {
     pub async fn initialize_audit_snapshot(&self) -> Result<(), Box<dyn std::error::Error>> {
         use genossi_dao::application::ApplicationDao;
         use genossi_dao::audit_log::AuditLogDao;
-        
+
         use genossi_dao::member::MemberDao;
         use genossi_dao::member_action::MemberActionDao;
         use genossi_dao::member_document::MemberDocumentDao;
@@ -1503,12 +1503,14 @@ impl genossi_mail::rest::MailRestState for RestStateImpl {
             // German locale "X,YZ" — identical format string as worker.rs:353.
             let payout_amount = format!("{},{:02}", cents / 100, cents % 100);
             // Quick 260602-r2i: share_value (phase-wide Anteilswert) als Euro-String.
-            let share_value_str = format!(
-                "{},{:02}",
-                phase.share_value / 100,
-                phase.share_value % 100
-            );
-            Some((payout_amount, share_count, share_value_str, phase.fiscal_year))
+            let share_value_str =
+                format!("{},{:02}", phase.share_value / 100, phase.share_value % 100);
+            Some((
+                payout_amount,
+                share_count,
+                share_value_str,
+                phase.fiscal_year,
+            ))
         })
     }
     fn resolve_document(

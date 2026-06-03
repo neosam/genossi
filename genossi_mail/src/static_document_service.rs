@@ -72,8 +72,7 @@ impl<D: StaticDocumentDao, S: DocumentStorage + 'static> StaticDocumentService
         &self,
         upload: UploadStaticDocument,
     ) -> Result<StaticDocument, StaticDocumentError> {
-        if !ALLOWED_CONTENT_TYPES.contains(&upload.content_type.as_str())
-        {
+        if !ALLOWED_CONTENT_TYPES.contains(&upload.content_type.as_str()) {
             return Err(StaticDocumentError::Validation(Arc::from(format!(
                 "Content type '{}' is not allowed",
                 upload.content_type

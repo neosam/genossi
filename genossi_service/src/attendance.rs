@@ -135,8 +135,10 @@ mod tests {
         });
         mock.expect_list_members()
             .returning(|_aid, _search, _ctx| Ok(Arc::from(Vec::<AttendanceMemberRow>::new())));
-        mock.expect_mark_present().returning(|_aid, _mid, _ctx| Ok(()));
-        mock.expect_mark_absent().returning(|_aid, _mid, _ctx| Ok(()));
+        mock.expect_mark_present()
+            .returning(|_aid, _mid, _ctx| Ok(()));
+        mock.expect_mark_absent()
+            .returning(|_aid, _mid, _ctx| Ok(()));
         // The mock instance is dropped without invocation -- mockall does not
         // require expectations to be exercised when no `.times(...)` is set.
     }

@@ -949,10 +949,7 @@ fn build_inputs_attendance(
 /// Constraint `share_count_to_pay_out >= 0` und `share_value > 0` garantieren
 /// non-negative `total_cents`. `.abs()` wuerde Inkonsistenz mit PATTERNS.md §S9
 /// und Phase-10-D-04 einfuehren.
-fn build_inputs_repayment(
-    phase: &RepaymentPhaseEntity,
-    rows: &[RepaymentExportRow],
-) -> Dict {
+fn build_inputs_repayment(phase: &RepaymentPhaseEntity, rows: &[RepaymentExportRow]) -> Dict {
     let mut inputs = Dict::new();
 
     // ISO date string (heute, UTC). Plan 11.03 nutzt eine eigene Quelle (z. B.
@@ -1024,10 +1021,7 @@ fn build_inputs_repayment_letter(
     let mut inputs = Dict::new();
 
     let date_str = time::OffsetDateTime::now_utc().date().to_string();
-    inputs.insert(
-        Str::from("today"),
-        Value::Str(Str::from(date_str.as_str())),
-    );
+    inputs.insert(Str::from("today"), Value::Str(Str::from(date_str.as_str())));
 
     // Quick 260603-b43: masked_bank_account als zusaetzliches Feld fuer Templates,
     // die die IBAN nur teil-anzeigen sollen (DSGVO/Privatsphaere). None -> JSON null.
@@ -1099,10 +1093,7 @@ fn build_inputs_repayment_letters_bundle(
     let mut inputs = Dict::new();
 
     let date_str = time::OffsetDateTime::now_utc().date().to_string();
-    inputs.insert(
-        Str::from("today"),
-        Value::Str(Str::from(date_str.as_str())),
-    );
+    inputs.insert(Str::from("today"), Value::Str(Str::from(date_str.as_str())));
 
     let meta = serde_json::json!({
         "fiscal_year": phase.fiscal_year,
@@ -1228,9 +1219,8 @@ fn build_inputs_repayment_letters_bundle(
             })
         })
         .collect();
-    let recipients_str =
-        serde_json::to_string(&serde_json::Value::Array(recipient_values))
-            .expect("recipients json serialisable");
+    let recipients_str = serde_json::to_string(&serde_json::Value::Array(recipient_values))
+        .expect("recipients json serialisable");
     inputs.insert(
         Str::from("recipients"),
         Value::Str(Str::from(recipients_str.as_str())),
@@ -1996,10 +1986,7 @@ foo
         let ctx = sample_ctx(3, "360,00", 2025);
         let dict = build_inputs_repayment_letter(&phase, &member, &ctx);
 
-        let keys: Vec<String> = dict
-            .iter()
-            .map(|(k, _)| k.as_str().to_string())
-            .collect();
+        let keys: Vec<String> = dict.iter().map(|(k, _)| k.as_str().to_string()).collect();
         assert!(keys.contains(&"member".to_string()), "missing 'member' key");
         assert!(
             keys.contains(&"repayment".to_string()),
@@ -2414,8 +2401,14 @@ foo
             .and_then(|v| v.as_str())
             .expect("masked_bank_account must be present as string");
         // sample_member_with_iban() liefert "DE89370400440532013000".
-        assert!(masked.starts_with("DE"), "expected DE prefix, got: {masked}");
-        assert!(masked.ends_with("00"), "expected ...00 suffix, got: {masked}");
+        assert!(
+            masked.starts_with("DE"),
+            "expected DE prefix, got: {masked}"
+        );
+        assert!(
+            masked.ends_with("00"),
+            "expected ...00 suffix, got: {masked}"
+        );
         assert!(
             masked.contains('\u{2022}'),
             "expected at least one bullet, got: {masked}"

@@ -91,8 +91,7 @@ impl crate::auditable::Auditable for HelperTokenEntity {
 pub trait HelperTokenDao {
     type Transaction: crate::Transaction;
 
-    async fn dump_all(&self, tx: Self::Transaction)
-        -> Result<Arc<[HelperTokenEntity]>, DaoError>;
+    async fn dump_all(&self, tx: Self::Transaction) -> Result<Arc<[HelperTokenEntity]>, DaoError>;
 
     async fn create(
         &self,
@@ -108,10 +107,7 @@ pub trait HelperTokenDao {
         tx: Self::Transaction,
     ) -> Result<(), DaoError>;
 
-    async fn all(
-        &self,
-        tx: Self::Transaction,
-    ) -> Result<Arc<[HelperTokenEntity]>, DaoError> {
+    async fn all(&self, tx: Self::Transaction) -> Result<Arc<[HelperTokenEntity]>, DaoError> {
         let all_entities = self.dump_all(tx).await?;
         let active_entities: Vec<HelperTokenEntity> = all_entities
             .iter()
@@ -256,13 +252,7 @@ mod tests {
         let field_names: Vec<&str> = fields.iter().map(|(name, _)| *name).collect();
         assert_eq!(
             field_names,
-            vec![
-                "assembly_id",
-                "memo",
-                "used_at",
-                "session_id",
-                "revoked_at"
-            ]
+            vec!["assembly_id", "memo", "used_at", "session_id", "revoked_at"]
         );
 
         // D-06 explicit guard: token_hash MUST NOT appear in the audit log

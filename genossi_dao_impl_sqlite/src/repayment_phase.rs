@@ -1,7 +1,5 @@
 use async_trait::async_trait;
-use genossi_dao::repayment_phase::{
-    RepaymentPhaseDao, RepaymentPhaseEntity, RepaymentPhaseStatus,
-};
+use genossi_dao::repayment_phase::{RepaymentPhaseDao, RepaymentPhaseEntity, RepaymentPhaseStatus};
 use genossi_dao::DaoError;
 use sqlx::SqlitePool;
 use std::sync::Arc;
@@ -34,10 +32,7 @@ impl TryFrom<&RepaymentPhaseDb> for RepaymentPhaseEntity {
         Ok(RepaymentPhaseEntity {
             id: Uuid::from_slice(&db.id)?,
             fiscal_year: i32::try_from(db.fiscal_year).map_err(|e| {
-                DaoError::ParseError(Arc::from(format!(
-                    "fiscal_year out of i32 range: {}",
-                    e
-                )))
+                DaoError::ParseError(Arc::from(format!("fiscal_year out of i32 range: {}", e)))
             })?,
             share_value: db.share_value,
             status: RepaymentPhaseStatus::from_str(&db.status)?,

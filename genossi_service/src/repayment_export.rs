@@ -103,11 +103,7 @@ mod tests {
     #[test]
     fn test_export_include_has_three_variants() {
         // D-01/D-02: Open, All, Paid.
-        let variants = [
-            ExportInclude::Open,
-            ExportInclude::All,
-            ExportInclude::Paid,
-        ];
+        let variants = [ExportInclude::Open, ExportInclude::All, ExportInclude::Paid];
         assert_eq!(variants.len(), 3);
     }
 

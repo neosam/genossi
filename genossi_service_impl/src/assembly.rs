@@ -1238,15 +1238,12 @@ mod tests {
         let mut helper_token_dao = MockTestHelperTokenDao::new();
         helper_token_dao
             .expect_list_session_ids_for_assembly()
-            .with(mockall::predicate::eq(entity_id), mockall::predicate::always())
+            .with(
+                mockall::predicate::eq(entity_id),
+                mockall::predicate::always(),
+            )
             .times(1)
-            .returning(|_, _| {
-                Ok(vec![
-                    Arc::from("s1"),
-                    Arc::from("s2"),
-                    Arc::from("s3"),
-                ])
-            });
+            .returning(|_, _| Ok(vec![Arc::from("s1"), Arc::from("s2"), Arc::from("s3")]));
 
         let mut permission_dao = MockTestPermissionDao::new();
         permission_dao

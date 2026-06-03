@@ -464,11 +464,8 @@ pub async fn start_mail_worker<C, J, R, A, SA, D, M, IB, MD, AL, MT, RE, RP, TX,
                                 phase.share_value / 100,
                                 phase.share_value % 100,
                             );
-                            match repayment_context_resolver.aggregate(
-                                &phase,
-                                &entries,
-                                member.id,
-                            ) {
+                            match repayment_context_resolver.aggregate(&phase, &entries, member.id)
+                            {
                                 Ok(rc) => {
                                     // D-05: at least one relevant entry -> merge full context.
                                     ctx = merge_repayment_context(
@@ -500,8 +497,7 @@ pub async fn start_mail_worker<C, J, R, A, SA, D, M, IB, MD, AL, MT, RE, RP, TX,
                                         ),
                                     )
                                     .await;
-                                    let interval =
-                                        get_send_interval(config_service.as_ref()).await;
+                                    let interval = get_send_interval(config_service.as_ref()).await;
                                     tokio::time::sleep(std::time::Duration::from_secs(interval))
                                         .await;
                                     continue;

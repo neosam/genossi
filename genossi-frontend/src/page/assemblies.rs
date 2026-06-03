@@ -7,7 +7,7 @@ use dioxus::prelude::*;
 
 use crate::api::{self, AssemblyTO, CreateAssemblyRequest};
 use crate::auth::RequirePrivilege;
-use crate::component::{AssemblyListRow, Modal, ToastContainer, TopBar, show_toast};
+use crate::component::{show_toast, AssemblyListRow, Modal, ToastContainer, TopBar};
 use crate::i18n::{use_i18n, Key};
 use crate::page::access_denied::AccessDeniedPage;
 use crate::service::config::CONFIG;

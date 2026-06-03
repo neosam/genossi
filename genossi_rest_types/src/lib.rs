@@ -131,14 +131,12 @@ impl From<&SalutationTO> for Salutation {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
-#[derive(Default)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema, Default)]
 pub enum MemberStatusTO {
     #[default]
     Normal,
     FehlerhaftErfasst,
 }
-
 
 impl From<&MemberStatus> for MemberStatusTO {
     fn from(s: &MemberStatus) -> Self {
@@ -2027,7 +2025,10 @@ mod repayment_entry_to_tests {
         let json = serde_json::to_string(&req).unwrap();
         let back: BatchStatusRequest = serde_json::from_str(&json).unwrap();
         assert_eq!(back.entry_ids.len(), 2);
-        assert!(matches!(back.target_status, RepaymentEntryStatusTO::Contacted));
+        assert!(matches!(
+            back.target_status,
+            RepaymentEntryStatusTO::Contacted
+        ));
     }
 
     #[test]

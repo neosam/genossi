@@ -537,8 +537,14 @@ mod tests {
             .unwrap();
         assert!(!entry.content.is_empty());
         let text = std::str::from_utf8(entry.content).expect("template is UTF-8");
-        assert!(text.contains("letter-pro"), "letter-pro-Import muss vorhanden sein");
-        assert!(text.contains("sys.inputs"), "sys.inputs-Pattern muss verwendet werden");
+        assert!(
+            text.contains("letter-pro"),
+            "letter-pro-Import muss vorhanden sein"
+        );
+        assert!(
+            text.contains("sys.inputs"),
+            "sys.inputs-Pattern muss verwendet werden"
+        );
         assert!(
             text.contains("bank_account"),
             "IBAN-Switch muss vorhanden sein (D-13-06)"

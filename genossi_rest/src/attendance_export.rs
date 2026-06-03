@@ -29,9 +29,7 @@ use axum::{
     routing::get,
     Extension, Router,
 };
-use genossi_service::attendance_export::{
-    AttendanceExportService, ExportFormat, ExportInclude,
-};
+use genossi_service::attendance_export::{AttendanceExportService, ExportFormat, ExportInclude};
 use genossi_service::ServiceError;
 use serde::Deserialize;
 use tracing::instrument;

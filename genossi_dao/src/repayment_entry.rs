@@ -12,8 +12,7 @@ use crate::DaoError;
 /// `PaidOut` ist Phase-9-Zielzustand (PAYO-04, einseitig final).
 ///
 /// **D-01-Konvention (analog Phase 7):** Statusstrings in Englisch; Frontend i18n.
-#[derive(Clone, Debug, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub enum RepaymentEntryStatus {
     #[default]
     Open,
@@ -42,7 +41,6 @@ impl RepaymentEntryStatus {
         }
     }
 }
-
 
 /// Auditpflichtige RepaymentEntry-Entity.
 ///

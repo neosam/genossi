@@ -2656,7 +2656,8 @@ mod tests {
             .times(1)
             .returning(|_, _| Ok(Arc::from(Vec::<MemberActionEntity>::new())));
 
-        let service = build_service_admin_with_action_dao(entry_dao, phase_dao, member_dao, action_dao);
+        let service =
+            build_service_admin_with_action_dao(entry_dao, phase_dao, member_dao, action_dao);
 
         let result = service
             .mark_paid_out(entry_id, Authentication::Full)
@@ -2712,7 +2713,8 @@ mod tests {
             .times(0)
             .returning(|_, _, _| Ok(()));
 
-        let service = build_service_admin_with_action_dao(entry_dao, phase_dao, member_dao, action_dao);
+        let service =
+            build_service_admin_with_action_dao(entry_dao, phase_dao, member_dao, action_dao);
 
         let result = service.mark_paid_out(entry_id, Authentication::Full).await;
 
@@ -2776,7 +2778,8 @@ mod tests {
             .times(0)
             .returning(|_, _, _| Ok(()));
 
-        let service = build_service_admin_with_action_dao(entry_dao, phase_dao, member_dao, action_dao);
+        let service =
+            build_service_admin_with_action_dao(entry_dao, phase_dao, member_dao, action_dao);
 
         let result = service.mark_paid_out(entry_id, Authentication::Full).await;
 
@@ -2848,7 +2851,8 @@ mod tests {
             .times(0)
             .returning(|_, _, _| Ok(()));
 
-        let service = build_service_admin_with_action_dao(entry_dao, phase_dao, member_dao, action_dao);
+        let service =
+            build_service_admin_with_action_dao(entry_dao, phase_dao, member_dao, action_dao);
 
         let result = service.mark_paid_out(entry_id, Authentication::Full).await;
 
@@ -2865,9 +2869,9 @@ mod tests {
                     items[0].message
                 );
             }
-            other => panic!(
-                "Expected ValidationError (PAYO-03 insufficient shares), got {other:?}"
-            ),
+            other => {
+                panic!("Expected ValidationError (PAYO-03 insufficient shares), got {other:?}")
+            }
         }
     }
 
@@ -2968,7 +2972,8 @@ mod tests {
             .times(0)
             .returning(|_, _| Ok(Arc::from(Vec::<MemberActionEntity>::new())));
 
-        let service = build_service_admin_with_action_dao(entry_dao, phase_dao, member_dao, action_dao);
+        let service =
+            build_service_admin_with_action_dao(entry_dao, phase_dao, member_dao, action_dao);
 
         let result = service.mark_paid_out(entry_id, Authentication::Full).await;
 
@@ -2984,9 +2989,7 @@ mod tests {
                     "BL-01: must not surface as EntityNotFound, got: {msg}"
                 );
             }
-            other => panic!(
-                "BL-01: Re-Read None must surface as InternalError, got {other:?}"
-            ),
+            other => panic!("BL-01: Re-Read None must surface as InternalError, got {other:?}"),
         }
     }
 
@@ -3109,9 +3112,7 @@ mod tests {
                     && a.shares_change == -3
                     && a.transfer_member_id.is_none()
                     && a.effective_date.is_none()
-                    && a.comment
-                        .as_ref()
-                        .map(|s| s.as_ref())
+                    && a.comment.as_ref().map(|s| s.as_ref())
                         == Some("Anteils-Rueckzahlung Phase 2026")
                     && process == "repayment-entry.mark-paid-out"
             })
@@ -3121,7 +3122,8 @@ mod tests {
             .times(1)
             .returning(|_, _| Ok(Arc::from(Vec::<MemberActionEntity>::new())));
 
-        let service = build_service_admin_with_action_dao(entry_dao, phase_dao, member_dao, action_dao);
+        let service =
+            build_service_admin_with_action_dao(entry_dao, phase_dao, member_dao, action_dao);
 
         service
             .mark_paid_out(entry_id, Authentication::Full)

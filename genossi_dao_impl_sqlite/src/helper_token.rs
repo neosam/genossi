@@ -43,22 +43,14 @@ impl TryFrom<&HelperTokenDb> for HelperTokenEntity {
             token_hash: Arc::from(db.token_hash.as_str()),
             code: db.code.as_deref().map(Arc::from),
             created: parse_datetime(&db.created)?,
-            used_at: db
-                .used_at
-                .as_ref()
-                .map(|s| parse_datetime(s))
-                .transpose()?,
+            used_at: db.used_at.as_ref().map(|s| parse_datetime(s)).transpose()?,
             session_id: db.session_id.as_deref().map(Arc::from),
             revoked_at: db
                 .revoked_at
                 .as_ref()
                 .map(|s| parse_datetime(s))
                 .transpose()?,
-            deleted: db
-                .deleted
-                .as_ref()
-                .map(|s| parse_datetime(s))
-                .transpose()?,
+            deleted: db.deleted.as_ref().map(|s| parse_datetime(s)).transpose()?,
             version: Uuid::from_slice(&db.version)?,
         })
     }
@@ -90,10 +82,7 @@ impl HelperTokenDaoImpl {
 impl HelperTokenDao for HelperTokenDaoImpl {
     type Transaction = TransactionImpl;
 
-    async fn dump_all(
-        &self,
-        tx: Self::Transaction,
-    ) -> Result<Arc<[HelperTokenEntity]>, DaoError> {
+    async fn dump_all(&self, tx: Self::Transaction) -> Result<Arc<[HelperTokenEntity]>, DaoError> {
         let rows = sqlx::query_as::<_, HelperTokenDb>(
             "SELECT id, assembly_id, memo, token_hash, code, created, used_at, session_id, \
              revoked_at, deleted, version FROM helper_token ORDER BY created DESC",
@@ -271,13 +260,7 @@ impl HelperTokenDao for HelperTokenDaoImpl {
         &self,
         token_hash: &str,
         tx: Self::Transaction,
-    ) -> Result<
-        Option<(
-            Option<PrimitiveDateTime>,
-            Option<PrimitiveDateTime>,
-        )>,
-        DaoError,
-    > {
+    ) -> Result<Option<(Option<PrimitiveDateTime>, Option<PrimitiveDateTime>)>, DaoError> {
         let row: Option<LookupStatusRow> = sqlx::query_as::<_, LookupStatusRow>(
             "SELECT used_at, revoked_at FROM helper_token \
              WHERE token_hash = ? AND deleted IS NULL",
@@ -514,10 +497,7 @@ mod tests {
         assert!(found.revoked_at.is_none());
         assert!(found.session_id.is_none());
 
-        let listing = dao
-            .all_for_assembly(assembly_id, tx.clone())
-            .await
-            .unwrap();
+        let listing = dao.all_for_assembly(assembly_id, tx.clone()).await.unwrap();
         assert_eq!(listing.len(), 1);
         assert_eq!(listing[0].id, token_id);
 
@@ -786,10 +766,7 @@ mod tests {
         dao.create(&active, "test", tx.clone()).await.unwrap();
         dao.create(&deleted, "test", tx.clone()).await.unwrap();
 
-        let listing = dao
-            .all_for_assembly(assembly_id, tx.clone())
-            .await
-            .unwrap();
+        let listing = dao.all_for_assembly(assembly_id, tx.clone()).await.unwrap();
         assert_eq!(listing.len(), 1, "soft-deleted tokens must be filtered");
         assert_eq!(listing[0].id, active.id);
 

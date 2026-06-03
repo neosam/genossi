@@ -6,8 +6,7 @@ use uuid::Uuid;
 
 use crate::DaoError;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub enum RepaymentPhaseStatus {
     #[default]
     Preparation,
@@ -36,7 +35,6 @@ impl RepaymentPhaseStatus {
         }
     }
 }
-
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RepaymentPhaseEntity {
@@ -112,10 +110,7 @@ pub trait RepaymentPhaseDao {
         tx: Self::Transaction,
     ) -> Result<(), DaoError>;
 
-    async fn all(
-        &self,
-        tx: Self::Transaction,
-    ) -> Result<Arc<[RepaymentPhaseEntity]>, DaoError> {
+    async fn all(&self, tx: Self::Transaction) -> Result<Arc<[RepaymentPhaseEntity]>, DaoError> {
         let all_entities = self.dump_all(tx).await?;
         let active_entities: Vec<RepaymentPhaseEntity> = all_entities
             .iter()

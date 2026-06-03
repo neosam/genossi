@@ -34,8 +34,7 @@ impl Salutation {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub enum MemberStatus {
     #[default]
     Normal,
@@ -65,7 +64,6 @@ impl MemberStatus {
         matches!(self, MemberStatus::Normal)
     }
 }
-
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MemberEntity {

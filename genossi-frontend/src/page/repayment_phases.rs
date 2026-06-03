@@ -11,14 +11,10 @@
 
 use dioxus::prelude::*;
 
-use crate::api::{
-    self, CreateRepaymentPhaseRequest, RepaymentPhaseTO,
-};
+use crate::api::{self, CreateRepaymentPhaseRequest, RepaymentPhaseTO};
 use crate::auth::RequirePrivilege;
 use crate::component::repayment_format::{format_payout_eur, parse_euro_to_cents};
-use crate::component::{
-    Modal, RepaymentPhaseStatusBadge, ToastContainer, TopBar, show_toast,
-};
+use crate::component::{show_toast, Modal, RepaymentPhaseStatusBadge, ToastContainer, TopBar};
 use crate::i18n::{use_i18n, Key};
 use crate::page::access_denied::AccessDeniedPage;
 use crate::router::Route;

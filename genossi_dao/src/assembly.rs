@@ -6,8 +6,7 @@ use uuid::Uuid;
 
 use crate::DaoError;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub enum AssemblyStatus {
     #[default]
     Preparation,
@@ -36,7 +35,6 @@ impl AssemblyStatus {
         }
     }
 }
-
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AssemblyEntity {

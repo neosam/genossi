@@ -15,8 +15,8 @@ use dioxus::prelude::*;
 
 use crate::api::{self, HelperSessionTO};
 use crate::component::{
-    AttendanceList, AttendanceSearch, AttendanceToggleRequest, ConnState, ConnectionBanner,
-    HelperShell, LiveCounter, ToastContainer, show_toast,
+    show_toast, AttendanceList, AttendanceSearch, AttendanceToggleRequest, ConnState,
+    ConnectionBanner, HelperShell, LiveCounter, ToastContainer,
 };
 use crate::i18n::{use_i18n, Key};
 use crate::router::Route;

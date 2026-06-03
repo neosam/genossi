@@ -4,7 +4,6 @@ pub mod attendance;
 pub mod attendance_export;
 pub mod repayment_export;
 // Phase 13 (D-13-01..11): REST-Handler fuer Bulk-PDF-Anschreiben (Vorstand-only).
-pub mod repayment_letter;
 pub mod audit_log;
 pub mod audit_timestamp;
 pub mod auth;
@@ -21,6 +20,7 @@ pub mod member_document;
 pub mod permission;
 pub mod public_stats;
 pub mod repayment_entry;
+pub mod repayment_letter;
 pub mod repayment_phase;
 pub mod session;
 pub mod session_management;
@@ -46,9 +46,9 @@ use tracing::info;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
-use axum::response::Redirect;
 #[cfg(feature = "oidc")]
 use axum::response::IntoResponse;
+use axum::response::Redirect;
 
 // Simplified context type to match shifty pattern - just the user ID
 #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
@@ -559,11 +559,8 @@ pub async fn create_app<
         use axum::error_handling::HandleErrorLayer;
         use axum_oidc::error::MiddlewareError;
         use axum_oidc::{EmptyAdditionalClaims, OidcLoginLayer};
-        
-        
+
         use tower::ServiceBuilder;
-        
-        
 
         let oidc_login_service = ServiceBuilder::new()
             .layer(HandleErrorLayer::new(|e: MiddlewareError| async {

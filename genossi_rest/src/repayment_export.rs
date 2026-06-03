@@ -23,9 +23,7 @@ use tracing::instrument;
 use utoipa::{IntoParams, OpenApi, ToSchema};
 use uuid::Uuid;
 
-use genossi_service::repayment_export::{
-    ExportFormat, ExportInclude, RepaymentExportService,
-};
+use genossi_service::repayment_export::{ExportFormat, ExportInclude, RepaymentExportService};
 use genossi_service::ServiceError;
 
 use crate::{error_handler, extract_auth_context, http_util, Context, RestError, RestStateDef};

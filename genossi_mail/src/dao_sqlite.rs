@@ -1004,11 +1004,7 @@ impl MailTemplateDao for MailTemplateDaoSqlite {
     async fn update(&self, template: &MailTemplate) -> Result<(), MailDaoError> {
         let id = template.id.as_bytes().to_vec();
         let version = template.version.as_bytes().to_vec();
-        let deleted = template
-            .deleted
-            .as_ref()
-            .map(format_datetime)
-            .transpose()?;
+        let deleted = template.deleted.as_ref().map(format_datetime).transpose()?;
 
         sqlx::query(
             "UPDATE mail_templates SET name = ?, subject = ?, body = ?, version = ?, deleted = ? WHERE id = ?",

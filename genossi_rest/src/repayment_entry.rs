@@ -28,9 +28,8 @@ use axum::{
     Extension, Json, Router,
 };
 use genossi_rest_types::{
-    BatchFailureResponse, BatchStatusRequest, CloseConflictResponse,
-    CreateRepaymentEntryRequest, RepaymentEntryStatusTO, RepaymentEntryTO,
-    UpdateRepaymentEntryRequest,
+    BatchFailureResponse, BatchStatusRequest, CloseConflictResponse, CreateRepaymentEntryRequest,
+    RepaymentEntryStatusTO, RepaymentEntryTO, UpdateRepaymentEntryRequest,
 };
 use genossi_service::repayment_entry::{
     RepaymentEntryBatchStatusInput, RepaymentEntryService, RepaymentEntrySubmission,

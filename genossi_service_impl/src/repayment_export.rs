@@ -647,8 +647,7 @@ mod tests {
             phase_id,
             share_count_to_pay_out: 1,
             status,
-            created: datetime!(2026 - 01 - 01 00:00:00)
-                + time::Duration::microseconds(created_us),
+            created: datetime!(2026 - 01 - 01 00:00:00) + time::Duration::microseconds(created_us),
             deleted: None,
             version: Uuid::new_v4(),
         }
@@ -721,14 +720,12 @@ mod tests {
         let mueller = test_member(1234, "Hans", "Müller");
         let entry = test_entry(mueller.id, phase.id, RepaymentEntryStatus::Open, 0);
 
-        let rows =
-            filter_and_enrich_rows(&phase, vec![(entry, mueller)], ExportInclude::Open);
+        let rows = filter_and_enrich_rows(&phase, vec![(entry, mueller)], ExportInclude::Open);
 
         assert_eq!(rows.len(), 1);
         // D-04 + D-05: wortwoertlich mit Original-Umlaut.
         assert_eq!(
-            rows[0].purpose,
-            "Anteilsrückzahlung GJ 2026 1234 Hans Müller",
+            rows[0].purpose, "Anteilsrückzahlung GJ 2026 1234 Hans Müller",
             "D-04 violated - purpose must use original Umlaut; D-05 forbids ASCII-Sanitization"
         );
 
@@ -785,7 +782,11 @@ mod tests {
 
         // D-02: include=All -> 4 Zeilen (alle drei Stati).
         let all_rows = filter_and_enrich_rows(&phase, pairs.clone(), ExportInclude::All);
-        assert_eq!(all_rows.len(), 4, "include=All should include all 3 stati (D-02)");
+        assert_eq!(
+            all_rows.len(),
+            4,
+            "include=All should include all 3 stati (D-02)"
+        );
 
         // D-02: include=Paid -> 1 Zeile.
         let paid_rows = filter_and_enrich_rows(&phase, pairs.clone(), ExportInclude::Paid);

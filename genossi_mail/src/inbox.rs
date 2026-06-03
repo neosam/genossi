@@ -213,9 +213,7 @@ pub fn parse_raw_mail(raw: &[u8]) -> ParsedMail {
             .map(|s| s.to_string())
             .and_then(|s| crate::dao::normalize_message_id(&s));
 
-        let message_id = msg
-            .message_id()
-            .and_then(crate::dao::normalize_message_id);
+        let message_id = msg.message_id().and_then(crate::dao::normalize_message_id);
 
         (
             from_address,

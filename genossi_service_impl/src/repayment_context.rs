@@ -16,9 +16,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use uuid::Uuid;
 
-use genossi_dao::repayment_entry::{
-    RepaymentEntryDao, RepaymentEntryEntity, RepaymentEntryStatus,
-};
+use genossi_dao::repayment_entry::{RepaymentEntryDao, RepaymentEntryEntity, RepaymentEntryStatus};
 use genossi_dao::repayment_phase::{RepaymentPhaseDao, RepaymentPhaseEntity};
 use genossi_dao::Transaction;
 use genossi_service::repayment_context::{RepaymentContext, RepaymentContextResolver};
@@ -457,9 +455,7 @@ mod tests {
         let member_id = Uuid::new_v4();
 
         let mut phase_dao = MockTestPhaseDao::new();
-        phase_dao
-            .expect_find_by_id()
-            .returning(|_id, _tx| Ok(None));
+        phase_dao.expect_find_by_id().returning(|_id, _tx| Ok(None));
 
         // entry_dao darf nicht aufgerufen werden (kein expect).
         let entry_dao = MockTestEntryDao::new();

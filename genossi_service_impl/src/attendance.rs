@@ -902,9 +902,7 @@ mod tests {
             tx_dao_no_commit(),
         );
 
-        let result = svc
-            .mark_present(aid, mid, Authentication::Full)
-            .await;
+        let result = svc.mark_present(aid, mid, Authentication::Full).await;
         assert!(
             matches!(result, Err(ServiceError::EntityNotFound(uid)) if uid == mid),
             "non-snapshot member must return EntityNotFound(member_id), got {:?}",
@@ -949,9 +947,7 @@ mod tests {
             tx_dao_with_commit(),
         );
 
-        let result = svc
-            .mark_absent(aid, mid, Authentication::Full)
-            .await;
+        let result = svc.mark_absent(aid, mid, Authentication::Full).await;
         assert!(result.is_ok(), "expected Ok(()), got {:?}", result);
     }
 
@@ -1072,9 +1068,7 @@ mod tests {
         let mut attendance_dao = MockTestAttendanceDao::new();
         attendance_dao
             .expect_list_members_for_assembly()
-            .withf(|_aid, search, _tx| {
-                search.as_deref() == Some("Müller")
-            })
+            .withf(|_aid, search, _tx| search.as_deref() == Some("Müller"))
             .times(1)
             .returning(|_, _, _| Ok(Arc::from(Vec::<AttendanceMemberRow>::new())));
 

@@ -98,7 +98,8 @@ pub async fn list_repayment_phases<RestState: RestStateDef + RepaymentPhaseRestS
                 .repayment_phase_service()
                 .get_all_repayment_phases(auth)
                 .await?;
-            let to_list: Vec<RepaymentPhaseTO> = phases.iter().map(RepaymentPhaseTO::from).collect();
+            let to_list: Vec<RepaymentPhaseTO> =
+                phases.iter().map(RepaymentPhaseTO::from).collect();
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
