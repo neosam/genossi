@@ -8,7 +8,10 @@ use crate::component::mail_compose::{
     MailBodyEditor, MailSubjectInput, TemplatePreview, TemplateSelector, TemplateVarButtons,
 };
 use crate::component::member_search::filter_members;
-use crate::component::{ErrorAlert, MailRecipientStatusBadge, TopBar};
+use crate::component::{
+    is_no_repayment_letter_failure, show_toast, ErrorAlert, MailRecipientStatusBadge,
+    NoRepaymentLetterAction, ToastContainer, TopBar,
+};
 use crate::i18n::{use_i18n, Key};
 use crate::member_utils::{is_active, today};
 use crate::page::AccessDeniedPage;
@@ -46,6 +49,10 @@ pub fn MailPage() -> Element {
     let mut success_msg = use_signal(|| None::<String>);
     let mut expanded_job_id = use_signal(|| None::<String>);
     let mut job_detail = use_signal(|| None::<MailJobDetailTO>);
+
+    // Quick 260603-evf: toast state for the NoRepaymentLetterAction recovery flow.
+    let mut toast_messages = use_signal(|| Vec::<(u64, String)>::new());
+    let mut toast_counter = use_signal(|| 0u64);
 
     // Phase 12 D-18 (UAT-Defekt #3 Fix): Query-Params SYNCHRON im use_signal-Initializer
     // parsen — vor dem ersten Render. Der vorherige use_effect-basierte Ansatz
@@ -746,6 +753,8 @@ pub fn MailPage() -> Element {
                                                                             th { class: "py-1 px-2", {i18n.t(Key::MailTo)} }
                                                                             th { class: "py-1 px-2", {i18n.t(Key::MailStatus)} }
                                                                             th { class: "py-1 px-2", {i18n.t(Key::MailError)} }
+                                                                            // Quick 260603-evf: action column (empty header).
+                                                                            th { class: "py-1 px-2", "" }
                                                                         }}
                                                                         tbody {
                                                                             for r in detail.recipients.iter() {
@@ -753,6 +762,16 @@ pub fn MailPage() -> Element {
                                                                                     // Quick 260603-evf: Badge-Rendering wandert in
                                                                                     // `MailRecipientStatusBadge` (Component-First).
                                                                                     let error_text = r.error.clone().unwrap_or_default();
+                                                                                    // Quick 260603-evf: resolve (member_id, phase_id)
+                                                                                    // required by NoRepaymentLetterAction. Gated on
+                                                                                    // `is_no_repayment_letter_failure` so the button
+                                                                                    // only appears for the recoverable failure mode.
+                                                                                    let mid: Option<Uuid> = r.member_id.as_deref().and_then(|s| Uuid::parse_str(s).ok());
+                                                                                    let pid: Option<Uuid> = detail.job.repayment_phase_id.as_deref().and_then(|s| Uuid::parse_str(s).ok());
+                                                                                    let show_action = is_no_repayment_letter_failure(&r.status, r.error.as_deref());
+                                                                                    let job_id_for_action = detail.job.id.clone();
+                                                                                    let recipient_id_for_action = r.id.clone();
+                                                                                    let i18n_for_action = i18n.clone();
                                                                                     rsx! {
                                                                                         tr { class: "border-b last:border-b-0",
                                                                                             td { class: "py-1 px-2", "{r.to_address}" }
@@ -763,6 +782,33 @@ pub fn MailPage() -> Element {
                                                                                                 }
                                                                                             }
                                                                                             td { class: "py-1 px-2 text-red-500 text-xs", "{error_text}" }
+                                                                                            td { class: "py-1 px-2",
+                                                                                                if show_action {
+                                                                                                    if let (Some(mid), Some(pid)) = (mid, pid) {
+                                                                                                        NoRepaymentLetterAction {
+                                                                                                            job_id: job_id_for_action,
+                                                                                                            recipient_id: recipient_id_for_action,
+                                                                                                            member_id: mid,
+                                                                                                            phase_id: pid,
+                                                                                                            on_done: move |_| {
+                                                                                                                show_toast(
+                                                                                                                    &mut toast_messages,
+                                                                                                                    &mut toast_counter,
+                                                                                                                    i18n_for_action.t(Key::MailGenerateLetterAndRetrySuccess).to_string(),
+                                                                                                                );
+                                                                                                                reload_jobs();
+                                                                                                            },
+                                                                                                            on_error: move |msg: String| {
+                                                                                                                show_toast(
+                                                                                                                    &mut toast_messages,
+                                                                                                                    &mut toast_counter,
+                                                                                                                    msg,
+                                                                                                                );
+                                                                                                            },
+                                                                                                        }
+                                                                                                    }
+                                                                                                }
+                                                                                            }
                                                                                         }
                                                                                     }
                                                                                 }
@@ -786,6 +832,9 @@ pub fn MailPage() -> Element {
                         }
                     }
                 }
+                // Quick 260603-evf: toasts for the NoRepaymentLetterAction
+                // recovery flow.
+                ToastContainer { messages: toast_messages }
             }
         }
     }
@@ -800,8 +849,19 @@ pub fn MailJobDetail(id: String) -> Element {
     let mut loading = use_signal(|| true);
     let mut error: Signal<Option<api::AppError>> = use_signal(|| None);
 
+    // Quick 260603-evf: toast state for the NoRepaymentLetterAction recovery flow.
+    let mut toast_messages = use_signal(|| Vec::<(u64, String)>::new());
+    let mut toast_counter = use_signal(|| 0u64);
+
+    // Quick 260603-evf: id is moved into use_effect for the initial fetch; we
+    // need a separate stored copy so multiple on_done callbacks (one per
+    // recipient row) can each re-fetch the detail after recovery succeeds.
+    // `use_signal(|| id.clone())` produces a `Copy` Signal<String> we can
+    // capture by-value in the per-row closures.
+    let id_signal = use_signal(|| id.clone());
+
     use_effect(move || {
-        let id = id.clone();
+        let id = id_signal.read().clone();
         spawn(async move {
             let config = CONFIG.read().clone();
             match api::get_mail_job_detail(&config, &id).await {
@@ -856,6 +916,8 @@ pub fn MailJobDetail(id: String) -> Element {
                                 th { class: "py-2 px-3", {i18n.t(Key::MailTo)} }
                                 th { class: "py-2 px-3", {i18n.t(Key::MailStatus)} }
                                 th { class: "py-2 px-3", {i18n.t(Key::MailError)} }
+                                // Quick 260603-evf: action column (empty header).
+                                th { class: "py-2 px-3", "" }
                             }}
                             tbody {
                                 for r in d.recipients.iter() {
@@ -863,6 +925,13 @@ pub fn MailJobDetail(id: String) -> Element {
                                         // Quick 260603-evf: Badge-Rendering wandert in
                                         // `MailRecipientStatusBadge` (Component-First).
                                         let error_text = r.error.clone().unwrap_or_default();
+                                        // Quick 260603-evf: resolve (member_id, phase_id) tuple.
+                                        let mid: Option<Uuid> = r.member_id.as_deref().and_then(|s| Uuid::parse_str(s).ok());
+                                        let pid: Option<Uuid> = d.job.repayment_phase_id.as_deref().and_then(|s| Uuid::parse_str(s).ok());
+                                        let show_action = is_no_repayment_letter_failure(&r.status, r.error.as_deref());
+                                        let job_id_for_action = d.job.id.clone();
+                                        let recipient_id_for_action = r.id.clone();
+                                        let i18n_for_action = i18n.clone();
                                         rsx! {
                                             tr { class: "border-b last:border-b-0",
                                                 td { class: "py-2 px-3", "{r.to_address}" }
@@ -873,6 +942,41 @@ pub fn MailJobDetail(id: String) -> Element {
                                                     }
                                                 }
                                                 td { class: "py-2 px-3 text-red-500 text-xs", "{error_text}" }
+                                                td { class: "py-2 px-3",
+                                                    if show_action {
+                                                        if let (Some(mid), Some(pid)) = (mid, pid) {
+                                                            NoRepaymentLetterAction {
+                                                                job_id: job_id_for_action,
+                                                                recipient_id: recipient_id_for_action,
+                                                                member_id: mid,
+                                                                phase_id: pid,
+                                                                on_done: move |_| {
+                                                                    show_toast(
+                                                                        &mut toast_messages,
+                                                                        &mut toast_counter,
+                                                                        i18n_for_action.t(Key::MailGenerateLetterAndRetrySuccess).to_string(),
+                                                                    );
+                                                                    // Quick 260603-evf: re-fetch the detail so the
+                                                                    // recipient table reflects the retry result.
+                                                                    let id = id_signal.read().clone();
+                                                                    spawn(async move {
+                                                                        let config = CONFIG.read().clone();
+                                                                        if let Ok(d) = api::get_mail_job_detail(&config, &id).await {
+                                                                            detail.set(Some(d));
+                                                                        }
+                                                                    });
+                                                                },
+                                                                on_error: move |msg: String| {
+                                                                    show_toast(
+                                                                        &mut toast_messages,
+                                                                        &mut toast_counter,
+                                                                        msg,
+                                                                    );
+                                                                },
+                                                            }
+                                                        }
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -882,6 +986,8 @@ pub fn MailJobDetail(id: String) -> Element {
                     }
                 }
             }
+            // Quick 260603-evf: toasts for the NoRepaymentLetterAction recovery flow.
+            ToastContainer { messages: toast_messages }
         }
     }
 }

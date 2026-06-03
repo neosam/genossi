@@ -268,6 +268,13 @@ pub enum Key {
     // the generic red `MailFailed` so the Vorstand can see at a glance
     // that the failure is recoverable via "Brief generieren + Retry".
     MailFailedNoRepaymentLetter,
+    // Quick 260603-evf: action-button states for the NoRepaymentLetterAction
+    // component (Idle / Loading / Done) + error string for the "no matching
+    // entry in phase" failure-mode.
+    MailGenerateLetterAndRetry,
+    MailGenerateLetterAndRetryRunning,
+    MailGenerateLetterAndRetrySuccess,
+    MailGenerateLetterAndRetryNoEntry,
 
     // SMTP Settings
     SmtpSettings,

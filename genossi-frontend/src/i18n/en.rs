@@ -213,6 +213,10 @@ pub fn translate(key: Key) -> Rc<str> {
         }
         // Quick 260603-evf
         Key::MailFailedNoRepaymentLetter => "No repayment letter generated".into(),
+        Key::MailGenerateLetterAndRetry => "Generate letter + retry".into(),
+        Key::MailGenerateLetterAndRetryRunning => "Generating letter...".into(),
+        Key::MailGenerateLetterAndRetrySuccess => "Letter generated, retry triggered".into(),
+        Key::MailGenerateLetterAndRetryNoEntry => "No entry for this member in the phase".into(),
 
         Key::SmtpSettings => "SMTP Settings".into(),
         Key::SmtpHost => "SMTP Server".into(),
