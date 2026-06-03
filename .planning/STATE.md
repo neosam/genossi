@@ -30,7 +30,7 @@ See: `.planning/PROJECT.md` (updated 2026-06-02 after v1.1 close)
 ## Current Position
 
 Status: Milestone v1.1 complete (shipped 2026-06-02)
-Last activity: 2026-06-03 — Completed quick task 260603-b43: masked_iban Template-Variable für E-Mails und Typst
+Last activity: 2026-06-03 — Completed quick task 260603-cz6: Bulk-Mail Auto-Attach RepaymentLetter
 Next: `/gsd-new-milestone` to plan v1.2
 
 ## Closure Snapshot (v1.1, 2026-06-02)
@@ -246,6 +246,7 @@ Keine.
 | 260602-sgp | Bulk-Download aller RepaymentLetter-Dokumente einer RepaymentPhase als ZIP oder Bundle-PDF | 2026-06-02 | eabfbde | [260602-sgp-bulk-download-aller-repaymentletter-doku](./quick/260602-sgp-bulk-download-aller-repaymentletter-doku/) |
 | 260602-uo2 | Hotfix q9l: idempotent regenerate falsche Optimistic-Lock-Version → 409 statt 200 | 2026-06-02 | 1f37542 | [260602-uo2-hotfix-q9l-idempotent-regenerate-falsche](./quick/260602-uo2-hotfix-q9l-idempotent-regenerate-falsche/) |
 | 260603-b43 | masked_iban Template-Variable für E-Mails und Typst (group_iban + mask_iban Helper) | 2026-06-03 | c383698 | [260603-b43-masked-iban-template-variable-for-email-](./quick/260603-b43-masked-iban-template-variable-for-email-/) |
+| 260603-cz6 | Bulk-Mail: RepaymentLetter automatisch als per-Empfänger-Attachment (Opt-in attach_repayment_letter, Worker resolved via fiscal_year-Description-Fingerprint) | 2026-06-03 | 62e62b7 | [260603-cz6-bulk-mail-repaymentletter-automatisch-al](./quick/260603-cz6-bulk-mail-repaymentletter-automatisch-al/) |
 
 ## Deferred Items
 
