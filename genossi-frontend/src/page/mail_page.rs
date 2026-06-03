@@ -79,6 +79,13 @@ pub fn MailPage() -> Element {
     // Phase 12 D-18 + Issue #2 BLOCKER-Fix: Template-Auswahl wird ueber on_select_id
     // gesetzt und als template_id an send_bulk_mail durchgereicht; KEIN hardcoded None mehr.
     let mut selected_template_id = use_signal(|| Option::<String>::None);
+    // Quick 260603-e6p: opt-in flag for the backend to auto-attach
+    // the per-recipient DocumentType::RepaymentLetter PDF. Defaults to
+    // false on every page load — Vorstand decides per send. Backend rejects
+    // `attach_repayment_letter=true` without `repayment_phase_id` with 400,
+    // so the checkbox itself is hidden when no phase_id is set (mirror of
+    // backend gate genossi_mail/src/rest.rs:478-481).
+    let mut attach_repayment_letter = use_signal(|| false);
 
     // Attachment state
     let mut available_documents = use_signal(|| Vec::<MemberDocumentTO>::new());
@@ -438,6 +445,29 @@ pub fn MailPage() -> Element {
                                 repayment_phase_id: *repayment_phase_id.read(),
                             }
 
+                            // Quick 260603-e6p: Vorstand opt-in to attach the per-recipient
+                            // RepaymentLetter PDF. Visible only when repayment_phase_id is set,
+                            // because the backend rejects the combination otherwise (400).
+                            if repayment_phase_id.read().is_some() {
+                                div { class: "mt-2 p-3 border border-gray-200 rounded bg-gray-50",
+                                    label { class: "flex items-center space-x-2 text-sm",
+                                        input {
+                                            r#type: "checkbox",
+                                            checked: *attach_repayment_letter.read(),
+                                            onchange: move |evt| {
+                                                attach_repayment_letter.set(evt.checked());
+                                            },
+                                        }
+                                        span { class: "font-medium text-gray-700",
+                                            {i18n.t(Key::MailAttachRepaymentLetter)}
+                                        }
+                                    }
+                                    p { class: "text-xs text-gray-500 mt-1 ml-6",
+                                        {i18n.t(Key::MailAttachRepaymentLetterHint)}
+                                    }
+                                }
+                            }
+
                             // Attachment selector — visible only for single recipient
                             if selected_member_ids.read().len() == 1 {
                                 div {
@@ -556,6 +586,9 @@ pub fn MailPage() -> Element {
                                     let template_id_owned: Option<String> =
                                         selected_template_id.read().clone();
                                     let phase_id = *repayment_phase_id.read();
+                                    // Quick 260603-e6p: capture the opt-in flag BEFORE the spawn
+                                    // so the move-closure doesn't need to capture the Signal itself.
+                                    let attach_letter_flag: bool = *attach_repayment_letter.read();
                                     spawn(async move {
                                         sending.set(true);
                                         error.set(None);
@@ -572,6 +605,7 @@ pub fn MailPage() -> Element {
                                             &static_ids,
                                             template_id,
                                             phase_id,
+                                            attach_letter_flag,
                                         )
                                         .await
                                         {
@@ -582,6 +616,7 @@ pub fn MailPage() -> Element {
                                                 selected_static_document_ids.set(Vec::new());
                                                 subject.set(String::new());
                                                 body.set(String::new());
+                                                attach_repayment_letter.set(false);
                                                 reload_jobs();
                                             }
                                             Err(e) => {

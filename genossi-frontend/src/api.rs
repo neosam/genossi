@@ -868,6 +868,15 @@ pub struct SendBulkMailRequest {
     pub template_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repayment_phase_id: Option<Uuid>,
+    // ── Quick 260603-e6p (Phase 10 D-03 + Quick 260603-cz6) ─────────────
+    // Opt-in flag wired into the compose UI: when true and a phase is set,
+    // the backend auto-attaches the per-recipient DocumentType::RepaymentLetter
+    // PDF. Backend rejects `attach_repayment_letter=true` without
+    // `repayment_phase_id` with 400 (genossi_mail/src/rest.rs:478-481).
+    // Plain `#[serde(default)]` (NOT skip_serializing_if): bool always
+    // serializes meaningfully (`false` is a deliberate opt-out signal).
+    #[serde(default)]
+    pub attach_repayment_letter: bool,
 }
 
 pub async fn send_bulk_mail(
@@ -879,6 +888,7 @@ pub async fn send_bulk_mail(
     static_document_ids: &[String],
     template_id: Option<&str>,
     repayment_phase_id: Option<Uuid>,
+    attach_repayment_letter: bool,
 ) -> Result<MailJobTO, AppError> {
     info!("Sending bulk mail to {} recipients", recipients.len());
     let url = format!("{}/api/mail/send-bulk", config.backend);
@@ -890,6 +900,7 @@ pub async fn send_bulk_mail(
         static_document_ids: static_document_ids.to_vec(),
         template_id: template_id.map(String::from),
         repayment_phase_id,
+        attach_repayment_letter,
     };
     let response = reqwest::Client::new().post(url).json(&req).send().await?;
     let response = check_response(response).await?;
@@ -2530,6 +2541,7 @@ mod tests {
             static_document_ids: vec![],
             template_id: Some("tpl-1".into()),
             repayment_phase_id: Some(phase_id),
+            attach_repayment_letter: false,
         };
         let json = serde_json::to_string(&req).unwrap();
         assert!(json.contains("\"template_id\":\"tpl-1\""));
@@ -2542,6 +2554,7 @@ mod tests {
     #[test]
     fn test_send_bulk_mail_request_skips_none_fields() {
         // skip_serializing_if=Option::is_none should omit absent fields entirely.
+        // attach_repayment_letter is bool (not Option), so it always serializes.
         let req = SendBulkMailRequest {
             to_addresses: vec![],
             subject: "s".into(),
@@ -2550,10 +2563,45 @@ mod tests {
             static_document_ids: vec![],
             template_id: None,
             repayment_phase_id: None,
+            attach_repayment_letter: false,
         };
         let json = serde_json::to_string(&req).unwrap();
         assert!(!json.contains("template_id"));
         assert!(!json.contains("repayment_phase_id"));
+    }
+
+    #[test]
+    fn test_send_bulk_mail_request_attach_repayment_letter_backward_compat() {
+        // Quick 260603-e6p: payloads without `attach_repayment_letter` MUST
+        // still deserialize (defaults to false).
+        let json = r#"{
+            "to_addresses": [{"address": "a@b.c", "member_id": null}],
+            "subject": "s",
+            "body": "b"
+        }"#;
+        let req: SendBulkMailRequest = serde_json::from_str(json).expect("backward-compat broken");
+        assert!(!req.attach_repayment_letter);
+    }
+
+    #[test]
+    fn test_send_bulk_mail_request_attach_repayment_letter_roundtrip() {
+        // Quick 260603-e6p: when true, the field MUST serialize into the wire
+        // body so the backend sees the opt-in (wire-name `attach_repayment_letter`,
+        // exact match with genossi_mail/src/rest.rs:131-163).
+        let req = SendBulkMailRequest {
+            to_addresses: vec![],
+            subject: "s".into(),
+            body: "b".into(),
+            attachment_ids: vec![],
+            static_document_ids: vec![],
+            template_id: None,
+            repayment_phase_id: Some(Uuid::nil()),
+            attach_repayment_letter: true,
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"attach_repayment_letter\":true"));
+        let round: SendBulkMailRequest = serde_json::from_str(&json).unwrap();
+        assert!(round.attach_repayment_letter);
     }
 
     #[test]

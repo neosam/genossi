@@ -205,6 +205,12 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::MailTemplatePreview => "Preview".into(),
         Key::MailTemplatePreviewSelect => "Select member for preview".into(),
         Key::MailTemplateError => "Template error".into(),
+        Key::MailAttachRepaymentLetter => {
+            "Attach RepaymentLetter (cover letter) as personal PDF".into()
+        }
+        Key::MailAttachRepaymentLetterHint => {
+            "Recipients without a generated letter in this phase are marked as failed.".into()
+        }
 
         Key::SmtpSettings => "SMTP Settings".into(),
         Key::SmtpHost => "SMTP Server".into(),

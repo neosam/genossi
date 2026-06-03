@@ -259,6 +259,10 @@ pub enum Key {
     MailTemplatePreview,
     MailTemplatePreviewSelect,
     MailTemplateError,
+    // Quick 260603-e6p: opt-in checkbox to auto-attach the per-recipient
+    // DocumentType::RepaymentLetter PDF in the bulk-mail compose flow.
+    MailAttachRepaymentLetter,
+    MailAttachRepaymentLetterHint,
 
     // SMTP Settings
     SmtpSettings,
