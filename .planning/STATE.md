@@ -30,7 +30,7 @@ See: `.planning/PROJECT.md` (updated 2026-06-02 after v1.1 close)
 ## Current Position
 
 Status: Milestone v1.1 complete (shipped 2026-06-02)
-Last activity: 2026-06-03 — Completed quick task 260603-m48: Template-Editor Repayment-Variablen-Buttons sichtbar (`show_repayment_vars: true` in mail_templates.rs); send-page kontextabhängig + reply_form unverändert
+Last activity: 2026-06-03 — Completed quick task 260603-n3m: Mail-Test-Endpoints (preview_mail + test-with-template) mergen Dummy-Repayment-Kontext jetzt auch ohne repayment_phase_id, sobald das Template Repayment-Vars enthält — behebt undefined-variable-Fehler aus 260603-m48
 Next: `/gsd-new-milestone` to plan v1.2
 
 ## Closure Snapshot (v1.1, 2026-06-02)
@@ -254,6 +254,7 @@ Keine.
 | 260603-jtf | Mail-Templates: Test-Funktion auf der Template-Editor-Seite — `TemplateTester`-Komponente mit Member-Picker, Live-Preview und Test-Versand an separates Empfänger-Feld (Privacy: nie an Member-Mail); neuer Endpoint `POST /api/mail/test-with-template` + 7 Tests | 2026-06-03 | e246980e | [260603-jtf-mail-templates-test-funktion-auf-der-tem](./quick/260603-jtf-mail-templates-test-funktion-auf-der-tem/) |
 | 260603-kon | Dummy-Repayment-Daten in Template-Tests (Mail + Typst): wenn `resolve_repayment_context` `None` liefert, fallen Test-Endpoints auf auffällige Sentinel-Werte zurück (`99,99 €`, 99 Zahlungen, `99,99` Anteilswert, Jahr 2099); neuer Typst-Endpoint `POST /api/templates/render-repayment-test/*path/{member_id}`; `PreviewResponse.used_dummy_repayment` triggert amber Hinweis-Banner im Mail-TemplatePreview; Worker-Pfad bleibt unverändert; 8 neue Tests | 2026-06-03 | 44a38793 | [260603-kon-beim-testen-von-templates-fehlen-dummy-d](./quick/260603-kon-beim-testen-von-templates-fehlen-dummy-d/) |
 | 260603-m48 | Template-Editor: Repayment-Variablen-Buttons (payout_amount, share_count, fiscal_year) sichtbar — `show_repayment_vars: true` an `TemplateVarButtons`-Call-Site in `mail_templates.rs`; `mail_page.rs` (kontextabhängig via `repayment_phase_id`) und `reply_form.rs` (immer aus) unverändert | 2026-06-03 | 0a58da9 | [260603-m48-frontend-template-editor-repayment-varia](./quick/260603-m48-frontend-template-editor-repayment-varia/) |
+| 260603-n3m | Mail-Test-Endpoints (`preview_mail` + `send_test_mail_with_template`): Dummy-Repayment-Kontext jetzt auch bei FEHLENDER `repayment_phase_id` gemergt, wenn das Template Repayment-Vars referenziert (Detection-Helper `template_uses_repayment_vars`); behebt Strict-Mode-Fehler `undefined variable` aus 260603-m48-Frontend-Aktivierung; `used_dummy_repayment: true` triggert weiter den amber Banner; Sentinel-Werte 99,99/99/99,99/2099 unverändert; Worker-Pfad und Letter-Service unangetastet; 9 neue Tests | 2026-06-03 | baba99e | [260603-n3m-mail-test-endpoints-dummy-repayment-cont](./quick/260603-n3m-mail-test-endpoints-dummy-repayment-cont/) |
 
 ## Deferred Items
 
