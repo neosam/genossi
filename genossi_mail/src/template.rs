@@ -16,6 +16,13 @@ pub fn member_to_template_context(entity: &MemberEntity) -> Value {
     let salutation_str = entity.salutation.as_ref().map(|s| s.as_str().to_string());
     let join_date_str = entity.join_date.to_string();
     let exit_date_str = entity.exit_date.map(|d| d.to_string());
+    // Quick 260603-b43: masked_bank_account = bank_account maskiert (DSGVO-konforme
+    // Anzeige in E-Mail-Templates). Bei None bleibt das Feld None — Templates können
+    // mit `{% if masked_bank_account %}` darauf reagieren.
+    let masked_bank_account = entity
+        .bank_account
+        .as_deref()
+        .map(genossi_service::iban::mask_iban);
     context! {
         member_number => entity.member_number,
         first_name => entity.first_name.as_ref(),
@@ -33,6 +40,7 @@ pub fn member_to_template_context(entity: &MemberEntity) -> Value {
         current_balance => entity.current_balance,
         exit_date => exit_date_str,
         bank_account => entity.bank_account.as_deref(),
+        masked_bank_account => masked_bank_account,
         migrated => entity.migrated,
         salutation => salutation_str,
         title => entity.title.as_deref(),
@@ -745,6 +753,59 @@ mod tests {
             "{% if share_value is defined %}Pro Anteil: {{ share_value }}{% endif %}Ende";
         let result = render_template(template, &base).unwrap();
         assert_eq!(result, "Ende");
+    }
+
+    // ============================================================
+    // Quick 260603-b43: masked_bank_account Template-Variable
+    // ============================================================
+
+    #[test]
+    fn test_masked_bank_account_renders_for_member_with_iban() {
+        let member = make_member("Max", "Mustermann");
+        let ctx = member_to_template_context(&member);
+        let result = render_template("IBAN: {{ masked_bank_account }}", &ctx).unwrap();
+        // make_member() liefert bank_account = "DE89370400440532013000" (22 chars)
+        // → masked: "DE•• •••• •••• •••• ••30 00"
+        assert_eq!(
+            result,
+            "IBAN: DE\u{2022}\u{2022} \u{2022}\u{2022}\u{2022}\u{2022} \
+             \u{2022}\u{2022}\u{2022}\u{2022} \u{2022}\u{2022}\u{2022}\u{2022} \
+             \u{2022}\u{2022}30 00"
+        );
+    }
+
+    #[test]
+    fn test_masked_bank_account_none_when_no_iban() {
+        let mut member = make_member("Max", "Mustermann");
+        member.bank_account = None;
+        let ctx = member_to_template_context(&member);
+        // Conditional guard greift wie bei jedem anderen Optional-Feld.
+        let result = render_template(
+            "{% if masked_bank_account %}IBAN: {{ masked_bank_account }}{% else %}-{% endif %}",
+            &ctx,
+        )
+        .unwrap();
+        assert_eq!(result, "-");
+    }
+
+    #[test]
+    fn test_masked_bank_account_preserves_country_code_and_suffix() {
+        let mut member = make_member("Anna", "Schmidt");
+        member.bank_account = Some(Arc::from("AT611904300234573201"));
+        let ctx = member_to_template_context(&member);
+        let result = render_template("{{ masked_bank_account }}", &ctx).unwrap();
+        assert!(result.starts_with("AT"), "expected AT prefix, got: {result}");
+        assert!(result.ends_with("3201"), "expected 3201 suffix, got: {result}");
+    }
+
+    #[test]
+    fn test_bank_account_still_available_unmasked() {
+        // Regression: das bestehende `bank_account` Feld bleibt unverändert
+        // verfügbar, masked_bank_account ist additiv.
+        let member = make_member("Max", "Mustermann");
+        let ctx = member_to_template_context(&member);
+        let result = render_template("{{ bank_account }}", &ctx).unwrap();
+        assert_eq!(result, "DE89370400440532013000");
     }
 
     #[test]

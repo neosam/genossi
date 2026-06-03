@@ -22,6 +22,8 @@ const SECONDARY_VARS: &[(&str, &str)] = &[
     ("current_balance", "Guthaben"),
     ("exit_date", "Austrittsdatum"),
     ("bank_account", "Bankverbindung"),
+    // Quick 260603-b43: maskierte IBAN — datensparsame Anzeige fuer E-Mail-Empfaenger.
+    ("masked_bank_account", "Bankverb. (maskiert)"),
     ("email", "E-Mail"),
 ];
 

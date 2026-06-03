@@ -987,6 +987,12 @@ fn build_inputs_repayment_letter(
         Value::Str(Str::from(date_str.as_str())),
     );
 
+    // Quick 260603-b43: masked_bank_account als zusaetzliches Feld fuer Templates,
+    // die die IBAN nur teil-anzeigen sollen (DSGVO/Privatsphaere). None -> JSON null.
+    let masked_bank_account = member
+        .bank_account
+        .as_ref()
+        .map(|s| genossi_service::iban::mask_iban(s.as_ref()));
     let member_json = serde_json::json!({
         "member_number": member.member_number,
         "salutation": member.salutation.as_ref().map(|s| s.as_str()),
@@ -998,6 +1004,7 @@ fn build_inputs_repayment_letter(
         "postal_code": member.postal_code.as_ref().map(|s| s.as_ref()),
         "city": member.city.as_ref().map(|s| s.as_ref()),
         "bank_account": member.bank_account.as_ref().map(|s| s.as_ref()),
+        "masked_bank_account": masked_bank_account,
     });
     let member_str = serde_json::to_string(&member_json).expect("member json serialisable");
     inputs.insert(
@@ -1080,6 +1087,11 @@ fn build_inputs_repayment_letters_bundle(
     // (der Loop liest aus `recipients`), aber sie muessen existieren.
     let (compat_member_json, compat_repayment_json) =
         if let Some((member, ctx)) = recipients.first() {
+            // Quick 260603-b43: masked_bank_account fuer first-recipient compat.
+            let masked_bank_account = member
+                .bank_account
+                .as_ref()
+                .map(|s| genossi_service::iban::mask_iban(s.as_ref()));
             (
                 serde_json::json!({
                     "member_number": member.member_number,
@@ -1092,6 +1104,7 @@ fn build_inputs_repayment_letters_bundle(
                     "postal_code": member.postal_code.as_ref().map(|s| s.as_ref()),
                     "city": member.city.as_ref().map(|s| s.as_ref()),
                     "bank_account": member.bank_account.as_ref().map(|s| s.as_ref()),
+                    "masked_bank_account": masked_bank_account,
                 }),
                 serde_json::json!({
                     "share_count": ctx.share_count,
@@ -1115,6 +1128,7 @@ fn build_inputs_repayment_letters_bundle(
                     "postal_code": null,
                     "city": null,
                     "bank_account": null,
+                    "masked_bank_account": null,
                 }),
                 serde_json::json!({
                     "share_count": 0,
@@ -1144,6 +1158,11 @@ fn build_inputs_repayment_letters_bundle(
     let recipient_values: Vec<serde_json::Value> = recipients
         .iter()
         .map(|(member, ctx)| {
+            // Quick 260603-b43: masked_bank_account pro Empfaenger im Bundle-Loop.
+            let masked_bank_account = member
+                .bank_account
+                .as_ref()
+                .map(|s| genossi_service::iban::mask_iban(s.as_ref()));
             serde_json::json!({
                 "member": {
                     "member_number": member.member_number,
@@ -1156,6 +1175,7 @@ fn build_inputs_repayment_letters_bundle(
                     "postal_code": member.postal_code.as_ref().map(|s| s.as_ref()),
                     "city": member.city.as_ref().map(|s| s.as_ref()),
                     "bank_account": member.bank_account.as_ref().map(|s| s.as_ref()),
+                    "masked_bank_account": masked_bank_account,
                 },
                 "repayment": {
                     "share_count": ctx.share_count,
@@ -2319,5 +2339,119 @@ foo
              recipient is likely missing (only one letter rendered)",
             delta,
         );
+    }
+
+    // ============================================================
+    // Quick 260603-b43: masked_bank_account in Typst-Inputs
+    // ============================================================
+
+    /// Extrahiert den als `Str` gespeicherten JSON-String aus einem
+    /// Typst-Inputs-Dict und parst ihn zu `serde_json::Value`.
+    fn input_json(inputs: &Dict, key: &str) -> serde_json::Value {
+        let value = inputs
+            .get(&Str::from(key))
+            .unwrap_or_else(|_| panic!("inputs missing key '{key}'"));
+        let s = match value {
+            Value::Str(s) => s.as_str().to_string(),
+            other => panic!("inputs[{key}] is not a Str: {other:?}"),
+        };
+        serde_json::from_str(&s).unwrap_or_else(|e| panic!("inputs[{key}] not valid JSON: {e}"))
+    }
+
+    #[test]
+    fn test_build_inputs_repayment_letter_includes_masked_bank_account() {
+        let phase = test_repayment_phase();
+        let member = sample_member_with_iban();
+        let ctx = sample_ctx(3, "360,00", phase.fiscal_year);
+
+        let inputs = build_inputs_repayment_letter(&phase, &member, &ctx);
+        let member_json = input_json(&inputs, "member");
+
+        let masked = member_json
+            .get("masked_bank_account")
+            .and_then(|v| v.as_str())
+            .expect("masked_bank_account must be present as string");
+        // sample_member_with_iban() liefert "DE89370400440532013000".
+        assert!(masked.starts_with("DE"), "expected DE prefix, got: {masked}");
+        assert!(masked.ends_with("00"), "expected ...00 suffix, got: {masked}");
+        assert!(
+            masked.contains('\u{2022}'),
+            "expected at least one bullet, got: {masked}"
+        );
+    }
+
+    #[test]
+    fn test_build_inputs_repayment_letter_null_bank_account_yields_null_mask() {
+        let phase = test_repayment_phase();
+        let member = sample_member_without_iban();
+        let ctx = sample_ctx(2, "240,00", phase.fiscal_year);
+
+        let inputs = build_inputs_repayment_letter(&phase, &member, &ctx);
+        let member_json = input_json(&inputs, "member");
+
+        // Schluessel muss existieren, Wert muss JSON `null` sein (kein leerer
+        // String) — damit Typst-Templates `#if m.masked_bank_account != none`
+        // schreiben koennen, konsistent zum existing bank_account-Pattern.
+        let masked = member_json
+            .get("masked_bank_account")
+            .expect("masked_bank_account key must exist even when null");
+        assert!(masked.is_null(), "expected JSON null, got: {masked:?}");
+    }
+
+    #[test]
+    fn test_build_inputs_bundle_includes_masked_bank_account_per_recipient() {
+        let phase = test_repayment_phase();
+        let recipients = vec![
+            (sample_member_with_iban(), sample_ctx(3, "360,00", 2026)),
+            (sample_member_without_iban(), sample_ctx(2, "240,00", 2026)),
+        ];
+
+        let inputs = build_inputs_repayment_letters_bundle(&phase, &recipients);
+
+        let recipients_json = input_json(&inputs, "recipients");
+        let arr = recipients_json
+            .as_array()
+            .expect("recipients must be an array");
+        assert_eq!(arr.len(), 2, "expected 2 recipients");
+
+        // Recipient 0 (with IBAN) → masked string.
+        let r0_masked = arr[0]
+            .pointer("/member/masked_bank_account")
+            .expect("recipient[0].member.masked_bank_account missing");
+        assert!(
+            r0_masked.as_str().unwrap_or("").contains('\u{2022}'),
+            "recipient[0] masked_bank_account should contain bullets, got: {r0_masked:?}"
+        );
+
+        // Recipient 1 (without IBAN) → JSON null.
+        let r1_masked = arr[1]
+            .pointer("/member/masked_bank_account")
+            .expect("recipient[1].member.masked_bank_account missing");
+        assert!(
+            r1_masked.is_null(),
+            "recipient[1] masked_bank_account should be null, got: {r1_masked:?}"
+        );
+
+        // First-recipient compat (Top-Level `member`) muss ebenfalls masked_bank_account haben.
+        let compat_member = input_json(&inputs, "member");
+        assert!(
+            compat_member.get("masked_bank_account").is_some(),
+            "top-level compat member missing masked_bank_account key"
+        );
+    }
+
+    #[test]
+    fn test_build_inputs_bundle_empty_recipients_compat_includes_null_mask() {
+        let phase = test_repayment_phase();
+        let recipients: Vec<(MemberEntity, RepaymentContext)> = vec![];
+
+        let inputs = build_inputs_repayment_letters_bundle(&phase, &recipients);
+        let compat_member = input_json(&inputs, "member");
+
+        // Empty-Bundle compat-Pfad muss masked_bank_account = null haben.
+        let masked = compat_member
+            .get("masked_bank_account")
+            .expect("compat member missing masked_bank_account");
+        assert!(masked.is_null(), "expected JSON null, got: {masked:?}");
     }
 }
