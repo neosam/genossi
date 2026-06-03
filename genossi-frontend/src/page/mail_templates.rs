@@ -238,6 +238,7 @@ pub fn MailTemplatesPage() -> Element {
                                             on_insert: move |var_text: String| {
                                                 edit_body.write().push_str(&var_text);
                                             },
+                                            show_repayment_vars: true,
                                         }
 
                                         // Body
