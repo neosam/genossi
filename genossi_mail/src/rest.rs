@@ -78,6 +78,22 @@ pub struct MailJobTO {
     pub total_count: i64,
     pub sent_count: i64,
     pub failed_count: i64,
+    /// Quick 260603-evf: read-only exposure of the persisted
+    /// `MailJob.repayment_phase_id` (DAO field, set at job creation when
+    /// the bulk-mail is a repayment-flow send). The frontend uses this so
+    /// recipients that failed with `error="no_repayment_letter"` can be
+    /// resolved against the correct phase for the "Brief generieren +
+    /// Retry" recovery action without iterating all phases.
+    ///
+    /// Additive + backward-compatible:
+    /// - `#[serde(default)]` means older client JSON payloads without the
+    ///   key still deserialize cleanly to `None`.
+    /// - `skip_serializing_if = "Option::is_none"` keeps the wire shape
+    ///   identical for non-repayment jobs (the key is simply absent).
+    ///
+    /// Stays `None` for ad-hoc single sends and non-repayment bulk-mails.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repayment_phase_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
@@ -211,6 +227,10 @@ impl From<&MailJob> for MailJobTO {
             total_count: job.total_count,
             sent_count: job.sent_count,
             failed_count: job.failed_count,
+            // Quick 260603-evf: stringify the persisted phase UUID so the
+            // frontend can deterministically resolve the phase for the
+            // "Brief generieren + Retry" action without scanning all phases.
+            repayment_phase_id: job.repayment_phase_id.map(|u| u.to_string()),
         }
     }
 }
@@ -780,5 +800,91 @@ mod tests {
         }"#;
         let req: SendBulkMailRequest = serde_json::from_str(json).expect("must deserialize");
         assert!(req.attach_repayment_letter);
+    }
+
+    // ── Quick 260603-evf — MailJobTO.repayment_phase_id read-only exposure ──
+
+    /// Build a `MailJob` with the given `repayment_phase_id` and otherwise
+    /// stable default values, mirroring the helpers used by the existing
+    /// `dao_sqlite::tests::sample_job` (Quick 260603-cz6).
+    fn make_mail_job(repayment_phase_id: Option<uuid::Uuid>) -> MailJob {
+        MailJob {
+            id: uuid::Uuid::new_v4(),
+            created: time::PrimitiveDateTime::new(
+                time::Date::from_calendar_date(2026, time::Month::June, 3).unwrap(),
+                time::Time::from_hms(0, 0, 0).unwrap(),
+            ),
+            deleted: None,
+            version: uuid::Uuid::new_v4(),
+            subject: Arc::from("Test Subject"),
+            body: Arc::from("Test Body"),
+            status: Arc::from("pending"),
+            total_count: 0,
+            sent_count: 0,
+            failed_count: 0,
+            reply_to_inbound_mail_id: None,
+            template_id: None,
+            repayment_phase_id,
+            attach_repayment_letter: false,
+        }
+    }
+
+    /// Quick 260603-evf: `From<&MailJob>` exposes the persisted
+    /// `repayment_phase_id` as a stringified UUID so the frontend can
+    /// deterministically resolve the phase for the "Brief generieren + Retry"
+    /// action.
+    #[test]
+    fn test_mail_job_to_exposes_repayment_phase_id_when_present() {
+        let phase = uuid::Uuid::new_v4();
+        let job = make_mail_job(Some(phase));
+        let to = MailJobTO::from(&job);
+        assert_eq!(to.repayment_phase_id, Some(phase.to_string()));
+    }
+
+    /// Quick 260603-evf: when the underlying `MailJob` has no
+    /// `repayment_phase_id` (non-repayment bulk-mail), the TO's field
+    /// stays `None` and is skipped on serialization (backward compat).
+    #[test]
+    fn test_mail_job_to_repayment_phase_id_none_is_skipped_on_serialize() {
+        let job = make_mail_job(None);
+        let to = MailJobTO::from(&job);
+        assert_eq!(to.repayment_phase_id, None);
+
+        let json = serde_json::to_string(&to).expect("must serialize");
+        assert!(
+            !json.contains("repayment_phase_id"),
+            "skip_serializing_if must omit the key when None, got: {json}",
+        );
+    }
+
+    /// Quick 260603-evf: round-trip a `MailJobTO` with `repayment_phase_id`
+    /// set — serialize, deserialize, and verify the value is preserved.
+    #[test]
+    fn test_mail_job_to_repayment_phase_id_serde_roundtrip() {
+        let phase = uuid::Uuid::new_v4();
+        let job = make_mail_job(Some(phase));
+        let to = MailJobTO::from(&job);
+        let json = serde_json::to_string(&to).expect("must serialize");
+        let parsed: MailJobTO = serde_json::from_str(&json).expect("must deserialize");
+        assert_eq!(parsed.repayment_phase_id, Some(phase.to_string()));
+    }
+
+    /// Quick 260603-evf backward-compat: a JSON payload missing the
+    /// `repayment_phase_id` key (older clients / cached responses) still
+    /// deserializes cleanly with `None`.
+    #[test]
+    fn test_mail_job_to_deserialize_backward_compat_without_repayment_phase_id() {
+        let json = r#"{
+            "id": "00000000-0000-0000-0000-000000000000",
+            "created": "2026-06-03T00:00:00.000000000Z",
+            "subject": "S",
+            "body": "B",
+            "status": "pending",
+            "total_count": 0,
+            "sent_count": 0,
+            "failed_count": 0
+        }"#;
+        let to: MailJobTO = serde_json::from_str(json).expect("must deserialize");
+        assert_eq!(to.repayment_phase_id, None);
     }
 }

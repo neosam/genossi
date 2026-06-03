@@ -820,6 +820,15 @@ pub struct MailJobTO {
     pub total_count: i64,
     pub sent_count: i64,
     pub failed_count: i64,
+    /// Quick 260603-evf: mirror of the backend `MailJobTO.repayment_phase_id`.
+    /// Populated for repayment-flow bulk-mails; the UI uses this to deterministically
+    /// resolve the phase when triggering the "Brief generieren + Retry" recovery
+    /// action for recipients that failed with `error="no_repayment_letter"`.
+    /// `#[serde(default)]` keeps backward-compat with backend versions that do
+    /// not yet emit the field; `skip_serializing_if` keeps the wire shape
+    /// identical for non-repayment jobs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repayment_phase_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -2696,5 +2705,56 @@ mod tests {
         let failure: BatchFailureResponse = serde_json::from_str(json).unwrap();
         assert_eq!(failure.failure_index, 2);
         assert_eq!(failure.failure_reason, "Already paid out");
+    }
+
+    /// Quick 260603-evf: the frontend `MailJobTO` mirror must accept the
+    /// new backend wire format with `repayment_phase_id` set, AND must
+    /// stay backward-compatible with payloads that omit the key (older
+    /// backend versions / cached non-repayment job responses).
+    #[test]
+    fn test_mail_job_to_repayment_phase_id_roundtrip_and_backward_compat() {
+        // Backend-shaped payload WITH the new field — must populate the
+        // Option<String> verbatim.
+        let with_phase = r#"{
+            "id": "00000000-0000-0000-0000-000000000001",
+            "created": "2026-06-03T00:00:00.000000000Z",
+            "subject": "S",
+            "body": "B",
+            "status": "pending",
+            "total_count": 0,
+            "sent_count": 0,
+            "failed_count": 0,
+            "repayment_phase_id": "11111111-1111-1111-1111-111111111111"
+        }"#;
+        let job: MailJobTO = serde_json::from_str(with_phase).expect("must deserialize");
+        assert_eq!(
+            job.repayment_phase_id.as_deref(),
+            Some("11111111-1111-1111-1111-111111111111"),
+        );
+
+        // Round-trip: re-serialize and parse again — value preserved.
+        let json = serde_json::to_string(&job).expect("must serialize");
+        let parsed: MailJobTO = serde_json::from_str(&json).expect("must reparse");
+        assert_eq!(parsed.repayment_phase_id, job.repayment_phase_id);
+
+        // Backward-compat payload WITHOUT the new field — defaults to None,
+        // and the re-serialization must skip the key.
+        let without = r#"{
+            "id": "00000000-0000-0000-0000-000000000002",
+            "created": "2026-06-03T00:00:00.000000000Z",
+            "subject": "S",
+            "body": "B",
+            "status": "pending",
+            "total_count": 0,
+            "sent_count": 0,
+            "failed_count": 0
+        }"#;
+        let job_legacy: MailJobTO = serde_json::from_str(without).expect("must deserialize");
+        assert_eq!(job_legacy.repayment_phase_id, None);
+        let json_legacy = serde_json::to_string(&job_legacy).expect("must serialize");
+        assert!(
+            !json_legacy.contains("repayment_phase_id"),
+            "skip_serializing_if must omit None, got: {json_legacy}",
+        );
     }
 }
