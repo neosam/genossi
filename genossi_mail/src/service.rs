@@ -60,6 +60,14 @@ pub trait MailService: Send + Sync + 'static {
     /// - `repayment_phase_id` (D-03): optional reference to RepaymentPhase. If set, the worker
     ///   merges per-recipient payout context (payout_amount/share_count/fiscal_year) into the
     ///   minijinja render.
+    ///
+    /// Quick 260603-cz6:
+    /// - `attach_repayment_letter`: opt-in. When `true` AND `repayment_phase_id.is_some()`,
+    ///   the worker resolves the per-recipient `DocumentType::RepaymentLetter` MemberDocument
+    ///   (Description-Fingerprint `"Anschreiben Auszahlung GJ {fiscal_year}"`, Phase 13 D-LETT-04)
+    ///   and attaches the file in-memory before send. Recipients with 0 matching letters are
+    ///   marked failed with `error="no_repayment_letter"`. REST-layer rejects `true` when
+    ///   `repayment_phase_id` is `None` (400 BadRequest).
     async fn create_job(
         &self,
         subject: &str,
@@ -69,6 +77,7 @@ pub trait MailService: Send + Sync + 'static {
         static_document_ids: Vec<Uuid>,
         template_id: Option<Uuid>,
         repayment_phase_id: Option<Uuid>,
+        attach_repayment_letter: bool,
     ) -> Result<MailJob, MailServiceError>;
 
     /// Get all mail jobs ordered by created DESC.
@@ -249,6 +258,7 @@ impl<
         static_document_ids: Vec<Uuid>,
         template_id: Option<Uuid>,
         repayment_phase_id: Option<Uuid>,
+        attach_repayment_letter: bool,
     ) -> Result<MailJob, MailServiceError> {
         if recipients.is_empty() {
             return Err(MailServiceError::DataAccess(Arc::from(
@@ -259,6 +269,14 @@ impl<
         if !attachment_inputs.is_empty() && recipients.len() > 1 {
             return Err(MailServiceError::DataAccess(Arc::from(
                 "Attachments are only supported for single-recipient sends",
+            )));
+        }
+
+        // Quick 260603-cz6: opt-in requires a phase reference — otherwise the worker
+        // has no fiscal_year to filter MemberDocuments by.
+        if attach_repayment_letter && repayment_phase_id.is_none() {
+            return Err(MailServiceError::DataAccess(Arc::from(
+                "attach_repayment_letter requires repayment_phase_id",
             )));
         }
 
@@ -291,6 +309,8 @@ impl<
             // Phase 10 (Plan 10.03): real values flow in via the extended create_job signature.
             template_id,        // D-12: optional MailTemplate reference (job-wide)
             repayment_phase_id, // D-03: optional RepaymentPhase reference (job-wide)
+            // Quick 260603-cz6: opt-in worker-side per-recipient RepaymentLetter attachment.
+            attach_repayment_letter,
         };
 
         self.job_dao.create(&job).await?;
@@ -503,6 +523,7 @@ mod tests {
                 vec![],
                 None,
                 None,
+                false,
             )
             .await
             .unwrap();
@@ -529,7 +550,7 @@ mod tests {
             msa_mock,
         );
         let result = service
-            .create_job("Test", "Body", vec![], vec![], vec![], None, None)
+            .create_job("Test", "Body", vec![], vec![], vec![], None, None, false)
             .await;
 
         assert!(matches!(result, Err(MailServiceError::DataAccess(_))));
@@ -584,6 +605,7 @@ mod tests {
             reply_to_inbound_mail_id: None,
             template_id: None,
             repayment_phase_id: None,
+            attach_repayment_letter: false,
         };
         let job_clone = job.clone();
 
@@ -635,6 +657,7 @@ mod tests {
             reply_to_inbound_mail_id: None,
             template_id: None,
             repayment_phase_id: None,
+            attach_repayment_letter: false,
         };
         let job_clone = job.clone();
 
@@ -769,6 +792,7 @@ mod tests {
             reply_to_inbound_mail_id: None,
             template_id: None,
             repayment_phase_id: None,
+            attach_repayment_letter: false,
         };
         let job_clone = job.clone();
 
@@ -870,6 +894,7 @@ mod tests {
                 vec![],
                 None,
                 None,
+                false,
             )
             .await
             .unwrap();
@@ -916,6 +941,7 @@ mod tests {
                 vec![],
                 None,
                 None,
+                false,
             )
             .await;
 
@@ -976,6 +1002,7 @@ mod tests {
                 vec![],
                 Some(template_id),
                 Some(phase_id),
+                false,
             )
             .await
             .unwrap();
@@ -1026,6 +1053,7 @@ mod tests {
                 vec![],
                 None,
                 None,
+                false,
             )
             .await
             .unwrap();

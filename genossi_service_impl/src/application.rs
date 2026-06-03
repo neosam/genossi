@@ -139,6 +139,8 @@ impl<Deps: ApplicationServiceDeps> ApplicationServiceImpl<Deps> {
                 // not template/phase-driven — both stay None.
                 None,
                 None,
+                // Quick 260603-cz6: confirmation mail is not a repayment-bulk send.
+                false,
             )
             .await
         {

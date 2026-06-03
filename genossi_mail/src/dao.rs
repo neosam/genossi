@@ -41,6 +41,11 @@ pub struct MailJob {
     pub template_id: Option<Uuid>,
     // Phase 10 D-03: optional repayment-phase reference for worker-side aggregation
     pub repayment_phase_id: Option<Uuid>,
+    // Quick 260603-cz6: opt-in flag — when true (and repayment_phase_id is Some),
+    // the worker resolves the per-recipient RepaymentLetter MemberDocument
+    // (Description-Fingerprint "Anschreiben Auszahlung GJ {fy}") and attaches it
+    // in-memory. Persisted so retries survive Worker restarts.
+    pub attach_repayment_letter: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

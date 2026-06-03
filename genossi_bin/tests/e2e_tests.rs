@@ -3229,6 +3229,7 @@ async fn test_mail_create_bulk_job() {
             static_document_ids: vec![],
             template_id: None,
             repayment_phase_id: None,
+            attach_repayment_letter: false,
         })
         .send()
         .await
@@ -3303,6 +3304,7 @@ async fn test_mail_send_bulk_empty_list() {
             static_document_ids: vec![],
             template_id: None,
             repayment_phase_id: None,
+            attach_repayment_letter: false,
         })
         .send()
         .await
@@ -3362,6 +3364,7 @@ async fn test_mail_retry_job() {
             static_document_ids: vec![],
             template_id: None,
             repayment_phase_id: None,
+            attach_repayment_letter: false,
         })
         .send()
         .await
@@ -3542,6 +3545,7 @@ async fn test_members_not_reached_by_job() {
             static_document_ids: vec![],
             template_id: None,
             repayment_phase_id: None,
+            attach_repayment_letter: false,
         })
         .send()
         .await
@@ -3623,6 +3627,7 @@ async fn test_members_not_reached_sent_excluded() {
             static_document_ids: vec![],
             template_id: None,
             repayment_phase_id: None,
+            attach_repayment_letter: false,
         })
         .send()
         .await
@@ -3927,6 +3932,7 @@ async fn test_mail_send_with_attachment() {
             static_document_ids: vec![],
             template_id: None,
             repayment_phase_id: None,
+            attach_repayment_letter: false,
         })
         .send()
         .await
@@ -3987,6 +3993,7 @@ async fn test_mail_attachment_wrong_member() {
             static_document_ids: vec![],
             template_id: None,
             repayment_phase_id: None,
+            attach_repayment_letter: false,
         })
         .send()
         .await
@@ -4037,6 +4044,7 @@ async fn test_mail_attachments_rejected_for_multiple_recipients() {
             static_document_ids: vec![],
             template_id: None,
             repayment_phase_id: None,
+            attach_repayment_letter: false,
         })
         .send()
         .await
@@ -4096,6 +4104,7 @@ async fn test_mail_without_attachment_unchanged() {
             static_document_ids: vec![],
             template_id: None,
             repayment_phase_id: None,
+            attach_repayment_letter: false,
         })
         .send()
         .await
@@ -4582,6 +4591,7 @@ async fn test_bulk_mail_with_static_document_ids_succeeds() {
             static_document_ids: vec![doc_id],
             template_id: None,
             repayment_phase_id: None,
+            attach_repayment_letter: false,
         })
         .send()
         .await
@@ -4620,6 +4630,7 @@ async fn test_bulk_mail_with_unknown_static_document_id_fails() {
             static_document_ids: vec![uuid::Uuid::new_v4().to_string()],
             template_id: None,
             repayment_phase_id: None,
+            attach_repayment_letter: false,
         })
         .send()
         .await

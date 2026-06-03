@@ -10,6 +10,7 @@ use crate::template::{
 };
 use genossi_config::service::ConfigService;
 use genossi_service::document_storage::DocumentStorage;
+use genossi_service::member_document::DocumentType;
 
 const DEFAULT_SEND_INTERVAL_SECONDS: u64 = 36;
 const IDLE_POLL_SECONDS: u64 = 5;
@@ -67,6 +68,50 @@ fn build_member_document_entity(
         mail_recipient_id: Some(recipient_id),
         status: Some(Arc::from(doc_status.as_str())),
     }
+}
+
+/// Quick 260603-cz6: pick the RepaymentLetter MemberDocument for a given fiscal_year
+/// from the documents loaded for a member. The linkage between RepaymentLetter and
+/// RepaymentPhase is the description-fingerprint pattern established by Phase 13
+/// D-LETT-04 (`genossi_service_impl/src/repayment_letter.rs::find_existing_letter_for_phase`).
+///
+/// Returns:
+/// - `None` if no matching letter (Worker marks recipient `failed` with `error="no_repayment_letter"`)
+/// - `Some(newest)` if 1+ matching letters; on >1 a warning is logged with the count.
+fn find_repayment_letter_for_recipient(
+    documents: &[genossi_dao::member_document::MemberDocumentEntity],
+    fiscal_year: i32,
+) -> Option<&genossi_dao::member_document::MemberDocumentEntity> {
+    let expected_desc = format!("Anschreiben Auszahlung GJ {}", fiscal_year);
+    let document_type = DocumentType::RepaymentLetter.as_str();
+
+    let mut matches: Vec<&genossi_dao::member_document::MemberDocumentEntity> = documents
+        .iter()
+        .filter(|d| {
+            d.deleted.is_none()
+                && d.document_type.as_ref() == document_type
+                && d.description.as_deref() == Some(expected_desc.as_str())
+        })
+        .collect();
+
+    if matches.is_empty() {
+        return None;
+    }
+
+    // created DESC — Quick-cz6 decision: take newest when multiple exist.
+    matches.sort_by(|a, b| b.created.cmp(&a.created));
+
+    if matches.len() > 1 {
+        tracing::warn!(
+            "Worker: {} RepaymentLetter docs for member {} in FY {} — taking newest ({})",
+            matches.len(),
+            matches[0].member_id,
+            fiscal_year,
+            matches[0].id,
+        );
+    }
+
+    matches.into_iter().next()
 }
 
 async fn get_send_interval<C: ConfigService>(config_service: &C) -> u64 {
@@ -252,6 +297,70 @@ pub async fn start_mail_worker<C, J, R, A, SA, D, M, IB, MD, AL, MT, RE, RP, TX>
                 mime_type: sd.content_type.clone(),
                 relative_path: Arc::from(sd.relative_path().as_str()),
             });
+        }
+
+        // Quick 260603-cz6: opt-in per-recipient RepaymentLetter auto-attach.
+        // Resolves the matching MemberDocument by Description-Fingerprint
+        // ("Anschreiben Auszahlung GJ {fiscal_year}") and pushes its file as a
+        // MailRecipientAttachment. Failure modes (no member_id, missing phase,
+        // 0 letters) mark the recipient `failed` and skip the send — no
+        // partially-rendered mails go out.
+        if job.attach_repayment_letter {
+            let resolve_outcome: Result<MailRecipientAttachment, String> = async {
+                let phase_id = job.repayment_phase_id.ok_or(
+                    "attach_repayment_letter set but mail_job has no repayment_phase_id"
+                        .to_string(),
+                )?;
+                let member_id = next.member_id.ok_or(
+                    "attach_repayment_letter requires recipient.member_id (BulkRecipient.member_id)"
+                        .to_string(),
+                )?;
+
+                let tx = transaction_dao
+                    .transaction()
+                    .await
+                    .map_err(|e| format!("tx open failed for repayment_letter lookup: {:?}", e))?;
+
+                let phase = repayment_phase_dao
+                    .find_by_id(phase_id, tx.clone())
+                    .await
+                    .map_err(|e| format!("repayment_phase lookup failed: {:?}", e))?
+                    .ok_or_else(|| format!("repayment_phase {} not found", phase_id))?;
+
+                let docs = member_document_dao
+                    .find_by_member_id(member_id, tx.clone())
+                    .await
+                    .map_err(|e| format!("member_document lookup failed: {:?}", e))?;
+
+                let letter = find_repayment_letter_for_recipient(&docs, phase.fiscal_year)
+                    .ok_or_else(|| "no_repayment_letter".to_string())?;
+
+                Ok(MailRecipientAttachment {
+                    recipient_id: next.id,
+                    document_id: letter.id,
+                    file_name: letter.file_name.clone(),
+                    mime_type: letter.mime_type.clone(),
+                    relative_path: letter.relative_path.clone(),
+                })
+            }
+            .await;
+
+            match resolve_outcome {
+                Ok(att) => attachments.push(att),
+                Err(reason) => {
+                    mark_recipient_failed(
+                        recipient_dao.as_ref(),
+                        job_dao.as_ref(),
+                        &next,
+                        &mut job,
+                        &reason,
+                    )
+                    .await;
+                    let interval = get_send_interval(config_service.as_ref()).await;
+                    tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
+                    continue;
+                }
+            }
         }
 
         // Render template subject/body if recipient has a member_id
@@ -758,6 +867,130 @@ mod tests {
         )
     }
 
+    // Quick 260603-cz6: find_repayment_letter_for_recipient unit tests
+    mod find_repayment_letter_tests {
+        use super::*;
+        use genossi_dao::member_document::MemberDocumentEntity;
+        use std::sync::Arc;
+        use uuid::Uuid;
+
+        fn doc(
+            id: Uuid,
+            member_id: Uuid,
+            document_type: &str,
+            description: Option<&str>,
+            created_offset_days: i64,
+        ) -> MemberDocumentEntity {
+            let base = sample_datetime();
+            let created = base + time::Duration::days(created_offset_days);
+            MemberDocumentEntity {
+                id,
+                member_id,
+                document_type: Arc::from(document_type),
+                description: description.map(Arc::from),
+                file_name: Arc::from("letter.pdf"),
+                mime_type: Arc::from("application/pdf"),
+                relative_path: Arc::from("repayment_letters/letter.pdf"),
+                created,
+                deleted: None,
+                version: Uuid::new_v4(),
+                template_id: None,
+                mail_recipient_id: None,
+                status: None,
+            }
+        }
+
+        #[test]
+        fn returns_none_when_no_documents() {
+            let result = find_repayment_letter_for_recipient(&[], 2026);
+            assert!(result.is_none());
+        }
+
+        #[test]
+        fn returns_none_when_no_repayment_letter_type() {
+            let docs = vec![doc(
+                Uuid::new_v4(),
+                Uuid::new_v4(),
+                "join_declaration",
+                Some("Beitrittsantrag"),
+                0,
+            )];
+            let result = find_repayment_letter_for_recipient(&docs, 2026);
+            assert!(result.is_none());
+        }
+
+        #[test]
+        fn returns_none_when_fiscal_year_mismatch() {
+            let docs = vec![doc(
+                Uuid::new_v4(),
+                Uuid::new_v4(),
+                "repayment_letter",
+                Some("Anschreiben Auszahlung GJ 2025"), // different year
+                0,
+            )];
+            let result = find_repayment_letter_for_recipient(&docs, 2026);
+            assert!(result.is_none());
+        }
+
+        #[test]
+        fn returns_match_for_exact_fiscal_year() {
+            let id = Uuid::new_v4();
+            let docs = vec![doc(
+                id,
+                Uuid::new_v4(),
+                "repayment_letter",
+                Some("Anschreiben Auszahlung GJ 2026"),
+                0,
+            )];
+            let result = find_repayment_letter_for_recipient(&docs, 2026);
+            assert_eq!(result.map(|d| d.id), Some(id));
+        }
+
+        #[test]
+        fn skips_soft_deleted() {
+            let mut d = doc(
+                Uuid::new_v4(),
+                Uuid::new_v4(),
+                "repayment_letter",
+                Some("Anschreiben Auszahlung GJ 2026"),
+                0,
+            );
+            d.deleted = Some(sample_datetime());
+            let docs = vec![d];
+            let result = find_repayment_letter_for_recipient(&docs, 2026);
+            assert!(result.is_none());
+        }
+
+        #[test]
+        fn returns_newest_when_multiple_match() {
+            let member_id = Uuid::new_v4();
+            let old_id = Uuid::new_v4();
+            let new_id = Uuid::new_v4();
+            let docs = vec![
+                doc(
+                    old_id,
+                    member_id,
+                    "repayment_letter",
+                    Some("Anschreiben Auszahlung GJ 2026"),
+                    0, // older
+                ),
+                doc(
+                    new_id,
+                    member_id,
+                    "repayment_letter",
+                    Some("Anschreiben Auszahlung GJ 2026"),
+                    5, // newer
+                ),
+            ];
+            let result = find_repayment_letter_for_recipient(&docs, 2026);
+            assert_eq!(
+                result.map(|d| d.id),
+                Some(new_id),
+                "expected newest letter to win"
+            );
+        }
+    }
+
     #[tokio::test]
     async fn test_get_send_interval_default() {
         let mut config_mock = MockConfigService::new();
@@ -827,6 +1060,7 @@ mod tests {
             reply_to_inbound_mail_id: None,
             template_id: None,
             repayment_phase_id: None,
+            attach_repayment_letter: false,
         }
     }
 
@@ -1053,6 +1287,7 @@ mod tests {
             reply_to_inbound_mail_id: None,
             template_id,
             repayment_phase_id: None,
+            attach_repayment_letter: false,
         }
     }
 

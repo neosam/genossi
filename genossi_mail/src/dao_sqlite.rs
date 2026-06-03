@@ -73,6 +73,8 @@ struct MailJobDb {
     // Phase 10 D-12 / D-03
     template_id: Option<Vec<u8>>,
     repayment_phase_id: Option<Vec<u8>>,
+    // Quick 260603-cz6: opt-in bool flag (SQLite INTEGER 0/1)
+    attach_repayment_letter: i64,
 }
 
 impl TryFrom<&MailJobDb> for MailJob {
@@ -94,6 +96,7 @@ impl TryFrom<&MailJobDb> for MailJob {
             reply_to_inbound_mail_id: parse_optional_uuid(&db.reply_to_inbound_mail_id)?,
             template_id: parse_optional_uuid(&db.template_id)?,
             repayment_phase_id: parse_optional_uuid(&db.repayment_phase_id)?,
+            attach_repayment_letter: db.attach_repayment_letter != 0,
         })
     }
 }
@@ -118,10 +121,11 @@ impl MailJobDao for MailJobDaoSqlite {
         let reply_to = job.reply_to_inbound_mail_id.map(|u| u.as_bytes().to_vec());
         let template_id = job.template_id.map(|u| u.as_bytes().to_vec());
         let repayment_phase_id = job.repayment_phase_id.map(|u| u.as_bytes().to_vec());
+        let attach_repayment_letter: i64 = if job.attach_repayment_letter { 1 } else { 0 };
 
         sqlx::query(
-            "INSERT INTO mail_jobs (id, created, deleted, version, subject, body, status, total_count, sent_count, failed_count, reply_to_inbound_mail_id, template_id, repayment_phase_id) \
-             VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO mail_jobs (id, created, deleted, version, subject, body, status, total_count, sent_count, failed_count, reply_to_inbound_mail_id, template_id, repayment_phase_id, attach_repayment_letter) \
+             VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(id)
         .bind(created)
@@ -135,6 +139,7 @@ impl MailJobDao for MailJobDaoSqlite {
         .bind(reply_to)
         .bind(template_id)
         .bind(repayment_phase_id)
+        .bind(attach_repayment_letter)
         .execute(self.pool.as_ref())
         .await
         .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
@@ -145,7 +150,7 @@ impl MailJobDao for MailJobDaoSqlite {
     async fn find_by_id(&self, id: Uuid) -> Result<MailJob, MailDaoError> {
         let id_bytes = id.as_bytes().to_vec();
         let row = sqlx::query_as::<_, MailJobDb>(
-            "SELECT id, created, deleted, version, subject, body, status, total_count, sent_count, failed_count, reply_to_inbound_mail_id, template_id, repayment_phase_id \
+            "SELECT id, created, deleted, version, subject, body, status, total_count, sent_count, failed_count, reply_to_inbound_mail_id, template_id, repayment_phase_id, attach_repayment_letter \
              FROM mail_jobs WHERE id = ?",
         )
         .bind(id_bytes)
@@ -159,7 +164,7 @@ impl MailJobDao for MailJobDaoSqlite {
 
     async fn all(&self) -> Result<Arc<[MailJob]>, MailDaoError> {
         let rows = sqlx::query_as::<_, MailJobDb>(
-            "SELECT id, created, deleted, version, subject, body, status, total_count, sent_count, failed_count, reply_to_inbound_mail_id, template_id, repayment_phase_id \
+            "SELECT id, created, deleted, version, subject, body, status, total_count, sent_count, failed_count, reply_to_inbound_mail_id, template_id, repayment_phase_id, attach_repayment_letter \
              FROM mail_jobs ORDER BY created DESC",
         )
         .fetch_all(self.pool.as_ref())
@@ -1100,7 +1105,8 @@ mod tests {
                 failed_count INTEGER NOT NULL DEFAULT 0,
                 reply_to_inbound_mail_id BLOB,
                 template_id BLOB,
-                repayment_phase_id BLOB
+                repayment_phase_id BLOB,
+                attach_repayment_letter INTEGER NOT NULL DEFAULT 0
             )",
         )
         .execute(&pool)
@@ -1213,6 +1219,7 @@ mod tests {
             reply_to_inbound_mail_id: None,
             template_id: None,
             repayment_phase_id: None,
+            attach_repayment_letter: false,
         }
     }
 
@@ -1247,6 +1254,35 @@ mod tests {
         assert_eq!(found.subject.as_ref(), "Test Subject");
         assert_eq!(found.status.as_ref(), "running");
         assert_eq!(found.total_count, 3);
+    }
+
+    // Quick 260603-cz6: MailJob.attach_repayment_letter roundtrip
+    #[tokio::test]
+    async fn test_job_roundtrip_attach_repayment_letter_default_false() {
+        let pool = setup_db().await;
+        let dao = MailJobDaoSqlite::new(pool);
+
+        let job = sample_job();
+        assert!(!job.attach_repayment_letter, "sample default must be false");
+        dao.create(&job).await.unwrap();
+
+        let found = dao.find_by_id(job.id).await.unwrap();
+        assert!(!found.attach_repayment_letter);
+    }
+
+    #[tokio::test]
+    async fn test_job_roundtrip_attach_repayment_letter_true() {
+        let pool = setup_db().await;
+        let dao = MailJobDaoSqlite::new(pool);
+
+        let mut job = sample_job();
+        job.attach_repayment_letter = true;
+        job.repayment_phase_id = Some(Uuid::new_v4());
+        dao.create(&job).await.unwrap();
+
+        let found = dao.find_by_id(job.id).await.unwrap();
+        assert!(found.attach_repayment_letter);
+        assert_eq!(found.repayment_phase_id, job.repayment_phase_id);
     }
 
     #[tokio::test]

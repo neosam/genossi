@@ -431,6 +431,8 @@ where
             // Phase 10: inbox reply is not template/phase-bound.
             template_id: None,
             repayment_phase_id: None,
+            // Quick 260603-cz6: inbox reply is not a repayment-bulk send.
+            attach_repayment_letter: false,
         };
         self.job_dao.create(&job).await?;
 

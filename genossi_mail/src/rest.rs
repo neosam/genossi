@@ -151,6 +151,15 @@ pub struct SendBulkMailRequest {
     #[serde(default)]
     #[schema(example = "550e8400-e29b-41d4-a716-446655440000")]
     pub repayment_phase_id: Option<String>,
+    /// Quick 260603-cz6: opt-in flag. When `true`, the worker resolves the
+    /// per-recipient `DocumentType::RepaymentLetter` MemberDocument
+    /// (Description-Fingerprint `"Anschreiben Auszahlung GJ {fiscal_year}"`)
+    /// and attaches it in-memory. Requires `repayment_phase_id` to be set —
+    /// otherwise 400 BadRequest. Recipients without a matching letter are marked
+    /// `failed` with `error="no_repayment_letter"`.
+    #[serde(default)]
+    #[schema(example = false)]
+    pub attach_repayment_letter: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
@@ -318,6 +327,7 @@ pub async fn send_mail<S: MailRestState>(
                     vec![],
                     None, // template_id: Phase 10 single-send is ad-hoc, no template tracking
                     None, // repayment_phase_id: Phase 10 single-send is not bulk-repayment
+                    false, // attach_repayment_letter: not applicable to single-send
                 )
                 .await?;
             let to = MailJobTO::from(&job);
@@ -462,6 +472,15 @@ pub async fn send_bulk_mail<S: MailRestState>(
                 _ => None,
             };
 
+            // Quick 260603-cz6: opt-in attach_repayment_letter requires repayment_phase_id.
+            // Service-layer enforces this too, but we 400 here for a clear error message
+            // before going through the recipient/static-doc validation.
+            if body.attach_repayment_letter && repayment_phase_id.is_none() {
+                return Err(MailServiceError::BadRequest(Arc::from(
+                    "attach_repayment_letter requires repayment_phase_id",
+                )));
+            }
+
             let job = state
                 .mail_service()
                 .create_job(
@@ -472,6 +491,7 @@ pub async fn send_bulk_mail<S: MailRestState>(
                     static_document_ids,
                     template_id,        // Phase 10 D-12
                     repayment_phase_id, // Phase 10 D-03
+                    body.attach_repayment_letter, // Quick 260603-cz6
                 )
                 .await?;
             let to = MailJobTO::from(&job);
@@ -743,5 +763,22 @@ mod tests {
         let req: SendBulkMailRequest = serde_json::from_str(json).expect("must deserialize");
         assert_eq!(req.template_id, None);
         assert_eq!(req.repayment_phase_id, None);
+        // Quick 260603-cz6: backward-compat for new opt-in flag.
+        assert!(!req.attach_repayment_letter);
+    }
+
+    /// Quick 260603-cz6: `attach_repayment_letter` deserializes from the request
+    /// body and defaults to `false` when absent.
+    #[test]
+    fn test_send_bulk_mail_request_serde_attach_repayment_letter_explicit_true() {
+        let json = r#"{
+            "to_addresses": [],
+            "subject": "S",
+            "body": "B",
+            "repayment_phase_id": "660e8400-e29b-41d4-a716-446655440000",
+            "attach_repayment_letter": true
+        }"#;
+        let req: SendBulkMailRequest = serde_json::from_str(json).expect("must deserialize");
+        assert!(req.attach_repayment_letter);
     }
 }
