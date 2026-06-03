@@ -604,11 +604,9 @@ pub struct RestStateImpl {
     // Phase 11 (EXPO-01..03, EXPO-05): RepaymentExportServiceImpl exposed
     // to REST handlers via RepaymentExportRestState (D-DI wiring).
     repayment_export_service: Arc<RepaymentExportService>,
-    // Phase 13 D-13-04 / D-13-10: shared aggregation helper. Cloned into the
-    // letter-service below — kept on the state struct so a future Phase-10
-    // worker-refactor (todo phase-10-worker-refactor-resolver) can also
-    // resolve via the same Arc.
-    #[allow(dead_code)] // kept for D-13-11 follow-up worker refactor
+    // Phase 13 D-13-04 / D-13-10: shared aggregation helper.
+    // Same Arc passed to start_mail_worker (Quick 260603-h0r refactor); also
+    // cloned into the letter-service below. Single Arc per process.
     repayment_context_resolver: Arc<RepaymentContextResolver>,
     // Phase 13 D-13-01..11: RepaymentLetterServiceImpl exposed to REST
     // handlers via RepaymentLetterRestState. Direct-Download Bulk-PDF +
@@ -1343,6 +1341,8 @@ impl RestStateImpl {
         let repayment_entry_dao = self.repayment_entry_dao.clone();
         let repayment_phase_dao = self.repayment_phase_dao.clone();
         let transaction_dao = self.transaction_dao.clone();
+        // Quick 260603-h0r: Shared aggregation resolver — same Arc as Letter-Service.
+        let repayment_context_resolver = self.repayment_context_resolver.clone();
         tokio::spawn(async move {
             genossi_mail::worker::start_mail_worker(
                 config_service,
@@ -1361,6 +1361,8 @@ impl RestStateImpl {
                 repayment_entry_dao,
                 repayment_phase_dao,
                 transaction_dao,
+                // Quick 260603-h0r: 15th positional arg (RCR generic).
+                repayment_context_resolver,
             )
             .await;
         });
