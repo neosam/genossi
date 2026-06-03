@@ -2,10 +2,12 @@ pub mod body_editor;
 pub mod subject_input;
 pub mod template_preview;
 pub mod template_selector;
+pub mod template_tester;
 pub mod template_var_buttons;
 
 pub use body_editor::MailBodyEditor;
 pub use subject_input::MailSubjectInput;
 pub use template_preview::TemplatePreview;
 pub use template_selector::TemplateSelector;
+pub use template_tester::TemplateTester;
 pub use template_var_buttons::TemplateVarButtons;

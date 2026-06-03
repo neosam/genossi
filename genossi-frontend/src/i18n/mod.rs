@@ -318,6 +318,14 @@ pub enum Key {
     MailTemplateEmpty,
     MailTemplateDeleteConfirm,
 
+    // Quick 260603-jtf: Template-Tester (Editor-Seite)
+    MailTemplateTest,
+    MailTemplateTestSendTo,
+    MailTemplateTestSend,
+    MailTemplateTestPrivacyHint,
+    MailTemplateTestSuccess,
+    MailTemplateTestFailed,
+
     // Member filter
     NotReachedByMailJob,
     AllMembers,

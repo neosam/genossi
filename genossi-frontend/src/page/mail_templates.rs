@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 
 use crate::api::{self, MailTemplateTO};
 use crate::auth::RequirePrivilege;
-use crate::component::mail_compose::TemplateVarButtons;
+use crate::component::mail_compose::{TemplateTester, TemplateVarButtons};
 use crate::component::{ErrorAlert, TopBar};
 use crate::i18n::{use_i18n, Key};
 use crate::page::AccessDeniedPage;
@@ -251,6 +251,15 @@ pub fn MailTemplatesPage() -> Element {
                                                 value: "{edit_body}",
                                                 oninput: move |e| edit_body.set(e.value()),
                                             }
+                                        }
+
+                                        // Quick 260603-jtf: Template-Tester.
+                                        // Component-First — Member-Selector,
+                                        // Preview und Send-Button werden hier
+                                        // bewusst NICHT inline implementiert.
+                                        TemplateTester {
+                                            subject: edit_subject,
+                                            body: edit_body,
                                         }
 
                                         // Action buttons

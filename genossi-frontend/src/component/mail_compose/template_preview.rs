@@ -44,8 +44,7 @@ pub fn TemplatePreview(
     member_ids: Vec<Uuid>,
     // UAT-Defekt #6: optional Repayment-Kontext, damit Live-Preview im
     // Phase-12-Flow `{{ payout_amount }}` etc. korrekt rendert.
-    #[props(default)]
-    repayment_phase_id: Option<Uuid>,
+    #[props(default)] repayment_phase_id: Option<Uuid>,
 ) -> Element {
     let i18n = use_i18n();
     let mut preview_member_id = use_signal(|| None::<Uuid>);

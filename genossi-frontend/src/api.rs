@@ -994,6 +994,32 @@ pub async fn send_test_mail(config: &Config, to_address: &str) -> Result<(), App
     Ok(())
 }
 
+/// Quick 260603-jtf: Send a test mail by rendering the given template
+/// (`subject`+`body`) against the Member identified by `member_id`, delivered
+/// to `to_address`. PRIVACY: `to_address` must come from an explicit test-input
+/// field, NEVER from member.email — the server enforces this by requiring the
+/// caller to supply both fields and never substituting the resolved Member's
+/// email as recipient.
+pub async fn send_test_mail_with_template(
+    config: &Config,
+    to_address: &str,
+    subject: &str,
+    body: &str,
+    member_id: &str,
+) -> Result<(), AppError> {
+    info!("Sending test mail with rendered template to: {to_address}");
+    let url = format!("{}/api/mail/test-with-template", config.backend);
+    let req = serde_json::json!({
+        "to_address": to_address,
+        "subject": subject,
+        "body": body,
+        "member_id": member_id,
+    });
+    let response = reqwest::Client::new().post(url).json(&req).send().await?;
+    check_response(response).await?;
+    Ok(())
+}
+
 pub async fn test_webdav_connection(config: &Config) -> Result<(), AppError> {
     info!("Testing WebDAV connection");
     let url = format!("{}/api/backup/test-webdav", config.backend);

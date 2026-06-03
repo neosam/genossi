@@ -95,6 +95,22 @@ pub trait MailService: Send + Sync + 'static {
     /// Send a test email synchronously (no job, direct SMTP).
     async fn send_test_mail(&self, to: &str) -> Result<(), MailServiceError>;
 
+    /// Quick 260603-jtf: Send a test mail with a caller-provided subject and body
+    /// synchronously (no job, direct SMTP). Sibling to `send_test_mail` (which uses
+    /// a hard-coded constant body for SMTP-config smoke-testing on the Settings
+    /// page). This variant is used by the Mail-Template editor's "Test-Template"
+    /// flow: the REST handler renders the template against a Member's variables
+    /// and then forwards the rendered subject/body here. The `to` argument is the
+    /// **explicit** test-recipient address from the request body — NEVER the
+    /// resolved Member's email (privacy defense, see
+    /// `genossi_mail/src/rest.rs::send_test_mail_with_template`).
+    async fn send_test_mail_with_body(
+        &self,
+        to: &str,
+        subject: &str,
+        body: &str,
+    ) -> Result<(), MailServiceError>;
+
     /// Get member IDs that were successfully reached (status = "sent") for a given job.
     async fn get_reached_member_ids(&self, job_id: Uuid) -> Result<Arc<[Uuid]>, MailServiceError>;
 }
@@ -415,6 +431,49 @@ impl<
                 })?)
             .subject("Genossi Test-E-Mail")
             .body("Diese E-Mail bestätigt, dass die SMTP-Konfiguration korrekt ist.\n\nThis email confirms that the SMTP configuration is working correctly.".to_string())
+            .map_err(|e| MailServiceError::SmtpError(Arc::from(e.to_string())))?;
+
+        transport
+            .send(email)
+            .await
+            .map_err(|e| MailServiceError::SmtpError(Arc::from(e.to_string())))?;
+
+        Ok(())
+    }
+
+    async fn send_test_mail_with_body(
+        &self,
+        to: &str,
+        subject: &str,
+        body: &str,
+    ) -> Result<(), MailServiceError> {
+        // Quick 260603-jtf: This is the template-test sibling of `send_test_mail`.
+        // The REST handler renders subject+body against a Member's template
+        // variables and forwards them here; `to` is ALWAYS the explicit
+        // test-recipient address from the request body (NEVER the Member's
+        // email — privacy defense).
+        use lettre::{AsyncTransport, Message};
+
+        let smtp_config = load_smtp_config(self.config_service.as_ref()).await?;
+        let transport = build_transport(&smtp_config)?;
+
+        let email = Message::builder()
+            .from(
+                smtp_config
+                    .from
+                    .parse()
+                    .map_err(|e: lettre::address::AddressError| {
+                        MailServiceError::SmtpError(Arc::from(format!(
+                            "Invalid from address: {}",
+                            e
+                        )))
+                    })?,
+            )
+            .to(to.parse().map_err(|e: lettre::address::AddressError| {
+                MailServiceError::SmtpError(Arc::from(format!("Invalid to address: {}", e)))
+            })?)
+            .subject(subject.to_string())
+            .body(body.to_string())
             .map_err(|e| MailServiceError::SmtpError(Arc::from(e.to_string())))?;
 
         transport
@@ -763,6 +822,71 @@ mod tests {
         );
         let result = service.send_test_mail("to@example.com").await;
         // SMTP will fail since no real server, but it should be SmtpError not ConfigMissing
+        assert!(matches!(result, Err(MailServiceError::SmtpError(_))));
+    }
+
+    /// Quick 260603-jtf: `send_test_mail_with_body` without any SMTP config
+    /// returns `ConfigMissing` — symmetry with `test_send_test_mail_missing_config`.
+    #[tokio::test]
+    async fn test_send_test_mail_with_body_missing_config() {
+        let mut config_mock = MockConfigService::new();
+        config_mock.expect_get_all().returning(|| Ok(vec![].into()));
+
+        let job_dao = MockMailJobDao::new();
+        let recipient_dao = MockMailRecipientDao::new();
+
+        let (sd_mock, msa_mock) = empty_static_mocks();
+        let service = MailServiceImpl::new(
+            config_mock,
+            job_dao,
+            recipient_dao,
+            MockMailRecipientAttachmentDao::new(),
+            sd_mock,
+            msa_mock,
+        );
+        let result = service
+            .send_test_mail_with_body("to@example.com", "Hallo Welt", "Body-Inhalt")
+            .await;
+        assert!(matches!(result, Err(MailServiceError::ConfigMissing(_))));
+    }
+
+    /// Quick 260603-jtf: with SMTP config present but unreachable server,
+    /// `send_test_mail_with_body` propagates an `SmtpError` (NOT
+    /// `ConfigMissing`). Subject/body are passed through `Message::builder()`;
+    /// the unique subject/body strings used here are a regression guard
+    /// against future refactors that accidentally hard-code constants like
+    /// the sibling `send_test_mail` does.
+    #[tokio::test]
+    async fn test_send_test_mail_with_body_smtp_failure() {
+        let mut config_mock = MockConfigService::new();
+        // Re-use the existing mock_smtp_config helper (port 587 on localhost,
+        // matching `test_send_test_mail_smtp_failure`).
+        let config = mock_smtp_config();
+        config_mock
+            .expect_get_all()
+            .returning(move || Ok(config.clone().into()));
+
+        let job_dao = MockMailJobDao::new();
+        let recipient_dao = MockMailRecipientDao::new();
+
+        let (sd_mock, msa_mock) = empty_static_mocks();
+        let service = MailServiceImpl::new(
+            config_mock,
+            job_dao,
+            recipient_dao,
+            MockMailRecipientAttachmentDao::new(),
+            sd_mock,
+            msa_mock,
+        );
+        let result = service
+            .send_test_mail_with_body(
+                "to@example.com",
+                "X-CUSTOM-SUBJECT",
+                "X-CUSTOM-BODY with template-rendered content {{ first_name }}",
+            )
+            .await;
+        // No real SMTP server reachable on the mocked localhost:587 — must surface
+        // as SmtpError, not ConfigMissing.
         assert!(matches!(result, Err(MailServiceError::SmtpError(_))));
     }
 

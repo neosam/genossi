@@ -250,6 +250,14 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::MailTemplateEmpty => "No templates available".into(),
         Key::MailTemplateDeleteConfirm => "Really delete this template?".into(),
 
+        // Quick 260603-jtf: Template tester
+        Key::MailTemplateTest => "Test template".into(),
+        Key::MailTemplateTestSendTo => "Test recipient".into(),
+        Key::MailTemplateTestSend => "Send test mail".into(),
+        Key::MailTemplateTestPrivacyHint => "Will be sent to the test address, NOT to the selected member.".into(),
+        Key::MailTemplateTestSuccess => "Test mail sent.".into(),
+        Key::MailTemplateTestFailed => "Test mail failed".into(),
+
         Key::SelectedCount => "selected".into(),
         Key::SendMailToSelected => "Send mail".into(),
 

@@ -184,6 +184,32 @@ pub struct TestMailRequest {
     pub to_address: String,
 }
 
+/// Quick 260603-jtf: Request body for `POST /api/mail/test-with-template`.
+///
+/// Sends a single test mail by rendering `subject`+`body` against the Member's
+/// template variables (resolved server-side from `member_id`) and delivering
+/// the result to `to_address`.
+///
+/// **Privacy invariant (CRITICAL):** `to_address` and `member_id` are explicit,
+/// independent fields. The Member's email is NEVER used as a recipient — the
+/// Member contributes ONLY template variables. Caller is responsible for
+/// supplying an explicit test recipient address. The handler MUST NOT silently
+/// fall back to a member-derived address.
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct TestMailWithTemplateRequest {
+    #[schema(example = "vorstand@example.com")]
+    pub to_address: String,
+    #[schema(example = "Hallo {{ first_name }}")]
+    pub subject: String,
+    #[schema(example = "Liebe/r {{ first_name }} {{ last_name }}...")]
+    pub body: String,
+    #[schema(example = "123e4567-e89b-12d3-a456-426614174000")]
+    pub member_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(example = "29ae374c-9e60-4cc8-b0b4-ce51c28e7b6e")]
+    pub repayment_phase_id: Option<String>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct PreviewRequest {
     #[schema(example = "Hallo {{ first_name }}")]
@@ -303,6 +329,12 @@ pub fn generate_route<S: MailRestState>() -> Router<S> {
         .route("/send-bulk", post(send_bulk_mail::<S>))
         .route("/preview", post(preview_mail::<S>))
         .route("/test", post(send_test_mail::<S>))
+        // Quick 260603-jtf: template-test endpoint (distinct from `/test` which
+        // sends a hard-coded constant for SMTP-config smoke-tests).
+        .route(
+            "/test-with-template",
+            post(send_test_mail_with_template::<S>),
+        )
         .route("/jobs", get(get_jobs::<S>))
         .route("/jobs/{id}", get(get_job_detail::<S>))
         .route("/jobs/{id}/retry", post(retry_job::<S>))
@@ -310,8 +342,8 @@ pub fn generate_route<S: MailRestState>() -> Router<S> {
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(send_mail, send_bulk_mail, preview_mail, send_test_mail, get_jobs, get_job_detail, retry_job),
-    components(schemas(MailJobTO, MailRecipientTO, MailJobDetailTO, MailAttachmentTO, SendMailRequest, SendBulkMailRequest, BulkRecipient, TestMailRequest, PreviewRequest, PreviewResponse)),
+    paths(send_mail, send_bulk_mail, preview_mail, send_test_mail, send_test_mail_with_template, get_jobs, get_job_detail, retry_job),
+    components(schemas(MailJobTO, MailRecipientTO, MailJobDetailTO, MailAttachmentTO, SendMailRequest, SendBulkMailRequest, BulkRecipient, TestMailRequest, TestMailWithTemplateRequest, PreviewRequest, PreviewResponse)),
     tags((name = "Mail", description = "Email sending and job management endpoints"))
 )]
 pub struct ApiDoc;
@@ -345,8 +377,8 @@ pub async fn send_mail<S: MailRestState>(
                     }],
                     vec![],
                     vec![],
-                    None, // template_id: Phase 10 single-send is ad-hoc, no template tracking
-                    None, // repayment_phase_id: Phase 10 single-send is not bulk-repayment
+                    None,  // template_id: Phase 10 single-send is ad-hoc, no template tracking
+                    None,  // repayment_phase_id: Phase 10 single-send is not bulk-repayment
                     false, // attach_repayment_letter: not applicable to single-send
                 )
                 .await?;
@@ -509,8 +541,8 @@ pub async fn send_bulk_mail<S: MailRestState>(
                     recipients,
                     attachment_inputs,
                     static_document_ids,
-                    template_id,        // Phase 10 D-12
-                    repayment_phase_id, // Phase 10 D-03
+                    template_id,                  // Phase 10 D-12
+                    repayment_phase_id,           // Phase 10 D-03
                     body.attach_repayment_letter, // Quick 260603-cz6
                 )
                 .await?;
@@ -637,6 +669,92 @@ pub async fn send_test_mail<S: MailRestState>(
                 .mail_service()
                 .send_test_mail(&body.to_address)
                 .await?;
+            Ok(Response::builder()
+                .status(200)
+                .header("Content-Type", "application/json")
+                .body(Body::new(serde_json::json!({"success": true}).to_string()))
+                .unwrap())
+        })
+        .await,
+    )
+}
+
+/// Quick 260603-jtf: Render the supplied template (subject+body) against the
+/// resolved Member's variables and send a single SMTP mail to the **explicit**
+/// `to_address` in the request body.
+///
+/// **Privacy defense (mirrors `TestMailWithTemplateRequest` doc-comment):**
+/// `body.to_address` is the recipient. The Member is loaded ONLY to provide
+/// template variables — its email is NOT referenced anywhere in this handler.
+/// Compare with `/api/mail/send-bulk` which delivers to Member addresses; that
+/// flow is deliberately separate.
+#[instrument(skip(state))]
+#[utoipa::path(
+    post,
+    tag = "Mail",
+    path = "/test-with-template",
+    request_body = TestMailWithTemplateRequest,
+    responses(
+        (status = 200, description = "Test mail with rendered template sent"),
+        (status = 400, description = "Invalid request or template error"),
+        (status = 404, description = "Member not found"),
+        (status = 502, description = "SMTP error"),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
+pub async fn send_test_mail_with_template<S: MailRestState>(
+    state: State<S>,
+    axum::Json(body): axum::Json<TestMailWithTemplateRequest>,
+) -> Response {
+    error_handler(
+        (async {
+            let member_id = uuid::Uuid::parse_str(&body.member_id)
+                .map_err(|_| MailServiceError::BadRequest(Arc::from("Invalid member_id")))?;
+
+            let member = state
+                .resolve_member(member_id)
+                .await
+                .ok_or(MailServiceError::NotFound)?;
+
+            // Re-use the preview-mail context-merge logic so the test render
+            // matches the live preview path 1:1 (D-05 symmetry).
+            let base_ctx = member_to_template_context(&member);
+            let ctx = match body.repayment_phase_id.as_deref() {
+                Some(s) if !s.is_empty() => {
+                    let phase_id = uuid::Uuid::parse_str(s).map_err(|_| {
+                        MailServiceError::BadRequest(Arc::from("Invalid repayment_phase_id"))
+                    })?;
+                    match state.resolve_repayment_context(phase_id, member_id).await {
+                        Some((payout, share_count, share_value, fiscal_year)) => {
+                            crate::template::merge_repayment_context(
+                                base_ctx,
+                                &payout,
+                                share_count,
+                                &share_value,
+                                fiscal_year,
+                            )
+                        }
+                        None => base_ctx,
+                    }
+                }
+                _ => base_ctx,
+            };
+
+            let rendered_subject = render_template(&body.subject, &ctx).map_err(|e| {
+                MailServiceError::TemplateValidation(Arc::from(format!("Subject: {}", e.message)))
+            })?;
+            let rendered_body = render_template(&body.body, &ctx).map_err(|e| {
+                MailServiceError::TemplateValidation(Arc::from(format!("Body: {}", e.message)))
+            })?;
+
+            // PRIVACY: `body.to_address` MUST be the recipient — NEVER any
+            // member-derived address. The resolved Member contributed only
+            // template variables above.
+            state
+                .mail_service()
+                .send_test_mail_with_body(&body.to_address, &rendered_subject, &rendered_body)
+                .await?;
+
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
@@ -886,5 +1004,53 @@ mod tests {
         }"#;
         let to: MailJobTO = serde_json::from_str(json).expect("must deserialize");
         assert_eq!(to.repayment_phase_id, None);
+    }
+
+    // ── Quick 260603-jtf — TestMailWithTemplateRequest serde ──
+
+    /// Quick 260603-jtf: full payload with all five fields deserializes
+    /// roundtrip-cleanly (no field renames, no key collisions).
+    #[test]
+    fn test_test_with_template_request_serde_roundtrip() {
+        let json = r#"{
+            "to_address": "vorstand@example.com",
+            "subject": "Hallo {{ first_name }}",
+            "body": "Liebe/r {{ first_name }} {{ last_name }}",
+            "member_id": "123e4567-e89b-12d3-a456-426614174000",
+            "repayment_phase_id": "29ae374c-9e60-4cc8-b0b4-ce51c28e7b6e"
+        }"#;
+        let req: TestMailWithTemplateRequest =
+            serde_json::from_str(json).expect("must deserialize");
+        assert_eq!(req.to_address, "vorstand@example.com");
+        assert_eq!(req.subject, "Hallo {{ first_name }}");
+        assert_eq!(req.body, "Liebe/r {{ first_name }} {{ last_name }}");
+        assert_eq!(req.member_id, "123e4567-e89b-12d3-a456-426614174000");
+        assert_eq!(
+            req.repayment_phase_id.as_deref(),
+            Some("29ae374c-9e60-4cc8-b0b4-ce51c28e7b6e")
+        );
+
+        // Round-trip back to JSON and re-parse to confirm symmetry.
+        let serialized = serde_json::to_string(&req).expect("must serialize");
+        let req2: TestMailWithTemplateRequest =
+            serde_json::from_str(&serialized).expect("must re-deserialize");
+        assert_eq!(req2.member_id, req.member_id);
+        assert_eq!(req2.repayment_phase_id, req.repayment_phase_id);
+    }
+
+    /// Quick 260603-jtf: backward-compat — payloads without
+    /// `repayment_phase_id` (Editor flow, no phase context) still deserialize
+    /// with the field defaulting to `None`.
+    #[test]
+    fn test_test_with_template_request_serde_without_phase() {
+        let json = r#"{
+            "to_address": "vorstand@example.com",
+            "subject": "Subj",
+            "body": "Body",
+            "member_id": "123e4567-e89b-12d3-a456-426614174000"
+        }"#;
+        let req: TestMailWithTemplateRequest =
+            serde_json::from_str(json).expect("must deserialize");
+        assert_eq!(req.repayment_phase_id, None);
     }
 }
