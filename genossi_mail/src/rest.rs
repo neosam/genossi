@@ -234,6 +234,21 @@ pub struct PreviewResponse {
     pub body: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub errors: Vec<String>,
+    /// Quick 260603-kon: signalisiert dem Frontend, dass Dummy-Repayment-Daten
+    /// (`template::dummy_repayment_context`) gerendert wurden — `repayment_phase_id`
+    /// war im Request gesetzt, aber `resolve_repayment_context` lieferte `None`
+    /// (Member hat keine Open/Contacted-Entries in der referenzierten Phase).
+    /// Frontend zeigt darauf einen amber Hinweis-Banner an.
+    ///
+    /// Bleibt `false`/absent wenn:
+    /// - kein `repayment_phase_id` geschickt wurde (regulaerer Preview-Pfad),
+    /// - ODER echte Repayment-Daten gefunden wurden (Phase aktiv).
+    ///
+    /// `skip_serializing_if = "std::ops::Not::not"` filtert das Feld auf
+    /// `true` — Backward-Compat: aelterer Frontend-Code, der das Feld nicht
+    /// kennt, sieht keine Aenderung in der Wire-Shape.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub used_dummy_repayment: bool,
 }
 
 fn format_datetime(dt: &time::PrimitiveDateTime) -> String {
@@ -591,26 +606,47 @@ pub async fn preview_mail<S: MailRestState>(
             // Open/Contacted-Entries, wird kein Repayment-Context gemergt; das
             // Template muss in diesem Fall `{% if share_count is defined %}`
             // verwenden (Plan 10.05).
+            // Quick 260603-kon: bei gesetztem repayment_phase_id und fehlender
+            // aktiver Phase (None aus resolve_repayment_context) wird der
+            // Dummy-Fallback aktiviert, damit Vorstand auch ausserhalb aktiver
+            // Auszahlungsphasen Templates mit `{{ payout_amount }}` etc. testen
+            // kann. used_dummy_repayment signalisiert das dem Frontend, das
+            // einen sichtbaren Hinweis-Banner zeigt.
             let base_ctx = member_to_template_context(&member);
-            let ctx = match body.repayment_phase_id.as_deref() {
+            let (ctx, used_dummy_repayment) = match body.repayment_phase_id.as_deref() {
                 Some(s) if !s.is_empty() => {
                     let phase_id = uuid::Uuid::parse_str(s).map_err(|_| {
                         MailServiceError::BadRequest(Arc::from("Invalid repayment_phase_id"))
                     })?;
                     match state.resolve_repayment_context(phase_id, member_id).await {
-                        Some((payout, share_count, share_value, fiscal_year)) => {
+                        Some((payout, share_count, share_value, fiscal_year)) => (
                             crate::template::merge_repayment_context(
                                 base_ctx,
                                 &payout,
                                 share_count,
                                 &share_value,
                                 fiscal_year,
+                            ),
+                            false,
+                        ),
+                        None => {
+                            // Quick 260603-kon: Dummy-Fallback nur fuer Test-Pfade.
+                            let (payout, share_count, share_value, fiscal_year) =
+                                crate::template::dummy_repayment_context();
+                            (
+                                crate::template::merge_repayment_context(
+                                    base_ctx,
+                                    payout,
+                                    share_count,
+                                    share_value,
+                                    fiscal_year,
+                                ),
+                                true,
                             )
                         }
-                        None => base_ctx,
                     }
                 }
-                _ => base_ctx,
+                _ => (base_ctx, false),
             };
             let mut errors = Vec::new();
 
@@ -634,6 +670,7 @@ pub async fn preview_mail<S: MailRestState>(
                 subject: rendered_subject,
                 body: rendered_body,
                 errors,
+                used_dummy_repayment,
             };
 
             Ok(Response::builder()
@@ -718,26 +755,46 @@ pub async fn send_test_mail_with_template<S: MailRestState>(
 
             // Re-use the preview-mail context-merge logic so the test render
             // matches the live preview path 1:1 (D-05 symmetry).
+            // Quick 260603-kon: identischer Dummy-Fallback wie in preview_mail —
+            // wenn `repayment_phase_id` gesetzt und resolve_repayment_context
+            // None liefert, werden Sentinel-Werte (99,99 / 99 / 2099)
+            // gerendert. Response-Body enthaelt `used_dummy_repayment` als
+            // Hinweis fuer Frontend-Logging.
             let base_ctx = member_to_template_context(&member);
-            let ctx = match body.repayment_phase_id.as_deref() {
+            let (ctx, used_dummy_repayment) = match body.repayment_phase_id.as_deref() {
                 Some(s) if !s.is_empty() => {
                     let phase_id = uuid::Uuid::parse_str(s).map_err(|_| {
                         MailServiceError::BadRequest(Arc::from("Invalid repayment_phase_id"))
                     })?;
                     match state.resolve_repayment_context(phase_id, member_id).await {
-                        Some((payout, share_count, share_value, fiscal_year)) => {
+                        Some((payout, share_count, share_value, fiscal_year)) => (
                             crate::template::merge_repayment_context(
                                 base_ctx,
                                 &payout,
                                 share_count,
                                 &share_value,
                                 fiscal_year,
+                            ),
+                            false,
+                        ),
+                        None => {
+                            // Quick 260603-kon: Dummy-Fallback nur fuer Test-Pfade.
+                            let (payout, share_count, share_value, fiscal_year) =
+                                crate::template::dummy_repayment_context();
+                            (
+                                crate::template::merge_repayment_context(
+                                    base_ctx,
+                                    payout,
+                                    share_count,
+                                    share_value,
+                                    fiscal_year,
+                                ),
+                                true,
                             )
                         }
-                        None => base_ctx,
                     }
                 }
-                _ => base_ctx,
+                _ => (base_ctx, false),
             };
 
             let rendered_subject = render_template(&body.subject, &ctx).map_err(|e| {
@@ -758,7 +815,13 @@ pub async fn send_test_mail_with_template<S: MailRestState>(
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::json!({"success": true}).to_string()))
+                .body(Body::new(
+                    serde_json::json!({
+                        "success": true,
+                        "used_dummy_repayment": used_dummy_repayment,
+                    })
+                    .to_string(),
+                ))
                 .unwrap())
         })
         .await,
@@ -1052,5 +1115,81 @@ mod tests {
         let req: TestMailWithTemplateRequest =
             serde_json::from_str(json).expect("must deserialize");
         assert_eq!(req.repayment_phase_id, None);
+    }
+
+    // ── Quick 260603-kon — PreviewResponse.used_dummy_repayment serde ──
+
+    /// Quick 260603-kon: when the Dummy-Fallback was activated, the response
+    /// MUST include `"used_dummy_repayment": true` so the Frontend can show
+    /// the amber Hinweis-Banner. Also verifies the rendered body contains
+    /// the sentinel `"99,99"` value — proves the Dummy-Pfad really went
+    /// through `merge_repayment_context`.
+    #[test]
+    fn test_preview_response_serializes_used_dummy_repayment_when_true() {
+        let response = PreviewResponse {
+            subject: "S".to_string(),
+            body: "Auszahlung: 99,99 EUR fuer 99 Anteile".to_string(),
+            errors: vec![],
+            used_dummy_repayment: true,
+        };
+        let json = serde_json::to_string(&response).expect("must serialize");
+        assert!(
+            json.contains("\"used_dummy_repayment\":true"),
+            "must include the flag when true, got: {json}",
+        );
+        // Sentinel-Werte-Lock auf der Body-Ebene: 99,99 muss tatsaechlich
+        // im Output sein, sonst lief der Dummy-Pfad nicht.
+        assert!(
+            json.contains("99,99"),
+            "rendered body must contain sentinel 99,99, got: {json}",
+        );
+    }
+
+    /// Quick 260603-kon: when no dummy fallback was used (real phase OR
+    /// no `repayment_phase_id` in request), the flag is `false` and MUST
+    /// be skipped on serialization (`skip_serializing_if = std::ops::Not::not`).
+    /// Backward-compat: older Frontends that don't know the field see no
+    /// change in the wire shape.
+    #[test]
+    fn test_preview_response_skips_used_dummy_repayment_when_false() {
+        let response = PreviewResponse {
+            subject: "S".to_string(),
+            body: "B".to_string(),
+            errors: vec![],
+            used_dummy_repayment: false,
+        };
+        let json = serde_json::to_string(&response).expect("must serialize");
+        assert!(
+            !json.contains("used_dummy_repayment"),
+            "false flag MUST be omitted from wire-shape, got: {json}",
+        );
+    }
+
+    /// Quick 260603-kon: existing PreviewResponse JSON payloads (Phase 10 era)
+    /// MUST still deserialize cleanly — backward-compat for cached responses
+    /// or older clients.
+    #[test]
+    fn test_preview_response_deserialize_backward_compat_without_dummy_flag() {
+        let json = r#"{"subject": "S", "body": "B"}"#;
+        let response: PreviewResponse = serde_json::from_str(json).expect("must deserialize");
+        assert_eq!(response.subject, "S");
+        assert_eq!(response.body, "B");
+        assert!(!response.used_dummy_repayment);
+    }
+
+    /// Quick 260603-kon: roundtrip — `used_dummy_repayment: true` survives
+    /// serialize -> deserialize cleanly, so the Frontend can `serde_json::from_str`
+    /// the response into the same struct without surprises.
+    #[test]
+    fn test_preview_response_roundtrip_with_dummy_flag() {
+        let original = PreviewResponse {
+            subject: "S".to_string(),
+            body: "B".to_string(),
+            errors: vec![],
+            used_dummy_repayment: true,
+        };
+        let json = serde_json::to_string(&original).expect("must serialize");
+        let parsed: PreviewResponse = serde_json::from_str(&json).expect("must deserialize");
+        assert!(parsed.used_dummy_repayment);
     }
 }

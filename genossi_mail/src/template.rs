@@ -186,6 +186,32 @@ pub fn merge_repayment_context(
     Value::from_serialize(&map)
 }
 
+/// Quick 260603-kon: Sentinel Dummy-Repayment-Werte fuer Template-Test-Pfade.
+///
+/// Liefert `(payout_amount, share_count, share_value, fiscal_year)` mit
+/// auffallend hohen Sentinel-Werten (`"99,99"`, `99`, `"99,99"`, `2099`),
+/// damit Vorstandsmitglieder im Mail-Tester sofort visuell erkennen, dass
+/// es sich um Dummy-Daten handelt — distinkt vom neutralen `"0,00"`-Pfad
+/// in `validate_template_with_repayment` (das ist eine reine
+/// Pre-Send-Probe ohne UI-Display).
+///
+/// **WARNUNG — Test-Endpoints only:** Diese Funktion darf AUSSCHLIESSLICH
+/// von `/api/mail/preview` und `/api/mail/test-with-template` aufgerufen
+/// werden, wenn `repayment_phase_id` gesetzt ist aber der Member keine
+/// Open/Contacted-Entries hat. NIEMALS aus `worker.rs` (Bulk-Send) oder
+/// aus `repayment_letter.rs` (Produktiv-Brief-Render) — dort wuerden
+/// Sentinel-Werte ins Audit-Log und in echte E-Mails an Mitglieder
+/// lecken, was DSGVO-relevant und verbandskonformitaets-relevant ist.
+///
+/// Frontend (Phase-12-`TemplatePreview`) liest das `used_dummy_repayment`-
+/// Flag aus `PreviewResponse` und zeigt einen amber Hinweis-Banner mit
+/// den hier definierten Sentinel-Werten an. Aenderungen an den
+/// Sentinel-Werten muessen die DE+EN-Banner-Texte synchron nachziehen
+/// (Lock-Test `test_dummy_repayment_context_sentinel_values_locked`).
+pub fn dummy_repayment_context() -> (&'static str, i32, &'static str, i32) {
+    ("99,99", 99, "99,99", 2099)
+}
+
 /// Phase 10 D-14 (additive, Planner-Discretion): probe-render templates against
 /// both Member-context AND a dummy Repayment-context. Catches references like
 /// `{{ payout_amount }}` without `{% if %}`-guards before the worker actually
@@ -825,6 +851,37 @@ mod tests {
             err_msg.contains("share_value") || err_msg.to_lowercase().contains("undefined"),
             "Error message must reference the missing variable, got: {}",
             err_msg
+        );
+    }
+
+    // ============================================================
+    // Quick 260603-kon: dummy_repayment_context Sentinel-Werte
+    // ============================================================
+
+    /// Quick 260603-kon Lock-Test: Sentinel-Werte sind eingefroren — wenn
+    /// jemand die Werte aendert, BRECHEN dieses Test UND die DE+EN
+    /// Banner-Texte im Frontend (`MailTemplateTestDummyRepaymentHint`).
+    /// Beide muessen synchron nachgezogen werden.
+    #[test]
+    fn test_dummy_repayment_context_sentinel_values_locked() {
+        assert_eq!(dummy_repayment_context(), ("99,99", 99, "99,99", 2099));
+    }
+
+    /// Quick 260603-kon: End-to-End-Render-Beweis — die Sentinel-Werte
+    /// landen tatsaechlich im gerenderten Output via
+    /// `merge_repayment_context`. Frontend kann sich darauf verlassen,
+    /// dass `"99,99"` und `"99"` im Preview-Body sichtbar sind.
+    #[test]
+    fn test_dummy_repayment_context_renders_end_to_end() {
+        let member = make_member("Max", "Mustermann");
+        let base = member_to_template_context(&member);
+        let dummy = dummy_repayment_context();
+        let merged = merge_repayment_context(base, dummy.0, dummy.1, dummy.2, dummy.3);
+        let template = "{{ payout_amount }} EUR fuer {{ share_count }} Anteile a {{ share_value }} EUR ({{ fiscal_year }})";
+        let result = render_template(template, &merged).unwrap();
+        assert_eq!(
+            result,
+            "99,99 EUR fuer 99 Anteile a 99,99 EUR (2099)"
         );
     }
 }
