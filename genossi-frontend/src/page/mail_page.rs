@@ -8,7 +8,7 @@ use crate::component::mail_compose::{
     MailBodyEditor, MailSubjectInput, TemplatePreview, TemplateSelector, TemplateVarButtons,
 };
 use crate::component::member_search::filter_members;
-use crate::component::{ErrorAlert, TopBar};
+use crate::component::{ErrorAlert, MailRecipientStatusBadge, TopBar};
 use crate::i18n::{use_i18n, Key};
 use crate::member_utils::{is_active, today};
 use crate::page::AccessDeniedPage;
@@ -750,21 +750,18 @@ pub fn MailPage() -> Element {
                                                                         tbody {
                                                                             for r in detail.recipients.iter() {
                                                                                 {
-                                                                                    let r_status_color = match r.status.as_str() {
-                                                                                        "sent" => "text-green-600",
-                                                                                        "failed" => "text-red-600",
-                                                                                        _ => "text-gray-400",
-                                                                                    };
-                                                                                    let r_status_text = match r.status.as_str() {
-                                                                                        "sent" => i18n.t(Key::MailSent),
-                                                                                        "failed" => i18n.t(Key::MailFailed),
-                                                                                        _ => i18n.t(Key::MailJobPending),
-                                                                                    };
+                                                                                    // Quick 260603-evf: Badge-Rendering wandert in
+                                                                                    // `MailRecipientStatusBadge` (Component-First).
                                                                                     let error_text = r.error.clone().unwrap_or_default();
                                                                                     rsx! {
                                                                                         tr { class: "border-b last:border-b-0",
                                                                                             td { class: "py-1 px-2", "{r.to_address}" }
-                                                                                            td { class: "py-1 px-2 {r_status_color}", {r_status_text} }
+                                                                                            td { class: "py-1 px-2",
+                                                                                                MailRecipientStatusBadge {
+                                                                                                    status: r.status.clone(),
+                                                                                                    error: r.error.clone(),
+                                                                                                }
+                                                                                            }
                                                                                             td { class: "py-1 px-2 text-red-500 text-xs", "{error_text}" }
                                                                                         }
                                                                                     }
@@ -863,21 +860,18 @@ pub fn MailJobDetail(id: String) -> Element {
                             tbody {
                                 for r in d.recipients.iter() {
                                     {
-                                        let r_status_color = match r.status.as_str() {
-                                            "sent" => "text-green-600",
-                                            "failed" => "text-red-600",
-                                            _ => "text-gray-400",
-                                        };
-                                        let r_status_text = match r.status.as_str() {
-                                            "sent" => i18n.t(Key::MailSent),
-                                            "failed" => i18n.t(Key::MailFailed),
-                                            _ => i18n.t(Key::MailJobPending),
-                                        };
+                                        // Quick 260603-evf: Badge-Rendering wandert in
+                                        // `MailRecipientStatusBadge` (Component-First).
                                         let error_text = r.error.clone().unwrap_or_default();
                                         rsx! {
                                             tr { class: "border-b last:border-b-0",
                                                 td { class: "py-2 px-3", "{r.to_address}" }
-                                                td { class: "py-2 px-3 {r_status_color}", {r_status_text} }
+                                                td { class: "py-2 px-3",
+                                                    MailRecipientStatusBadge {
+                                                        status: r.status.clone(),
+                                                        error: r.error.clone(),
+                                                    }
+                                                }
                                                 td { class: "py-2 px-3 text-red-500 text-xs", "{error_text}" }
                                             }
                                         }

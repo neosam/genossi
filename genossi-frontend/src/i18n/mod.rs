@@ -263,6 +263,11 @@ pub enum Key {
     // DocumentType::RepaymentLetter PDF in the bulk-mail compose flow.
     MailAttachRepaymentLetter,
     MailAttachRepaymentLetterHint,
+    // Quick 260603-evf: distinct amber badge label for recipients that
+    // failed with `error="no_repayment_letter"` — visually separated from
+    // the generic red `MailFailed` so the Vorstand can see at a glance
+    // that the failure is recoverable via "Brief generieren + Retry".
+    MailFailedNoRepaymentLetter,
 
     // SMTP Settings
     SmtpSettings,

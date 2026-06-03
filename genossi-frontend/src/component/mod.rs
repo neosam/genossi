@@ -120,3 +120,7 @@ pub use repayment_entry_paidout_confirm::{sum_payout_amounts, RepaymentEntryPaid
 // ─── Quick 260602-sgp ─── RepaymentLetterDownloadButton ─────────────
 pub mod repayment_letter_download_button;
 pub use repayment_letter_download_button::RepaymentLetterDownloadButton;
+
+// ─── Quick 260603-evf ─── MailRecipientStatusBadge ──────────────────
+pub mod mail_recipient_status_badge;
+pub use mail_recipient_status_badge::{is_no_repayment_letter_failure, MailRecipientStatusBadge};

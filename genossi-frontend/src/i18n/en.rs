@@ -211,6 +211,8 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::MailAttachRepaymentLetterHint => {
             "Recipients without a generated letter in this phase are marked as failed.".into()
         }
+        // Quick 260603-evf
+        Key::MailFailedNoRepaymentLetter => "No repayment letter generated".into(),
 
         Key::SmtpSettings => "SMTP Settings".into(),
         Key::SmtpHost => "SMTP Server".into(),
