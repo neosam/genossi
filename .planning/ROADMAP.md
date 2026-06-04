@@ -11,7 +11,7 @@
 
 | # | Phase | Goal | REQs | Plans (est.) |
 |---|-------|------|------|--------------|
-| 14 | DAO/Domain Foundation | Pure-Function für H1/H2-Stichtag, neue DAO-Queries (`find_by_member_and_phase`, `list_transfer_recipients`), REST-Endpoint für Transfer-Recipients-Search | 2 | 4 |
+| 14 | DAO/Domain Foundation | 3/4 | In Progress|  |
 | 15 | Service+REST: Kündigung + Aufstockung | `cancel_membership` erzeugt Austritts-Action; `increase_shares` erzeugt Aufstockungs-Action + current_shares-Update; Admin-Permission + Datum-Validierung | 11 | 5–7 |
 | 16 | Service+REST: Teil-Rückgabe + Auto-Anlegen-Phase | `partial_repayment` erzeugt RepaymentEntry in Ziel-Phase mit Sum-Check; Auto-Anlegen-Ziel-Phase (Variante A/B/C aus Discuss); Auto-Fill-Skip-Pattern für Doppelbuchungs-Prävention | 6 | 5–7 |
 | 17 | Service+REST: Übertrag | `transfer_shares` mit 2 atomaren verlinkten MemberActions + gemeinsamem Process-String; Voll-Übertrag erzeugt zusätzliche Austritts-Action; Empfänger-aktiv-Guard; Self-Transfer-Block | 8 | 5–7 |
@@ -35,10 +35,10 @@
 3. `MemberService::list_transfer_recipients(exclude_member_id)` Service-Methode mit Filter `exit_date IS NULL AND id != exclude_member_id` und 3 Unit-Tests
 4. REST-Endpoint `GET /api/members/transfer-recipients` mit admin-Permission + 1 E2E-Test (Happy-Path mit 3 Members: 1 gekündigt → ausgefiltert, 1 self → ausgefiltert, 1 aktiv → enthalten)
 
-**Plans:** 4 plans (Wave 1: plans 01-03 parallel; Wave 2: plan 04)
-- [ ] 14-01-PLAN.md — Pure-Function compute_effective_date + EffectiveDate struct + 6 edge-case tests (CANC-02)
-- [ ] 14-02-PLAN.md — RepaymentEntryDao::find_by_member_and_phase trait method + SQLite SQL-override + 3 tests (TRSF-06 foundation)
-- [ ] 14-03-PLAN.md — MemberService::list_transfer_recipients service method + 3 mockall unit tests (TRSF-06 service)
+**Plans:** 3/4 plans executed
+- [x] 14-01-PLAN.md — Pure-Function compute_effective_date + EffectiveDate struct + 6 edge-case tests (CANC-02)
+- [x] 14-02-PLAN.md — RepaymentEntryDao::find_by_member_and_phase trait method + SQLite SQL-override + 3 tests (TRSF-06 foundation)
+- [x] 14-03-PLAN.md — MemberService::list_transfer_recipients service method + 3 mockall unit tests (TRSF-06 service)
 - [ ] 14-04-PLAN.md — MemberSlimTO + REST handler + sub-route registration + E2E test (TRSF-06 REST+E2E)
 
 ---
