@@ -45,14 +45,91 @@ impl<Deps: MembershipAdjustServiceDeps> MembershipAdjustService for MembershipAd
 
     async fn cancel_membership(
         &self,
-        _member_id: Uuid,
-        _willensbekundung_date: Date,
-        _context: Authentication<Self::Context>,
-        _tx: Option<Self::Transaction>,
+        member_id: Uuid,
+        willensbekundung_date: Date,
+        context: Authentication<Self::Context>,
+        tx: Option<Self::Transaction>,
     ) -> Result<(MemberAction, Member), ServiceError> {
-        Err(ServiceError::InternalError(Arc::from(
-            "cancel_membership not yet implemented — Task 2",
-        )))
+        let tx = self.transaction_dao.use_transaction(tx).await?;
+
+        let user_id = self
+            .permission_service
+            .current_user_id(context.clone())
+            .await?
+            .unwrap_or_else(|| "SYSTEM".to_string());
+
+        // PERM-01: ADMIN_PRIVILEGE-Funnel fuer alle v1.2-Ops.
+        self.permission_service
+            .check_permission(ADMIN_PRIVILEGE, context)
+            .await?;
+
+        // PERM-02: Datum-Bounds-Validierung (D-15-05..08).
+        let today = time::OffsetDateTime::now_utc().date();
+        let validation_errors = validate_willensbekundung_date(willensbekundung_date, today);
+        if !validation_errors.is_empty() {
+            return Err(ServiceError::ValidationError(validation_errors));
+        }
+
+        // CANC-01: Member existence.
+        let member_entity = self
+            .member_dao
+            .find_by_id(member_id, tx.clone())
+            .await?
+            .ok_or(ServiceError::EntityNotFound(member_id))?;
+
+        // D-15-12 / ROADMAP: Already-Cancelled -> HTTP 409 via Conflict-Mapping.
+        if member_entity.exit_date.is_some() {
+            return Err(ServiceError::Conflict(Arc::from("member already cancelled")));
+        }
+
+        // CANC-02 / D-14-04..07: H1/H2-Stichtag berechnen (Phase-14-Pure-Function).
+        let effective = compute_effective_date(willensbekundung_date);
+
+        let now = time::OffsetDateTime::now_utc();
+        let new_action = MemberAction {
+            id: self.uuid_service.new_v4().await,
+            member_id,
+            action_type: ActionType::Austritt,
+            date: willensbekundung_date,
+            shares_change: 0, // CANC-03
+            transfer_member_id: None,
+            effective_date: Some(effective.effective_date),
+            comment: None,
+            created: time::PrimitiveDateTime::new(now.date(), now.time()),
+            deleted: None,
+            version: self.uuid_service.new_v4().await,
+        };
+
+        // AUDT-01 / D-15-01 / D-15-02: audited_create! statt direkter DAO-Call.
+        let action_entity: MemberActionEntity = (&new_action).into();
+        crate::audited_create!(
+            self,
+            self.member_action_dao,
+            &action_entity,
+            CANCEL_PROCESS,
+            &user_id,
+            tx
+        );
+
+        // CANC-04: exit_date via recalc_dates Free-Function (KEINE direkte Member.exit_date-Mutation).
+        crate::member_action::recalc_dates(
+            &*self.member_dao,
+            &*self.member_action_dao,
+            member_id,
+            tx.clone(),
+        )
+        .await?;
+
+        // Re-Read fuer Response — recalc_dates hat exit_date gesetzt.
+        let updated_entity = self
+            .member_dao
+            .find_by_id(member_id, tx.clone())
+            .await?
+            .ok_or(ServiceError::EntityNotFound(member_id))?;
+
+        self.transaction_dao.commit(tx).await?;
+
+        Ok((new_action, Member::from(&updated_entity)))
     }
 
     async fn increase_shares(
@@ -248,5 +325,442 @@ mod tests {
         let today = Date::from_calendar_date(2024, Month::January, 15).unwrap();
         let date = Date::from_calendar_date(2024, Month::February, 29).unwrap();
         assert!(validate_willensbekundung_date(date, today).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod service_tests {
+    //! Service-Tests fuer cancel_membership (Plan 15-02).
+    //!
+    //! Per-File-Mock-Pattern statt globalem `#[automock]`, weil `gen_service_impl!`
+    //! `Debug` auf Transaction-Type verlangt; genossi_dao::MockTransaction hat KEIN
+    //! Debug-Derive. Vorbild: genossi_service_impl/src/member.rs:412-712.
+
+    use super::*;
+    use async_trait::async_trait;
+    use genossi_dao::audit_log::{AuditLogEntry, AuditQueryFilter};
+    use genossi_dao::member::{MemberEntity, MemberStatus, Salutation};
+    use genossi_dao::{DaoError, Transaction};
+    use genossi_service::permission::MockContext;
+    use mockall::mock;
+
+    /// Test-local Transaction with Debug — MockTransaction in genossi_dao hat kein Debug,
+    /// aber gen_service_impl! verlangt es.
+    #[derive(Clone, Debug)]
+    pub struct TestTransaction;
+
+    #[async_trait]
+    impl Transaction for TestTransaction {
+        async fn begin(&mut self) -> Result<(), DaoError> {
+            Ok(())
+        }
+        async fn commit(self) -> Result<(), DaoError> {
+            Ok(())
+        }
+        async fn rollback(self) -> Result<(), DaoError> {
+            Ok(())
+        }
+    }
+
+    mock! {
+        pub TestTxDao {}
+        #[async_trait]
+        impl TransactionDao for TestTxDao {
+            type Transaction = TestTransaction;
+            async fn transaction(&self) -> Result<TestTransaction, DaoError>;
+            async fn use_transaction(&self, tx: Option<TestTransaction>) -> Result<TestTransaction, DaoError>;
+            async fn commit(&self, tx: TestTransaction) -> Result<(), DaoError>;
+        }
+    }
+
+    mock! {
+        pub TestMemberDao {}
+        #[async_trait]
+        impl MemberDao for TestMemberDao {
+            type Transaction = TestTransaction;
+            async fn dump_all(&self, tx: TestTransaction) -> Result<Arc<[MemberEntity]>, DaoError>;
+            async fn create(&self, entity: &MemberEntity, process: &str, tx: TestTransaction) -> Result<(), DaoError>;
+            async fn update(&self, entity: &MemberEntity, process: &str, tx: TestTransaction) -> Result<(), DaoError>;
+            async fn all(&self, tx: TestTransaction) -> Result<Arc<[MemberEntity]>, DaoError>;
+            async fn find_by_id(&self, id: Uuid, tx: TestTransaction) -> Result<Option<MemberEntity>, DaoError>;
+            async fn update_migrated(&self, id: Uuid, migrated: bool, tx: TestTransaction) -> Result<(), DaoError>;
+            async fn update_dates(&self, id: Uuid, join_date: time::Date, exit_date: Option<time::Date>, tx: TestTransaction) -> Result<(), DaoError>;
+            async fn find_by_member_number(&self, member_number: i64, tx: TestTransaction) -> Result<Option<MemberEntity>, DaoError>;
+            async fn count_active(&self, today: time::Date, tx: TestTransaction) -> Result<u64, DaoError>;
+            async fn next_member_number(&self, tx: TestTransaction) -> Result<i64, DaoError>;
+        }
+    }
+
+    mock! {
+        pub TestMemberActionDao {}
+        #[async_trait]
+        impl MemberActionDao for TestMemberActionDao {
+            type Transaction = TestTransaction;
+            async fn dump_all(&self, tx: TestTransaction) -> Result<Arc<[MemberActionEntity]>, DaoError>;
+            async fn create(&self, entity: &MemberActionEntity, process: &str, tx: TestTransaction) -> Result<(), DaoError>;
+            async fn update(&self, entity: &MemberActionEntity, process: &str, tx: TestTransaction) -> Result<(), DaoError>;
+            async fn all(&self, tx: TestTransaction) -> Result<Arc<[MemberActionEntity]>, DaoError>;
+            async fn find_by_id(&self, id: Uuid, tx: TestTransaction) -> Result<Option<MemberActionEntity>, DaoError>;
+            async fn find_by_member_id(&self, member_id: Uuid, tx: TestTransaction) -> Result<Arc<[MemberActionEntity]>, DaoError>;
+        }
+    }
+
+    mock! {
+        pub TestAuditLogDao {}
+        #[async_trait]
+        impl AuditLogDao for TestAuditLogDao {
+            type Transaction = TestTransaction;
+            async fn create_entries(&self, entries: &[AuditLogEntry], tx: TestTransaction) -> Result<(), DaoError>;
+            async fn get_latest_hash(&self, tx: TestTransaction) -> Result<Option<String>, DaoError>;
+            async fn get_by_entity(&self, entity_type: &str, entity_id: Uuid, tx: TestTransaction) -> Result<Arc<[AuditLogEntry]>, DaoError>;
+            async fn get_all_ordered(&self, tx: TestTransaction) -> Result<Arc<[AuditLogEntry]>, DaoError>;
+            async fn query(&self, filter: AuditQueryFilter, limit: i64, offset: i64, tx: TestTransaction) -> Result<Arc<[AuditLogEntry]>, DaoError>;
+            async fn count(&self, filter: AuditQueryFilter, tx: TestTransaction) -> Result<i64, DaoError>;
+        }
+    }
+
+    mock! {
+        pub TestPermissionService {}
+        #[async_trait]
+        impl PermissionService for TestPermissionService {
+            type Context = MockContext;
+            async fn check_permission(&self, privilege: &str, context: Authentication<MockContext>) -> Result<(), ServiceError>;
+            async fn current_user_id(&self, context: Authentication<MockContext>) -> Result<Option<String>, ServiceError>;
+            async fn get_all_users(&self, context: Authentication<MockContext>) -> Result<Arc<[genossi_service::auth_types::UserResponseTO]>, ServiceError>;
+            async fn create_user(&self, user: genossi_service::auth_types::UserTO, context: Authentication<MockContext>) -> Result<(), ServiceError>;
+            async fn delete_user(&self, username: String, context: Authentication<MockContext>) -> Result<(), ServiceError>;
+            async fn get_all_roles(&self, context: Authentication<MockContext>) -> Result<Arc<[genossi_service::auth_types::RoleResponseTO]>, ServiceError>;
+            async fn create_role(&self, role: genossi_service::auth_types::RoleTO, context: Authentication<MockContext>) -> Result<(), ServiceError>;
+            async fn delete_role(&self, role_name: String, context: Authentication<MockContext>) -> Result<(), ServiceError>;
+            async fn get_all_privileges(&self, context: Authentication<MockContext>) -> Result<Arc<[genossi_service::auth_types::PrivilegeResponseTO]>, ServiceError>;
+            async fn create_privilege(&self, privilege: genossi_service::auth_types::PrivilegeTO, context: Authentication<MockContext>) -> Result<(), ServiceError>;
+            async fn delete_privilege(&self, privilege_name: String, context: Authentication<MockContext>) -> Result<(), ServiceError>;
+            async fn assign_user_role(&self, user_role: genossi_service::auth_types::UserRole, context: Authentication<MockContext>) -> Result<(), ServiceError>;
+            async fn remove_user_role(&self, user_role: genossi_service::auth_types::UserRole, context: Authentication<MockContext>) -> Result<(), ServiceError>;
+            async fn get_user_roles(&self, username: String, context: Authentication<MockContext>) -> Result<Arc<[genossi_service::auth_types::RoleResponseTO]>, ServiceError>;
+            async fn assign_role_privilege(&self, role_privilege: genossi_service::auth_types::RolePrivilege, context: Authentication<MockContext>) -> Result<(), ServiceError>;
+            async fn remove_role_privilege(&self, role_privilege: genossi_service::auth_types::RolePrivilege, context: Authentication<MockContext>) -> Result<(), ServiceError>;
+            async fn get_role_privileges(&self, role_name: String, context: Authentication<MockContext>) -> Result<Arc<[genossi_service::auth_types::PrivilegeResponseTO]>, ServiceError>;
+            async fn get_user_privileges(&self, username: String, context: Authentication<MockContext>) -> Result<Arc<[genossi_service::auth_types::PrivilegeResponseTO]>, ServiceError>;
+            async fn has_claims(&self, context: &MockContext) -> Result<bool, ServiceError>;
+        }
+    }
+
+    /// Static UUID-Service fuer Tests — neue UUIDs jedes Mal.
+    #[derive(Clone)]
+    pub struct StaticUuidService;
+    #[async_trait]
+    impl UuidService for StaticUuidService {
+        async fn new_v4(&self) -> Uuid {
+            Uuid::new_v4()
+        }
+    }
+
+    /// TestDeps wires the local mocks as associated types.
+    pub struct TestDeps;
+    impl MembershipAdjustServiceDeps for TestDeps {
+        type Context = MockContext;
+        type Transaction = TestTransaction;
+        type MemberActionDao = MockTestMemberActionDao;
+        type MemberDao = MockTestMemberDao;
+        type AuditLogDao = MockTestAuditLogDao;
+        type PermissionService = MockTestPermissionService;
+        type UuidService = StaticUuidService;
+        type TransactionDao = MockTestTxDao;
+    }
+
+    fn sample_member_entity(id: Uuid, exit_date: Option<time::Date>) -> MemberEntity {
+        let join = time::Date::from_calendar_date(2020, time::Month::January, 1).unwrap();
+        MemberEntity {
+            id,
+            member_number: 1001,
+            first_name: Arc::from("Klaus"),
+            last_name: Arc::from("Kuendigung"),
+            salutation: Some(Salutation::Herr),
+            title: None,
+            email: None,
+            company: None,
+            comment: None,
+            street: None,
+            house_number: None,
+            postal_code: None,
+            city: None,
+            join_date: join,
+            shares_at_joining: 1,
+            current_shares: 1,
+            current_balance: 0,
+            action_count: 0,
+            migrated: false,
+            exit_date,
+            bank_account: None,
+            status: MemberStatus::Normal,
+            created: time::PrimitiveDateTime::new(join, time::Time::MIDNIGHT),
+            deleted: None,
+            version: Uuid::new_v4(),
+        }
+    }
+
+    fn setup_tx_dao() -> MockTestTxDao {
+        let mut tx_dao = MockTestTxDao::new();
+        tx_dao.expect_use_transaction().returning(|_| Ok(TestTransaction));
+        tx_dao.expect_commit().returning(|_| Ok(()));
+        tx_dao
+    }
+
+    fn build_service(
+        member_dao: MockTestMemberDao,
+        member_action_dao: MockTestMemberActionDao,
+        audit_log_dao: MockTestAuditLogDao,
+        permission_service: MockTestPermissionService,
+        tx_dao: MockTestTxDao,
+    ) -> MembershipAdjustServiceImpl<TestDeps> {
+        MembershipAdjustServiceImpl {
+            member_action_dao: Arc::new(member_action_dao),
+            member_dao: Arc::new(member_dao),
+            audit_log_dao: Arc::new(audit_log_dao),
+            permission_service: Arc::new(permission_service),
+            uuid_service: Arc::new(StaticUuidService),
+            transaction_dao: Arc::new(tx_dao),
+        }
+    }
+
+    // ---------- Test 1: Happy-Path H1 ----------
+    #[tokio::test]
+    async fn test_cancel_membership_happy_path_h1() {
+        // Datum-Fragility-Fix: leite das Test-Datum relativ zu today() ab,
+        // damit der Test nicht beim Year-Rollover bricht. H1 = Januar..Juni desselben Jahres.
+        let today = time::OffsetDateTime::now_utc().date();
+        let willensbekundung = today
+            .replace_month(time::Month::March)
+            .expect("March in today.year() exists")
+            .replace_day(15)
+            .expect("Day 15 always valid");
+        let expected_effective =
+            time::Date::from_calendar_date(today.year(), time::Month::December, 31)
+                .expect("year-12-31 always valid");
+
+        let member_id = Uuid::new_v4();
+
+        let mut member_dao = MockTestMemberDao::new();
+        let mid = member_id;
+        // find_by_id wird 3x aufgerufen: 1x fuer existence-check im Service-Body,
+        // 1x intern in recalc_dates(), 1x fuer re-read nach recalc_dates.
+        member_dao
+            .expect_find_by_id()
+            .times(3)
+            .returning(move |_, _| Ok(Some(sample_member_entity(mid, None))));
+        // recalc_dates ruft update_dates auf.
+        member_dao
+            .expect_update_dates()
+            .returning(|_, _, _, _| Ok(()));
+
+        let mut member_action_dao = MockTestMemberActionDao::new();
+        // recalc_dates ruft find_by_member_id auf.
+        member_action_dao
+            .expect_find_by_member_id()
+            .returning(|_, _| Ok(Arc::from(Vec::<MemberActionEntity>::new())));
+        // audited_create! ruft create() auf mit Process="member-adjust.cancel".
+        member_action_dao
+            .expect_create()
+            .withf(|_entity, process, _tx| process == "member-adjust.cancel")
+            .times(1)
+            .returning(|_, _, _| Ok(()));
+
+        let mut audit_log_dao = MockTestAuditLogDao::new();
+        audit_log_dao.expect_get_latest_hash().returning(|_| Ok(None));
+        audit_log_dao
+            .expect_create_entries()
+            .returning(|_, _| Ok(()));
+
+        let mut permission_service = MockTestPermissionService::new();
+        permission_service
+            .expect_current_user_id()
+            .returning(|_| Ok(Some("admin".to_string())));
+        permission_service
+            .expect_check_permission()
+            .withf(|priv_, _| priv_ == "admin")
+            .returning(|_, _| Ok(()));
+
+        let service = build_service(
+            member_dao,
+            member_action_dao,
+            audit_log_dao,
+            permission_service,
+            setup_tx_dao(),
+        );
+
+        let result = service
+            .cancel_membership(member_id, willensbekundung, Authentication::Full, None)
+            .await;
+
+        let (action, _member) = result.expect("cancel_membership should succeed");
+        assert_eq!(action.action_type, ActionType::Austritt);
+        assert_eq!(action.shares_change, 0);
+        assert_eq!(action.date, willensbekundung);
+        assert_eq!(action.effective_date, Some(expected_effective));
+        assert_eq!(action.transfer_member_id, None);
+    }
+
+    // ---------- Test 2: Happy-Path H2 ----------
+    #[tokio::test]
+    async fn test_cancel_membership_happy_path_h2() {
+        let today = time::OffsetDateTime::now_utc().date();
+        // H2 = August desselben Jahres -> effective = next-year-12-31.
+        let willensbekundung = today
+            .replace_month(time::Month::August)
+            .expect("August in today.year() exists")
+            .replace_day(15)
+            .expect("Day 15 always valid");
+        let expected_effective =
+            time::Date::from_calendar_date(today.year() + 1, time::Month::December, 31)
+                .expect("(year+1)-12-31 always valid");
+
+        let member_id = Uuid::new_v4();
+
+        let mut member_dao = MockTestMemberDao::new();
+        let mid = member_id;
+        // find_by_id wird 3x aufgerufen: Service-Body existence-check, recalc_dates intern, Re-Read.
+        member_dao
+            .expect_find_by_id()
+            .times(3)
+            .returning(move |_, _| Ok(Some(sample_member_entity(mid, None))));
+        member_dao
+            .expect_update_dates()
+            .returning(|_, _, _, _| Ok(()));
+
+        let mut member_action_dao = MockTestMemberActionDao::new();
+        member_action_dao
+            .expect_find_by_member_id()
+            .returning(|_, _| Ok(Arc::from(Vec::<MemberActionEntity>::new())));
+        member_action_dao
+            .expect_create()
+            .withf(|_, process, _| process == "member-adjust.cancel")
+            .times(1)
+            .returning(|_, _, _| Ok(()));
+
+        let mut audit_log_dao = MockTestAuditLogDao::new();
+        audit_log_dao.expect_get_latest_hash().returning(|_| Ok(None));
+        audit_log_dao
+            .expect_create_entries()
+            .returning(|_, _| Ok(()));
+
+        let mut permission_service = MockTestPermissionService::new();
+        permission_service
+            .expect_current_user_id()
+            .returning(|_| Ok(Some("admin".to_string())));
+        permission_service
+            .expect_check_permission()
+            .returning(|_, _| Ok(()));
+
+        let service = build_service(
+            member_dao,
+            member_action_dao,
+            audit_log_dao,
+            permission_service,
+            setup_tx_dao(),
+        );
+
+        let result = service
+            .cancel_membership(member_id, willensbekundung, Authentication::Full, None)
+            .await;
+
+        let (action, _member) = result.expect("cancel_membership H2 should succeed");
+        assert_eq!(action.action_type, ActionType::Austritt);
+        assert_eq!(action.effective_date, Some(expected_effective));
+    }
+
+    // ---------- Test 3: Permission denied ----------
+    #[tokio::test]
+    async fn test_cancel_membership_permission_denied() {
+        let today = time::OffsetDateTime::now_utc().date();
+        let willensbekundung = today
+            .replace_month(time::Month::March)
+            .unwrap()
+            .replace_day(15)
+            .unwrap();
+
+        // Keine DAO-Calls erwartet — Permission-Denied bricht VOR DAO-Touches ab.
+        let member_dao = MockTestMemberDao::new();
+        let member_action_dao = MockTestMemberActionDao::new();
+        let audit_log_dao = MockTestAuditLogDao::new();
+
+        let mut permission_service = MockTestPermissionService::new();
+        permission_service
+            .expect_current_user_id()
+            .returning(|_| Ok(Some("user".to_string())));
+        permission_service
+            .expect_check_permission()
+            .returning(|_, _| Err(ServiceError::PermissionDenied));
+
+        let service = build_service(
+            member_dao,
+            member_action_dao,
+            audit_log_dao,
+            permission_service,
+            setup_tx_dao(),
+        );
+
+        let result = service
+            .cancel_membership(Uuid::new_v4(), willensbekundung, Authentication::Full, None)
+            .await;
+
+        assert!(
+            matches!(result, Err(ServiceError::PermissionDenied)),
+            "expected PermissionDenied (mapped to HTTP 401 via genossi_rest/src/lib.rs:115), got {:?}",
+            result
+        );
+    }
+
+    // ---------- Test 4: Already-Cancelled ----------
+    #[tokio::test]
+    async fn test_cancel_membership_already_cancelled() {
+        let today = time::OffsetDateTime::now_utc().date();
+        let willensbekundung = today
+            .replace_month(time::Month::March)
+            .unwrap()
+            .replace_day(15)
+            .unwrap();
+        let already_exit =
+            time::Date::from_calendar_date(today.year(), time::Month::December, 31).unwrap();
+
+        let member_id = Uuid::new_v4();
+
+        let mut member_dao = MockTestMemberDao::new();
+        let mid = member_id;
+        member_dao
+            .expect_find_by_id()
+            .times(1) // nur 1x — Conflict bricht vor recalc_dates ab.
+            .returning(move |_, _| Ok(Some(sample_member_entity(mid, Some(already_exit)))));
+
+        // KEINE audit/create-Calls erwartet.
+        let member_action_dao = MockTestMemberActionDao::new();
+        let audit_log_dao = MockTestAuditLogDao::new();
+
+        let mut permission_service = MockTestPermissionService::new();
+        permission_service
+            .expect_current_user_id()
+            .returning(|_| Ok(Some("admin".to_string())));
+        permission_service
+            .expect_check_permission()
+            .returning(|_, _| Ok(()));
+
+        let service = build_service(
+            member_dao,
+            member_action_dao,
+            audit_log_dao,
+            permission_service,
+            setup_tx_dao(),
+        );
+
+        let result = service
+            .cancel_membership(member_id, willensbekundung, Authentication::Full, None)
+            .await;
+
+        match result {
+            Err(ServiceError::Conflict(msg)) => {
+                assert!(msg.contains("already cancelled"), "unexpected msg: {}", msg);
+            }
+            other => panic!("Expected Conflict, got {:?}", other),
+        }
     }
 }
