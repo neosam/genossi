@@ -500,6 +500,49 @@ impl From<&MemberActionTO> for genossi_service::member_action::MemberAction {
     }
 }
 
+// ============================================================================
+// Phase 15 v1.2 — Membership-Adjust Request/Response TOs (D-15-10, D-15-11)
+// ============================================================================
+//
+// Request-DTOs nutzen `iso8601_date_required` Serde (Pflichtfeld; nicht
+// Optional). Response-DTO komponiert die Domain-Tupel-Return-Werte
+// (action, member) als Single-Round-Trip-Payload fuer Frontend-Phase-18.
+
+/// Request-Body fuer `POST /api/members/{id}/cancel` (CANC-01).
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct CancelMembershipRequestTO {
+    #[serde(
+        serialize_with = "iso8601_date_required::serialize",
+        deserialize_with = "iso8601_date_required::deserialize"
+    )]
+    #[schema(example = "2026-06-15")]
+    pub willensbekundung_date: time::Date,
+}
+
+/// Request-Body fuer `POST /api/members/{id}/increase-shares` (UPGD-01).
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct IncreaseSharesRequestTO {
+    #[serde(
+        serialize_with = "iso8601_date_required::serialize",
+        deserialize_with = "iso8601_date_required::deserialize"
+    )]
+    #[schema(example = "2026-06-15")]
+    pub willensbekundung_date: time::Date,
+    #[schema(example = 2)]
+    pub shares: i32,
+}
+
+/// Response-Body fuer beide Phase-15-Endpoints (D-15-11).
+///
+/// Bundelt die neu erzeugte `MemberAction` mit dem aktualisierten `Member`,
+/// damit das Frontend in einem einzigen Round-Trip die Detail-View
+/// (exit_date / current_shares) refreshen kann — kein POST-then-GET.
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct MembershipAdjustResponseTO {
+    pub action: MemberActionTO,
+    pub member: MemberTO,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct MigrationStatusTO {
     pub member_id: Uuid,

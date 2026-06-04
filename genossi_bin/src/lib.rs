@@ -477,6 +477,32 @@ impl MemberActionServiceDeps for MemberActionServiceDependencies {
 type MemberActionService =
     genossi_service_impl::member_action::MemberActionServiceImpl<MemberActionServiceDependencies>;
 
+// Phase 15 v1.2 (D-15-16): MembershipAdjustService DI-Wiring.
+// Selbes Deps-Set wie MemberActionService — Service braucht member_action_dao,
+// member_dao, audit_log_dao, permission_service, uuid_service, transaction_dao
+// (siehe `genossi_service_impl/src/membership_adjust.rs::gen_service_impl!`).
+pub struct MembershipAdjustServiceDependencies;
+
+unsafe impl Send for MembershipAdjustServiceDependencies {}
+unsafe impl Sync for MembershipAdjustServiceDependencies {}
+
+impl genossi_service_impl::membership_adjust::MembershipAdjustServiceDeps
+    for MembershipAdjustServiceDependencies
+{
+    type Context = Context;
+    type Transaction = Transaction;
+    type MemberActionDao = MemberActionDao;
+    type MemberDao = MemberDao;
+    type AuditLogDao = AuditLogDao;
+    type PermissionService = PermissionService;
+    type UuidService = UuidService;
+    type TransactionDao = TransactionDao;
+}
+
+type MembershipAdjustService = genossi_service_impl::membership_adjust::MembershipAdjustServiceImpl<
+    MembershipAdjustServiceDependencies,
+>;
+
 pub struct MemberDocumentServiceDependencies;
 
 unsafe impl Send for MemberDocumentServiceDependencies {}
@@ -575,6 +601,8 @@ pub struct RestStateImpl {
     member_service: Arc<MemberService>,
     member_import_service: Arc<MemberImportService>,
     member_action_service: Arc<MemberActionService>,
+    // Phase 15 v1.2 (D-15-16): MembershipAdjustService — cancel + increase_shares.
+    membership_adjust_service: Arc<MembershipAdjustService>,
     member_document_service: Arc<MemberDocumentService>,
     permission_service: Arc<PermissionService>,
     session_service: Arc<SessionService>,
@@ -681,6 +709,20 @@ impl RestStateImpl {
 
         let member_action_service = Arc::new(
             genossi_service_impl::member_action::MemberActionServiceImpl {
+                member_action_dao: member_action_dao.clone(),
+                member_dao: member_dao.clone(),
+                audit_log_dao: audit_log_dao.clone(),
+                permission_service: permission_service.clone(),
+                uuid_service: uuid_service.clone(),
+                transaction_dao: transaction_dao.clone(),
+            },
+        );
+
+        // Phase 15 v1.2 (D-15-16): MembershipAdjustService — selbes Deps-Set
+        // wie MemberActionService; alle Arcs sind die kanonischen Per-Process-
+        // Instances (single Arc shared across services).
+        let membership_adjust_service = Arc::new(
+            genossi_service_impl::membership_adjust::MembershipAdjustServiceImpl {
                 member_action_dao: member_action_dao.clone(),
                 member_dao: member_dao.clone(),
                 audit_log_dao: audit_log_dao.clone(),
@@ -1062,6 +1104,7 @@ impl RestStateImpl {
             member_service,
             member_import_service,
             member_action_service,
+            membership_adjust_service,
             member_document_service,
             application_service,
             assembly_service,
@@ -1754,6 +1797,7 @@ impl genossi_rest::RestStateDef for RestStateImpl {
     type SessionService = SessionService;
     type MemberImportService = MemberImportService;
     type MemberActionService = MemberActionService;
+    type MembershipAdjustService = MembershipAdjustService;
     type MemberDocumentService = MemberDocumentService;
     type DocumentStorage = DocumentStorage;
     type ValidationService = ValidationService;
@@ -1779,6 +1823,10 @@ impl genossi_rest::RestStateDef for RestStateImpl {
 
     fn member_action_service(&self) -> Arc<Self::MemberActionService> {
         self.member_action_service.clone()
+    }
+
+    fn membership_adjust_service(&self) -> Arc<Self::MembershipAdjustService> {
+        self.membership_adjust_service.clone()
     }
 
     fn member_document_service(&self) -> Arc<Self::MemberDocumentService> {

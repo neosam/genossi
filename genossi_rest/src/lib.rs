@@ -17,6 +17,7 @@ pub mod mail_footer;
 pub mod member;
 pub mod member_action;
 pub mod member_document;
+pub mod membership_adjust;
 pub mod permission;
 pub mod public_stats;
 pub mod repayment_entry;
@@ -223,6 +224,13 @@ pub trait RestStateDef:
         + Send
         + Sync
         + 'static;
+    // Phase 15 v1.2 (D-15-16): MembershipAdjustService — Foundation fuer
+    // cancel_membership + increase_shares (Phase 16-17 erweitern um
+    // partial_repayment + transfer_shares).
+    type MembershipAdjustService: genossi_service::membership_adjust::MembershipAdjustService<Context = ContextType>
+        + Send
+        + Sync
+        + 'static;
     type DocumentStorage: genossi_service::document_storage::DocumentStorage + Send + Sync + 'static;
     type ValidationService: genossi_service::validation::ValidationService<Context = ContextType>
         + Send
@@ -244,6 +252,7 @@ pub trait RestStateDef:
     fn member_import_service(&self) -> Arc<Self::MemberImportService>;
     fn member_action_service(&self) -> Arc<Self::MemberActionService>;
     fn member_document_service(&self) -> Arc<Self::MemberDocumentService>;
+    fn membership_adjust_service(&self) -> Arc<Self::MembershipAdjustService>;
     fn document_storage(&self) -> Arc<Self::DocumentStorage>;
     fn validation_service(&self) -> Arc<Self::ValidationService>;
     fn user_preference_service(&self) -> Arc<Self::UserPreferenceService>;
@@ -258,6 +267,7 @@ pub trait RestStateDef:
     nest(
         (path = "/api/auth", api = auth::ApiDoc),
         (path = "/api/members", api = member::ApiDoc),
+        (path = "/api/members", api = membership_adjust::ApiDoc),
         (path = "/api/members/{member_id}/actions", api = member_action::ApiDoc),
         (path = "/api/members/{member_id}/documents", api = member_document::ApiDoc),
         (path = "/api/permission", api = permission::ApiDoc),

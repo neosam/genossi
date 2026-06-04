@@ -47,6 +47,28 @@ pub fn generate_route<RestState: RestStateDef>() -> Router<RestState> {
             "/not-reached-by/{job_id}",
             get(get_members_not_reached_by::<RestState>),
         )
+        // Phase 15 v1.2 Sub-Routes mit Path-Parameter `{id}/cancel` und
+        // `{id}/increase-shares` (D-15-09).
+        //
+        // Axum-Routing-Note: Axum 0.8 matched literale Segmente vor Path-Param-
+        // Segmenten innerhalb desselben nested Routers. `/{id}/cancel` und
+        // `/{id}/increase-shares` koennen technisch in beliebiger Reihenfolge
+        // relativ zu `/{id}` deklariert werden. Plan-04 deklariert sie VOR den
+        // `/{id}`-Catch-Alls rein als defensive Konvention (D-14-08-Lesson),
+        // um Regressionen vorzubeugen, falls Router-Tree-Annahmen sich aendern.
+        //
+        // Coexistence mit dem separaten `/api/members/{member_id}/actions`-Mount
+        // (lib.rs:584 `.nest(...)`): Phase-15-Routes leben INSIDE
+        // `member::generate_route`, der `/actions`-Mount lebt SEPARAT als
+        // Top-Level-`.nest()`. Beide Pfad-Praefixe sind disjunkt — kein Konflikt.
+        .route(
+            "/{id}/cancel",
+            post(crate::membership_adjust::cancel_membership::<RestState>),
+        )
+        .route(
+            "/{id}/increase-shares",
+            post(crate::membership_adjust::increase_shares::<RestState>),
+        )
         // Path-parameter routes LAST.
         .route("/{id}", get(get_member::<RestState>))
         .route("/", post(create_member::<RestState>))
