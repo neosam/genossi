@@ -211,11 +211,17 @@ impl<Deps: MembershipAdjustServiceDeps> MembershipAdjustService for MembershipAd
 
         // UPGD-03 (atomar in derselben Tx) / D-15-03: Member.current_shares-Bump
         // via generischem MemberDao::update + audited_update! (NICHT targeted DAO-method).
-        // Member.version per uuid_service.new_v4() bumpen (Optimistic-Locking).
         // exit_date wird NICHT angefasst — Aufstockung beeinflusst kein Exit-Date.
+        //
+        // Optimistic-Locking-Note (Rule-1 fix entdeckt via E2E in Plan 04):
+        // `MemberDao::update` (`genossi_dao_impl_sqlite/src/member.rs:209-300`) liest die
+        // ALTE Version aus `entity.version` (WHERE-Klausel) und generiert die NEUE
+        // Version INTERN. Deshalb wird `entity.version` hier NICHT gebumpt — sonst
+        // matcht die WHERE-Klausel nicht und der Update gibt `Version mismatch`
+        // zurueck. Genau dieses Pattern nutzt auch `MemberActionService::update`
+        // (`member_action.rs:399-408`): Entity unveraendert in den Macro pumpen.
         let mut updated_entity = member_entity.clone();
         updated_entity.current_shares += shares;
-        updated_entity.version = self.uuid_service.new_v4().await;
 
         crate::audited_update!(
             self,
