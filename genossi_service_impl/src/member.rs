@@ -5,7 +5,7 @@ use genossi_dao::member_action::MemberActionDao;
 use genossi_dao::TransactionDao;
 use genossi_service::member::{Member, MemberService};
 use genossi_service::member_action::MigrationState;
-use genossi_service::permission::{Authentication, PermissionService};
+use genossi_service::permission::{Authentication, PermissionService, ADMIN_PRIVILEGE};
 use genossi_service::uuid_service::UuidService;
 use genossi_service::{ServiceError, ValidationFailureItem};
 use std::sync::Arc;
@@ -108,6 +108,16 @@ impl<Deps: MemberServiceDeps> MemberService for MemberServiceImpl<Deps> {
 
         self.transaction_dao.commit(tx).await?;
         Ok(members)
+    }
+
+    async fn list_transfer_recipients(
+        &self,
+        _exclude_member_id: Uuid,
+        _context: Authentication<Self::Context>,
+        _tx: Option<Self::Transaction>,
+    ) -> Result<Arc<[Member]>, ServiceError> {
+        // TDD RED stub — replaced in GREEN phase.
+        todo!("list_transfer_recipients RED stub")
     }
 
     async fn get(
@@ -380,5 +390,413 @@ impl<Deps: MemberServiceDeps> MemberService for MemberServiceImpl<Deps> {
 
         self.transaction_dao.commit(tx).await?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Service-level tests for `list_transfer_recipients` (TRSF-06).
+    //!
+    //! Mockall pitfall (Pitfall 2 RESEARCH.md): `#[automock]` overrides the
+    //! `MemberDao::all` default-impl, so each test MUST explicitly call
+    //! `.expect_all().returning(...)` — the default-impl via `dump_all` is
+    //! IGNORED by the generated mock.
+    use super::*;
+    use async_trait::async_trait;
+    use genossi_dao::audit_log::{AuditLogEntry, AuditQueryFilter};
+    use genossi_dao::member::{MemberEntity, MemberStatus, Salutation};
+    use genossi_dao::member_action::MemberActionEntity;
+    use genossi_dao::{DaoError, Transaction};
+    use genossi_service::permission::MockContext;
+    use mockall::mock;
+
+    /// Test-local Transaction with Debug — `MockTransaction` from genossi_dao
+    /// does not implement Debug (gen_service_impl! requires it).
+    #[derive(Clone, Debug)]
+    pub struct TestTransaction;
+
+    #[async_trait]
+    impl Transaction for TestTransaction {
+        async fn begin(&mut self) -> Result<(), DaoError> {
+            Ok(())
+        }
+        async fn commit(self) -> Result<(), DaoError> {
+            Ok(())
+        }
+        async fn rollback(self) -> Result<(), DaoError> {
+            Ok(())
+        }
+    }
+
+    mock! {
+        pub TestTxDao {}
+        #[async_trait]
+        impl TransactionDao for TestTxDao {
+            type Transaction = TestTransaction;
+            async fn transaction(&self) -> Result<TestTransaction, DaoError>;
+            async fn use_transaction(
+                &self,
+                tx: Option<TestTransaction>,
+            ) -> Result<TestTransaction, DaoError>;
+            async fn commit(&self, tx: TestTransaction) -> Result<(), DaoError>;
+        }
+    }
+
+    mock! {
+        pub TestMemberDao {}
+        #[async_trait]
+        impl MemberDao for TestMemberDao {
+            type Transaction = TestTransaction;
+            async fn dump_all(&self, tx: TestTransaction) -> Result<Arc<[MemberEntity]>, DaoError>;
+            async fn create(&self, entity: &MemberEntity, process: &str, tx: TestTransaction) -> Result<(), DaoError>;
+            async fn update(&self, entity: &MemberEntity, process: &str, tx: TestTransaction) -> Result<(), DaoError>;
+            async fn all(&self, tx: TestTransaction) -> Result<Arc<[MemberEntity]>, DaoError>;
+            async fn find_by_id(&self, id: Uuid, tx: TestTransaction) -> Result<Option<MemberEntity>, DaoError>;
+            async fn update_migrated(&self, id: Uuid, migrated: bool, tx: TestTransaction) -> Result<(), DaoError>;
+            async fn update_dates(
+                &self,
+                id: Uuid,
+                join_date: time::Date,
+                exit_date: Option<time::Date>,
+                tx: TestTransaction,
+            ) -> Result<(), DaoError>;
+            async fn find_by_member_number(
+                &self,
+                member_number: i64,
+                tx: TestTransaction,
+            ) -> Result<Option<MemberEntity>, DaoError>;
+            async fn count_active(&self, today: time::Date, tx: TestTransaction) -> Result<u64, DaoError>;
+            async fn next_member_number(&self, tx: TestTransaction) -> Result<i64, DaoError>;
+        }
+    }
+
+    mock! {
+        pub TestMemberActionDao {}
+        #[async_trait]
+        impl MemberActionDao for TestMemberActionDao {
+            type Transaction = TestTransaction;
+            async fn dump_all(&self, tx: TestTransaction) -> Result<Arc<[MemberActionEntity]>, DaoError>;
+            async fn create(&self, entity: &MemberActionEntity, process: &str, tx: TestTransaction) -> Result<(), DaoError>;
+            async fn update(&self, entity: &MemberActionEntity, process: &str, tx: TestTransaction) -> Result<(), DaoError>;
+            async fn all(&self, tx: TestTransaction) -> Result<Arc<[MemberActionEntity]>, DaoError>;
+            async fn find_by_id(&self, id: Uuid, tx: TestTransaction) -> Result<Option<MemberActionEntity>, DaoError>;
+            async fn find_by_member_id(
+                &self,
+                member_id: Uuid,
+                tx: TestTransaction,
+            ) -> Result<Arc<[MemberActionEntity]>, DaoError>;
+        }
+    }
+
+    mock! {
+        pub TestAuditLogDao {}
+        #[async_trait]
+        impl AuditLogDao for TestAuditLogDao {
+            type Transaction = TestTransaction;
+            async fn create_entries(
+                &self,
+                entries: &[AuditLogEntry],
+                tx: TestTransaction,
+            ) -> Result<(), DaoError>;
+            async fn get_latest_hash(&self, tx: TestTransaction) -> Result<Option<String>, DaoError>;
+            async fn get_by_entity(
+                &self,
+                entity_type: &str,
+                entity_id: Uuid,
+                tx: TestTransaction,
+            ) -> Result<Arc<[AuditLogEntry]>, DaoError>;
+            async fn get_all_ordered(
+                &self,
+                tx: TestTransaction,
+            ) -> Result<Arc<[AuditLogEntry]>, DaoError>;
+            async fn query(
+                &self,
+                filter: AuditQueryFilter,
+                limit: i64,
+                offset: i64,
+                tx: TestTransaction,
+            ) -> Result<Arc<[AuditLogEntry]>, DaoError>;
+            async fn count(
+                &self,
+                filter: AuditQueryFilter,
+                tx: TestTransaction,
+            ) -> Result<i64, DaoError>;
+        }
+    }
+
+    mock! {
+        pub TestPermissionService {}
+        #[async_trait]
+        impl PermissionService for TestPermissionService {
+            type Context = MockContext;
+            async fn check_permission(
+                &self,
+                privilege: &str,
+                context: Authentication<MockContext>,
+            ) -> Result<(), ServiceError>;
+            async fn current_user_id(
+                &self,
+                context: Authentication<MockContext>,
+            ) -> Result<Option<String>, ServiceError>;
+            async fn get_all_users(
+                &self,
+                context: Authentication<MockContext>,
+            ) -> Result<Arc<[genossi_service::auth_types::UserResponseTO]>, ServiceError>;
+            async fn create_user(
+                &self,
+                user: genossi_service::auth_types::UserTO,
+                context: Authentication<MockContext>,
+            ) -> Result<(), ServiceError>;
+            async fn delete_user(
+                &self,
+                username: String,
+                context: Authentication<MockContext>,
+            ) -> Result<(), ServiceError>;
+            async fn get_all_roles(
+                &self,
+                context: Authentication<MockContext>,
+            ) -> Result<Arc<[genossi_service::auth_types::RoleResponseTO]>, ServiceError>;
+            async fn create_role(
+                &self,
+                role: genossi_service::auth_types::RoleTO,
+                context: Authentication<MockContext>,
+            ) -> Result<(), ServiceError>;
+            async fn delete_role(
+                &self,
+                role_name: String,
+                context: Authentication<MockContext>,
+            ) -> Result<(), ServiceError>;
+            async fn get_all_privileges(
+                &self,
+                context: Authentication<MockContext>,
+            ) -> Result<Arc<[genossi_service::auth_types::PrivilegeResponseTO]>, ServiceError>;
+            async fn create_privilege(
+                &self,
+                privilege: genossi_service::auth_types::PrivilegeTO,
+                context: Authentication<MockContext>,
+            ) -> Result<(), ServiceError>;
+            async fn delete_privilege(
+                &self,
+                privilege_name: String,
+                context: Authentication<MockContext>,
+            ) -> Result<(), ServiceError>;
+            async fn assign_user_role(
+                &self,
+                user_role: genossi_service::auth_types::UserRole,
+                context: Authentication<MockContext>,
+            ) -> Result<(), ServiceError>;
+            async fn remove_user_role(
+                &self,
+                user_role: genossi_service::auth_types::UserRole,
+                context: Authentication<MockContext>,
+            ) -> Result<(), ServiceError>;
+            async fn get_user_roles(
+                &self,
+                username: String,
+                context: Authentication<MockContext>,
+            ) -> Result<Arc<[genossi_service::auth_types::RoleResponseTO]>, ServiceError>;
+            async fn assign_role_privilege(
+                &self,
+                role_privilege: genossi_service::auth_types::RolePrivilege,
+                context: Authentication<MockContext>,
+            ) -> Result<(), ServiceError>;
+            async fn remove_role_privilege(
+                &self,
+                role_privilege: genossi_service::auth_types::RolePrivilege,
+                context: Authentication<MockContext>,
+            ) -> Result<(), ServiceError>;
+            async fn get_role_privileges(
+                &self,
+                role_name: String,
+                context: Authentication<MockContext>,
+            ) -> Result<Arc<[genossi_service::auth_types::PrivilegeResponseTO]>, ServiceError>;
+            async fn get_user_privileges(
+                &self,
+                username: String,
+                context: Authentication<MockContext>,
+            ) -> Result<Arc<[genossi_service::auth_types::PrivilegeResponseTO]>, ServiceError>;
+            async fn has_claims(&self, context: &MockContext) -> Result<bool, ServiceError>;
+        }
+    }
+
+    #[derive(Clone)]
+    struct StaticUuidService;
+    #[async_trait]
+    impl UuidService for StaticUuidService {
+        async fn new_v4(&self) -> Uuid {
+            Uuid::new_v4()
+        }
+    }
+
+    struct TestDeps;
+    impl MemberServiceDeps for TestDeps {
+        type Context = MockContext;
+        type Transaction = TestTransaction;
+        type MemberDao = MockTestMemberDao;
+        type MemberActionDao = MockTestMemberActionDao;
+        type AuditLogDao = MockTestAuditLogDao;
+        type PermissionService = MockTestPermissionService;
+        type UuidService = StaticUuidService;
+        type TransactionDao = MockTestTxDao;
+    }
+
+    fn setup_mock_tx_dao() -> MockTestTxDao {
+        let mut tx_dao = MockTestTxDao::new();
+        tx_dao
+            .expect_use_transaction()
+            .returning(|_| Ok(TestTransaction));
+        tx_dao.expect_commit().returning(|_| Ok(()));
+        tx_dao
+    }
+
+    fn sample_member_entity(id: Uuid, exit_date: Option<time::Date>) -> MemberEntity {
+        let join = time::Date::from_calendar_date(2020, time::Month::January, 1).unwrap();
+        MemberEntity {
+            id,
+            member_number: 1,
+            first_name: Arc::from("Test"),
+            last_name: Arc::from("Member"),
+            salutation: Some(Salutation::Herr),
+            title: None,
+            email: None,
+            company: None,
+            comment: None,
+            street: None,
+            house_number: None,
+            postal_code: None,
+            city: None,
+            join_date: join,
+            shares_at_joining: 1,
+            current_shares: 1,
+            current_balance: 0,
+            action_count: 0,
+            migrated: false,
+            exit_date,
+            bank_account: None,
+            status: MemberStatus::Normal,
+            created: time::PrimitiveDateTime::new(join, time::Time::MIDNIGHT),
+            deleted: None,
+            version: Uuid::new_v4(),
+        }
+    }
+
+    fn build_service(
+        member_dao: MockTestMemberDao,
+        permission_service: MockTestPermissionService,
+    ) -> MemberServiceImpl<TestDeps> {
+        MemberServiceImpl {
+            member_dao: Arc::new(member_dao),
+            member_action_dao: Arc::new(MockTestMemberActionDao::new()),
+            audit_log_dao: Arc::new(MockTestAuditLogDao::new()),
+            permission_service: Arc::new(permission_service),
+            uuid_service: Arc::new(StaticUuidService),
+            transaction_dao: Arc::new(setup_mock_tx_dao()),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_transfer_recipients_happy_path_filters_self() {
+        // Setup: 3 active members; exclude_self = m_a → returns [m_b, m_c].
+        let m_a_id = Uuid::new_v4();
+        let m_b_id = Uuid::new_v4();
+        let m_c_id = Uuid::new_v4();
+        let entities = vec![
+            sample_member_entity(m_a_id, None),
+            sample_member_entity(m_b_id, None),
+            sample_member_entity(m_c_id, None),
+        ];
+
+        let mut member_dao = MockTestMemberDao::new();
+        let entities_clone = entities.clone();
+        // Mockall pitfall guard (Pitfall 2): default-impl `all()` is overridden;
+        // explicit .expect_all() is mandatory.
+        member_dao
+            .expect_all()
+            .returning(move |_| Ok(Arc::from(entities_clone.clone())));
+
+        let mut permission_service = MockTestPermissionService::new();
+        // Admin-gate witness: assert ADMIN_PRIVILEGE is the privilege passed.
+        permission_service
+            .expect_check_permission()
+            .withf(|priv_, _ctx| priv_ == "admin")
+            .returning(|_, _| Ok(()));
+
+        let service = build_service(member_dao, permission_service);
+
+        let result = service
+            .list_transfer_recipients(m_a_id, Authentication::Full, None)
+            .await
+            .expect("list_transfer_recipients should succeed");
+
+        assert_eq!(result.len(), 2, "self must be excluded");
+        let ids: Vec<Uuid> = result.iter().map(|m| m.id).collect();
+        assert!(ids.contains(&m_b_id), "m_b must be present");
+        assert!(ids.contains(&m_c_id), "m_c must be present");
+        assert!(!ids.contains(&m_a_id), "self (m_a) must be filtered out");
+    }
+
+    #[tokio::test]
+    async fn test_list_transfer_recipients_all_cancelled_returns_empty() {
+        // Setup: 3 members all with exit_date = Some(...) → returns [].
+        let m_a_id = Uuid::new_v4();
+        let m_b_id = Uuid::new_v4();
+        let m_c_id = Uuid::new_v4();
+        let exit = time::Date::from_calendar_date(2026, time::Month::June, 30).unwrap();
+        let entities = vec![
+            sample_member_entity(m_a_id, Some(exit)),
+            sample_member_entity(m_b_id, Some(exit)),
+            sample_member_entity(m_c_id, Some(exit)),
+        ];
+
+        let mut member_dao = MockTestMemberDao::new();
+        let entities_clone = entities.clone();
+        member_dao
+            .expect_all()
+            .returning(move |_| Ok(Arc::from(entities_clone.clone())));
+
+        let mut permission_service = MockTestPermissionService::new();
+        permission_service
+            .expect_check_permission()
+            .returning(|_, _| Ok(()));
+
+        let service = build_service(member_dao, permission_service);
+
+        let result = service
+            .list_transfer_recipients(m_a_id, Authentication::Full, None)
+            .await
+            .expect("list_transfer_recipients should succeed");
+
+        assert_eq!(
+            result.len(),
+            0,
+            "all cancelled members must be filtered out"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_list_transfer_recipients_only_self_returns_empty() {
+        // Setup: 1 active member m_a; exclude_self = m_a → returns [].
+        let m_a_id = Uuid::new_v4();
+        let entities = vec![sample_member_entity(m_a_id, None)];
+
+        let mut member_dao = MockTestMemberDao::new();
+        let entities_clone = entities.clone();
+        member_dao
+            .expect_all()
+            .returning(move |_| Ok(Arc::from(entities_clone.clone())));
+
+        let mut permission_service = MockTestPermissionService::new();
+        permission_service
+            .expect_check_permission()
+            .returning(|_, _| Ok(()));
+
+        let service = build_service(member_dao, permission_service);
+
+        let result = service
+            .list_transfer_recipients(m_a_id, Authentication::Full, None)
+            .await
+            .expect("list_transfer_recipients should succeed");
+
+        assert_eq!(result.len(), 0, "only-self setup must return empty list");
     }
 }
