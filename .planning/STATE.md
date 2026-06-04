@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Mitgliedschaft-Anpassungen während des Geschäftsjahres
-status: completed
+status: executing
 stopped_at: Phase 15 context gathered
-last_updated: "2026-06-04T10:58:40.317Z"
-last_activity: 2026-06-04
+last_updated: "2026-06-04T11:43:15.573Z"
+last_activity: 2026-06-04 -- Phase 15 planning complete
 progress:
   total_phases: 2
   completed_phases: 1
-  total_plans: 4
+  total_plans: 8
   completed_plans: 4
-  percent: 100
+  percent: 50
 ---
 
 # State: Genossi — v1.1 Anteile-Rückzahlungsphase
@@ -31,8 +31,8 @@ See: `.planning/PROJECT.md` (updated 2026-06-02 after v1.1 close)
 
 Phase: 14
 Plan: Not started
-Status: Milestone complete
-Last activity: 2026-06-04
+Status: Ready to execute
+Last activity: 2026-06-04 -- Phase 15 planning complete
 
 ## v1.2 Roadmap (Phases 14–18)
 

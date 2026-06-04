@@ -60,6 +60,12 @@
 3. Server-Layer-Datum-Validierung lehnt Daten ausserhalb des offenen GJ + nächsten GJ ab (HTTP 400); 2 Edge-Case-Tests (Datum im vorletzten GJ, Datum im übernächsten GJ)
 4. `cargo test --test e2e_tests` und v1.1-Audit-Hashchain (`/api/audit/verify`) bleiben grün
 
+**Plans:** 4 plans
+- [ ] 15-01-PLAN.md — MembershipAdjustService trait + validate_willensbekundung_date pure function + recalc_dates free-function refactor (PERM-02)
+- [ ] 15-02-PLAN.md — cancel_membership impl + 4 service unit tests (CANC-01..05, PERM-01, AUDT-01)
+- [ ] 15-03-PLAN.md — increase_shares impl + 4 service unit tests (UPGD-01..04, PERM-01, AUDT-01)
+- [ ] 15-04-PLAN.md — REST endpoints + DI wiring + 11 E2E tests (full stack + audit-chain-verify)
+
 ---
 
 ## Phase 16 — Service+REST: Teil-Rückgabe + Auto-Anlegen-Phase
