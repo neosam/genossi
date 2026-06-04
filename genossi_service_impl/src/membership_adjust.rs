@@ -23,8 +23,7 @@ use crate::gen_service_impl;
 /// Audit-Process-String fuer cancel_membership (D-15-02).
 const CANCEL_PROCESS: &str = "member-adjust.cancel";
 
-/// Audit-Process-String fuer increase_shares — wird in Plan 03 verwendet (D-15-02).
-#[allow(dead_code)]
+/// Audit-Process-String fuer increase_shares (D-15-02).
 const UPGRADE_PROCESS: &str = "member-adjust.upgrade";
 
 gen_service_impl! {
@@ -134,16 +133,103 @@ impl<Deps: MembershipAdjustServiceDeps> MembershipAdjustService for MembershipAd
 
     async fn increase_shares(
         &self,
-        _member_id: Uuid,
-        _shares: i32,
-        _willensbekundung_date: Date,
-        _context: Authentication<Self::Context>,
-        _tx: Option<Self::Transaction>,
+        member_id: Uuid,
+        shares: i32,
+        willensbekundung_date: Date,
+        context: Authentication<Self::Context>,
+        tx: Option<Self::Transaction>,
     ) -> Result<(MemberAction, Member), ServiceError> {
-        // Wird in Plan 03 ueberschrieben
-        Err(ServiceError::InternalError(Arc::from(
-            "increase_shares — Plan 03",
-        )))
+        let tx = self.transaction_dao.use_transaction(tx).await?;
+
+        let user_id = self
+            .permission_service
+            .current_user_id(context.clone())
+            .await?
+            .unwrap_or_else(|| "SYSTEM".to_string());
+
+        // PERM-01: ADMIN_PRIVILEGE-Funnel fuer alle v1.2-Ops.
+        self.permission_service
+            .check_permission(ADMIN_PRIVILEGE, context)
+            .await?;
+
+        // Pre-validation: shares > 0 (Planner-Discretion / CONTEXT specifics).
+        if shares <= 0 {
+            return Err(ServiceError::ValidationError(vec![ValidationFailureItem {
+                field: Arc::from("shares"),
+                message: Arc::from("shares must be greater than 0"),
+            }]));
+        }
+
+        // PERM-02: Datum-Bounds-Validierung (D-15-05..08).
+        let today = time::OffsetDateTime::now_utc().date();
+        let validation_errors = validate_willensbekundung_date(willensbekundung_date, today);
+        if !validation_errors.is_empty() {
+            return Err(ServiceError::ValidationError(validation_errors));
+        }
+
+        // UPGD-01: Member existence.
+        let member_entity = self
+            .member_dao
+            .find_by_id(member_id, tx.clone())
+            .await?
+            .ok_or(ServiceError::EntityNotFound(member_id))?;
+
+        // UPGD-04: gekuendigte Mitglieder blocken -> HTTP 400 via ValidationError.
+        if member_entity.exit_date.is_some() {
+            return Err(ServiceError::ValidationError(vec![ValidationFailureItem {
+                field: Arc::from("member_id"),
+                message: Arc::from("cannot upgrade cancelled member"),
+            }]));
+        }
+
+        // UPGD-02: MemberAction::Aufstockung — sofort wirksam, kein H1/H2 (effective_date=None).
+        let now = time::OffsetDateTime::now_utc();
+        let new_action = MemberAction {
+            id: self.uuid_service.new_v4().await,
+            member_id,
+            action_type: ActionType::Aufstockung,
+            date: willensbekundung_date,
+            shares_change: shares, // UPGD-03 positiv
+            transfer_member_id: None,
+            effective_date: None, // UPGD-02 sofort wirksam
+            comment: None,
+            created: time::PrimitiveDateTime::new(now.date(), now.time()),
+            deleted: None,
+            version: self.uuid_service.new_v4().await,
+        };
+
+        // AUDT-01 / D-15-01 / D-15-02: audited_create! mit UPGRADE_PROCESS.
+        let action_entity: MemberActionEntity = (&new_action).into();
+        crate::audited_create!(
+            self,
+            self.member_action_dao,
+            &action_entity,
+            UPGRADE_PROCESS,
+            &user_id,
+            tx
+        );
+
+        // UPGD-03 (atomar in derselben Tx) / D-15-03: Member.current_shares-Bump
+        // via generischem MemberDao::update + audited_update! (NICHT targeted DAO-method).
+        // Member.version per uuid_service.new_v4() bumpen (Optimistic-Locking).
+        // exit_date wird NICHT angefasst — Aufstockung beeinflusst kein Exit-Date.
+        let mut updated_entity = member_entity.clone();
+        updated_entity.current_shares += shares;
+        updated_entity.version = self.uuid_service.new_v4().await;
+
+        crate::audited_update!(
+            self,
+            self.member_dao,
+            member_entity.id,
+            &updated_entity,
+            UPGRADE_PROCESS,
+            &user_id,
+            tx
+        );
+
+        self.transaction_dao.commit(tx).await?;
+
+        Ok((new_action, Member::from(&updated_entity)))
     }
 }
 
@@ -761,6 +847,233 @@ mod service_tests {
                 assert!(msg.contains("already cancelled"), "unexpected msg: {}", msg);
             }
             other => panic!("Expected Conflict, got {:?}", other),
+        }
+    }
+
+    // ---------- Test 5: Happy-Path Aufstockung ----------
+    #[tokio::test]
+    async fn test_increase_shares_happy_path() {
+        // Datum-Fragility-Fix: leite Test-Datum relativ zu today() ab,
+        // damit der Test nicht beim Year-Rollover bricht.
+        let today = time::OffsetDateTime::now_utc().date();
+        let willensbekundung = today
+            .replace_month(time::Month::March)
+            .expect("March in today.year() exists")
+            .replace_day(15)
+            .expect("Day 15 always valid");
+
+        let member_id = Uuid::new_v4();
+
+        let mut member_dao = MockTestMemberDao::new();
+        let mid = member_id;
+        // find_by_id wird 2x aufgerufen: 1x Service-Body, 1x audited_update! Macro
+        // (find_by_id auf member_dao fuer old-entity-load).
+        member_dao
+            .expect_find_by_id()
+            .times(2)
+            .returning(move |_, _| {
+                let mut m = sample_member_entity(mid, None);
+                m.current_shares = 2;
+                Ok(Some(m))
+            });
+        // audited_update! ruft member_dao.update mit current_shares=5 (=2+3) und
+        // Process="member-adjust.upgrade".
+        member_dao
+            .expect_update()
+            .withf(|entity, process, _| {
+                process == "member-adjust.upgrade" && entity.current_shares == 5
+            })
+            .times(1)
+            .returning(|_, _, _| Ok(()));
+
+        let mut member_action_dao = MockTestMemberActionDao::new();
+        // audited_create! ruft create() mit Process="member-adjust.upgrade".
+        member_action_dao
+            .expect_create()
+            .withf(|_entity, process, _tx| process == "member-adjust.upgrade")
+            .times(1)
+            .returning(|_, _, _| Ok(()));
+
+        let mut audit_log_dao = MockTestAuditLogDao::new();
+        // 2x get_latest_hash + create_entries (1x fuer Action, 1x fuer Member-Diff).
+        audit_log_dao.expect_get_latest_hash().returning(|_| Ok(None));
+        audit_log_dao
+            .expect_create_entries()
+            .returning(|_, _| Ok(()));
+
+        let mut permission_service = MockTestPermissionService::new();
+        permission_service
+            .expect_current_user_id()
+            .returning(|_| Ok(Some("admin".to_string())));
+        permission_service
+            .expect_check_permission()
+            .withf(|priv_, _| priv_ == "admin")
+            .returning(|_, _| Ok(()));
+
+        let service = build_service(
+            member_dao,
+            member_action_dao,
+            audit_log_dao,
+            permission_service,
+            setup_tx_dao(),
+        );
+
+        let result = service
+            .increase_shares(member_id, 3, willensbekundung, Authentication::Full, None)
+            .await;
+
+        let (action, member) = result.expect("increase_shares should succeed");
+        assert_eq!(action.action_type, ActionType::Aufstockung);
+        assert_eq!(action.shares_change, 3);
+        assert_eq!(action.effective_date, None); // UPGD-02 sofort wirksam
+        // Direkter pub-Feld-Zugriff per genossi_service::member::Member.
+        // Erwartung: 2 (sample) + 3 (shares) = 5.
+        assert_eq!(member.current_shares, 5);
+    }
+
+    // ---------- Test 6: Cancelled-Member-Block (UPGD-04) ----------
+    #[tokio::test]
+    async fn test_increase_shares_cancelled_member_blocked() {
+        let today = time::OffsetDateTime::now_utc().date();
+        let willensbekundung = today
+            .replace_month(time::Month::March)
+            .unwrap()
+            .replace_day(15)
+            .unwrap();
+        let already_exit =
+            time::Date::from_calendar_date(today.year(), time::Month::December, 31).unwrap();
+
+        let member_id = Uuid::new_v4();
+
+        let mut member_dao = MockTestMemberDao::new();
+        let mid = member_id;
+        member_dao
+            .expect_find_by_id()
+            .times(1) // Block bricht VOR audited_create!/audited_update! ab
+            .returning(move |_, _| Ok(Some(sample_member_entity(mid, Some(already_exit)))));
+
+        // KEINE create/update-Calls erwartet.
+        let member_action_dao = MockTestMemberActionDao::new();
+        let audit_log_dao = MockTestAuditLogDao::new();
+
+        let mut permission_service = MockTestPermissionService::new();
+        permission_service
+            .expect_current_user_id()
+            .returning(|_| Ok(Some("admin".to_string())));
+        permission_service
+            .expect_check_permission()
+            .returning(|_, _| Ok(()));
+
+        let service = build_service(
+            member_dao,
+            member_action_dao,
+            audit_log_dao,
+            permission_service,
+            setup_tx_dao(),
+        );
+
+        let result = service
+            .increase_shares(member_id, 3, willensbekundung, Authentication::Full, None)
+            .await;
+
+        match result {
+            Err(ServiceError::ValidationError(errs)) => {
+                assert!(
+                    errs.iter().any(|e| e.message.contains("cancelled")),
+                    "expected ValidationError containing 'cancelled', got: {:?}",
+                    errs
+                );
+            }
+            other => panic!("Expected ValidationError, got {:?}", other),
+        }
+    }
+
+    // ---------- Test 7: Permission Denied ----------
+    #[tokio::test]
+    async fn test_increase_shares_permission_denied() {
+        let today = time::OffsetDateTime::now_utc().date();
+        let willensbekundung = today
+            .replace_month(time::Month::March)
+            .unwrap()
+            .replace_day(15)
+            .unwrap();
+
+        // Keine DAO-Calls erwartet — Permission-Denied bricht VOR DAO-Touches ab.
+        let member_dao = MockTestMemberDao::new();
+        let member_action_dao = MockTestMemberActionDao::new();
+        let audit_log_dao = MockTestAuditLogDao::new();
+
+        let mut permission_service = MockTestPermissionService::new();
+        permission_service
+            .expect_current_user_id()
+            .returning(|_| Ok(Some("user".to_string())));
+        permission_service
+            .expect_check_permission()
+            .returning(|_, _| Err(ServiceError::PermissionDenied));
+
+        let service = build_service(
+            member_dao,
+            member_action_dao,
+            audit_log_dao,
+            permission_service,
+            setup_tx_dao(),
+        );
+
+        let result = service
+            .increase_shares(Uuid::new_v4(), 3, willensbekundung, Authentication::Full, None)
+            .await;
+
+        assert!(
+            matches!(result, Err(ServiceError::PermissionDenied)),
+            "expected PermissionDenied (mapped to HTTP 401 via genossi_rest/src/lib.rs:115), got {:?}",
+            result
+        );
+    }
+
+    // ---------- Test 8: Invalid shares (shares=0) ----------
+    #[tokio::test]
+    async fn test_increase_shares_invalid_shares_zero() {
+        let today = time::OffsetDateTime::now_utc().date();
+        let willensbekundung = today
+            .replace_month(time::Month::March)
+            .unwrap()
+            .replace_day(15)
+            .unwrap();
+
+        // Keine DAO-Calls erwartet — Pre-Validation bricht VOR DAO-Touches ab.
+        let member_dao = MockTestMemberDao::new();
+        let member_action_dao = MockTestMemberActionDao::new();
+        let audit_log_dao = MockTestAuditLogDao::new();
+
+        let mut permission_service = MockTestPermissionService::new();
+        permission_service
+            .expect_current_user_id()
+            .returning(|_| Ok(Some("admin".to_string())));
+        permission_service
+            .expect_check_permission()
+            .returning(|_, _| Ok(()));
+
+        let service = build_service(
+            member_dao,
+            member_action_dao,
+            audit_log_dao,
+            permission_service,
+            setup_tx_dao(),
+        );
+
+        let result = service
+            .increase_shares(Uuid::new_v4(), 0, willensbekundung, Authentication::Full, None)
+            .await;
+
+        match result {
+            Err(ServiceError::ValidationError(errs)) => {
+                assert!(
+                    errs.iter().any(|e| &*e.field == "shares"),
+                    "expected ValidationError with field='shares', got: {:?}",
+                    errs
+                );
+            }
+            other => panic!("Expected ValidationError with field=shares, got {:?}", other),
         }
     }
 }
