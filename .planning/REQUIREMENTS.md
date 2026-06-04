@@ -99,43 +99,43 @@ Welche Phasen welche Requirements abdecken. Wird vom Roadmapper-Schritt befüllt
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CANC-01 | TBD | Pending |
-| CANC-02 | TBD | Pending |
-| CANC-03 | TBD | Pending |
-| CANC-04 | TBD | Pending |
-| CANC-05 | TBD | Pending |
-| CANC-06 | TBD | Pending |
-| PART-01 | TBD | Pending |
-| PART-02 | TBD | Pending |
-| PART-03 | TBD | Pending |
-| PART-04 | TBD | Pending |
-| PART-05 | TBD | Pending |
-| PART-06 | TBD | Pending |
-| TRSF-01 | TBD | Pending |
-| TRSF-02 | TBD | Pending |
-| TRSF-03 | TBD | Pending |
-| TRSF-04 | TBD | Pending |
-| TRSF-05 | TBD | Pending |
-| TRSF-06 | TBD | Pending |
-| TRSF-07 | TBD | Pending |
-| UPGD-01 | TBD | Pending |
-| UPGD-02 | TBD | Pending |
-| UPGD-03 | TBD | Pending |
-| UPGD-04 | TBD | Pending |
-| UI-01 | TBD | Pending |
-| UI-02 | TBD | Pending |
-| UI-03 | TBD | Pending |
-| UI-04 | TBD | Pending |
-| AUDT-01 | TBD | Pending |
-| AUDT-02 | TBD | Pending |
-| PERM-01 | TBD | Pending |
-| PERM-02 | TBD | Pending |
-| PERM-03 | TBD | Pending |
+| CANC-01 | Phase 15 | Pending |
+| CANC-02 | Phase 14 | Pending |
+| CANC-03 | Phase 15 | Pending |
+| CANC-04 | Phase 15 | Pending |
+| CANC-05 | Phase 15 | Pending |
+| CANC-06 | Phase 18 | Pending |
+| PART-01 | Phase 16 | Pending |
+| PART-02 | Phase 16 | Pending |
+| PART-03 | Phase 16 | Pending |
+| PART-04 | Phase 16 | Pending |
+| PART-05 | Phase 16 | Pending |
+| PART-06 | Phase 16 | Pending |
+| TRSF-01 | Phase 17 | Pending |
+| TRSF-02 | Phase 17 | Pending |
+| TRSF-03 | Phase 17 | Pending |
+| TRSF-04 | Phase 17 | Pending |
+| TRSF-05 | Phase 17 | Pending |
+| TRSF-06 | Phase 14 | Pending |
+| TRSF-07 | Phase 17 | Pending |
+| UPGD-01 | Phase 15 | Pending |
+| UPGD-02 | Phase 15 | Pending |
+| UPGD-03 | Phase 15 | Pending |
+| UPGD-04 | Phase 15 | Pending |
+| UI-01 | Phase 18 | Pending |
+| UI-02 | Phase 18 | Pending |
+| UI-03 | Phase 18 | Pending |
+| UI-04 | Phase 18 | Pending |
+| AUDT-01 | Phase 15 | Pending |
+| AUDT-02 | Phase 17 | Pending |
+| PERM-01 | Phase 15 | Pending |
+| PERM-02 | Phase 15 | Pending |
+| PERM-03 | Phase 17 | Pending |
 
 **Coverage:**
 - v1.2 requirements: 31 total
-- Mapped to phases: 0 (filled by roadmapper)
-- Unmapped: 31 ⚠️ (will be 0 after roadmap)
+- Mapped to phases: 31 (all)
+- Unmapped: 0 ✓
 
 ## Cross-Reference
 

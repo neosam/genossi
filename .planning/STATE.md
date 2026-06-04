@@ -28,10 +28,22 @@ See: `.planning/PROJECT.md` (updated 2026-06-02 after v1.1 close)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: Not started (roadmap created)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-06-04 — Milestone v1.2 started
+Status: Ready for `/gsd-discuss-phase 14`
+Last activity: 2026-06-04 — Milestone v1.2 Roadmap erstellt (5 Phasen 14–18, 31 REQs mapped)
+
+## v1.2 Roadmap (Phases 14–18)
+
+```
+[ ] Phase 14: DAO/Domain Foundation (compute_effective_date + DAO-Queries)        0/0 plans
+[ ] Phase 15: Service+REST: Kündigung + Aufstockung                               0/0 plans
+[ ] Phase 16: Service+REST: Teil-Rückgabe + Auto-Anlegen-Phase                    0/0 plans
+[ ] Phase 17: Service+REST: Übertrag (Atomare 2-Action-Cascade)                   0/0 plans
+[ ] Phase 18: Frontend Component-First (MembershipAdjustModal)                    0/0 plans
+
+Overall: 0% complete (5 phases, 31 REQs)
+```
 
 ## Closure Snapshot (v1.1, 2026-06-02)
 
@@ -58,13 +70,13 @@ Last activity: 2026-06-04 — Milestone v1.2 started
 - **Tooling debt for Phase 5:** install `wasm-bindgen-cli@0.2.104`, then re-run `dx build --release` and verify Tailwind purge result on the actual release artifact.
 
 ```
-[ ] Phase 1: Assembly-Aggregat + Audit-Hardening                     0/0 plans
-[ ] Phase 2: Helfer-Token + Session + AuthContext::Helper            0/0 plans
-[ ] Phase 3: Attendance-Aggregat + Cascade-Invalidation              0/0 plans
-[ ] Phase 4: Frontend (Component-First)                              0/0 plans
-[ ] Phase 5: Pre-GV-Generalprobe und Operations-Plan                 0/0 plans
-
-Overall: 0% complete
+v1.0 Phasen (alle abgeschlossen, archiviert in .planning/milestones/v1.0-phases/):
+[x] Phase 1: Assembly-Aggregat + Audit-Hardening
+[x] Phase 2: Helfer-Token + Session + AuthContext::Helper
+[x] Phase 3: Attendance-Aggregat + Cascade-Invalidation
+[x] Phase 4: Frontend (Component-First)
+[—] Phase 5: Pre-GV-Generalprobe (SKIPPED — echte GV bereits durchgeführt)
+[x] Phase 6: Teilnehmerlisten-Export (PDF/CSV/XLSX)
 ```
 
 ## Performance Metrics
