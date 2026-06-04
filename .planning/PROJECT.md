@@ -44,7 +44,9 @@ Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachv
 - `membership-adjust-during-fiscal-year.md` (Haupt-Seed, planted 2026-06-04)
 - Design-Doc-Referenz: `.planning/notes/membership-adjust-design.md`
 
-**Next:** `/gsd-discuss-phase 15` — Service+REST: Kündigung + Aufstockung (Phase 14 abgeschlossen).
+**Next:** `/gsd-new-milestone` oder `/gsd-phase add` für Phase 16 (Teil-Rückgabe `partial_repayment`) und Phase 17 (Übertragung `transfer_shares`) — beide erweitern den bestehenden `MembershipAdjustService`-Trait inkrementell (D-15-13 Pattern).
+
+**Phase 15 abgeschlossen (2026-06-04):** Service+REST Kündigung + Aufstockung — `MembershipAdjustService`-Trait mit `cancel_membership` + `increase_shares`, Pure-Function `validate_willensbekundung_date`, `recalc_dates`-Free-Function-Refactor, atomare Doppel-Write-Tx via `audited_create!` + `audited_update!` mit Prozess-Strings `member-adjust.cancel`/`member-adjust.upgrade`, ADMIN_PRIVILEGE-Funnel, 2 REST-Endpoints (`POST /api/members/{id}/cancel`, `POST /api/members/{id}/increase-shares`), Response-Shape `{ action, member }` (skip Follow-up-GET), 11 E2E-Tests inkl. Audit-Chain-Verify. 4 Pläne, 12 Commits, CANC-01/03/04/05 + UPGD-01/02/03/04 + PERM-01/02 + AUDT-01 satisfied. v1.2-Audit-Pattern für Phase 16+17 etabliert.
 
 **Phase 14 abgeschlossen (2026-06-04):** DAO/Domain Foundation — `compute_effective_date` Pure-Function (H1/H2-Stichtag, 6 Tests), `RepaymentEntryDao::find_by_member_and_phase` (Default-Impl + SQLite-Override, 3 Tests), `MemberService::list_transfer_recipients` (Admin-Gate, 3 Tests), REST-Endpoint `GET /api/members/transfer-recipients` mit `MemberSlimTO` (PII-Guard, 4 Unit + 1 E2E Test). CANC-02 und TRSF-06 erfüllt.
 
@@ -108,10 +110,10 @@ Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachv
 
 <!-- v1.2 Mitgliedschaft-Anpassungen — wird in `.planning/REQUIREMENTS.md` voll detailliert (REQ-IDs ADJU-*/REPA-*/TRSF-*/UPGD-*/UI-*). -->
 
-- [ ] Kündigung (Voll-Rückgabe) erzeugt exit_date mit H1/H2-Stichtagsregel
+- [x] Kündigung (Voll-Rückgabe) erzeugt exit_date mit H1/H2-Stichtagsregel — v1.2 Phase 15 (CANC-01, CANC-03, CANC-04, CANC-05)
 - [ ] Teil-Rückgabe erzeugt RepaymentEntry in Ziel-Phase ohne MemberAction-Vorgriff
 - [ ] Anteils-Übertragung erzeugt 2 verlinkte MemberActions (neuer Übertrag-Action-Typ) + aktualisiert current_shares atomar
-- [ ] Aufstockung erzeugt MemberAction (neuer Aufstockung-Action-Typ) + aktualisiert current_shares
+- [x] Aufstockung erzeugt MemberAction (`Aufstockung`-Variante) + aktualisiert current_shares atomar via `audited_update!` — v1.2 Phase 15 (UPGD-01, UPGD-02, UPGD-03, UPGD-04)
 - [ ] Single-Button „Mitgliedschaft anpassen" + Vorschau-Confirm-Dialog auf Member-Detail-Frontend (Vorstand-only)
 
 ### Out of Scope
@@ -303,4 +305,4 @@ bestehende admin-only Listing-Route `GET /api/assembly/{id}/helper-tokens`).
 
 ---
 
-*Last updated: 2026-06-04 — Phase 14 (DAO/Domain Foundation) abgeschlossen: `compute_effective_date` Pure-Function, `find_by_member_and_phase` DAO-Methode, `list_transfer_recipients` Service+REST-Endpoint mit `MemberSlimTO` PII-Guard. CANC-02 + TRSF-06 satisfied. Vorgeschichte: v1.2 gestartet via `/gsd-new-milestone` (4 Operationen Kündigung/Teil-Rückgabe/Übertrag/Aufstockung; klare Abgrenzung gegen v1.1's PaidOut-Cascade — v1.2 erzeugt nur Intent-Datensätze). v1.1 Anteile-Rückzahlungsphase shipped 2026-06-02 (7 Phasen, 56 Pläne, 91 Tasks, 33/34 v1-Reqs satisfied — UI-06 partial).*
+*Last updated: 2026-06-04 — Phase 15 (Service+REST Kündigung + Aufstockung) abgeschlossen: `MembershipAdjustService`-Trait + Impl mit `cancel_membership` + `increase_shares`, Pure-Function `validate_willensbekundung_date` (6 Tests), `recalc_dates`-Free-Function-Refactor, atomare audited Doppel-Write-Tx, ADMIN_PRIVILEGE-Funnel, 2 REST-Endpoints, 11 E2E-Tests inkl. Audit-Chain-Verify. CANC-01/03/04/05 + UPGD-01/02/03/04 + PERM-01/02 + AUDT-01 satisfied. v1.2-Audit-Pattern für Phase 16 (Teil-Rückgabe) und Phase 17 (Übertragung) etabliert. Phase 14 (DAO/Domain Foundation) abgeschlossen: `compute_effective_date` Pure-Function, `find_by_member_and_phase` DAO-Methode, `list_transfer_recipients` Service+REST-Endpoint mit `MemberSlimTO` PII-Guard. CANC-02 + TRSF-06 satisfied. v1.2 gestartet via `/gsd-new-milestone` (4 Operationen Kündigung/Teil-Rückgabe/Übertrag/Aufstockung; klare Abgrenzung gegen v1.1's PaidOut-Cascade — v1.2 erzeugt nur Intent-Datensätze). v1.1 Anteile-Rückzahlungsphase shipped 2026-06-02 (7 Phasen, 56 Pläne, 91 Tasks, 33/34 v1-Reqs satisfied — UI-06 partial).*
