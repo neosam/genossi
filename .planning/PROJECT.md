@@ -15,7 +15,35 @@ Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachv
 - ✅ **v1.0 GV-Anwesenheits-Erfassung** (2026-05-29) — Helfer-QR-Tokens, Anwesenheits-Erfassung, Teilnehmerlisten-Export PDF/CSV/XLSX
 - ✅ **v1.1 Anteile-Rückzahlungsphase** (2026-06-02) — RepaymentPhase-Lifecycle, atomare Auszahlungs-Buchung, Massenmail mit Auszahlungs-Variablen, PDF-Export für Banking, Bulk-Briefe für Nicht-Email-Mitglieder
 
-**Next:** Run `/gsd-new-milestone` to plan v1.2.
+## Current Milestone: v1.2 Mitgliedschaft-Anpassungen während des Geschäftsjahres
+
+**Goal:** Vorstand kann am Mitglied direkt Kündigung, Teil-Rückgabe, Übertrag oder Aufstockung auslösen. v1.2 erzeugt nur die Intent-Datensätze; die Anteils-Reduktion und `MemberAction::Verkauf` bleibt Aufgabe der v1.1-PaidOut-Cascade (kein Doppelbuchen).
+
+**Target features (4 Operationen):**
+
+| Operation | v1.2 erzeugt | v1.1 macht später |
+|-----------|--------------|-------------------|
+| **Kündigung** (Voll-Rückgabe) | `exit_date` am Member mit H1/H2-Stichtag (H1 → 31.12. akt. GJ, H2 → 31.12. folgendes GJ); KEINE MemberAction, KEIN RepaymentEntry direkt | Auto-Befüllung beim Phase-Open picked exit_date-Member; PaidOut-Toggle erzeugt `MemberAction::Verkauf` + reduziert `current_shares` |
+| **Teil-Rückgabe** an Genossenschaft | `RepaymentEntry` in Ziel-Phase (H1/H2-GJ) mit `share_count_to_pay_out = n`; KEINE MemberAction, KEINE `current_shares`-Reduktion, `exit_date` bleibt leer | PaidOut-Toggle erzeugt `MemberAction::Verkauf(n)` + reduziert `current_shares` um n |
+| **Übertragen** an aktives Mitglied (Teil/voll) | 2 verlinkte MemberActions (neuer Übertrag-Action-Typ, NICHT Verkauf); `current_shares`-Anpassung sofort (A: −n, B: +n); `exit_date` bei A nur wenn A → 0; KEIN RepaymentEntry | nicht involviert (kein Geldfluss aus Genossenschaft) |
+| **Aufstocken** | MemberAction (neuer Aufstockung-Action-Typ, NICHT Verkauf) + `current_shares`-Erhöhung um n sofort | nicht involviert |
+
+**Key Context für v1.2:**
+
+- **Permissions:** Nur Vorstand (admin-only, wie RepaymentPhase/MemberAction in v1.1)
+- **Workflow:** One-Click mit Vorschau-Confirm-Dialog (sofort wirksam nach Bestätigung)
+- **UI:** Single-Button „Mitgliedschaft anpassen" auf Member-Detail (nicht in Liste — Audit-relevanz erzwingt Bewusstsein)
+- **Datum:** Datepicker default `today()`, nur offenes GJ erlaubt; Datum = Willensbekundung des Mitglieds
+- **H1/H2-Regel:** gilt genau dann, wenn die Genossenschaft Geld auszahlen muss
+- **Auto-Anlegen Ziel-Phase:** offene Frage für `/gsd-discuss-phase` — v1.1's `create_repayment_entry` verlangt `Phase.status == Open` (D-11.1), Teil-Rückgabe im H2 mit Wirksamkeit folgendes GJ braucht eine Lösung
+- **Action-Types:** v1.2 braucht ggf. neue Varianten (`Übertragung-Aus`/`Übertragung-Ein`/`Aufstockung`), damit v1.1's PaidOut-Cascade nicht versehentlich draufanspringt — bleibt Discuss-Phase-Thema
+
+**Verbundene Seeds (für v1.2 aufgegriffen):**
+
+- `membership-adjust-during-fiscal-year.md` (Haupt-Seed, planted 2026-06-04)
+- Design-Doc-Referenz: `.planning/notes/membership-adjust-design.md`
+
+**Next:** `/gsd-discuss-phase 14` oder `/gsd-plan-phase 14` nach Roadmap-Approval.
 
 ## Requirements
 
@@ -75,14 +103,23 @@ Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachv
 
 ### Active
 
-<!-- v1.1 abgeschlossen — Active-Liste leer bis /gsd-new-milestone die nächsten Requirements anlegt -->
+<!-- v1.2 Mitgliedschaft-Anpassungen — wird in `.planning/REQUIREMENTS.md` voll detailliert (REQ-IDs ADJU-*/REPA-*/TRSF-*/UPGD-*/UI-*). -->
 
-(None — run `/gsd-new-milestone` to define v1.2 requirements)
+- [ ] Kündigung (Voll-Rückgabe) erzeugt exit_date mit H1/H2-Stichtagsregel
+- [ ] Teil-Rückgabe erzeugt RepaymentEntry in Ziel-Phase ohne MemberAction-Vorgriff
+- [ ] Anteils-Übertragung erzeugt 2 verlinkte MemberActions (neuer Übertrag-Action-Typ) + aktualisiert current_shares atomar
+- [ ] Aufstockung erzeugt MemberAction (neuer Aufstockung-Action-Typ) + aktualisiert current_shares
+- [ ] Single-Button „Mitgliedschaft anpassen" + Vorschau-Confirm-Dialog auf Member-Detail-Frontend (Vorstand-only)
 
 ### Out of Scope
 
 <!-- Bewusste Grenzen, weiterhin gültig. -->
 
+- Rückwirkende Mitgliedschafts-Anpassung in bereits abgeschlossene Geschäftsjahre — sehr individuell, Vorstand regelt das mit der bestehenden manuellen MemberAction-UI (v1.2)
+- Übertrag an Mitgliedsantragsteller mit Auto-Vollmitgliedschaft — koppelt Application + Member + Anteile + Aktion atomar; zu komplex für jetzt, abhängiger Seed `transfer-to-applicant` bleibt unaktiviert (v1.2)
+- Storno-Knopf für ausgelöste Kündigungen — über bestehende manuelle MemberAction-UI als negative Gegenbuchung (v1.2)
+- Zwei-Stufen-Workflow (Antrag → Genehmigung → Wirksamkeit) — One-Click mit Vorschau-Confirm ist Default; Vier-Augen-Prinzip ist Future-Requirement (v1.2)
+- v1.2 darf NICHT MemberAction::Verkauf erzeugen und NICHT current_shares reduzieren — das macht v1.1's PaidOut-Cascade; v1.2 erzeugt nur Intent-Datensätze (kein Doppelbuchen) (v1.2)
 - Stimmrechte, Vollmachten, Beschlussfähigkeits-Berechnung — eigenständiges Feature mit deutlich höherer Komplexität (Vollmachts-Daten, Stimmgewichte, Quorum-Regeln); für v1.0 reichte rein anwesend/nicht-anwesend für das Protokoll
 - Audit-Hashchain-Eintrag pro Anwesenheits-Markierung — vom User explizit ausgeschlossen, weil das Anhakeln nicht verbandskonform protokolliert werden muss (Assembly-Lifecycle und QR-Token-Erzeugung BLEIBEN auditiert)
 - Offline-Modus — Helfer brauchen Netzwerk; in der realen GV bestätigt
@@ -263,4 +300,4 @@ bestehende admin-only Listing-Route `GET /api/assembly/{id}/helper-tokens`).
 
 ---
 
-*Last updated: 2026-06-02 after v1.1 Anteile-Rückzahlungsphase shipped — 7 Phasen (07-13), 56 Pläne, 91 Tasks, 33/34 v1-Reqs satisfied (UI-06 partial). RepaymentPhase-Aggregat mit Lifecycle Vorbereitung → Offen → Abgeschlossen, atomare Auszahlungs-Buchung via 12-Schritt-Cascade, Massenmail mit `{{ payout_amount }}`-Variablen, PDF-Export mit Banking-Vorlage, Component-First-Frontend mit `RepaymentEntryList` und Inline-Cell-Edit, Bulk-PDF-Briefe für Nicht-Email-Mitglieder (Phase 13 additiv). Tech-Debt: 7 dokumentierte Items (siehe Context); Audit-Hashchain bleibt valid über alle Cascades. Archive: `.planning/milestones/v1.1-{ROADMAP,REQUIREMENTS,MILESTONE-AUDIT}.md` + `v1.1-phases/`.*
+*Last updated: 2026-06-04 — v1.2 Mitgliedschaft-Anpassungen während des Geschäftsjahres gestartet via `/gsd-new-milestone`. v1.2-Scope: 4 Operationen (Kündigung/Teil-Rückgabe/Übertrag/Aufstockung) am Mitglied; klare Abgrenzung gegen v1.1's PaidOut-Cascade (v1.2 erzeugt nur Intent-Datensätze, KEINE Anteils-Reduktion und KEIN MemberAction::Verkauf-Vorgriff). Vorgeschichte: v1.1 Anteile-Rückzahlungsphase shipped 2026-06-02 (7 Phasen, 56 Pläne, 91 Tasks, 33/34 v1-Reqs satisfied — UI-06 partial). Seed-Source: `.planning/seeds/membership-adjust-during-fiscal-year.md` + Design-Doc `.planning/notes/membership-adjust-design.md`.*

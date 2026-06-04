@@ -1,17 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.1
-milestone_name: Anteile-Rückzahlungsphase
-status: completed
-stopped_at: Phase 13 context gathered
-last_updated: "2026-06-02T11:52:26.529Z"
-last_activity: 2026-06-02
+milestone: v1.2
+milestone_name: Mitgliedschaft-Anpassungen während des Geschäftsjahres
+status: planning
+last_updated: "2026-06-04T05:01:54.882Z"
+last_activity: 2026-06-04
 progress:
-  total_phases: 7
-  completed_phases: 7
-  total_plans: 56
-  completed_plans: 56
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # State: Genossi — v1.1 Anteile-Rückzahlungsphase
@@ -29,9 +28,10 @@ See: `.planning/PROJECT.md` (updated 2026-06-02 after v1.1 close)
 
 ## Current Position
 
-Status: Milestone v1.1 complete (shipped 2026-06-02)
-Last activity: 2026-06-03 — Completed quick task 260603-n3m: Mail-Test-Endpoints (preview_mail + test-with-template) mergen Dummy-Repayment-Kontext jetzt auch ohne repayment_phase_id, sobald das Template Repayment-Vars enthält — behebt undefined-variable-Fehler aus 260603-m48
-Next: `/gsd-new-milestone` to plan v1.2
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-06-04 — Milestone v1.2 started
 
 ## Closure Snapshot (v1.1, 2026-06-02)
 
