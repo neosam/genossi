@@ -181,6 +181,40 @@ impl RepaymentEntryDao for RepaymentEntryDaoImpl {
 
         Ok(())
     }
+
+    async fn find_by_member_and_phase(
+        &self,
+        member_id: Uuid,
+        phase_id: Uuid,
+        tx: Self::Transaction,
+    ) -> Result<Arc<[RepaymentEntryEntity]>, DaoError> {
+        // SQL-Override fuer Skalierung (D-14-08): WHERE-Filter direkt im SQLite
+        // statt In-Memory-Filter via dump_all. Column-Liste 1:1 aus dump_all
+        // uebernommen (Z. 78-81) damit die RepaymentEntryDb-Row-Mapping
+        // konsistent bleibt. ORDER BY created ASC, id ASC liefert
+        // deterministische Reihenfolge (Phase-8-Plan-08-02-Lektion).
+        //
+        // Foundation fuer Phase-16-Sum-Check + Auto-Fill-Skip-Pattern
+        // (PITFALLS Kat 1, TRSF-06).
+        let member_blob = member_id.as_bytes().to_vec();
+        let phase_blob = phase_id.as_bytes().to_vec();
+        let rows = sqlx::query_as::<_, RepaymentEntryDb>(
+            "SELECT id, member_id, phase_id, share_count_to_pay_out, status, created, \
+             deleted, version FROM repayment_entry \
+             WHERE member_id = ? AND phase_id = ? AND deleted IS NULL \
+             ORDER BY created ASC, id ASC",
+        )
+        .bind(member_blob)
+        .bind(phase_blob)
+        .fetch_all(tx.tx.lock().await.as_mut())
+        .await
+        .map_err(|e| DaoError::DatabaseError(Arc::from(e.to_string())))?;
+
+        rows.iter()
+            .map(RepaymentEntryEntity::try_from)
+            .collect::<Result<Vec<_>, _>>()
+            .map(|v| v.into())
+    }
 }
 
 #[cfg(test)]
@@ -412,6 +446,90 @@ mod tests {
         let found_b = dao.find_by_phase_id(phase_b, tx.clone()).await.unwrap();
         assert_eq!(found_b.len(), 1, "phase_b should have exactly 1 entry");
         assert_eq!(found_b[0].phase_id, phase_b);
+
+        tx.commit().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_find_by_member_and_phase_returns_empty_when_no_match() {
+        // Plan 14-02: Empty result wenn weder (member, phase) noch deren
+        // Kombination in der DB existiert. Wir legen einen unrelated Eintrag
+        // an, um sicherzustellen, dass die WHERE-Klausel wirklich filtert
+        // (nicht versehentlich "alle Eintraege" liefert).
+        let pool = setup_db().await;
+        let dao = RepaymentEntryDaoImpl::new(pool.clone());
+        let tx_dao = TransactionDaoImpl::new(pool);
+
+        let target_member = Uuid::new_v4();
+        let target_phase = Uuid::new_v4();
+
+        // Insert one unrelated entry mit anderen IDs.
+        let mut other = sample_entity();
+        other.member_id = Uuid::new_v4();
+        other.phase_id = Uuid::new_v4();
+        let tx = tx_dao.transaction().await.unwrap();
+        dao.create(&other, "test", tx.clone()).await.unwrap();
+
+        let result = dao
+            .find_by_member_and_phase(target_member, target_phase, tx.clone())
+            .await
+            .unwrap();
+        assert_eq!(
+            result.len(),
+            0,
+            "no matching (member, phase) -> empty result"
+        );
+
+        tx.commit().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_find_by_member_and_phase_filters_correctly() {
+        // Plan 14-02: Multi-Entry-Filter ueber Member-Phase-Kreuzprodukt.
+        // 4 Eintraege:
+        //   e1 (m_A, p_X) -> MATCH
+        //   e2 (m_A, p_Y) -> phase differs -> exclude
+        //   e3 (m_B, p_X) -> member differs -> exclude
+        //   e4 (m_A, p_X) -> MATCH
+        // Erwartung: genau 2 Eintraege (e1, e4) in created ASC, id ASC.
+        let pool = setup_db().await;
+        let dao = RepaymentEntryDaoImpl::new(pool.clone());
+        let tx_dao = TransactionDaoImpl::new(pool);
+
+        let m_a = Uuid::new_v4();
+        let m_b = Uuid::new_v4();
+        let p_x = Uuid::new_v4();
+        let p_y = Uuid::new_v4();
+
+        let mut e1 = sample_entity();
+        e1.member_id = m_a;
+        e1.phase_id = p_x;
+        let mut e2 = sample_entity();
+        e2.member_id = m_a;
+        e2.phase_id = p_y;
+        let mut e3 = sample_entity();
+        e3.member_id = m_b;
+        e3.phase_id = p_x;
+        let mut e4 = sample_entity();
+        e4.member_id = m_a;
+        e4.phase_id = p_x;
+
+        let tx = tx_dao.transaction().await.unwrap();
+        dao.create(&e1, "test", tx.clone()).await.unwrap();
+        dao.create(&e2, "test", tx.clone()).await.unwrap();
+        dao.create(&e3, "test", tx.clone()).await.unwrap();
+        dao.create(&e4, "test", tx.clone()).await.unwrap();
+
+        let found = dao
+            .find_by_member_and_phase(m_a, p_x, tx.clone())
+            .await
+            .unwrap();
+        assert_eq!(found.len(), 2, "exactly 2 entries match (m_a, p_x)");
+        for entry in found.iter() {
+            assert_eq!(entry.member_id, m_a);
+            assert_eq!(entry.phase_id, p_x);
+            assert!(entry.deleted.is_none());
+        }
 
         tx.commit().await.unwrap();
     }
