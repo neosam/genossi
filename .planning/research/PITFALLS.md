@@ -1,564 +1,348 @@
-# Pitfalls Research
+# Pitfalls Research — v1.2 Mitgliedschaft-Anpassungen während des Geschäftsjahres
 
-**Domain:** GV-Anwesenheits-Erfassung mit One-Time-QR-Helfer-Sessions, Live-Erstrollout in Genossenschafts-Generalversammlung
-**Researched:** 2026-05-01
-**Confidence:** HIGH (Mischung aus etablierten Web-/Event-Domain-Erfahrungen, Genossi-Codebase-Kenntnis aus CONCERNS.md, GV-Recht aus dejure/Haufe; alle kritischen Pitfalls mit mehreren Quellen verifiziert)
-
-> **Lese-Hinweis für Roadmap-Planer:** Pitfalls sind nach Live-Event-Risiko sortiert, nicht nach technischer Tiefe. Wenn ein Cluster verbessert werden muss, dann zuerst die `LIVE-EVENT-RISIKO`-markierten — die sehen die Genossen direkt.
+**Domain:** Membership lifecycle adjustments coexisting with v1.1 RepaymentPhase/PaidOut-Cascade
+**Researched:** 2026-06-04
+**Confidence:** HIGH (codebase-grounded with file:line references)
 
 ---
 
-## Critical Pitfalls
+## Kritische Invariante (Lest dies zuerst)
 
-### Pitfall 1: One-Time-QR-Token nicht atomar redeemed (Race Condition)
+**v1.2 darf NICHT `MemberAction::Verkauf` erzeugen und NICHT `current_shares` reduzieren, wenn die Genossenschaft später Geld auszahlt. Das macht v1.1's PaidOut-Cascade** (`genossi_service_impl/src/repayment_entry.rs::mark_paid_out`, Z. 517–723).
 
-**LIVE-EVENT-RISIKO: NEIN (Backstage)** — aber Sicherheits-/Trust-Risiko, falls je ausgenutzt.
-
-**What goes wrong:**
-Zwei (oder mehr) Helfer scannen denselben QR-Code in derselben Sekunde — z. B. weil Vorstand Anna den QR ausgedruckt hat, sie ihn in der Hektik zwei Helfern hinhält, beide gleichzeitig scannen. Beide Requests laufen parallel: SELECT (`token_used IS NULL` → true), beide bestehen, beide UPDATEs. Ergebnis: zwei Helfer-Sessions auf demselben Token. Eine sollte gar nicht existieren. Wenn der Vorstand annimmt "nur ein Helfer pro QR", ist das eine Sicherheitslücke.
-
-**Why it happens:**
-Das naive Vorgehen "SELECT token, prüfe `used_at IS NULL`, dann UPDATE auf used" hat ein Time-of-Check-vs-Time-of-Use-Fenster. SQLite serialisiert zwar Schreibvorgänge, aber wenn die Logik im Service-Layer steht (nicht in einem einzigen UPDATE-Statement), können beide Requests die Lese-Phase parallel durchlaufen. In Genossi liegt die Validierung typischerweise im Service-Layer (siehe `genossi_service_impl/src/application.rs:498` für Optimistic-Locking-Pattern); dasselbe Anti-Pattern droht beim QR-Redeem.
-
-**How to avoid:**
-- Redeem in **einem einzigen atomaren UPDATE**: `UPDATE qr_token SET used_at = ?, session_id = ? WHERE id = ? AND used_at IS NULL RETURNING *;`
-- Wenn `RETURNING` keine Zeile liefert, war der Token schon verbraucht → 409/410 zurückgeben.
-- **Nicht** das Optimistic-Locking-Pattern (Version-UUID) für QR-Tokens verwenden — bei One-Time-Use ist `used_at IS NULL` der korrekte Constraint, nicht ein Versionsabgleich.
-- Zusätzlich: UNIQUE-Index auf `qr_token.session_id` verhindert, dass je zwei Sessions am selben Token hängen können (Defense-in-Depth).
-- Für Tests: Reproduziere den Race (zwei `tokio::spawn`s, die gleichzeitig redeemen) im E2E-Test — analog zum Optimistic-Locking-Test, der laut CONCERNS.md fehlt.
-
-**Warning signs:**
-- Code-Review findet `find_token_by_id` gefolgt von `update_token` in Service-Code → Refactor zu atomarem SQL.
-- E2E-Test "100 parallele Redeems desselben Tokens" zeigt > 1 erfolgreiche Session.
-- Logs zeigen mehrere Helfer-Sessions mit identischer `token_id`.
-
-**Phase to address:**
-Phase „QR-Token-Modell + Redeem-Endpoint" (vor Helfer-Login-UI). Atomarität ist ein **Phase-1-Pflicht-Test**, nicht später.
+v1.2 erzeugt nur **Intent-Datensätze:**
+- **Kündigung** → `exit_date` am Member; KEINE MemberAction, KEIN RepaymentEntry direkt (v1.1's Auto-Fill picked beim nächsten Phase-Open)
+- **Teil-Rückgabe** → `RepaymentEntry` in Ziel-Phase; KEINE MemberAction, KEINE `current_shares`-Reduktion
+- **Übertrag** → 2 verlinkte MemberActions (neuer Action-Typ, NICHT `Verkauf`); `current_shares` atomar; KEIN RepaymentEntry
+- **Aufstocken** → MemberAction (neuer Aufstockung-Action-Typ); `current_shares` sofort
 
 ---
 
-### Pitfall 2: WLAN bricht weg während GV — kein Recovery, peinliche Stille vor 80 Genossen
+## Kategorie 1: Doppelbuchung — Auto-Fill + v1.2-Trigger (KRITISCH)
 
-**LIVE-EVENT-RISIKO: JA — der peinliche Albtraum.**
+### Risiko
 
-**What goes wrong:**
-Die GV läuft, 30 Genossen sind eingecheckt, plötzlich verliert das Vereinsheim-WLAN den Uplink (Standard-Failure-Mode bei Veranstaltungen — Event-WiFi „doesn't fail because providers are incompetent—it fails because they didn't plan for the inevitable"). Helfer-Tablets zeigen rotierende Spinner oder „Verbindung verloren". Der Vorstands-Live-Counter zeigt nichts mehr. Wenn der Server selbst noch läuft (er hängt im Vereinsheim-LAN), könnte intern noch alles ok sein — aber Helfer-Browser können nicht mehr synchronisieren. Wenn der Server **außerhalb** des Vereinsheims gehostet ist und das Internet weg ist, ist alles tot. Out-of-Scope ist „Offline-Modus", nicht „Recovery-Strategie".
+v1.2-Kündigung setzt `exit_date` am Member. Beim nächsten `open_repayment_phase` filtert v1.1's Auto-Fill (`genossi_service_impl/src/repayment_phase.rs:319–395`) alle Member mit `exit_date IN [fy_start, fy_end]` und `current_shares > 0`. Wenn v1.2 dieselbe Kündigung zusätzlich als RepaymentEntry vor-greifend einfügt, entsteht ein Duplikat — **ENTR-03** hat bewusst KEINEN UNIQUE-Constraint auf `(member_id, phase_id)` (siehe PROJECT.md Key Decisions).
 
-**Why it happens:**
-Der Stack ist „synchron HTTP, Refresh-only, kein Service-Worker, kein localStorage-Cache". Sobald das Netz weg ist, hat der Browser keine Daten mehr. Die Architektur-Entscheidung „kein Offline-Modus" ist legitim, aber **kein Recovery-Plan** ist es nicht.
+Komplexer Fall: Wenn ein Member im selben GJ **sowohl** Teil-Rückgabe (v1.2 erzeugt Entry) **als auch** später Kündigung mit Stichtag im selben fiscal_year hat, picked Auto-Fill ihn beim Phase-Open zusätzlich auf — Duplikat-Entry.
 
-**How to avoid:**
-- **Decision schon vor Phase 1:** Wo läuft der Server am GV-Tag? (a) Im Vereinsheim auf Laptop = LAN reicht, externes Internet egal; (b) Auf Hetzner/Cloud = Internet ist Single Point of Failure → Mobile-Hotspot-Backup auf einem Vorstandshandy als WLAN-Bridge muss vorbereitet sein.
-- **Manueller Backup-Plan dokumentiert:** Vorstand druckt **VOR** der GV eine vollständige Mitgliederliste mit Mitgliedsnummer + Name + freie Spalte „anwesend ✓". Bei Komplettausfall: Papier weiter, später nachpflegen via Bulk-Import-Endpoint (oder Excel-Import — den gibt's bereits).
-- **Read-Only-Erkennung im Frontend:** Wenn Refresh fehlschlägt → klare UI-Banner "Verbindung verloren. Letzte Aktualisierung HH:MM. Markierungen werden NICHT mehr gespeichert." statt stiller Spinner. Verhindert „phantom checkmarks" in der UI ohne DB-Persistenz.
-- **Optimistic-UI vermeiden** für diesen Milestone: Anwesend-Markierung darf erst gefärbt werden, **nachdem** die API 200 zurückgibt — sonst sieht der Helfer „ist abgehakt", aber serverseitig fehlt es.
+### Warning Signs
 
-**Warning signs:**
-- Pre-Event-Test im Vereinsheim wurde nicht gemacht (Wifi/LAN ungetestet) → Stop, das ist Pflicht.
-- Es gibt keine gedruckte Backup-Liste am GV-Tag.
-- Frontend zeigt bei Netzwerkfehlern keinen Banner, sondern nur einen Spinner.
+- `create_repayment_entry` (`genossi_service_impl/src/repayment_entry.rs:101–170`) validiert nur gegen `Phase.status == Open` (D-11.1 Z. 128–133), **nicht** gegen Duplikate auf `(member_id, phase_id)`.
+- Audit-Log würde zwei separate `audited_create!`-Einträge zeigen (semantisch valid, business-logisch falsch).
+- Helper-Funktion für Duplikat-Detection fehlt; nur `current_shares`-Range-Check existiert (D-11.3 Z. 143).
 
-**Phase to address:**
-Phase „Operations-Plan / Pre-Event-Generalprobe" — separater Phasen-Schritt, nicht nur Code. Plus „Frontend Connection-State Banner-Komponente" (component-first laut CLAUDE.md) in der UI-Phase.
+### Prevention Strategy
 
----
+- **Service-Layer-Sum-Check** beim `create_repayment_entry`: vor Insert prüfen, dass `sum(share_count_to_pay_out) für (member_id, phase_id) WHERE status != PaidOut + new.share_count <= member.current_shares`.
+- **Auto-Fill-Skip-Pattern** im `open_repayment_phase` — wenn der Member bereits Entries in der Phase hat, Auto-Fill überspringt ihn (statt zusätzlichen Entry erzeugen). Pattern-Anker: Phase-8-Auto-Fill-Loop bei Z. 360–395 erweitern.
+- **Neue DAO-Query** `find_by_member_and_phase(member_id, phase_id, tx) -> Vec<Entry>` als Foundation für beide Strategies.
 
-### Pitfall 3: Helfer-Session geht durch Tab-Reload / Browser-Crash verloren — kein Re-Login möglich
+### In welcher Phase abzudecken
 
-**LIVE-EVENT-RISIKO: JA — sehr realistisch im Live-Betrieb.**
-
-**What goes wrong:**
-Helfer Bernd hat sich um 18:00 mit seinem QR-Code eingeloggt. Um 18:45 reloaded sein Tablet (Akku, iOS-Memory-Pressure killt Safari-Tabs aggressiv, versehentlich Browser geschlossen). Sein QR-Code ist bereits **verbraucht** (One-Time-Use!). Wenn die Session in einem Session-Cookie ohne `Persistent` lebte, ist sie weg. Bernd kann sich nicht mehr einloggen, sein QR ist Müll. Lösung: neuer QR-Code drucken? Vorstand hat das Drucksystem nicht dabei. Bernd ist ausgesperrt.
-
-**Why it happens:**
-Konflikt zwischen zwei Anforderungen: (1) One-Time-Use für QR (Sicherheit) und (2) Session muss Tab-Reload überleben (Usability). Standard-Webtech: Session-Cookies sterben bei Browser-Close, localStorage überlebt — aber wenn die Session-ID im Cookie ist, hilft localStorage nicht. Mobile Browser (iOS Safari) [killen Tabs aggressiv bei Memory-Druck](https://abp.io/support/questions/8885/Session-Lost-on-Mobile-Browsers-iOSAndroid-After-Closing-Tab) und [verlieren Session-Cookies beim Schließen](https://learn.microsoft.com/en-us/answers/questions/1165940/auth-cookie-is-deleted-by-the-browser-when-it-clos).
-
-**How to avoid:**
-Drei Optionen, jede mit Tradeoff:
-- **Option A (empfohlen): Persistent Session-Token**
-  Beim QR-Redeem wird ein langlebiges Helfer-Session-Token (UUID) erzeugt, im Backend an die GV gebunden, im Frontend in `localStorage` gespeichert (nicht nur Cookie). Reload → Frontend liest Token aus `localStorage`, sendet als Bearer/Header. Token ist gültig bis `Assembly.closed_at`. **One-Time-Use bleibt erhalten** (der QR ist trotzdem verbraucht, aber das Session-Token überlebt den Tab-Crash).
-- **Option B: Re-Authentifizierungs-Token im URL**
-  Nach Redeem leitet das Backend auf eine URL mit `?session=<token>` um. Helfer kann diese URL bookmarken oder nach Reload erneut öffnen. Vorteil: kein localStorage nötig. Nachteil: Token in URL → Browser-History → Schulter-Surfen.
-- **Option C: Vorstand kann manuell eine neue Helfer-Session ausstellen**
-  Recovery-UI: Vorstand klickt „Helfer Bernd hat seine Session verloren → neue Session ausstellen", Backend erzeugt neuen QR oder direkten Login-Link. Ohne neuen Druck.
-
-Empfehlung: **Option A + Option C als Fallback**. Nicht nur Cookies.
-
-**Warning signs:**
-- Session-Lebenszeit-Strategie nicht in Phase-1-Doku festgelegt → Risiko, dass Default-Cookie-Verhalten sich durchsetzt.
-- Manueller Test fehlt: „Helfer scannt, Tablet macht Hard-Refresh — kommt er wieder rein?" — muss vor Live-Tag bestätigt sein.
-- Code-Review: `tower_sessions` mit `Expiry::OnSessionEnd` (= Browser-Close) statt `Expiry::AtDateTime(assembly.closed_at)`.
-
-**Phase to address:**
-Phase „Helfer-Session-Lebenszyklus + Frontend-Auth-Persistenz" — getrennt von QR-Generierung, weil der Lifecycle eigene Tests braucht.
+- **Spec-Phase:** Duplikat-Detection-Pflicht spezifizieren
+- **Plan-Phase:** Service-Layer-Sum-Check + Auto-Fill-Skip + DAO-Query implementieren, E2E-Test schreiben für „Kündigung + Auto-Fill = nur 1 Entry"
 
 ---
 
-### Pitfall 4: Helfer-View leakt versehentlich PII über reduzierten Datenbestand hinaus
+## Kategorie 2: Auto-Anlegen-Ziel-Phase bei H2-Offset (MITTEL-HOCH)
 
-**LIVE-EVENT-RISIKO: NEIN (technisch nicht sichtbar)**, aber **schwerwiegend datenschutzrechtlich** — kann nach GV zur Beschwerde / Datenschutz-Audit führen.
+### Risiko
 
-**What goes wrong:**
-Frontend zeigt nur Mitgliedsnummer/Name/Titel/Anrede in der Liste — wie in den Constraints festgelegt. Aber: das Backend liefert über `/api/member` die volle `MemberTO` (Bankdaten, IBAN, Adresse, Geburtsdatum). Helfer-Frontend filtert nur visuell. Über Browser-DevTools → Network-Tab kann ein neugieriger Helfer die kompletten Daten lesen. CONCERNS.md M3 listet das explizit: *„All authenticated users with `manage_members` permission can see all member fields including bank account information. No field-level access control exists."*
+v1.2-Teil-Rückgabe im H2 (z.B. November 2026) mit Stichtag 31.12. **folgendes** GJ (2027) braucht eine `RepaymentPhase` für FY 2027 im Status **Open**. Wenn diese Phase nicht existiert oder noch in `Vorbereitung` ist, schlägt `create_repayment_entry` mit `Phase.status != Open` (D-11.1 Z. 128–133) fehl.
 
-Zweiter Vektor: Helfer öffnet die Detail-Ansicht (falls Suche zur Detail-Page führt) statt der reduzierten Liste — und sieht alles.
+Bei Kündigung ist das **nicht** akut — Auto-Fill picked den Member ja erst beim späteren `open_phase` automatisch auf, kein Direkt-Insert. Bei **Teil-Rückgabe** hingegen ist der RepaymentEntry der einzige Intent-Datensatz; ohne ihn geht die Information verloren.
 
-Dritter Vektor: Suchfeld leitet die Query an einen generischen `/api/member?search=...`-Endpoint, der vollständige Member-Records zurückgibt.
+### Warning Signs
 
-**Why it happens:**
-- „Filterung im Frontend" ist die schnellste Implementierung.
-- Bestehende REST-Endpoints liefern volle PII-Records; den Helfer-View dranflanschen ist verlockend.
-- Genossi hat **kein** Field-Level-Access-Control (CONCERNS.md M3 — known finding).
-- Permission-System ist binär (`manage_members` ja/nein), keine zweite Stufe für „limitierte Helfer-Sicht".
+- `create_repayment_entry` schlägt mit 409 fehl, wenn Phase nicht existiert oder in falschem Status — Vorstand-Workflow „Teilrückgabe eingeben" → Fehlermeldung → Workflow bricht ab.
+- v1.1's `open_repayment_phase` lädt Phase via `repayment_phase_dao.find_by_id` und 404-t bei fehlender Phase.
 
-**How to avoid:**
-- **Eigener Endpoint** `/api/assembly/{id}/members` mit eigenem DTO `AttendanceMemberTO { member_id, member_number, name, title, salutation, attended }` — **nicht** `MemberTO` mit `#[serde(skip)]`-Maske. Skip kann durch Refactoring kaputt gehen; getrenntes Struct ist explizit.
-- **Helfer-Permission als eigene Permission** (`assembly_helper`), nicht `manage_members`. Endpoint validiert: nur diese Permission darf den Endpoint sehen.
-- **Keine Detail-Routes für Helfer.** Helfer-Frontend hat keinen Link zur regulären Member-Detail-Seite. Frontend-Routing muss das aktiv ausschließen.
-- **Audit dieses Endpoints lokal:** Test verifiziert, dass `serde_json::to_value(response)` keine `iban`, `bank_account`, `email`, `address`, `birthday` enthält — als Regression-Schutz.
-- **Bezug zu CONCERNS.md M3:** Das ist die Gelegenheit, eine zweite Permission-Stufe einzuführen, die später für andere Feature-Slices wiederverwendbar wird. Nicht als Workaround behandeln.
+### Prevention Strategy (3 Optionen — Discuss-Phase-Item)
 
-**Warning signs:**
-- PR-Diff zeigt: Helfer-Endpoint nutzt bestehendes `MemberTO`-Struct → Stop.
-- Frontend-Code filtert Felder visuell, aber API liefert sie → Stop.
-- Es gibt keinen Test, der prüft, was im Helfer-Response-JSON drin ist (nur was im UI sichtbar ist).
+**A) Auto-Create in `Vorbereitung` + D-11.1-Guard erweitern auf `Preparation | Open`** + Auto-Fill-Dedup beim späteren Open
+- Risiko: D-11.1-Guard-Aufweichung berührt v1.1-Invarianten (Phase-8-Decisions); benötigt Audit-Story für Auto-Erzeugte Phasen
+- Vorteil: Phase wird im richtigen Status angelegt (Vorstand kann später öffnen/abschliessen wie üblich)
 
-**Phase to address:**
-Phase „Helfer-View Backend (read-only Endpoints)" — bevor das Frontend gebaut wird. Der getrennte DTO ist Phase-Pflicht.
+**B) Auto-Create direkt in `Open` + Auto-Fill-Skip-Pattern (Kategorie 1)**
+- Risiko: Auto-Fill iteriert über existing exit_date-Members → Müllentries entstehen, wenn Phase nur für 1 Teilrückgabe-Member angelegt
+- Vorteil: D-11.1 bleibt unangetastet; Direkt-Insert funktioniert sofort
+- Vorbedingung: Auto-Fill-Skip-Pattern aus Kategorie 1 muss zuverlässig sein
 
----
+**C) Explicit Error + Helpful Message** (kein Auto-Create)
+- v1.2-Dialog: „Phase für FY 2027 existiert nicht. Vorstand muss diese zuerst anlegen → [Link zur Phase-Anlegen-Seite]"
+- Vorteil: minimaler Eingriff; explizite Vorstands-Aktion erzwingt Bewusstsein für GJ-Wechsel
+- Nachteil: User-Experience-Bruch — Workflow muss neu gestartet werden
 
-### Pitfall 5: Quorum-Counter zeigt missverständliche Zahlen
+**D) MemberAction sofort, RepaymentEntry deferred bis Phase-Open** (Drittvariante)
+- v1.2-Teilrückgabe erzeugt nur ein neues `PendingPartialReturn`-Marker (Member-Spalte oder leichte neue Entity); Phase-Open-Auto-Fill picked Marker auf
+- Risiko: zusätzliche Entity mit eigenem Lifecycle, höhere Komplexität
+- Nicht empfohlen für v1.2-Scope (Out-of-Scope-Kandidat)
 
-**LIVE-EVENT-RISIKO: JA — Vorstand zeigt Zahl auf Beamer, Genossen fragen, Vorstand stottert.**
+**Empfehlung:** Variante **B** (Auto-Create in Open) abhängig von Kategorie-1-Skip-Lösung. Discuss-Phase muss zwischen A/B/C entscheiden.
 
-**What goes wrong:**
-Live-Counter zeigt „32 von 87 anwesend". Vorstand schaut, denkt „87 = unsere Mitglieder", verkündet „wir sind beschlussfähig" oder „leider nicht". Aber:
-- Y = Alle Member ohne `deleted IS NOT NULL`? Inklusive ausgetretener?
-- Y = Nur stimmberechtigte? Die Anwendung trackt Stimmrechte **nicht** (Out of Scope). Also kann Y nicht „stimmberechtigte" sein.
-- Y = Member, die zur GV eingeladen wurden? Diese Zuordnung gibt's nicht.
-- Beschlussfähigkeit braucht laut Genossenschaftsgesetz/Satzung definierte Quoren — die Software berechnet sie nicht und sollte nicht so tun, als ob.
+### In welcher Phase abzudecken
 
-Wenn der Vorstand in der GV den Counter falsch interpretiert und auf der Basis Beschlüsse fasst, kann der Verband das im Protokoll-Review beanstanden.
-
-**Why it happens:**
-„Counter X von Y" wirkt intuitiv vollständig. Entwickler nimmt naheliegende Y-Definition ohne Rücksprache. Vorstand interpretiert die Zahl mit eigener Vorerwartung. Beschlussfähigkeit ist ein **rechtliches** Konzept (Satzung, GenG), kein technisches.
-
-**How to avoid:**
-- **Y im UI explizit beschriften.** Statt „32 von 87" → „32 von 87 aktiven Mitgliedern (ohne ausgetretene)". Der Helper-Text steht **immer** dran, nicht erst im Tooltip.
-- **Klarstellen, dass die Zahl KEINE Beschlussfähigkeit darstellt.** Footnote: „Beschlussfähigkeit gemäß Satzung wird vom Versammlungsleiter festgestellt."
-- **In PROJECT.md / Frontend-Doku festhalten,** wie Y berechnet wird — damit Vorstand vorher Bescheid weiß, nicht beim Live-Einsatz.
-- **Vor erstem Live-Einsatz: User-Test mit dem Vorstand** — „Was glauben Sie zeigt diese Zahl?" — wenn Antwort „Beschlussfähigkeit", dann ist die Beschriftung kaputt.
-- Bezug zu Out-of-Scope: Stimmrechte sind ausdrücklich kein Scope, also darf der Counter sich nicht so verhalten, als wären sie es.
-
-**Warning signs:**
-- UI-Mock zeigt nur „X / Y" ohne Y-Label.
-- Vorstand fragt im Review „Heißt Y, dass wir beschlussfähig sind, wenn 50 % davon da sind?" → Beschriftung ist unklar.
-- Code: `let y = member_dao.count_active(); let counter = format!("{}/{}", x, y);` ohne Kontext.
-
-**Phase to address:**
-Phase „Live-Counter UI + Vorstands-Review-Mock" — Beschriftung muss vor Code-Implementierung mit Vorstand abgestimmt sein.
+- **Discuss-Phase:** A vs. B vs. C entscheiden
+- **Plan-Phase:** je nach Entscheidung Service-Layer `ensure_repayment_phase` oder Error-Mapping implementieren
 
 ---
 
-### Pitfall 6: Doppel-Abhaken-Fehlerton irritiert Helfer und stört GV-Atmosphäre
+## Kategorie 3: Audit-Hashchain-Konsistenz bei verlinkt-atomaren Operationen (MITTEL)
 
-**LIVE-EVENT-RISIKO: JA — niedriger Schmerz, aber sichtbar.**
+### Risiko
 
-**What goes wrong:**
-Helfer Anna markiert Frau Müller anwesend (200 OK). Anna scrollt weiter. Helfer Bernd, der parallel arbeitet (kein Live-Sync laut Out-of-Scope), sucht ebenfalls nach Müller (steht noch in seinem alten Listenstand auf „nicht anwesend"), klickt sie an. Backend bekommt zweiten POST. Wenn der Endpoint nicht idempotent ist → 409 Conflict, Frontend zeigt rote Fehlermeldung „Konflikt", Bernd ist verwirrt, fragt Anna laut quer durch den Saal — soziale Reibung.
+Übertrag erzeugt 2 verlinkte MemberActions:
+- `Übertragung-Aus (A: −n, transfer_member_id=B.id)`
+- `Übertragung-Ein (B: +n, transfer_member_id=A.id)`
 
-**Why it happens:**
-- Naive Implementierung: `INSERT INTO attendance ...` mit UNIQUE-Constraint → zweite Insertion crasht.
-- Optimistic-Locking mit Version-UUID übertragen → Versionsabgleich schlägt fehl.
-- Out-of-Scope sagt explizit „kein Doppel-Abhaken-Schutz erforderlich" — aber das heißt nicht „Doppel-Abhaken soll Fehler werfen", sondern „Doppel-Abhaken ist ok, weil idempotent".
+Wenn v1.2 nur eine der beiden in der Tx ausführt (Exception zwischen den zwei `audited_create!`-Calls), bleibt der `audit_log` mit einer verwaisten Action. Die Hash-Chain bleibt technisch valid (Hash ≠ vorherige + neue Hash), aber die Semantik bricht — Verlinkung fehlt.
 
-**How to avoid:**
-- **Idempotenter PUT/UPSERT statt POST/INSERT.** `PUT /api/assembly/{aid}/attendance/{mid}` mit Body `{"present": true}` — wenn schon present, no-op, 200 OK.
-- **State-Machine, nicht Event-Stream.** Anwesenheit ist ein Zustand (boolean + Timestamp), nicht eine Sequenz von „check-in"-Events.
-- **Frontend zeigt visuell deutlich** „bereits anwesend" — z. B. grünes Häkchen + grauer Text, nicht klickbar (oder klickbar = austragen, aber dann mit Bestätigung).
-- Bei Refresh: vor jeder Mark-Aktion einmal den aktuellen Zustand laden, dann die Aktion senden.
-- **Idempotenz-Test:** E2E-Test mit 5x demselben PUT — alle 200, Datenbankzustand identisch nach jedem.
+Außerdem: Wenn beide Actions denselben `transaction_id` brauchen, damit Auditor sie als ein Vorgang erkennt, muss das im Service-Layer explizit gesetzt sein. v1.1's PaidOut-Cascade nutzt gemeinsamen `process="repayment-entry.mark-paid-out"`-String (`repayment_entry.rs:47`, `REPAYMENT_ENTRY_PROCESS_MARK_PAID_OUT`).
 
-**Warning signs:**
-- Endpoint-Design ist `POST /attendance` mit body `{member_id, action: "check_in"}` → Event-Stream-Pattern, nicht idempotent.
-- Tabelle hat `attendance_event_log` mit Audit-ähnlicher Struktur statt `attendance` als State-Tabelle.
-- 409-Codes im Test-Output bei „Mehrfach-Markierung-Test".
+### Warning Signs
 
-**Phase to address:**
-Phase „Attendance-Endpoints + Datenmodell" — idempotenter Designentscheid muss vor erster Implementierung stehen.
+- `MemberActionEntity` hat `transfer_member_id: Option<Uuid>` (`genossi_dao/src/member_action.rs:59`).
+- Zwei Service-Layer-`audited_create!`-Calls für die zwei Actions, falls sie nicht in derselben Tx liegen → erste committed, zweite rollback → inkonsistenter State.
+- Wenn unterschiedliche `process`-Strings vergeben werden, gruppiert `/api/audit/verify` + Process-Filter den Vorgang nicht.
 
----
+### Prevention Strategy
 
-### Pitfall 7: Audit-Verzicht für Anwesenheit unterläuft Verbandsprotokoll-Anforderungen
+- **Single-Tx-Anker:** v1.2-Übertrag-Implementation analog `mark_paid_out`-Cascade (12-Schritt-Pattern Phase 9) — beide `audited_create!`s in derselben Tx mit gemeinsamem `process="member-adjust.transfer"`.
+- Beide Actions teilen `tx.clone()`; Exception im zweiten Schritt → ganze Tx rollback.
+- **Test:** v1.2-Übertrag mit Mock-Exception nach erstem `audited_create!` → Tx-Rollback verifizieren, audit_log enthält keine der beiden Actions.
+- **Audit-Verifikation** im E2E: `/api/audit/verify.valid==true` UND `/api/audit/member_action` mit Filter `process="member-adjust.transfer"` zeigt genau 2 Einträge pro Übertrag.
 
-**LIVE-EVENT-RISIKO: NEIN**, aber **Verbandsprüfung-Risiko nach GV** — und der Audit-Verzicht ist explizit eine User-Decision; wir müssen prüfen, ob er hält.
+### In welcher Phase abzudecken
 
-**What goes wrong:**
-Vorstand entscheidet (laut PROJECT.md Key-Decision): Anwesenheit braucht keinen Audit-Hashchain-Eintrag. Ok für „Anhakeln". **Aber:**
-- Das **GV-Ergebnis selbst** (Anzahl Anwesende, Liste der Anwesenden) muss laut [GenG § 47 / Haufe-Protokollanleitung](https://www.haufe.de/id/beitrag/generalversammlung-einer-wohnungsbau-eg-formen-nach-neu-32-protokollierung-der-generalversammlung-HI15517552.html) ins Protokoll und ist verbandsprüfungs-relevant.
-- Das **Schließen der GV** (`Assembly.closed_at`-Setzen) ist ein Vorstands-Handlung mit Konsequenz (alle Helfer-Sessions invalidiert + Liste eingefroren) — sollte auditiert sein.
-- Das **Anlegen einer Assembly** durch den Vorstand ist eine Lifecycle-Aktion mit Auswirkung — sollte auditiert sein.
-- Wenn nur „Anhakeln" nicht audited ist, aber Assembly-Lifecycle (create/close) **schon**, dann ist die Entscheidung in sich konsistent. Wenn beides nicht audited ist, kann der Verband fragen: „Wer hat die GV geschlossen, wann?".
-
-**Why it happens:**
-„Audit ausgeschlossen" wird breit interpretiert als „kein Audit für gar nichts in dem Feature". Tatsächlich gemeint ist „kein Audit pro Anwesenheits-Markierung".
-
-**How to avoid:**
-- **Klar trennen:** 
-  - `Assembly.create` → audited (`audited_create!`).
-  - `Assembly.close` → audited (`audited_update!`).
-  - `AssemblyAttendance.set_present` / `set_absent` → **nicht** audited.
-  - `QrToken.create` (Vorstand erstellt Helfer-QRs) → audited.
-  - `QrToken.redeem` (Helfer scannt) → **nicht** audited (sonst Audit-Spam).
-- **Anwesenheits-Endbestand persistent** in `AssemblyAttendance`-Tabelle, ohne Soft-Delete-Flag-Wechsel — Datenbestand selbst ist „der Beweis".
-- **Protokoll-Export-Endpoint** `/api/assembly/{id}/protocol-export` liefert PDF/CSV mit den Anwesenden inkl. Timestamp — das ist der Verbandsbeweis, ersetzt einzelne Audit-Entries.
-- **CLAUDE.md-Vorgabe einhalten:** Bestehende auditierte Entitäten (Member, MemberAction, MemberDocument, Application) müssen weiterhin Audit-Macros verwenden — der Helfer-Code darf diese Macros nicht umgehen, falls er nebenbei auf Member-Daten schreibt (sollte er aber sowieso nicht).
-
-**Warning signs:**
-- Code-Review: `Assembly`-Entity hat keine `Auditable`-Implementierung → diese **muss** aber ran (für create/close).
-- Es gibt keinen Protokoll-Export-Endpoint → Vorstand kann am GV-Ende keinen Beweis erzeugen.
-- Anwesenheits-Tabelle wird via `DELETE` bereinigt statt persistiert → Datenverlust nach GV.
-
-**Phase to address:**
-Phase „Assembly-Lifecycle + Audit-Integration" (für create/close) und **eigene Phase „Protokoll-Export"** (für Verbandskonformität). Beide nicht in „Helfer-UI" mischen.
+- **Plan-Phase:** Übertrag-Implementierung mit atomarer 2-Action-Tx + gemeinsamem `process`-String
+- **Verify-Phase:** E2E-Audit-Verifikation analog Phase-9-Multi-Endpoint-Pattern
 
 ---
 
-### Pitfall 8: Camera-Access-Permission stolpert beim Helfer-Login (iOS Safari)
+## Kategorie 4: H1/H2-Stichtagsregel-Edge-Cases (MITTEL)
 
-**LIVE-EVENT-RISIKO: JA — Helfer kommt nicht rein, Vorstand muss auf manuelle Mitgliedsnummer-Eingabe ausweichen.**
+### Risiko
 
-**What goes wrong:**
-Helfer öffnet die Helfer-Login-Seite auf seinem iPhone Safari, klickt „QR scannen". Browser will Kamera-Permission. Aber: 
-- Wenn die Seite per `http://` (nicht `https://`) ausgeliefert wird → `getUserMedia` ist **undefined**, kein Prompt, keine Kamera. [HTTPS ist Pflicht](https://copyprogramming.com/howto/navigator-mediadevices-getusermedia-not-working-on-ios-12-safari).
-- Wenn Genossi als PWA mit `display: standalone` läuft (aktuell unklar) → Safari [zeigt keinen Permission-Prompt im Standalone-Mode](https://bugs.webkit.org/show_bug.cgi?id=185448) bis iOS 14.x.
-- Wenn `<video>`-Element kein `playsinline`-Attribut hat → Stream startet nicht.
-- Wenn der Permission-Prompt auf einer Vorgänger-Seite ohne User-Geste angefragt wurde → Browser unterdrückt ihn.
-- Repeated-Prompt-Bug: bei jedem SPA-Routenwechsel fragt Safari neu — Helfer ist genervt.
+- **Schaltjahr:** Willensbekundung am 30.06. (H1-Grenze) bzw. 01.07. (H2-Grenze) muss explizit gehandelt werden — die Definition `H1 = Monat 1–6, H2 = 7–12` ist im Design-Doc, aber im Code nirgendwo dokumentiert.
+- **Willensbekundung am 31.12.:** Kündigung am 31.12.2026 → H2 → Stichtag 31.12.2027. Aber: Was ist das `MemberAction.date`-Feld? Willensbekundungs-Datum oder berechneter Stichtag? `compute_dates` in `genossi_service_impl/src/member_action.rs:155–177` nutzt `effective_date.unwrap_or(action.date)`.
+- **Datepicker-Bounds:** „nur offenes GJ erlaubt" (Design-Doc) ist ambig, wenn H2-Wirksamkeit folgendes GJ erreicht — Datepicker muss aktuelles + nächstes GJ erlauben, sonst keine H2-Erfassung möglich.
 
-**Why it happens:**
-- Browser-Spec sagt: `getUserMedia` braucht Secure Context **und** User-Geste.
-- Dioxus-WASM-Frontend ruft typischerweise via `web_sys::window().navigator().media_devices()` an — wenn `media_devices()` `undefined` returned, gibt's einen `JsValue`-Fehler, der gerne `.unwrap()` wird (siehe `genossi-frontend/src/api.rs` Style — `window().unwrap().location().origin().unwrap()` laut CONCERNS.md).
-- Niemand testet auf iOS, weil Entwickler Linux/Chrome haben.
+### Warning Signs
 
-**How to avoid:**
-- **Server am GV-Tag MUSS HTTPS ausliefern.** Wenn Server lokal im Vereinsheim läuft → self-signed-cert + Vorstand trägt Cert auf Helfer-Geräten ein, oder mDNS-Local-Name + Caddy-mit-internal-CA, oder per ngrok/Cloudflare Tunnel mit echtem TLS. **Im Plan dokumentieren, vor GV testen.**
-- **Manuelle Eingabe als Fallback**: Helfer-Login-Seite hat zwei Optionen: „QR scannen" oder „Code manuell eintippen" (kurzer 6-stelliger Token statt langer UUID). Wenn Kamera versagt, ist der Helfer nicht ausgesperrt.
-- **Kein PWA-Standalone-Mode** für die Helfer-Seite — bleibt im Browser-Tab, dort funktioniert Kamera-Permission verlässlich.
-- **`playsinline` setzen, wenn Video-Element verwendet** (`koder`, `wascan`, `rqrr-wasm` o. Ä.).
-- **Permission-Request nur nach User-Klick** auf „Scannen starten"-Button, nicht beim Page-Load.
-- **Fehler-UX:** Wenn `getUserMedia` failed → klare Meldung „Kamera nicht verfügbar. Bitte Code manuell eintippen." statt Spinner-Tod.
-- **Cross-Device-Test im Plan:** Vor GV testen mit (a) iOS Safari, (b) Android Chrome, (c) iPad Safari.
+- `member_action.rs:168` `effective_date.unwrap_or(a.date)` — implizit, nicht v1.2-aware.
+- `member.rs:213–218` `join_date`, Z. 280–300 `exit_date` — keine H1/H2-Bezugskommentare.
+- Audit-Log würde nicht zeigen, ob ein `exit_date` aus v1.2's Stichtagsregel kommt oder manuell gesetzt war.
 
-**Warning signs:**
-- HTTPS-Setup nicht in Pre-GV-Checkliste.
-- Frontend-Code hat kein Try/Catch um `getUserMedia` — fällt durch zu Panic.
-- Es gibt keinen Manual-Code-Fallback im UI-Mock.
+### Prevention Strategy
 
-**Phase to address:**
-Phase „QR-Scanner-Komponente (Frontend)" — und **eigene Phase „GV-Tag-Operations-Plan"** für HTTPS-Setup, Pre-Event-Test, Backup-Eingabe.
+- **Pure-Function** `compute_effective_date(willensbekundung_date: Date) -> (fiscal_year: i32, exit_date: Date)`:
+  - H1 (Monat 1–6): `fiscal_year = year(willensbekundung)`, `exit_date = 31.12. year(willensbekundung)`
+  - H2 (Monat 7–12): `fiscal_year = year(willensbekundung) + 1`, `exit_date = 31.12. year(willensbekundung)+1`
+- Lokation: neuer Helper in `genossi_service_impl/src/membership_adjust.rs` oder `member_action.rs`. Unit-testbar mit Edge-Cases (30.06., 01.07., 31.12., 01.01., Schaltjahr-Februar).
+- **Datepicker-Logik im Frontend:** erlaubt `today() ± span(aktuelles offenes GJ)`; Backend-Service validiert zusätzlich.
+- **MemberAction.date-Konvention:** Wilensbekundungs-Datum geht in `MemberAction.date`; berechneter Stichtag (falls != Willensbekundung) geht in `effective_date`. Inline-Doc im Service-Code.
+
+### In welcher Phase abzudecken
+
+- **Discuss-Phase:** H1/H2-Grenze + Datepicker-Scope explizit fixieren
+- **Plan-Phase:** Pure-Function `compute_effective_date` + Unit-Tests (mind. 6 Edge-Cases)
 
 ---
 
-### Pitfall 9: Live-Demo / erste Inbetriebnahme ohne Generalprobe
+## Kategorie 5: ActionType-Enum-Erweiterung ohne PaidOut-Cascade-Seiteneffekt (MITTEL-HOCH)
 
-**LIVE-EVENT-RISIKO: JA — meta-Pitfall, der alle anderen verstärkt.**
+### Risiko
 
-**What goes wrong:**
-„Auf meinem Laptop funktioniert's, deploy 30 Minuten vor GV-Start, was soll schon schiefgehen?" — und dann: WLAN unbekannt, HTTPS-Cert-Fehler, Helfer-Tablets nie getestet, Tokens nicht gedruckt, Vorstand kennt das UI nicht, niemand weiß was zu tun ist wenn ein Helfer fragt. Plus alle einzelnen Pitfalls 1-8 schlagen jetzt gleichzeitig zu.
+v1.2 braucht neue `ActionType`-Varianten:
+- **Übertragung-Aus** (transfer_member_id required, shares_change < 0)
+- **Übertragung-Ein** (transfer_member_id required, shares_change > 0)
+- **Aufstockung** (shares_change > 0, transfer_member_id = None)
 
-> *„In demos, external services work perfectly, but in production, APIs slow down, tokens expire, networks drop—causing retry storms, timeouts, and partial failures."* — typischer Demo-vs-Prod-Bias.
+`mark_paid_out` (`genossi_service_impl/src/repayment_entry.rs:600–627`) hardcodet `ActionType::Verkauf` (Z. 610). Wenn v1.2 fälschlich `ActionType::Verkauf` für Übertrag verwendet:
+- `validate_action` (`member_action.rs:96–103`) erzwingt `shares_change < 0` für Verkauf → fängt einen Teil der Falsch-Verwendung
+- Aber: Audit-Story wird verwirrt (Verkauf statt Übertrag in `/api/audit/member_action`)
 
-**Why it happens:**
-- Genossi ist bisher Backend-mit-Web-UI ohne Live-Event-Charakter; die Vorstand-Workflow war zeitunkritisch. GV ist die erste Eventisierung.
-- Tests laufen mit `localhost`, e2e-Tests mit in-memory SQLite — alles ohne Netzlatenz, ohne reale Geräte, ohne reales Drucken.
-- Kein Staging-Environment dokumentiert.
+Außerdem: PaidOut-Cascade triggert auf `RepaymentEntry`-Status-Toggle (nicht auf MemberAction-Type), also kein direkter Cascade-Seiteneffekt. **Risiko ist primär semantisch**, nicht buchhalterisch.
 
-**How to avoid:**
-- **Pflicht-Generalprobe mindestens 1 Woche vor GV.** Im echten Vereinsheim oder vergleichbarer Umgebung, mit echtem Tablet, echtem Drucker, echten ausgedruckten QRs, mindestens 3 Test-„Helfern", mindestens 10 Test-Mitgliedern in der DB.
-- **Pre-Event-Checkliste in `.planning/`** — separate Datei, z. B. `OPERATIONS.md`, mit:
-  - [ ] HTTPS funktioniert von außen?
-  - [ ] WLAN/LAN getestet mit allen Helfer-Geräten?
-  - [ ] Drucker-Backup für Mitgliederliste?
-  - [ ] Mobile-Hotspot-Backup vorbereitet?
-  - [ ] QR-Codes gedruckt + gescannt + verifiziert (nicht nur generiert)?
-  - [ ] Vorstand kennt: Helfer-View, Counter, GV-Schließen, Protokoll-Export?
-  - [ ] Helfer wissen: was tun bei Tablet-Crash, was tun bei nicht-gefundenem Mitglied, was tun bei Internet-Aussetzer?
-- **Rollback-Plan:** Falls GV vor Beschlüssen feststellt „System unbenutzbar" → Papierliste aus dem Schrank, GV läuft analog weiter. Keine GV-Pause nötig.
-- **Demo-Mode:** Eigener Endpoint / Konfiguration, der eine Test-Assembly erzeugt mit synthetischen Mitgliedern — für Generalprobe und Vorstand-Schulung, ohne echte Daten zu nutzen.
+### Warning Signs
 
-**Warning signs:**
-- Es gibt keinen Generalproben-Termin.
-- Keine `OPERATIONS.md` oder Äquivalent.
-- Niemand außer dem Entwickler hat das System je benutzt.
+- `ActionType`-Enum-Variante muss in mehreren Stellen synchron gepflegt werden: DAO (`genossi_dao/src/member_action.rs:9–18`), Service-Validierung (`validate_action` Z. 76–153), REST-TO, Frontend-Translation.
+- Wenn `validate_action` für die neuen Types keine Regel hat, akzeptiert sie alles → Datenqualitätsbug.
 
-**Phase to address:**
-**Eigene Phase „Pre-GV-Generalprobe + Operations-Plan"** — getrennt von Code-Phasen, eigener Erfolgskriterien, eigener Schritt im Roadmap. Höchste Priorität-Phase nach Code-Komplettheit.
+### Prevention Strategy
 
----
+- **Enum-Erweiterung-Checkliste** (im Plan-Doc):
+  1. `ActionType`-Enum in `genossi_dao/src/member_action.rs` (Migration falls Enum-as-String stored)
+  2. `validate_action`-Regeln in `genossi_service_impl/src/member_action.rs`:
+     - `Übertragung-Aus`: `shares_change < 0` AND `transfer_member_id.is_some()`
+     - `Übertragung-Ein`: `shares_change > 0` AND `transfer_member_id.is_some()`
+     - `Aufstockung`: `shares_change > 0` AND `transfer_member_id.is_none()`
+  3. REST-TO + Frontend-Display-Strings (i18n DE/EN)
+  4. Unit-Test pro neue Variante
+- **Verkauf-Verteidigung:** Inline-Doc auf `mark_paid_out` (Z. 610): „ActionType::Verkauf ist EXKLUSIV für PaidOut-Cascade. Übertragung/Aufstockung haben eigene Types."
+- **Grep-Gate** in der Plan-Phase: `grep -n "ActionType::Verkauf" --include="*.rs"` zeigt nur die eine Zeile in `mark_paid_out`. Falls v1.2-Code zusätzliche Zeilen erzeugt → fail.
 
-### Pitfall 10: Bestehender Audit-Pipeline-Bruch durch Assembly-Code-Querverbindungen
+### In welcher Phase abzudecken
 
-**LIVE-EVENT-RISIKO: NEIN**, aber **Codebase-Risiko** — kann Member/Application-Audit nach GV-Code-Merge brechen.
-
-**What goes wrong:**
-Helfer-Endpoint braucht Member-Daten. Entwickler ergänzt Member-DAO um eine neue Methode `find_by_id_minimal()` für die reduzierte Helfer-Sicht. Bei der Gelegenheit räumt er „aus Versehen" das Audit-Macro-Wrapping um, weil's „verwirrend" ist. Oder neuer Endpoint umgeht die `audited_update!`-Macro, weil er „nur lesend" ist — aber im Code-Pfad triggert er stillschweigend einen Member-Update (z. B. `last_active_at`-Feld). Audit-Hash-Chain bricht oder wird unvollständig.
-
-CONCERNS.md weist explizit auf die Fragilität der Audit-Hash-Chain hin und auf den Mangel an Tests dafür.
-
-**Why it happens:**
-- Audit-Macros (`audited_create!`, `audited_update!`, `audited_delete!`) sind ein Konvention, nicht eine Sprach-Konstrukt-Erzwingung. Compiler erlaubt direkten DAO-Aufruf.
-- Neue Entitäten (Assembly, AssemblyAttendance, QrToken) sind explizit **nicht** auditiert — der Mental-Switch „kein Audit hier" könnte versehentlich auf bestehende Entitäten überspringen.
-- CLAUDE.md sagt klar: *„Bestehende auditierte Entitäten (Member, MemberAction, MemberDocument, Application) müssen weiterhin Audit-Macros verwenden"* — aber das wird nur in Code-Reviews durchgesetzt.
-
-**How to avoid:**
-- **Keine Member/Application-Mutationen aus dem GV-Feature.** Helfer-Endpoint ist ausschließlich Read auf Member; schreibende Aktion geht nur auf neue Tabellen.
-- **PR-Review-Checkliste**: bei GV-Phase-PRs: hat sich an `genossi_service_impl/src/member.rs`, `application.rs`, `member_document.rs`, `member_action.rs` etwas geändert? Wenn ja, Audit-Macro-Verwendung bestätigen.
-- **E2E-Test schreiben** (fehlt laut CONCERNS.md sowieso): „Member-Update via REST → Audit-Verify-Endpoint zeigt Hash-Chain-OK". Diesen Test in CI laufen lassen, schlägt aus, wenn Audit-Pipeline bricht.
-- **`/api/audit/verify` regelmäßig in CI** ausführen gegen frisch-migrierte DB mit Test-Daten.
-- **Aufräumen-Phase NACH dem Live-Einsatz:** Wenn CONCERNS.md M3 (Field-Level-Access) während GV-Phase angefasst wurde, klar trennen welcher Commit was tat.
-
-**Warning signs:**
-- PR-Diff zeigt Änderungen an `member.rs`-Service ohne Begründung.
-- CI-Test für Audit-Hash-Chain fehlt — also kein Schutz.
-- Helfer-Code importiert direkt aus `genossi_dao`-Crate, ohne über Service-Layer zu gehen → Audit-Bypass.
-
-**Phase to address:**
-Phase „CI-Hardening: Audit-Verify-Test" — sollte VOR den GV-Code-Phasen stehen, sodass jeder GV-PR gegen den Test grünt. Plus Phase-übergreifende PR-Checkliste.
+- **Discuss-Phase:** Namen + Validierungsregeln finalisieren (insbesondere DE/EN-Naming-Convention)
+- **Plan-Phase:** Enum-Erweiterung + validate_action-Tests + Grep-Gate
 
 ---
 
-### Pitfall 11: QR-Code-Verbreitung / -Verlust ist breiter als „weitergegeben"
+## Kategorie 6: current_shares-Race (Optimistic Locking) (MITTEL)
 
-**LIVE-EVENT-RISIKO: NIEDRIG (aber: One-Time-Use mitigiert es schon teilweise).**
+### Risiko
 
-**What goes wrong:**
-Vorstand druckt 8 Helfer-QR-Codes. Bei der GV-Vorbereitung:
-- Anna verlegt ihren Ausdruck — landet später im Müll, theoretisch könnte jemand ihn fotografieren.
-- Bernd fotografiert seinen QR mit dem eigenen Handy und scannt vom Foto — das ist ok, aber er teilt das Foto in der Helfer-WhatsApp-Gruppe, weil „sicherheitshalber".
-- Carl scannt seinen QR an einem Test-Tablet, das nicht an der GV beteiligt ist → QR ist verbraucht für die echte GV.
-- Drucker spuckt zweimal aus, ein Ausdruck bleibt im Tray, Putzpersonal findet ihn.
+v1.1's `mark_paid_out` (`repayment_entry.rs:629–641`) aktualisiert `Member.current_shares -= N`. v1.2-Übertrag aktualisiert `current_shares` sofort (A: −n, B: +n). v1.2-Aufstockung aktualisiert sofort (+n). Wenn parallel:
+- v1.2-Übertrag auf Member A
+- v1.1-mark_paid_out auf Member A
 
-One-Time-Use mitigiert das **nach erstem Scan**, aber nicht **vor erstem Scan**.
+optimistic-locking (`genossi_service_impl/src/member.rs:214–215` `if entity.version != update.version`) blockt eine der beiden mit 409. Frontend muss Re-Read durchführen (siehe Phase-7-Tech-Debt: Optimistic-Locking Stale-Retry-Pattern).
 
-**Why it happens:**
-Papier-QRs sind nicht wie Passwörter „vor Augen schützen", sondern wandern. Erwartung „Vorstand passt auf" hält selten.
+### Warning Signs
 
-**How to avoid:**
-- **Pre-Activation-Window:** QR-Tokens sind nur in einem Zeitfenster gültig (z. B. nur am GV-Tag, ab 2 Stunden vor offiziellem Beginn). Vorher gescannte Tokens verbrauchen sich nicht, sie sind „noch nicht aktiv".
-- **Sichtbarer Helfer-Memo-Text auf dem Ausdruck.** Wenn jemand „QR für Anna" findet, erkennt der Finder, das gehört Anna; Anna kann beim Vorstand melden „mein QR ist weg, neuen ausstellen".
-- **QR-Revoke-Endpoint:** Vorstand kann einen einzelnen QR-Token vor Aktivierung invalidieren („Anna sagt, sie hat ihren verloren"). Nicht erst nach Verbrauch reagierbar.
-- **Kein Foto-Versand sinnvoll:** Helfer-Onboarding ist explizit physisch (Vorstand übergibt QR persönlich). Im Helfer-Briefing erklären „bitte nicht fotografieren / weitersenden". Soziale Mitigation.
-- **Drucker-Routine:** „Print → Fold → Distribute" als Vorgang; keine offen rumliegenden Ausdrucke.
+- Nach `audited_update!` wird Member-Entity zwar re-read (`member.rs:343–348`), aber NEUE `version` UUID wird im Service-Return mitgegeben — Frontend muss diese auch im Formular halten.
+- Wenn zwei nebenläufige REST-Calls beide auf demselben Member landen, sieht der zweite die alte `version`.
 
-**Warning signs:**
-- QR-Tokens sind 30 Tage gültig statt 1 Tag.
-- Kein Revoke-Endpoint im API-Plan.
-- Helfer-Onboarding ist nicht im Operations-Plan beschrieben.
+### Prevention Strategy
 
-**Phase to address:**
-Phase „QR-Token-Modell" für Pre-Activation/TTL und Revoke-Endpoint. Phase „Pre-GV-Operations-Plan" für die soziale Komponente.
+- **Service-Layer-Fehler-Message** muss klar sein: „Member.version mismatch — Daten wurden parallel geändert. Bitte Seite neu laden und erneut versuchen."
+- **Frontend:** nach 409 (Conflict) im v1.2-Dialog → expliziter Hinweis + auto-Refresh des Dialogs mit neuen Daten.
+- **Discuss-Phase-Item:** Sollte v1.2 eine pessimistische Lock auf dem Member halten während des Dialogs? — empfohlen: **nein**, das ist v2-Architektur.
+
+### In welcher Phase abzudecken
+
+- **Plan-Phase:** Service-Layer-Fehler-Message + Frontend-Re-Read-Pattern für 409
 
 ---
 
-## Technical Debt Patterns
+## Kategorie 7: Empfänger-Search bei Übertrag — Soft-Delete + Self-Transfer (MITTEL)
 
-Shortcuts that seem reasonable but create long-term problems.
+### Risiko
 
-| Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
-|----------|-------------------|----------------|-----------------|
-| `MemberTO` mit `#[serde(skip)]`-Maske statt eigenem `AttendanceMemberTO` | Schnell, 5 Zeilen Code | Refactor an Member fügt versehentlich PII-Feld ohne Skip ein → Helfer sieht es; M3 (CONCERNS.md) bleibt ungelöst | **Nie**: ist die DSGVO-Hauptcheckliste. |
-| QR-Token als „use Member.id direkt als Login" statt eigene Token-Entität | Eine Tabelle weniger | Permission-System verkrampft, Lebenszyklus nicht trennbar, kein Revoke möglich | **Nie**: das ist die Sicherheitsarchitektur. |
-| Optimistic-Locking-Pattern (Version-UUID) für QR-Redeem statt atomarem `WHERE used_at IS NULL` | Konsistenz mit bestehenden Entitäten | Race-Condition (Pitfall 1) bleibt offen | **Nie** für One-Time-Use-Tokens. |
-| Cookie-Session ohne `Persistent`/`AtDateTime` für Helfer | Default `tower_sessions`-Verhalten | Helfer fliegt bei Tablet-Reload raus (Pitfall 3) | **Nie** für GV-Helfer; **OK** für Vorstands-Web-Login. |
-| Counter-UI nur „X / Y" ohne Y-Beschriftung | Zwei Wörter sparen | Vorstand interpretiert falsch, GV-Pannen (Pitfall 5) | **Nie** vor Live-Einsatz; **OK** in einem Admin-Debug-Panel. |
-| Direct DAO-Aufruf in Helfer-Endpoint statt Service-Layer | Einfacher Code-Pfad | Audit-Bypass, Permission-Check umgangen, CLAUDE.md-Architektur-Regel verletzt | **Nie**: layered architecture. |
-| `unsafe impl Send/Sync` für neue GV-Service-Structs (analog zu CONCERNS.md N1) | Trait-Bound-Konflikte umgehen | Tech-Debt vergrößert sich, neue Stellen für die spätere Migration | **Nur** wenn als Tech-Debt-Item in CONCERNS.md aufgenommen. |
-| Audit-Macro-Wrapping bei Member „aus Versehen" weglassen, weil GV-Code „nichts Wichtiges" schreibt | Etwas weniger Boilerplate | Audit-Hash-Chain bricht (Pitfall 10) | **Nie**: Audit-Macros sind Pflicht für auditierte Entitäten. |
-| QR-Tokens unbegrenzt gültig | Vereinfacht Lifecycle | Pre-GV-Tokens werden Reststaub, Verbrauchszeitpunkt unklar | **Nie**: TTL ist Pflicht. |
+v1.2-Übertrag braucht ein Search-Feld für „Empfänger aktives Mitglied". `member.rs` `all()` (genossi_service/src/member.rs) lädt alle Member; der DAO-`dump_all` filtert nur `deleted IS NULL`, **nicht** auf `status` oder `exit_date`. Eine soft-deleted oder gekündigte Member könnte im Search auftauchen.
 
----
+Zusätzlich: Member darf nicht **sich selbst** als Empfänger wählen (Self-Transfer ist kein valider Geschäftsvorfall).
 
-## Integration Gotchas
+### Warning Signs
 
-Common mistakes when connecting to external services.
+- `member_dao.all()` und `find_by_id()` filtern `deleted IS NULL` per Default — aber `exit_date IS NOT NULL` heißt der Member ist gekündigt, nicht soft-deleted.
+- `member.rs:309–311` `update()` hat keinen Status-Mutation-Guard.
 
-| Integration | Common Mistake | Correct Approach |
-|-------------|----------------|------------------|
-| **OIDC (Nextcloud)** | Vorstand-Login-Flow nicht kompatibel mit Helfer-QR-Login (zwei Auth-Systeme parallel) | Vorstand bleibt in OIDC-Session; Helfer-Session ist eigener Pfad mit eigenem Cookie-Name (`assembly_helper_session`); beide koexistieren ohne Mix; Vorstand kann zusätzlich Helfer-View ohne QR sehen, indem das Vorstands-OIDC-Cookie als Helfer-Berechtigung gelesen wird. |
-| **Browser `getUserMedia`** | Permission-Request beim Page-Load → Browser unterdrückt | Permission-Request nach User-Klick auf „Scannen starten"-Button. |
-| **Browser `localStorage`** | Helfer-Session-Token in Cookie, das beim Browser-Close stirbt | Token in `localStorage` + zusätzlich Cookie für serverseitige Validation; bei Reload aus `localStorage` rekonstruieren. |
-| **Drucker (Vorstands-Workflow)** | QR-PDF als A4-Vollbild → Drucker-Setting „Fit to page" verzerrt → QR unscannbar | Druck als Halbseite mit klar definierter QR-Größe (≥ 2x2 cm), dazu printer-friendly Schwarz-auf-Weiß, ausreichend Quiet Zone. |
-| **SQLite Connection Pool** | Default-Pool-Konfig (CONCERNS.md): unter Helfer-Last keine explizite max_connections | Vor GV `max_connections=20` setzen; Live-Counter-Polling kann sonst Pool erschöpfen. |
-| **Axum Body Limit** | Default 2 MB (CONCERNS.md HIGH-Bug) — Helfer-Endpoint nicht betroffen, aber Vorstand will am GV-Tag noch ein PDF hochladen → 413 | Bevor GV: `fix-upload-body-limit`-Proposal mergen, sonst Side-Quest am GV-Tag. |
-| **Nextcloud-Export** (laufendes System) | Nach GV-Schluss exportiert irgendein Job die Mitgliederliste mit den neuen Anwesenheits-Daten zu Nextcloud → Vorstand sieht die Liste, aber jetzt enthält sie auch GV-Daten? | Klar definieren, ob Anwesenheits-Daten in Nextcloud-Export gehören. Wenn nein: Filter; wenn ja: Schema versionieren, sonst bricht Export-Pipeline. |
+### Prevention Strategy
+
+- **Neue Service-Methode** `list_transfer_recipients(exclude_member_id: Uuid) -> Vec<Member>`:
+  - Filter: `deleted IS NULL` (default) AND `exit_date IS NULL` (aktives Mitglied) AND `id != exclude_member_id`
+- **Neuer REST-Endpoint** `GET /api/members/transfer-recipients?exclude_self={uuid}` mit Permission-Check (admin-only).
+- **Frontend-Search:** ausschließlich diesen Endpoint nutzen, nicht den allgemeinen `GET /api/members`.
+- **Service-Layer-Guard** beim Übertrag-Create: zusätzlich validieren `from_member_id != to_member_id`.
+
+### In welcher Phase abzudecken
+
+- **Plan-Phase:** `list_transfer_recipients` DAO/Service-Methode + REST-Endpoint + Frontend-Search
 
 ---
 
-## Performance Traps
+## Kategorie 8: Permission-Edge-Case — Vorstand kündigt sich selbst (MITTEL)
 
-Patterns that work at small scale but fail as usage grows.
+### Risiko
 
-| Trap | Symptoms | Prevention | When It Breaks |
-|------|----------|------------|----------------|
-| Helfer-Liste lädt **alle** Member auf einmal | Lange Initial-Latenz beim Helfer-Login auf Tablet | Pagination + Server-Side-Suche; nur Treffer rendern | Bei > 500 Mitgliedern auf Tablet-Browser mit WASM-Render-Overhead. Genossi-Skala ist heute eher 100-300, also nicht akut, aber für 1000+ relevant. |
-| Live-Counter pollt jede Sekunde via `/api/assembly/{id}/counter` | DB-Read-Last + Tablet-Akku stirbt | Polling-Intervall 5-10 s; oder ETag/304-Antwort bei keiner Änderung; oder Counter-Wert clientseitig inkrementieren ohne Server-Roundtrip pro Mark | Mit 5+ Helfern parallel + 100 Mitgliedern, Polling 1s = 5+ req/s nur für Counter. |
-| `dump_all()` für Helfer-Suche statt indizierter Query | Suche dauert Sekunden | SQL-LIKE mit Index auf `member_number`, `last_name`; oder FTS5 SQLite-Full-Text-Search-Tabelle | Bei > 200 Mitgliedern wird dump_all spürbar; bei 1000+ peinlich. |
-| Audit-Verify (`/api/audit/verify`) auf der GV laufen lassen | Verify scant ganze Audit-Tabelle, blockt Pool | Verify nur außerhalb GV-Zeiten; oder paginierte Verify-Variante | Mit > 10000 Audit-Einträgen → Sekunden bis Minuten. |
-| Soft-Delete-Filter (`WHERE deleted IS NULL`) ohne Index auf `deleted` | Liste-Endpoint langsam | Composite-Index `(deleted, ...)` oder Partial-Index `WHERE deleted IS NULL` | Bei > 1000 Mitgliedern mit vielen Soft-Deletes. CONCERNS.md erwähnt das implicit. |
-| `unsafe impl Send/Sync` (CONCERNS.md N1) verbirgt echtes Sync-Problem | Race / Datarace die nur unter Last sichtbar | Tech-Debt-Cleanup vor neuer Service-Komposition; nicht neue `unsafe impl` für Assembly-Service hinzufügen | Schon heute latent; bei neuen GV-Services mit dem gleichen Pattern wird's mehr. |
+v1.2-Kündigung ist `admin`-only. Ein Mitglied der Genossenschaft kann auch Vorstand sein. Wenn Vorstand sich selbst kündigt:
+- `exit_date` wird gesetzt
+- bei Voll-Kündigung wird später (via PaidOut-Cascade) `current_shares = 0`
+- Eventuell: Vorstand verliert noch in der UI-Session selbst die Berechtigung, was zu unklarem UX führt
 
----
+### Warning Signs
 
-## Security Mistakes
+- Permission-Check global auf `ADMIN_PRIVILEGE`, nicht auf „darf ich auf mich selbst operieren?".
+- Audit-Log zeigt `actor_id == subject_id` für die Action — semantisch ok, aber ungewöhnlich.
 
-Domain-specific security issues beyond general web security.
+### Prevention Strategy
 
-| Mistake | Risk | Prevention |
-|---------|------|------------|
-| QR-Token-ID ist sequenziell oder kurz (z. B. 6-stellig) | Brute-Force-Erraten von gültigen Tokens | UUID v4 (128 bit) als Token-ID; **oder** wenn Manual-Code-Fallback (Pitfall 8) gewünscht, dann zusätzlich kurze Codes mit Rate-Limit + TTL ≤ 1h |
-| Helfer-Permission = `manage_members` recyceln | Helfer kann Member editieren, nicht nur lesen | Eigene Permission `assembly_helper`, scope-limited auf Read + Anwesenheit-Update |
-| Helfer-Session-Token im URL-Pfad | Token in Browser-History, Server-Logs, Referer-Header | Token im Header (`Authorization`) oder Cookie, **nicht** im Pfad |
-| Helfer-Endpoint nimmt `member_id` aus Frontend, ohne zu validieren, dass member zur Assembly gehört | Helfer kann theoretisch beliebige fremde Mitglieder als „anwesend" markieren | Validate: Member existiert, Member ist nicht soft-deleted, Member-Sichtbarkeitsregel okay. Auch bei Anwesenheit-Schreiben |
-| QR-Code generiert Server-Side mit user-supplied Inhalten ohne Sanitization | XSS / Open-Redirect via QR-Inhalt | QR-Inhalt = nur Token-ID + Base-URL, beides server-controlled |
-| HTTP statt HTTPS am GV-Tag | Helfer-Login via HTTP → Token im Klartext im LAN | HTTPS-Pflicht im Operations-Plan; Test vor GV |
-| Pre-Activation-Window fehlt | QR-Codes können vor GV von Test-Lauf verbraucht werden | TTL + Activation-Window pro Token |
-| Permission-Check für Helfer-View nur im Frontend | Direkter API-Call mit Vorstands-Cookie umgeht Helfer-Limits → sieht alles | Server-Side-Permission immer; Frontend-Filter ist nur UX, nicht Security |
-| OIDC + Helfer-Session beide in Cookie-Jar → Verwechslung | Helfer-Cookie wird vom Vorstands-Browser mitgesendet, Permission-Mix | Cookie-Names disjunkt; Endpoints validieren genau einen Auth-Modus |
-| Mitgliedsnummern in Helfer-Liste sind sequenziell und predictable | Helfer kann Mitgliedsnummer-Bereich komplett iterieren | OK in diesem Kontext (Helfer ist trusted), aber: Endpoint-Rate-Limit als Defense-in-Depth |
+- **Frontend-Dialog:** Wenn `current_user_id == member_id`, extra Warn-Modal: „Sie sind dabei, Ihre eigene Mitgliedschaft zu beenden. Das ist unwiderruflich. Fortfahren?"
+- **Kein Service-Layer-Guard** — Vorstand darf sich selbst kündigen, das ist verbandsrechtlich legitim (z.B. Vorstand muss aus persönlichen Gründen austreten).
+- Optional: Im Audit-Log expliziter Flag „self-action" für leichteren Audit-Trail.
+
+### In welcher Phase abzudecken
+
+- **Plan-Phase:** Frontend-Dialog-Text + Visual-Warning
 
 ---
 
-## UX Pitfalls
+## Kategorie 9: SQLITE_BUSY-Race in v1.2-Cascade-Tests (NIEDRIG)
 
-Common user experience mistakes in this domain.
+### Risiko
 
-| Pitfall | User Impact | Better Approach |
-|---------|-------------|-----------------|
-| „Anwesend"-Toggle-Button ohne visuellen Bestätigungs-Zustand | Helfer klickt zwei-, dreimal weil unsicher → Doppelmarkierungen | Klarer Vor-/Nach-Zustand: grauer Kreis → grünes Häkchen mit Pulse-Animation; nach Server-OK |
-| Suche ohne Auto-Fokus auf Suchfeld nach Page-Load | Helfer muss erst klicken, dann tippen — pro Mitglied 2x klicken | `autofocus` auf Suchfeld; nach Markierung Suchfeld leeren + zurückfokussieren |
-| Suche case-sensitive oder ohne Umlaut-Normalisierung | „Müller" vs „mueller" findet nichts | Case-insensitive + Unicode-Normalisierung; suche in Mitgliedsnummer **und** Name parallel |
-| Liste zeigt nur Mitgliedsnummer (1234), Helfer kennt nur Name | Helfer scrollt komplett, ineffizient | Name vollwertig anzeigen (Constraint erlaubt es) — Mitgliedsnummer als Sekundär-Info |
-| Counter „X von Y" ohne Update bei Refresh | Vorstand fragt sich „warum stagniert der?" | Counter-Refresh sichtbar (Spinner / Timestamp „aktualisiert vor 3 s") |
-| Kein „Letzte Markierung rückgängig"-Button | Helfer markiert falsche Person, weiß nicht wie korrigieren | „Anwesend"-Markierung anklickbar = austragen mit Bestätigung |
-| GV-Schließen-Button leicht zu erreichen | Vorstand klickt versehentlich → Sessions weg, Helfer ausgesperrt | „GV schließen" + Bestätigungs-Modal mit Zähler („32 Anwesende werden eingefroren, Helfer-Sessions werden beendet. Wirklich schließen?") |
-| Keine Anzeige „GV läuft" / „GV beendet" | Helfer verstehen nicht, warum sie ausgesperrt sind | Top-Banner mit GV-Status |
-| Helfer-Name (Memo) nicht sichtbar im UI | Wenn Vorstand mehreren Helfern hilft, weiß er nicht wer angemeldet ist | Header zeigt „Eingeloggt als: Anna" |
-| Fehler-Meldungen technisch („SQL constraint violation") | Helfer panisch, Vorstand muss weghelfen | Domänen-spezifische Meldungen: „Mitglied bereits abgehakt", „Verbindung verloren — bitte Seite neu laden" |
-| Helfer-Liste sehr lange ohne Pagination/Scroll-to-Top | iPad-Helfer scrollt 500 Einträge auf Touch | Sticky Header + Suchfeld; Liste virtualisiert oder paginiert |
+v1.1-Phase-9-E2E-Tests akzeptieren `[200, 409|500]` als Race-Outcome (Phase-9-Tech-Debt; siehe `milestones/v1.1-MILESTONE-AUDIT.md`). v1.2-Übertrag-Cascade (2 verlinkte MemberActions + 2 Member-Updates in einer Tx) ist ähnlich strukturiert; SQLITE_BUSY-Race-Path im Memory-Pool-Test ist erwartbar.
+
+### Prevention Strategy
+
+- **E2E-Test-Pool-Setup:** `busy_timeout(5000)` im In-Memory-Pool setzen (analog v1.1 Phase 9 Pool-Setup).
+- Tests akzeptieren `[200, 409|500]` mit Negativ-Constraint `!(status_a == 200 && status_b == 200)` (Pattern Phase-9-Plan-04).
+- DAO-Layer-Mapping `SQLITE_BUSY → ConflictError` ist Rule-4-Change und bleibt Tech-Debt für v1.3+.
+
+### In welcher Phase abzudecken
+
+- **Verify-Phase:** E2E-Pool mit `busy_timeout` + sortierte Status-Assertion
 
 ---
 
-## "Looks Done But Isn't" Checklist
+## Kategorie 10: recalc_migrated-Konsistenz bei v1.2-Operationen (NIEDRIG–MITTEL)
 
-Things that appear complete but are missing critical pieces. Verify each before declaring milestone done.
+### Risiko
 
-- [ ] **One-Time-QR-Redeem:** Tests umfassen **konkurrenten** Redeem (zwei parallele Requests), nicht nur sequenziellen. Atomares UPDATE im SQL, nicht SELECT-then-UPDATE im Service.
-- [ ] **Helfer-Session-Persistenz:** Manueller Test „Tablet-Reload nach Login" wurde gemacht; Helfer ist immer noch eingeloggt. Auf realem mobilen Browser (nicht nur Desktop-Chrome).
-- [ ] **HTTPS am GV-Tag:** Es gibt eine dokumentierte HTTPS-Setup-Anleitung im Operations-Plan, getestet im Vereinsheim, nicht erst am GV-Morgen.
-- [ ] **Helfer-PII-Limitierung:** Test verifiziert Response-JSON-Inhalt (nicht nur UI-Sichtbarkeit). DTO ist eigenes Struct, nicht skip-maskiertes `MemberTO`.
-- [ ] **Counter-Beschriftung:** Y wird im UI klar erläutert; Vorstand wurde befragt „Was glauben Sie zeigt diese Zahl?" und antwortet konsistent.
-- [ ] **Idempotente Anwesenheits-Markierung:** E2E-Test mit 5x demselben Request → 5x 200 OK, DB-Zustand identisch.
-- [ ] **Audit-Hash-Chain:** `/api/audit/verify` läuft grün am GV-Tag; CI-Test verifiziert das nach jedem GV-Code-Merge.
-- [ ] **Camera-Permission auf iOS Safari:** Tatsächlich auf einem iPhone getestet (nicht nur DevTools-Mobile-Emulation).
-- [ ] **Manuelle Code-Eingabe als Fallback:** Frontend bietet „Code eintippen" wenn Kamera nicht verfügbar; Backend akzeptiert beide Wege.
-- [ ] **Pre-Activation-Window für QR:** Tokens sind nicht generierbar + sofort scanbar; gibt's TTL/Window?
-- [ ] **QR-Revoke-Endpoint:** Vorstand kann einen einzelnen QR vor Verbrauch invalidieren.
-- [ ] **Backup-Plan für Internet-Aussetzer:** Gedruckte Mitgliederliste + manueller Bulk-Import-Pfad nach GV existiert und ist getestet.
-- [ ] **GV-Schließen-Bestätigung:** Vorstand kann nicht versehentlich klicken; Modal zeigt Konsequenzen.
-- [ ] **Protokoll-Export-Endpoint:** GV-Ergebnisse können nach Schließen als PDF/CSV exportiert werden, mit Timestamp, signierbar.
-- [ ] **Bestehende Audit-Pipeline intakt:** PR-Diff zeigt keine Änderungen an `member.rs`-Service-Audit; CI-Test bestätigt.
-- [ ] **Generalprobe:** Ein vollständiger Trockenlauf hat im Vereinsheim mit echten Geräten und mindestens 3 Helfern stattgefunden. Mindestens eine Woche vor echter GV.
-- [ ] **Vorstands-Schulung:** Vorstand kann selbständig: Assembly anlegen, QRs erzeugen, Counter sehen, Helfer-Memo zuordnen, GV schließen, Protokoll exportieren — ohne Entwickler-Hilfe.
-- [ ] **Helfer-Briefing dokumentiert:** Es gibt schriftliche Anleitung „Was tun wenn Tablet abstürzt", „Was tun wenn Mitglied nicht in Liste", „Was tun wenn Internet weg".
+v1.1's `mark_paid_out` ruft `recalc_migrated` auf (`repayment_entry.rs:692–718`), um den `Member.migrated`-Flag zu aktualisieren. `compute_migration_status` in `member.rs:74–82` zählt MemberActions zur Bestimmung.
 
----
+v1.2-Operationen erzeugen MemberActions:
+- **Übertrag** (2× MemberAction) → muss `recalc_migrated` aufrufen für beide Members
+- **Aufstockung** (1× MemberAction) → muss `recalc_migrated` aufrufen
+- **Kündigung** (KEINE MemberAction direkt; setzt nur `exit_date`) → KEIN `recalc_migrated` nötig
+- **Teil-Rückgabe** (nur RepaymentEntry, keine MemberAction) → KEIN `recalc_migrated` nötig
 
-## Recovery Strategies
+### Warning Signs
 
-When pitfalls occur despite prevention, how to recover.
+- `recalc_migrated` ist Service-internal in `genossi_service_impl/src/member.rs`; wenn v1.2-Service nicht denselben Helper teilt, könnte er vergessen werden.
+- Bestehende `MemberServiceImpl` ruft `recalc_migrated` nach `MemberAction`-Create automatisch (über `MemberActionService`-Interaktion). Wenn v1.2 einen eigenen Service-Pfad nimmt, muss er den Helper explizit aufrufen.
 
-| Pitfall | Recovery Cost | Recovery Steps |
-|---------|---------------|----------------|
-| WLAN ausgefallen mitten in GV | LOW (wenn vorbereitet), HIGH (wenn nicht) | (1) Helfer wechseln auf Mobile-Hotspot eines Vorstandshandys (vorher konfiguriert). (2) Falls auch das nicht: Papierliste rausholen, manuell weiter, später nachpflegen via Excel-Import (existiert in Genossi). (3) Vorstand kommuniziert „kurze Pause / weiter analog" — keine Panik. |
-| Helfer-Session verloren nach Tablet-Reload | LOW | Wenn Persistent-Token implementiert: Reload reicht. Sonst: Vorstand stellt manuell neuen Helfer-QR aus (Recovery-UI), neuer Scan, weiter. |
-| Doppel-Markierung führt zu 409 (statt idempotent zu sein) | LOW | Helfer ignoriert, Refresh, prüft ob anwesend → ja → fertig. Frontend zeigt explizit „bereits anwesend". |
-| QR-Code verloren / weggeworfen | LOW | Vorstand stellt Revoke-Endpoint-Aufruf aus, druckt neuen QR; Helfer scannt frisch. Voraussetzung: Revoke-Endpoint existiert, Drucker da. |
-| Camera-Permission auf iOS verweigert | LOW | Helfer wechselt auf Manual-Code-Eingabe. Voraussetzung: Manual-Fallback im UI. |
-| PII-Leak an Helfer (z. B. via DevTools) | HIGH | Nach Entdeckung: GV-Schluss → Datenschutz-Beauftragter informieren → Helfer-Liste auf Vertraulichkeit verpflichtet → Code-Hotfix vor nächster GV. Kein Quick-Fix während laufender GV. |
-| Audit-Hash-Chain bricht (durch GV-Code-Merge) | MEDIUM | (1) `/api/audit/verify` zeigt Bruchstelle. (2) Code-Bisect: welcher Commit hat Audit-Macro umgangen. (3) Hotfix + neue Audit-Migration, die Chain fortschreibt. (4) Verband informieren bei verbandskritischen Entitäten. |
-| Vorstand schließt GV versehentlich vor Ende | MEDIUM | Wenn schließen audited ist: Vorgang sichtbar, Vorstand kann „GV wieder öffnen"-Endpoint nutzen (sollte existieren!). Helfer-Sessions müssen neu ausgestellt werden. Kommunikation an Helfer notwendig. |
-| Counter zeigt falsche Y-Zahl, Beschluss auf falscher Basis gefasst | HIGH | Verband-Konsultation; Beschluss-Wiederholung in nächster GV; Protokoll-Korrektur. Verhindern (Pitfall 5)! |
-| Live-Demo-Crash (Pitfall 9 manifestiert sich) | HIGH | Zurück auf Papier, GV-Pause minimieren, Demo-Ergebnis später nachpflegen, nächste GV mit getestetem System; Lessons-Learned-Doku. |
+### Prevention Strategy
+
+- **Service-Code-Konvention:** Nach jedem `audited_create!(MemberAction)` in v1.2-Code muss `recalc_migrated` für die betroffenen Member-IDs aufgerufen werden (in derselben Tx).
+- **Grep-Gate** in Plan-Phase: jede `audited_create!(...member_action_dao, ...)`-Stelle in v1.2-Code muss in derselben Funktion einen `recalc_migrated`-Aufruf haben (oder explizit dokumentierte Ausnahme).
+- **Test:** v1.2-Übertrag erzeugt 2 MemberActions → `Member.migrated`-Flag beider Members nach Übertrag korrekt gesetzt.
+
+### In welcher Phase abzudecken
+
+- **Plan-Phase:** Helper-Aufruf-Konvention in der Service-Code-Skizze festhalten; Unit-Test pro Operation
 
 ---
 
-## Pitfall-to-Phase Mapping
+## Zusammenfassung — Priorisierung
 
-How roadmap phases should address these pitfalls. Phasen-Namen sind Vorschläge für die Roadmap; Reihenfolge orientiert an Abhängigkeit.
-
-| Pitfall | Prevention Phase | Verification |
-|---------|------------------|--------------|
-| 1 — One-Time-Token-Race | Phase „QR-Token-Modell + Redeem-Endpoint" | E2E-Test: 100 parallele Redeems → 1 erfolgreich |
-| 2 — WLAN-Ausfall ohne Recovery | Phase „Operations-Plan / Pre-Event" + UI-Phase „Connection-State Banner" | Pre-Event-Checkliste abgehakt; Banner-Komponente existiert |
-| 3 — Session-Verlust nach Reload | Phase „Helfer-Session-Lifecycle + Frontend-Auth-Persistenz" | Manueller iOS-Safari-Reload-Test besteht; Recovery-UI für Vorstand existiert |
-| 4 — PII-Leak im Helfer-View | Phase „Helfer-View Backend (read-only Endpoints)" | Eigener DTO; Test prüft Response-JSON-Felder; eigene Permission `assembly_helper` |
-| 5 — Counter-Y-Mehrdeutigkeit | Phase „Live-Counter UI + Vorstands-Mock-Review" | Vorstand-Test bestätigt korrekte Interpretation; Y-Beschriftung sichtbar |
-| 6 — Doppel-Abhaken-Conflict | Phase „Attendance-Endpoints + Datenmodell" | E2E-Test 5x identischer PUT; State, nicht Event |
-| 7 — Audit-Verzicht-Lücke | Phase „Assembly-Lifecycle (create/close) + Audit" + Phase „Protokoll-Export" | `Auditable` für Assembly; PDF/CSV-Export-Endpoint; Verband-Akzeptanz-Check |
-| 8 — Camera-Permission-iOS | Phase „QR-Scanner-Komponente" + Phase „Operations-Plan" | iOS-Safari-Test besteht; Manual-Code-Fallback existiert; HTTPS-Setup-Doku |
-| 9 — Live-Demo-Bias | **Eigene Phase „Pre-GV-Generalprobe"** | Generalprobe durchgeführt; Operations-Plan vollständig |
-| 10 — Audit-Pipeline-Bruch | Phase „CI-Hardening: Audit-Verify-Test" (vor GV-Code-Phasen!) | CI-Test grün; PR-Checkliste eingeführt |
-| 11 — QR-Verbreitung/-Verlust | Phase „QR-Token-Modell" (Pre-Activation, TTL, Revoke-Endpoint) | Tokens haben TTL; Revoke-Endpoint getestet |
-
-**Roadmap-Empfehlung (Phase-Reihenfolge):**
-
-1. **CI-Hardening: Audit-Verify-Test** (verhindert Pitfall 10 für alle nachfolgenden Phasen)
-2. **Assembly + Auditable + DAO/Service-Skelett** (Lifecycle-Entitäten — adressiert Pitfall 7 teilweise)
-3. **QR-Token-Modell + atomarer Redeem + TTL/Revoke** (adressiert Pitfalls 1, 11)
-4. **Helfer-Session-Lifecycle + Backend** (adressiert Pitfall 3 backend-seitig)
-5. **Helfer-View Backend (read-only, eigener DTO, eigene Permission)** (adressiert Pitfall 4)
-6. **Attendance-Endpoints (idempotent)** (adressiert Pitfall 6)
-7. **Live-Counter Endpoint + Frontend-Mock-Review** (adressiert Pitfall 5)
-8. **Frontend: QR-Scanner-Komponente + Manual-Fallback** (adressiert Pitfall 8)
-9. **Frontend: Helfer-View + Auth-Persistenz + Connection-Banner** (adressiert Pitfalls 2, 3 frontend-seitig)
-10. **Frontend: Vorstands-View + GV-Schließen-Bestätigung** (UX-Pitfalls)
-11. **Protokoll-Export-Endpoint + UI** (adressiert Pitfall 7 finalisierend)
-12. **Pre-GV-Generalprobe + Operations-Plan + Vorstands-Schulung** (adressiert Pitfalls 2, 9; Cross-Cutting)
-
-Phase 12 ist **gleichberechtigt mit Code-Phasen** und nicht „nice-to-have". Roadmap muss das explizit als Phase modellieren, mit eigenen Erfolgskriterien.
+| # | Kategorie | Severity | Phase-Coverage |
+|---|-----------|----------|----------------|
+| 1 | Doppelbuchung Auto-Fill + v1.2 | **KRITISCH** | Spec + Plan + Verify |
+| 2 | Ziel-Phase nicht existent (H2→folgendes GJ) | **MITTEL-HOCH** | Discuss + Plan |
+| 3 | Audit-Verlinkung Übertrag-Action | MITTEL | Plan + Verify |
+| 4 | H1/H2-Stichtag Edge-Cases | MITTEL | Discuss + Plan |
+| 5 | Neue ActionTypes statt Verkauf | **MITTEL-HOCH** | Discuss + Plan |
+| 6 | current_shares-Race (Optimistic-Lock) | MITTEL | Plan |
+| 7 | Empfänger-Search Soft-Delete + Self | MITTEL | Plan |
+| 8 | Vorstand-Self-Kündigung | MITTEL | Plan |
+| 9 | SQLITE_BUSY in v1.2-E2E | NIEDRIG | Verify |
+| 10 | recalc_migrated-Konsistenz | NIEDRIG–MITTEL | Plan |
 
 ---
 
-## Sources
+## Top-Empfehlungen für Discuss-Phase v1.2
 
-### Domain-spezifische Quellen
-- [Common Mistakes of Using QR Codes for Event Check-in (Dreamcast)](https://www.dreamcast.in/blog/qr-codes-for-event-check-in/) — Event-Check-in-Failure-Modes (MEDIUM)
-- [QR code quiet zone and contrast: the print checklist (QRshuffle)](https://qrshuffle.com/blog/qr-code-quiet-zone-contrast) — Print/Scan-Failures (MEDIUM)
-- [How to Handle a WiFi Outage at Your Event (etechrentals)](https://etechrentals.com/etech-blog/how-to-handle-wifi-outage-at-your-event/) — WLAN-Backup-Strategien (MEDIUM)
-- [A Critical Point of Failure: Event Network Connectivity (Xpodigital)](https://www.xpodigital.com/blog/sales-kickoff-event-wifi) — „Event WiFi doesn't fail because providers are incompetent" (MEDIUM)
-
-### Technische Quellen
-- [Race Condition in /get-patch token replay (GHSA-vh5j-5fhq-9xwg)](https://github.com/tailot/taylored/security/advisories/GHSA-vh5j-5fhq-9xwg) — Konkretes One-Time-Token-Race-CVE (HIGH)
-- [Race Conditions in Web Applications (Raijuna)](https://www.raijuna.com/knowledge/race-conditions) — TOCTOU-Pattern für Token-Redeem (HIGH)
-- [getUserMedia in standalone PWA bug (WebKit 185448)](https://bugs.webkit.org/show_bug.cgi?id=185448) — iOS Safari getUserMedia-Quirks (HIGH)
-- [Repeated Camera Permission Prompts in Web SPA (WebKit 215884)](https://bugs.webkit.org/show_bug.cgi?id=215884) — iOS-Permission-Repeat (HIGH)
-- [Session Lost on Mobile Browsers After Closing Tab (ABP.IO)](https://abp.io/support/questions/8885/Session-Lost-on-Mobile-Browsers-iOSAndroid-After-Closing-Tab) — Mobile-Browser-Session-Loss (MEDIUM)
-- [Idempotency in APIs (RestfulAPI.net)](https://restfulapi.net/idempotent-rest-apis/) — Idempotent-PUT für Anwesenheit (HIGH)
-
-### Recht / Verbandskontext
-- [Generalversammlung Wohnungsbau-Genossenschaft Protokollierung (Haufe)](https://www.haufe.de/id/beitrag/generalversammlung-einer-wohnungsbau-eg-formen-nach-neu-32-protokollierung-der-generalversammlung-HI15517552.html) — Protokoll-Pflichtinhalte (HIGH)
-- [§ 47 GenG — Niederschrift über Beschluss](https://dejure.org/gesetze/GenG/47.html) — Gesetzliche Anforderungen (HIGH)
-- [Anwesenheitsliste im Verein (campai)](https://www.campai.com/de/akademie/anwesenheitsliste-im-verein) — DSGVO-Datenminimierung (MEDIUM)
-- [Datenschutz und Mitgliederversammlung (Vereinswelt)](https://www.meine.vereinswelt.de/artikel/so-bekommen-sie-das-thema-datenschutz-und-mitgliederversammlung-in-den-griff/) — DSGVO-Praxis-Hinweise (MEDIUM)
-
-### Codebase-interne Quellen
-- `.planning/PROJECT.md` (HIGH — Projekt-Constraints, Out-of-Scope, Key-Decisions)
-- `.planning/codebase/CONCERNS.md` (HIGH — Tech-Debt: M3 Field-Level-Access, M5 No Hard Delete, N1 unsafe Send/Sync, audit-verify-test fehlt, default body limit, etc.)
-- `CLAUDE.md` (HIGH — Architektur-Regeln, Audit-Macro-Pflicht für bestehende Entitäten, Component-First-Frontend)
+1. **Auto-Anlegen-Phase-Strategie:** A vs. B vs. C aus Kategorie 2 fixieren — bestimmt die ganze Teilrückgabe-Pipeline.
+2. **H1/H2-Grenze:** im Code-Kommentar fixieren (Monat 1–6 / 7–12), nicht implizit.
+3. **ActionType-Naming:** Deutsch (Übertragung-Aus/Ein, Aufstockung) oder English (TransferOut/In, Increase)? Bestehende Enum-Werte sind gemischt — Konvention vor Plan-Phase fixieren.
+4. **Datepicker-Bounds:** nur aktuelles GJ ODER auch nächstes (für H2-Wirksamkeit)?
+5. **Sub-Choice-Form:** 4 Buttons flat vs. 3 mit Nesting (Reduzieren → Genossenschaft/Mitglied) vs. Kündigungs-Quickpath — Design-Doc-offene-Frage.
 
 ---
 
-*Pitfalls research for: GV-Anwesenheits-Erfassung mit One-Time-QR-Helfer-Sessions, Live-Erstrollout*
-*Researched: 2026-05-01*
+*Pitfalls research for: Genossi v1.2 Mitgliedschaft-Anpassungen während des Geschäftsjahres*
+*Researched: 2026-06-04*

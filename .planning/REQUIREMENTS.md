@@ -1,138 +1,150 @@
-# Requirements: Genossi — v1.1 Anteile-Rückzahlungsphase
+# Requirements: Genossi v1.2 Mitgliedschaft-Anpassungen
 
-**Defined:** 2026-05-29
-**Core Value:** Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachvollziehbar (Audit-Hashchain), mit weniger manueller Arbeit.
-
-**Milestone Goal:** Ersetzt die Excel-Liste für Anteils-Auszahlungen — Vorstand verwaltet Rückzahlungsphasen direkt in Genossi, schreibt Mitglieder per Massenmail an und exportiert auszahlbare Beträge als PDF zur Online-Banking-Übernahme.
+**Defined:** 2026-06-04
+**Core Value:** Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachvollziehbar, mit weniger manueller Arbeit. v1.2 ergänzt die laufende Pflege während des Geschäftsjahres (Kündigung, Teil-Rückgabe, Übertrag, Aufstockung am Mitglied direkt) ohne v1.1's PaidOut-Cascade zu duplizieren.
 
 ## v1 Requirements
 
-### RepaymentPhase Lifecycle
+Requirements für v1.2-Release. Jedes mappt auf genau eine Roadmap-Phase.
 
-- [x] **PHAS-01**: Vorstand kann eine `RepaymentPhase` mit `fiscal_year` und `share_value` (Cent/Decimal) anlegen — Initial-Status `Vorbereitung`
-- [x] **PHAS-02**: Vorstand kann `RepaymentPhase` öffnen (`Vorbereitung → Offen`) — beim Übergang werden Einträge automatisch befüllt (siehe ENTR-01)
-- [x] **PHAS-03**: Vorstand kann `RepaymentPhase` abschließen (`Offen → Abgeschlossen`) nur wenn alle Einträge Status `ausbezahlt` oder soft-gelöscht haben
-- [x] **PHAS-04**: Vorstand kann `share_value` in `Offen`-Status korrigieren — Änderung über `audited_update!` (eigener Audit-Eintrag pro Korrektur)
-- [x] **PHAS-05**: `RepaymentPhase` ist auditpflichtig — `audited_create!` beim Anlegen, `audited_update!` für Lifecycle-Übergänge und `share_value`-Korrekturen
+### Kündigung (CANC) — Voll-Rückgabe an Genossenschaft
 
-### RepaymentEntry Management
+- [ ] **CANC-01**: Vorstand kann am Mitglied „Kündigung" auslösen (Single-Button auf Member-Detail-Page)
+- [ ] **CANC-02**: System berechnet H1/H2-Stichtag aus Willensbekundungs-Datum (H1 = Monat 1–6 → 31.12. aktuelles GJ; H2 = Monat 7–12 → 31.12. folgendes GJ)
+- [ ] **CANC-03**: System erzeugt eine `MemberAction::Austritt` mit `date = Willensbekundungs-Datum`, `effective_date = berechneter H1/H2-Stichtag`, `shares_change = 0` (Anteile bleiben bis zur Auszahlung unverändert)
+- [ ] **CANC-04**: `Member.exit_date` wird via existing `recalc_dates`-Hook automatisch aus der Austritts-Action gesetzt (keine direkte Mutation außerhalb von `recalc_dates`)
+- [ ] **CANC-05**: System erzeugt KEINE `MemberAction::Verkauf` und KEIN `RepaymentEntry` direkt; `current_shares` bleibt unverändert — v1.1's PaidOut-Cascade übernimmt Anteils-Reduktion und Verkauf-Action beim späteren Ausbezahlt-Toggle (Auto-Befüllung in `open_repayment_phase` picked den Member über `exit_date in fiscal_year` auf)
+- [ ] **CANC-06**: Vorschau-Confirm-Dialog zeigt Willensbekundungs-Datum, berechneten Stichtag, prognostizierte Ziel-Auszahlungsphase (fiscal_year) und Wirkungs-Timeline vor dem finalen Commit
 
-- [x] **ENTR-01**: Beim Phase-Öffnen werden für alle Mitglieder mit `exit_date` im `fiscal_year` automatisch RepaymentEntries angelegt — Initial-Wert `share_count_to_pay_out = Member.current_shares` zum Stichpunkt
-- [x] **ENTR-02**: Vorstand kann manuell weitere Einträge zu einer offenen Phase hinzufügen (Mitglied-Picker + `share_count_to_pay_out`) — für Teil-Abtretungen und verspätet gemeldete Austritte
-- [x] **ENTR-03**: Mehrere Einträge pro Mitglied+Phase sind erlaubt (kein Composite-PK-Constraint auf `(member_id, phase_id)`)
-- [x] **ENTR-04**: Vorstand kann `share_count_to_pay_out` bearbeiten solange Eintragsstatus `offen` oder `angeschrieben`
-- [x] **ENTR-05**: Vorstand kann Eintrag soft-löschen solange Eintragsstatus nicht `ausbezahlt`
-- [x] **ENTR-06**: Status-Toggle `offen → angeschrieben` manuell durch Vorstand; multi-select-fähig (Massen-Toggle nach Mail-Versand)
+### Teil-Rückgabe (PART) — Anteile zurück an die Genossenschaft, Mitgliedschaft bleibt
 
-### Auszahlungs-Buchung
+- [ ] **PART-01**: Vorstand kann am Mitglied „Teil-Rückgabe" auslösen mit Anteils-Anzahl `n` (1..current_shares) und Willensbekundungs-Datum
+- [ ] **PART-02**: System berechnet H1/H2-Stichtag (Ziel-fiscal_year) analog Kündigung
+- [ ] **PART-03**: System erzeugt `RepaymentEntry` in der Ziel-Phase mit `share_count_to_pay_out = n`, Status `Open`
+- [ ] **PART-04**: System validiert `sum(open_entries.share_count for member in target_phase) + n <= member.current_shares` (Sum-Check verhindert Über-Rückgabe)
+- [ ] **PART-05**: System legt Ziel-RepaymentPhase automatisch an, falls für das berechnete fiscal_year noch nicht existent (exakte Variante A/B/C aus PITFALLS-Kat-2 wird in `/gsd-discuss-phase` fixiert)
+- [ ] **PART-06**: System erzeugt KEINE MemberAction und reduziert NICHT `current_shares` direkt (das macht v1.1's PaidOut-Cascade beim Ausbezahlt-Toggle)
 
-- [x] **PAYO-01**: Status-Toggle `ausbezahlt` erzeugt atomar in einer Transaktion einen `MemberAction::Verkauf` mit `shares_change = -share_count_to_pay_out` über `audited_create!`
-- [x] **PAYO-02**: Status-Toggle `ausbezahlt` reduziert `Member.current_shares` um `share_count_to_pay_out` atomar in derselben Transaktion
-- [x] **PAYO-03**: Validierung: `ausbezahlt`-Toggle wird blockiert (ServiceError::ValidationError) wenn `Member.current_shares < share_count_to_pay_out`
-- [x] **PAYO-04**: Status `ausbezahlt` ist final — kein Rücksetzen erlaubt (verhindert Audit-Verzerrung und inkonsistente `current_shares`)
+### Übertrag (TRSF) — Anteile an aktives Mitglied (Teil oder voll)
 
-### Massenmail
+- [ ] **TRSF-01**: Vorstand kann am Mitglied „Übertragen an Mitglied" auslösen mit Empfänger-Mitglied und Anteils-Anzahl `n` (1..source.current_shares)
+- [ ] **TRSF-02**: Übertrag ist sofort wirksam (kein H1/H2-Stichtag, da kein Geldfluss aus der Genossenschaft)
+- [ ] **TRSF-03**: System erzeugt 2 verlinkte MemberActions atomar in einer Tx: `MemberAction::UebertragungAbgabe(A: shares_change=−n, transfer_member_id=B.id)` + `MemberAction::UebertragungEmpfang(B: shares_change=+n, transfer_member_id=A.id)` (existing ActionType-Varianten)
+- [ ] **TRSF-04**: System aktualisiert `Member.current_shares` für A (−n) und B (+n) atomar in derselben Tx
+- [ ] **TRSF-05**: Bei Voll-Übertrag (A.current_shares → 0 nach Übertrag) erzeugt System zusätzlich eine `MemberAction::Austritt` für A mit `date = Übertrags-Datum` und `effective_date = Übertrags-Datum`; `Member.exit_date` wird via `recalc_dates` automatisch gesetzt (gleiche Austritt-Konsistenz-Story wie CANC-03)
+- [ ] **TRSF-06**: Empfänger-Search liefert nur aktive Mitglieder (`exit_date IS NULL AND id != source_id`) — neuer REST-Endpoint `GET /api/members/transfer-recipients?exclude_self={uuid}`
+- [ ] **TRSF-07**: Self-Transfer ist verboten — Service-Layer-Guard liefert HTTP 400 bei `from_member_id == to_member_id`
 
-- [x] **MAIL-01**: Vorstand wählt mehrere Einträge (multi-select) und löst Massenmail aus (gleiches Pattern wie Mitgliederliste-Massenmail)
-- [x] **MAIL-02**: Mail-Template kann `{{ payout_amount }}` referenzieren — berechnet als `share_count_to_pay_out × phase.share_value` zum Zeitpunkt des Mail-Versands
-- [x] **MAIL-03**: Mail-Template kann `{{ share_count }}` (`share_count_to_pay_out` des Eintrags) und `{{ fiscal_year }}` der Phase referenzieren
-- [x] **MAIL-04**: Mail-Versand erzeugt pro Empfänger ein `MemberDocument` mit Template-Referenz (bestehendes Auditpflicht-Pattern)
+### Aufstockung (UPGD)
 
-### Export
+- [ ] **UPGD-01**: Vorstand kann am Mitglied „Aufstocken" auslösen mit Anteils-Anzahl `n` und Willensbekundungs-Datum
+- [ ] **UPGD-02**: Aufstockung ist sofort wirksam (kein H1/H2, kein Geldfluss)
+- [ ] **UPGD-03**: System erzeugt eine `MemberAction::Aufstockung(shares_change=+n, transfer_member_id=None)` (existing ActionType-Variante) und erhöht `Member.current_shares` um n atomar in einer Tx
+- [ ] **UPGD-04**: Aufstockung ist blockiert für gekündigte Mitglieder (`exit_date IS NOT NULL` → HTTP 400)
 
-- [x] **EXPO-01**: PDF-Export der Auszahlungsliste verfügbar für `Offen`- **und** `Abgeschlossen`-Phasen (vor Phasen-Abschluss verfügbar für Online-Banking-Vorlage)
-- [x] **EXPO-02**: PDF enthält pro Eintrag: Mitgliedsnummer, Name, IBAN, `share_count_to_pay_out`, Auszahlungs-Betrag, Verwendungszweck — sortiert nach Mitgliedsnummer aufsteigend
-- [x] **EXPO-03**: PDF-Export unterstützt Filter `?include=open|all|paid` (Default: `open` für Banking-Vorlage)
-- [x] **EXPO-05**: Export-Endpoints sind Vorstand-only (OIDC), read-only, kein Audit-Hashchain-Eintrag
+### UI
 
-### Frontend (Component-First)
+- [ ] **UI-01**: Single-Button „Mitgliedschaft anpassen" auf Member-Detail-Page (nicht in Mitgliederliste — Audit-Bewusstsein durch extra Klick)
+- [ ] **UI-02**: `MembershipAdjustModal` als shared Component in `genossi-frontend/src/component/`; eine Modal mit Operation-Sub-Choice und vier Sub-Views (Sub-Choice-Form wird in `/gsd-discuss-phase` fixiert)
+- [ ] **UI-03**: Datepicker mit GJ-Bounds — erlaubt nur Daten im aktuell offenen GJ und im nächsten GJ (für H2-Wirksamkeit erforderlich)
+- [ ] **UI-04**: Vorschau-Section mit konkreter Zahlen-Anzeige vor Commit (z.B. „Member A: 5 → 3 Anteile · Member B: 2 → 4 Anteile" für Übertrag; analog für andere Operationen)
 
-- [x] **UI-01**: Page `/repayment-phases` mit Liste aller Phasen (Status, fiscal_year, share_value, Anzahl Einträge)
-- [x] **UI-02**: Page `/repayment-phases/{id}` mit Lifecycle-Aktionen (öffnen/schließen), Eintrags-Tabelle, Export-Tab
-- [x] **UI-03**: Shared Component `RepaymentEntryList` in `genossi-frontend/src/component/` — multi-select, Status-Filter, sortierbar (Mitgliedsnummer, Status)
-- [x] **UI-04**: Modal/Sub-Page zum manuellen Hinzufügen eines Eintrags (Mitglied-Picker mit Suche, share_count-Eingabe)
-- [x] **UI-05**: Eintrag-Status-Aktionen mit Confirm-Dialog für `ausbezahlt` (Warnung: irreversibel + auditiert + reduziert current_shares)
-- [ ] **UI-06**: Massenmail-Aktion im Tabellen-Header (analog Mitgliederliste-Pattern), Template-Auswahl + Versenden-Button
+### Audit (AUDT)
 
-## v2 Requirements (deferred)
+- [ ] **AUDT-01**: Alle v1.2-Operationen erzeugen Audit-Einträge via `audited_create!`/`audited_update!`-Macros (kein direkter DAO-Write außerhalb der Macros)
+- [ ] **AUDT-02**: Übertrag-Pair (Aus + Ein) teilt sich gemeinsamen Process-String `process="member-adjust.transfer"` und kann via `/api/audit/verify` + Process-Filter als zusammenhängender Vorgang gefunden werden
 
-### Brief-Anschreiben-Automatik
+### Permission & Validation (PERM)
 
-- **BRIEF-01**: Brief-Vorlagen aus Auszahlungs-Eintrag direkt als PDF erzeugen — out of v1.1, Vorstand erzeugt manuell
+- [ ] **PERM-01**: Alle 4 Operationen sind admin-only via `check_permission(ADMIN_PRIVILEGE, ...)` (Vorstand)
+- [ ] **PERM-02**: Server-Layer validiert das Willensbekundungs-Datum: muss im aktuell offenen GJ oder nächsten GJ liegen (zusätzlich zum Datepicker-Frontend-Guard)
+- [ ] **PERM-03**: Empfänger beim Übertrag muss aktives Mitglied sein (`exit_date IS NULL`) — Service-Layer-Guard zusätzlich zum Search-Filter (TRSF-06)
 
-### CSV-Export für Buchhaltung
+## v2 Requirements (Deferred)
 
-- **EXPO-04**: CSV-Export für Buchhaltung mit Semikolon-Separator und UTF-8-BOM (analog Teilnehmerlisten-Export) — *ausgesetzt während Phase-11-Discuss (D-12): Buchhaltung kann PDF-Werte abtippen oder Frontend-View nutzen, bis konkreter Bedarf signalisiert wird. Re-Add ist additiv (neue Format-Variante + Free-Function-Renderer + REST-Whitelist um `csv`).*
+Nicht in v1.2-Scope, aber benannt für späteres Aufgreifen:
 
-### SEPA-XML-Export
+### Verband / Compliance
 
-- **SEPA-01**: SEPA pain.001 XML-Format als Alternative zum PDF für direkten Banking-Sammelüberweisung-Upload
+- **VRBD-01**: Self-Action-Warn-Modal — Vorstand, der sich selbst kündigt, bekommt extra Warn-Step (im aktuellen Q&A nicht ausgewählt, kann später nachgereicht werden)
+- **VRBD-02**: Zwei-Stufen-Workflow (Antrag → Genehmigung) als Konfig-Option für Vier-Augen-Prinzip
 
-### Status-Rücksetzung
+### Anteils-Übertrag erweitert
 
-- **STAT-01**: Status `angeschrieben → offen` manuell zurücksetzen (für Mail-Korrekturen) — pragmatisch via Eintrag-Löschung + Neuerstellung umgehbar
+- **TRSF-A**: Übertrag an Mitgliedsantragsteller mit Auto-Vollmitgliedschaft (siehe Seed `.planning/seeds/transfer-to-applicant.md` — bleibt unaktiviert)
+
+### Operations
+
+- **OPS-01**: Bulk-Operationen (z.B. „alle Mitglieder mit Status X kündigen") — bisher kein Use-Case
+- **OPS-02**: Storno-Knopf für ausgelöste Kündigungen (im v1.2 über manuelle MemberAction als negative Gegenbuchung)
 
 ## Out of Scope
 
+Explizit ausgeschlossen für v1.2:
+
 | Feature | Reason |
 |---------|--------|
-| Steuerliche Berechnung (Kapitalertragsteuer etc.) | Buchhaltung verarbeitet separat; Genossi liefert nur Brutto-Betrag |
-| Anteils-Übertragung Genosse → Genosse | Aktuell nicht angefragt; Rücknahme durch Genossenschaft ist der einzige Use-Case |
-| Anteils-Klassen oder einzeln-erfasste Anteile mit Nummerierung | Explizit verworfen — homogene Anteile reichen |
-| Member-`share_count`-Migration / Excel-Import der Anteile | Bereits in `Member.current_shares` vorhanden, keine Migration nötig |
-| Brief-Anschreiben-Automatik | Vorstand erzeugt manuell außerhalb von Genossi |
-| SEPA pain.001 XML | PDF reicht für Online-Banking-Vorlage |
-| Audit-Hashchain für Export-Endpoints | Read-only, kein Schreibvorgang — Audit-Belastung ohne Mehrwert |
+| Rückwirkende Erfassung in abgeschlossene GJs | sehr individuell; Vorstand nutzt bestehende manuelle MemberAction-UI |
+| Übertrag an Mitgliedsantragsteller mit Auto-Vollmitgliedschaft | koppelt Application+Member+Anteile+Action atomar → zu komplex; bleibt als Seed |
+| Storno-Knopf für ausgelöste Kündigungen | manuelle MemberAction-UI reicht als negative Gegenbuchung |
+| Zwei-Stufen-Workflow (Antrag → Genehmigung) | One-Click mit Vorschau-Confirm ist Default; Vier-Augen ist v2 |
+| `MemberAction::Verkauf`-Erzeugung durch v1.2 | v1.1's PaidOut-Cascade ist Single-Source-of-Truth; v1.2 erzeugt nur Intent-Datensätze |
+| `current_shares`-Reduktion durch v1.2 bei Kündigung/Teil-Rückgabe | v1.1's PaidOut-Cascade macht das beim Ausbezahlt-Toggle |
+| Pessimistische Member-Locks während v1.2-Dialog | optimistic-locking + Re-Read reicht (Tech-Debt v1.3+) |
+| Bulk-Operationen | nicht im Use-Case-Scope |
 
 ## Traceability
 
+Welche Phasen welche Requirements abdecken. Wird vom Roadmapper-Schritt befüllt.
+
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PHAS-01 | Phase 7 | Complete |
-| PHAS-02 | Phase 7 (Skeleton: state-machine + audit-trail) + Phase 8 (full: auto-fill on open) | Complete |
-| PHAS-03 | Phase 7 (Skeleton: state-machine + audit-trail) + Phase 8 (full: pending-entry validation) | Complete |
-| PHAS-04 | Phase 7 | Complete |
-| PHAS-05 | Phase 7 | Complete |
-| ENTR-01 | Phase 8 | Complete |
-| ENTR-02 | Phase 8 | Complete |
-| ENTR-03 | Phase 8 | Complete |
-| ENTR-04 | Phase 8 | Complete |
-| ENTR-05 | Phase 8 | Complete |
-| ENTR-06 | Phase 8 | Complete |
-| PAYO-01 | Phase 9 | Complete |
-| PAYO-02 | Phase 9 | Complete |
-| PAYO-03 | Phase 9 | Complete |
-| PAYO-04 | Phase 9 | Complete |
-| MAIL-01 | Phase 10 | Complete |
-| MAIL-02 | Phase 10 | Complete |
-| MAIL-03 | Phase 10 | Complete |
-| MAIL-04 | Phase 10 | Complete |
-| EXPO-01 | Phase 11 | Complete |
-| EXPO-02 | Phase 11 | Complete |
-| EXPO-03 | Phase 11 | Complete |
-| EXPO-04 | v2 deferred (D-12) | Deferred |
-| EXPO-05 | Phase 11 | Complete |
-| UI-01 | Phase 12 | Complete |
-| UI-02 | Phase 12 | Complete |
-| UI-03 | Phase 12 | Complete |
-| UI-04 | Phase 12 | Complete |
-| UI-05 | Phase 12 | Complete |
-| UI-06 | Phase 12 | Pending |
+| CANC-01 | TBD | Pending |
+| CANC-02 | TBD | Pending |
+| CANC-03 | TBD | Pending |
+| CANC-04 | TBD | Pending |
+| CANC-05 | TBD | Pending |
+| CANC-06 | TBD | Pending |
+| PART-01 | TBD | Pending |
+| PART-02 | TBD | Pending |
+| PART-03 | TBD | Pending |
+| PART-04 | TBD | Pending |
+| PART-05 | TBD | Pending |
+| PART-06 | TBD | Pending |
+| TRSF-01 | TBD | Pending |
+| TRSF-02 | TBD | Pending |
+| TRSF-03 | TBD | Pending |
+| TRSF-04 | TBD | Pending |
+| TRSF-05 | TBD | Pending |
+| TRSF-06 | TBD | Pending |
+| TRSF-07 | TBD | Pending |
+| UPGD-01 | TBD | Pending |
+| UPGD-02 | TBD | Pending |
+| UPGD-03 | TBD | Pending |
+| UPGD-04 | TBD | Pending |
+| UI-01 | TBD | Pending |
+| UI-02 | TBD | Pending |
+| UI-03 | TBD | Pending |
+| UI-04 | TBD | Pending |
+| AUDT-01 | TBD | Pending |
+| AUDT-02 | TBD | Pending |
+| PERM-01 | TBD | Pending |
+| PERM-02 | TBD | Pending |
+| PERM-03 | TBD | Pending |
 
 **Coverage:**
-- v1 requirements: 30 total (29 mapped to v1.1 phases, 1 deferred to v2)
-- Mapped to phases: 29
-- Deferred (D-12, Phase-11-Discuss): EXPO-04 → v2
-- Unmapped: 0 ✓
+- v1.2 requirements: 31 total
+- Mapped to phases: 0 (filled by roadmapper)
+- Unmapped: 31 ⚠️ (will be 0 after roadmap)
 
-**Phase distribution:**
-- Phase 7 (RepaymentPhase Backend): 3 (PHAS-01, PHAS-04, PHAS-05)
-- Phase 8 (RepaymentEntry + Auto-Befüllung): 8 (ENTR-01..06 + PHAS-02 + PHAS-03)
-- Phase 9 (Auszahlungs-Buchung): 4 (PAYO-01..04)
-- Phase 10 (Massenmail): 4 (MAIL-01..04)
-- Phase 11 (Export PDF): 4 (EXPO-01, EXPO-02, EXPO-03, EXPO-05)
-- Phase 12 (Frontend): 6 (UI-01..06)
+## Cross-Reference
+
+- Master-Design-Doc: `.planning/notes/membership-adjust-design.md`
+- Research SUMMARY: `.planning/research/SUMMARY.md`
+- Pitfalls: `.planning/research/PITFALLS.md` (10 Pitfall-Kategorien, jede mit Mitigation)
+- Architecture: `.planning/research/ARCHITECTURE.md` (Service-Extension, Pure-Function, Übertrag-Atomarität-Pattern)
+- Seeds: `.planning/seeds/membership-adjust-during-fiscal-year.md`, `transfer-to-applicant.md` (deferred)
 
 ---
-*Requirements defined: 2026-05-29*
-*Last updated: 2026-05-29 after milestone v1.1 initial definition*
+*Requirements defined: 2026-06-04*
+*Last updated: 2026-06-04 after initial definition*

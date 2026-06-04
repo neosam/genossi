@@ -23,20 +23,21 @@ Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachv
 
 | Operation | v1.2 erzeugt | v1.1 macht später |
 |-----------|--------------|-------------------|
-| **Kündigung** (Voll-Rückgabe) | `exit_date` am Member mit H1/H2-Stichtag (H1 → 31.12. akt. GJ, H2 → 31.12. folgendes GJ); KEINE MemberAction, KEIN RepaymentEntry direkt | Auto-Befüllung beim Phase-Open picked exit_date-Member; PaidOut-Toggle erzeugt `MemberAction::Verkauf` + reduziert `current_shares` |
+| **Kündigung** (Voll-Rückgabe) | `MemberAction::Austritt` (existing Variante) mit `effective_date = berechneter H1/H2-Stichtag`, `shares_change = 0`; `Member.exit_date` via `recalc_dates`-Hook; KEINE `MemberAction::Verkauf`, KEIN `RepaymentEntry` direkt, KEINE `current_shares`-Reduktion | Auto-Befüllung beim Phase-Open picked exit_date-Member; PaidOut-Toggle erzeugt `MemberAction::Verkauf` + reduziert `current_shares` |
 | **Teil-Rückgabe** an Genossenschaft | `RepaymentEntry` in Ziel-Phase (H1/H2-GJ) mit `share_count_to_pay_out = n`; KEINE MemberAction, KEINE `current_shares`-Reduktion, `exit_date` bleibt leer | PaidOut-Toggle erzeugt `MemberAction::Verkauf(n)` + reduziert `current_shares` um n |
-| **Übertragen** an aktives Mitglied (Teil/voll) | 2 verlinkte MemberActions (neuer Übertrag-Action-Typ, NICHT Verkauf); `current_shares`-Anpassung sofort (A: −n, B: +n); `exit_date` bei A nur wenn A → 0; KEIN RepaymentEntry | nicht involviert (kein Geldfluss aus Genossenschaft) |
-| **Aufstocken** | MemberAction (neuer Aufstockung-Action-Typ, NICHT Verkauf) + `current_shares`-Erhöhung um n sofort | nicht involviert |
+| **Übertragen** an aktives Mitglied (Teil/voll) | 2 verlinkte MemberActions (`UebertragungAbgabe`/`UebertragungEmpfang` — existing Varianten, NICHT `Verkauf`); `current_shares`-Anpassung sofort (A: −n, B: +n); bei Voll-Übertrag zusätzlich `MemberAction::Austritt` für A (Konsistenz mit Kündigungs-Pattern → `exit_date` via `recalc_dates`); KEIN RepaymentEntry | nicht involviert (kein Geldfluss aus Genossenschaft) |
+| **Aufstocken** | `MemberAction::Aufstockung` (existing Variante) + `current_shares`-Erhöhung um n sofort | nicht involviert |
 
 **Key Context für v1.2:**
 
 - **Permissions:** Nur Vorstand (admin-only, wie RepaymentPhase/MemberAction in v1.1)
 - **Workflow:** One-Click mit Vorschau-Confirm-Dialog (sofort wirksam nach Bestätigung)
 - **UI:** Single-Button „Mitgliedschaft anpassen" auf Member-Detail (nicht in Liste — Audit-relevanz erzwingt Bewusstsein)
-- **Datum:** Datepicker default `today()`, nur offenes GJ erlaubt; Datum = Willensbekundung des Mitglieds
-- **H1/H2-Regel:** gilt genau dann, wenn die Genossenschaft Geld auszahlen muss
+- **Datum:** Datepicker default `today()`, nur offenes GJ + nächstes GJ erlaubt (für H2-Wirksamkeit); Datum = Willensbekundung des Mitglieds
+- **H1/H2-Regel:** gilt genau dann, wenn die Genossenschaft Geld auszahlen muss (Kündigung + Teil-Rückgabe)
 - **Auto-Anlegen Ziel-Phase:** offene Frage für `/gsd-discuss-phase` — v1.1's `create_repayment_entry` verlangt `Phase.status == Open` (D-11.1), Teil-Rückgabe im H2 mit Wirksamkeit folgendes GJ braucht eine Lösung
-- **Action-Types:** v1.2 braucht ggf. neue Varianten (`Übertragung-Aus`/`Übertragung-Ein`/`Aufstockung`), damit v1.1's PaidOut-Cascade nicht versehentlich draufanspringt — bleibt Discuss-Phase-Thema
+- **Action-Types:** alle benötigten Varianten existieren bereits (`Austritt`, `UebertragungAbgabe`, `UebertragungEmpfang`, `Aufstockung`, `Verkauf`); keine Enum-Erweiterung nötig
+- **Konsistenz-Story:** sowohl Kündigung als auch Voll-Übertrag erzeugen `MemberAction::Austritt` mit `effective_date`; `Member.exit_date` wird durch existing `recalc_dates` automatisch propagiert — kein direkter `exit_date`-Set außerhalb der Audit-Story
 
 **Verbundene Seeds (für v1.2 aufgegriffen):**
 

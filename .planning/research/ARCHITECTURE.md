@@ -1,591 +1,789 @@
-# Architecture Research
+# v1.2 Mitgliedschaft-Anpassungen — Brownfield-Architecture-Research
 
-**Domain:** GV-Anwesenheits-Tracking als neuer Bounded Context in Genossi
-**Researched:** 2026-05-01
-**Confidence:** HIGH (basiert auf gemappter Bestands-Architektur, nicht auf externer Recherche)
+**Datum:** 2026-06-04  
+**Scope:** Vorbereitung für Milestone v1.2 (4 Operationen: Kündigung, Teil-Rückgabe, Übertrag, Aufstockung)  
+**Kern-Constraint:** v1.2 erzeugt NUR Intent-Datensätze. Anteils-Reduktion und `MemberAction::Verkauf` bleiben Aufgabe der v1.1-PaidOut-Cascade (kein Doppelbuchen).
 
-## Standard Architecture
+---
 
-### System Overview — Wo die GV-Funktionalität in der bestehenden Layered Architecture sitzt
+## 1. Integration in Layered DAO/Service/REST-Architektur
 
-```text
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         Frontend (Dioxus WASM)                           │
-│  ┌──────────────────┐  ┌──────────────────┐  ┌────────────────────────┐ │
-│  │ page/assembly_   │  │ page/qr_redeem.rs│  │ page/attendance_       │ │
-│  │ list.rs          │  │ (Helfer-Login    │  │ helper.rs              │ │
-│  │ (Vorstand)       │  │  per QR-URL)     │  │ (gemeinsame View für   │ │
-│  │                  │  │                  │  │  Helfer + Vorstand)    │ │
-│  └────┬─────────────┘  └────┬─────────────┘  └────┬───────────────────┘ │
-│       │                     │                     │                      │
-│       └─────────┬───────────┴────────┬────────────┘                      │
-│                 ▼                    ▼                                    │
-│   ┌────────────────────────┐  ┌────────────────────────────────────┐    │
-│   │ component/assembly_*   │  │ component/attendance_row.rs        │    │
-│   │ component/qr_card.rs   │  │ component/attendance_search.rs     │    │
-│   │ component/live_counter │  │ component/attendance_header.rs     │    │
-│   └────────────────────────┘  └────────────────────────────────────┘    │
-└──────────────────────────────────┬─────────────────────────────────────┘
-                                   │ HTTP REST (Axum)
-┌──────────────────────────────────▼─────────────────────────────────────┐
-│                          REST Layer (genossi_rest)                      │
-│  ┌─────────────────────┐  ┌─────────────────────┐                      │
-│  │ assembly.rs         │  │ helper_session.rs   │                      │
-│  │ POST /api/assembly  │  │ POST /api/helper-   │                      │
-│  │ PUT  /api/assembly/ │  │   session/redeem    │                      │
-│  │   :id (close)       │  │ (Pre-Token einlösen)│                      │
-│  │ POST /api/assembly/ │  └─────────────────────┘                      │
-│  │   :id/pre-token     │  ┌─────────────────────┐                      │
-│  │ GET  /api/assembly/ │  │ attendance.rs       │                      │
-│  │   :id/stats (Live)  │  │ GET /api/attendance/│                      │
-│  └─────────────────────┘  │   :assembly_id/     │                      │
-│                            │   members           │                      │
-│  auth_middleware.rs        │ POST /api/         │                      │
-│  ─ erweitert um            │   attendance       │                      │
-│    Helper-Cookie-Pfad      │ DELETE /api/       │                      │
-│                            │   attendance/:id   │                      │
-│                            └─────────────────────┘                      │
-└──────────────────────────────────┬─────────────────────────────────────┘
-                                   │
-┌──────────────────────────────────▼─────────────────────────────────────┐
-│                       Service Layer (genossi_service_impl)              │
-│  ┌─────────────────────┐  ┌─────────────────────┐  ┌────────────────┐ │
-│  │ AssemblyService     │  │ HelperSessionService│  │ Attendance     │ │
-│  │ ─ create_assembly   │  │ ─ create_pre_token  │  │ Service        │ │
-│  │ ─ close_assembly    │  │ ─ redeem_pre_token  │  │ ─ list_members │ │
-│  │   (triggert Helper- │  │   (One-Time-Use)    │  │   _for_helper  │ │
-│  │    Session-Invalid.)│  │ ─ verify_helper_    │  │ ─ mark_present │ │
-│  │ ─ get_stats         │  │   session(assembly) │  │ ─ unmark       │ │
-│  └────────┬────────────┘  └────────┬────────────┘  └───────┬────────┘ │
-│           │                        │                       │           │
-│           └────────────────────────┴───────────────────────┘           │
-│                                    │                                    │
-│  Permission-Erweiterung:                                                │
-│  ─ AuthContext::Helper { session_id, assembly_id }                      │
-│  ─ neuer Privilege "attendance_helper" — beschränkt auf Helfer-View     │
-│  ─ existing "admin" privilege gilt zusätzlich für Vorstand              │
-└──────────────────────────────────┬─────────────────────────────────────┘
-                                   │
-┌──────────────────────────────────▼─────────────────────────────────────┐
-│                        DAO Layer (genossi_dao + impl_sqlite)            │
-│  ┌─────────────────────┐  ┌─────────────────────┐  ┌────────────────┐ │
-│  │ AssemblyDao         │  │ HelperPreTokenDao   │  │ Attendance     │ │
-│  │ ─ create / update   │  │ ─ create_pre_token  │  │ Dao            │ │
-│  │ ─ find_by_id        │  │ ─ consume_pre_token │  │ ─ create       │ │
-│  │ ─ dump_all          │  │   (atomic check+    │  │ ─ update       │ │
-│  │ AssemblyEntity:     │  │    update)          │  │   (soft-       │ │
-│  │ id, title, date,    │  │ HelperPreToken:     │  │    delete=     │ │
-│  │ status (Open/Closed)│  │ id, assembly_id,    │  │    austragen)  │ │
-│  │ + std (created/del/ │  │ memo_name, token_   │  │ ─ list_by_     │ │
-│  │   version)          │  │   hash, consumed,   │  │   assembly     │ │
-│  │ ─ KEIN Auditable    │  │ session_id (FK)     │  │ Attendance     │ │
-│  │                     │  │ ─ KEIN Auditable    │  │ Entity:        │ │
-│  │                     │  │                     │  │ id, assembly_  │ │
-│  │                     │  │                     │  │   id, member_  │ │
-│  │                     │  │                     │  │   id, marked_  │ │
-│  │                     │  │                     │  │   by, marked_  │ │
-│  │                     │  │                     │  │   at           │ │
-│  │                     │  │                     │  │ + (deleted=    │ │
-│  │                     │  │                     │  │   austragen)   │ │
-│  └─────────────────────┘  └─────────────────────┘  └────────────────┘ │
-│                                                                         │
-│  user_session-Tabelle (existiert bereits, wird wiederverwendet):        │
-│  ─ session-claims-Feld speichert {"assembly_id": "...", "kind":         │
-│    "helper"}                                                            │
-│  ─ expires_at = assembly.close_at (gesetzt beim assembly close)         │
-└──────────────────────────────────┬─────────────────────────────────────┘
-                                   │
-┌──────────────────────────────────▼─────────────────────────────────────┐
-│                              SQLite                                      │
-│  ┌──────────┐  ┌────────────────┐  ┌────────────┐  ┌────────────────┐ │
-│  │ assembly │  │ helper_pre_    │  │ attendance │  │ user_session   │ │
-│  │          │  │ token          │  │            │  │ (existing)     │ │
-│  └──────────┘  └────────────────┘  └────────────┘  └────────────────┘ │
-│  Migration: 20260501000000_create_assembly_tables.sql                  │
-└─────────────────────────────────────────────────────────────────────┘
-```
+### Architektur-Übersicht
+Genossi folgt dem Pattern **DAO → Service → REST** (3-Schichten):
+- **DAO-Layer** (`genossi_dao/src/*`, `genossi_dao_impl_sqlite/src/*`): Trait-Definitionen + SQLite-Impl
+- **Service-Layer** (`genossi_service/src/*`, `genossi_service_impl/src/*`): Business-Logik + Permission-Gating
+- **REST-Layer** (`genossi_rest/src/*`): HTTP-Endpoints + OpenAPI-Dokumentation
+- **Frontend** (`genossi-frontend/src/page/*`, `genossi_frontend/src/component/*`): Dioxus-WASM mit Component-First-Prinzip
 
-### Component Responsibilities
+Beispiel-Architektur aus v1.1:
+- **DAO:** `RepaymentPhaseDao` (Trait in `genossi_dao/src/repayment_phase.rs:L20`)
+- **Service:** `RepaymentPhaseService` (Trait in `genossi_service/src/repayment_phase.rs`) → `RepaymentPhaseServiceImpl` (Impl in `genossi_service_impl/src/repayment_phase.rs:L52`)
+- **REST:** `genossi_rest/src/repayment_phase.rs` → Endpoints gebunden in `genossi_rest/src/lib.rs:L641` via `repayment_phase::generate_route::<RestState>()`
 
-| Komponente | Verantwortung | Implementation |
-|-----------|---------------|---------------|
-| **AssemblyDao** | Lebenszyklus der GV-Entität (anlegen, schließen, abfragen) | Trait in `genossi_dao/src/assembly.rs`, Impl in `genossi_dao_impl_sqlite/src/assembly.rs` |
-| **HelperPreTokenDao** | Speichert pre-tokens (Hash), führt One-Time-Use-Konsum atomar durch | `genossi_dao/src/helper_pre_token.rs` + sqlite impl |
-| **AttendanceDao** | Join-Tabelle Assembly ↔ Member, soft-delete als „Austragen" | `genossi_dao/src/attendance.rs` + impl |
-| **AssemblyService** | Permission-Check (admin), close_assembly invalidiert alle Helper-Sessions dieser GV via `SessionService::revoke_all_for_user` über zugehörige Token-IDs | `genossi_service_impl/src/assembly.rs` |
-| **HelperSessionService** | Pre-Token erzeugen (für Vorstand), Pre-Token redeemen (für Helfer): erzeugt `UserSession` mit `claims = {"kind": "helper", "assembly_id": ...}` und `expires_at` ans GV-Ende gebunden | `genossi_service_impl/src/helper_session.rs` |
-| **AttendanceService** | Reduced-Member-View (nur Mitgliedsnummer/Name/Titel/Anrede), idempotente Markierung, Permission-Check via `AuthContext::Helper { assembly_id == request_assembly_id }` ODER `admin` | `genossi_service_impl/src/attendance.rs` |
-| **AuthContext-Erweiterung** | Neuer Variant `Helper { session_id, assembly_id }` neben `Mock` und `Oidc` | `genossi_service/src/auth_types.rs` (modifiziert) |
-| **REST Handlers** | Routing, ISO8601-Serialisierung, Utoipa-Schemas, Helper-Cookie setzen nach Pre-Token-Redemption | `genossi_rest/src/{assembly,helper_session,attendance}.rs` |
-| **Frontend Components** | `AttendanceRow`, `AttendanceSearch`, `AttendanceHeader`, `LiveCounter`, `QrCard` — alle in `genossi-frontend/src/component/` | Component-First-Prinzip |
-| **Frontend Pages** | `assembly_list.rs`, `assembly_detail.rs` (Vorstand), `qr_redeem.rs` (Pre-Token-URL → Cookie), `attendance_helper.rs` (gemeinsam für Helfer + Vorstand) | `genossi-frontend/src/page/` |
+### Placement-Decision: `MembershipAdjustService` — Extension vs. Neuer Service
 
-## Recommended Project Structure
+**Empfehlung: Extension von `MemberActionService` (nicht: neuer Service)**
 
-Folgt 1:1 der bestehenden Genossi-Konvention (siehe `.planning/codebase/STRUCTURE.md`):
+**Begründung:**
+1. **Kohäsion:** Alle 4 Operationen (Kündigung, Teil-Rückgabe, Übertrag, Aufstockung) erzeugen `MemberAction`-Datensätze
+2. **Bestehende Patterns:** `MemberActionServiceImpl` (genossi_service_impl/src/member_action.rs:L21) hat bereits:
+   - Permission-Gate (`MANAGE_MEMBERS_PRIVILEGE`, L19)
+   - `recalc_dates()` (L180-203) — rekalkuliert `exit_date` aus den `MemberAction`-Einträgen
+   - Validation (`validate_action()`, L76-150) — bereits `UebertragungEmpfang` und `UebertragungAbgabe` sowie `Aufstockung` validiert
+3. **Cross-Entity-Atomarität:** Teil-Rückgabe braucht `RepaymentPhase`-Lookup; Übertrag braucht 2× `MemberAction` in 1 Tx. Beides ist im Service-Impl möglich, neue Crate-Komplexität nicht nötig.
+4. **Lifecycle:** Alle sind Lifecycle-Events des Mitglieds → `MemberAction` ist der Single Source of Truth
 
-```
-genossi_dao/src/
-├── assembly.rs                    # AssemblyEntity, AssemblyDao trait, AssemblyStatus enum (Open/Closed)
-├── helper_pre_token.rs            # HelperPreTokenEntity, HelperPreTokenDao trait
-└── attendance.rs                  # AttendanceEntity, AttendanceDao trait
-
-genossi_dao_impl_sqlite/src/
-├── assembly.rs                    # AssemblyDaoImpl (sqlx-Queries, BLOB-UUID, ISO8601)
-├── helper_pre_token.rs            # HelperPreTokenDaoImpl mit atomic consume_pre_token()
-└── attendance.rs                  # AttendanceDaoImpl
-
-genossi_service/src/
-├── assembly.rs                    # AssemblyService trait
-├── helper_session.rs              # HelperSessionService trait
-└── attendance.rs                  # AttendanceService trait
-
-genossi_service_impl/src/
-├── assembly.rs                    # AssemblyServiceImpl mit close_assembly() → Session-Invalidation
-├── helper_session.rs              # HelperSessionServiceImpl (pre-token CRUD, redeem-Logik)
-└── attendance.rs                  # AttendanceServiceImpl mit reduced-View + Permission-Check
-
-genossi_rest/src/
-├── assembly.rs                    # POST/PUT/GET /api/assembly + /api/assembly/:id/stats
-├── helper_session.rs              # POST /api/helper-session/redeem (Pre-Token einlösen, Cookie setzen)
-└── attendance.rs                  # GET /api/attendance/:assembly_id/members + POST/DELETE /api/attendance/:assembly_id/:member_id
-
-genossi_rest_types/src/lib.rs       # ergänzen um AssemblyTO, HelperPreTokenTO,
-                                    # AttendanceMemberTO (reduced view!), AttendanceStatsTO
-
-genossi-frontend/src/component/
-├── assembly_card.rs               # GV-Karte für Liste
-├── assembly_form.rs               # GV-Anlegen-Formular
-├── qr_card.rs                     # QR-Code-Anzeige + Memo-Name
-├── live_counter.rs                # X von Y anwesend (refresh-only, kein SSE)
-├── attendance_header.rs           # GV-Titel + Counter + Schließen-Button
-├── attendance_row.rs              # Einzeiler: Mitgliedsnummer / Name / Anrede / Toggle
-└── attendance_search.rs           # Suchfeld (filtert lokale Liste, kein API-Roundtrip)
-
-genossi-frontend/src/page/
-├── assembly_list.rs               # Vorstand: alle GVs sehen (Open + Closed)
-├── assembly_detail.rs             # Vorstand: GV bearbeiten, QR-Codes erzeugen, Live-Counter
-├── qr_redeem.rs                   # Helfer: nimmt URL-Token entgegen, erzwingt Redemption
-└── attendance_helper.rs           # GEMEINSAME View für Helfer + Vorstand (nutzt selbe Components)
-
-migrations/sqlite/
-└── 20260501000000_create_assembly_tables.sql   # assembly + helper_pre_token + attendance
-```
-
-### Structure Rationale
-
-- **Drei separate Entitäten statt einer monolithischen `gv.rs`:** Folgt der Genossi-Praxis (Member, MemberAction, MemberDocument sind ebenfalls als drei Files getrennt). Ermöglicht unabhängige Tests pro Aggregat-Wurzel und macht den Service-Schnitt klarer.
-- **Wiederverwendung der `user_session`-Tabelle statt eigener helper_session-Tabelle:** Das bestehende `SessionService`-Trait (`genossi_service/src/session.rs`) hat bereits ein `claims`-Feld als JSON-String mit dem Kommentar „Used for inventur token login auto-registration flow" — exakt das benötigte Muster. Die Helper-Session ist eine `UserSession` mit `claims = {"kind":"helper","assembly_id":"<uuid>"}`. Damit muss **kein neues Cookie-/Token-System** gebaut werden; das bestehende Auth-Middleware funktioniert weiter.
-- **`helper_pre_token` ist eine eigene Tabelle (NICHT user_session):** Pre-Token und aktive Session sind unterschiedliche Lebensdauer-Stufen. Pre-Token = einmalig einlösbar, Session = aktiv bis GV-Ende. Trennung erlaubt es, gebrauchte Pre-Token zu Audit-Zwecken (Memo-Name) zu erhalten, ohne das Session-Schema zu erweitern.
-- **`attendance.rs` als REST-Datei (nicht in `member.rs`):** Anwesenheit ist nicht Teil des Member-Aggregats — ein Member kann an N GVs teilnehmen. Der REST-Pfad `/api/attendance/:assembly_id/...` macht den Aggregat-Bezug explizit.
-- **`attendance_helper.rs` als gemeinsame Page (statt zwei separater Pages für Helfer und Vorstand):** Bewusste Entscheidung des Projekts (PROJECT.md: „Vorstand kann die Helfer-Ansicht ohne QR-Code direkt aus seiner regulären Anmeldung heraus öffnen"). Eine Page, zwei Auth-Pfade — kein UI-Duplikat. Authorization passiert im Service: sowohl `AuthContext::Helper { assembly_id == X }` als auch `admin`-Privilege akzeptiert.
-
-## Architectural Patterns
-
-### Pattern 1: Aggregate Boundary für Assembly
-
-**Was:** Assembly ist eigene Aggregat-Wurzel mit Lifecycle (Open → Closed). Member bleibt unabhängiges Aggregat. Die Verbindung läuft ausschließlich über die `attendance`-Join-Tabelle.
-
-**Wann nutzen:** Hier verpflichtend — User-Entscheidung in PROJECT.md (Key Decision: „GV als eigene Entität (`Assembly`) statt globalem Zustand"; „Anwesenheit als Join-Tabelle (`AssemblyAttendance`) statt Member-Flag").
-
-**Trade-offs:**
-- ➕ Mehrere GVs parallel/historisch möglich; saubere Protokoll-Historie
-- ➕ Member-Schema bleibt unverändert — kein Risiko für bestehende auditierte Operationen
-- ➖ Eine Anwesenheits-Markierung kostet einen JOIN beim Lesen (akzeptabel für GV-Skala: O(100–1000) Mitglieder)
-
-**Beispiel — DAO-Trait:**
+**Neue Methoden in `MemberActionService` (genossi_service/src/member_action.rs):**
 ```rust
-// genossi_dao/src/assembly.rs
-pub struct AssemblyEntity {
-    pub id: Uuid,
-    pub created: PrimitiveDateTime,
-    pub deleted: Option<PrimitiveDateTime>,
-    pub version: Uuid,
-    // domain fields:
-    pub title: Arc<str>,
-    pub date: PrimitiveDateTime,
-    pub status: AssemblyStatus,        // Open | Closed
-    pub closed_at: Option<PrimitiveDateTime>,
+// Neue Trait-Signaturen
+pub async fn create_cancellation(
+    &self,
+    member_id: Uuid,
+    effective_date: Option<time::Date>,  // willensbekundungsdatum
+    context: Authentication<Self::Context>,
+) -> Result<MemberAction, ServiceError>;
+
+pub async fn create_partial_repayment(
+    &self,
+    member_id: Uuid,
+    share_count_to_pay_out: i32,
+    effective_date: Option<time::Date>,
+    context: Authentication<Self::Context>,
+) -> Result<(MemberAction, RepaymentEntry), ServiceError>;
+
+pub async fn transfer_shares(
+    &self,
+    from_member_id: Uuid,
+    to_member_id: Uuid,
+    share_count: i32,
+    effective_date: Option<time::Date>,  // nicht verwendet, sofort wirksam, aber für UI-Konsistenz
+    context: Authentication<Self::Context>,
+) -> Result<(MemberAction, MemberAction), ServiceError>;  // (UebertragungAbgabe, UebertragungEmpfang)
+
+pub async fn create_increase(
+    &self,
+    member_id: Uuid,
+    share_count: i32,
+    effective_date: Option<time::Date>,  // nicht verwendet, sofort wirksam
+    context: Authentication<Self::Context>,
+) -> Result<MemberAction, ServiceError>;
+```
+
+**Implementierungs-Anker:**
+- `genossi_service_impl/src/member_action.rs:L232ff` — bereits `#[async_trait] impl MemberActionService`
+- Dependency-Injection: `MemberActionServiceImpl` braucht neu:
+  - `RepaymentPhaseDao` (für Phase-Lookup bei Teil-Rückgabe)
+  - `RepaymentEntryDao` (für RepaymentEntry-Creation)
+  - `MemberDao` (schon vorhanden für Member-Lookup)
+  - `audit_log_dao`, `uuid_service`, `permission_service`, `transaction_dao` (alle schon vorhanden)
+
+---
+
+## 2. MemberAction-ActionType-Erweiterung
+
+### Existierende Varianten
+`genossi_dao/src/member_action.rs:L9-18`:
+```rust
+pub enum ActionType {
+    Eintritt,           // Entry
+    Austritt,           // Exit
+    Todesfall,          // Death
+    Aufstockung,        // Increase (schon vorhanden!)
+    Verkauf,            // Sale (v1.1: erzeugt von PaidOut-Cascade)
+    UebertragungEmpfang,// Transfer In (schon vorhanden!)
+    UebertragungAbgabe, // Transfer Out (schon vorhanden!)
+    Note,               // Free-form note
+}
+```
+
+**Status:** ✓ Alle v1.2-nötigen Typen existieren bereits!
+- `Aufstockung` → v1.2 Aufstockung-Operation
+- `UebertragungEmpfang` / `UebertragungAbgabe` → v1.2 Übertrag-Operation (2 verlinkte Actions)
+- `Austritt` mit `effective_date` → v1.2 Kündigung
+- `Verkauf` mit `share_count < 0` → v1.1 PaidOut-Cascade (Teil-Rückgabe braucht KEIN neuen Type, sondern RepaymentEntry + später Verkauf)
+
+### Validation v1.1 ↔ v1.2 Cross-Check
+`genossi_service_impl/src/member_action.rs:L76-150` — `validate_action()` bereits enforced:
+
+| ActionType | v1.1 validate_action | v1.2 Constraint | Risk? |
+|---|---|---|---|
+| `Aufstockung` | shares_change > 0 (L88-93) | V.1.2 erzeugt bei Aufstockung (shares_change > 0) | ✓ kompatibel |
+| `UebertragungEmpfang` | shares_change > 0, transfer_member_id required (L88-93, L127-136) | V1.2 erzeugt bei Übertrag-In (shares_change > 0, transfer_member_id = source) | ✓ kompatibel |
+| `UebertragungAbgabe` | shares_change < 0, transfer_member_id required (L96-102, L127-136) | V1.2 erzeugt bei Übertrag-Out (shares_change < 0, transfer_member_id = target) | ✓ kompatibel |
+| `Austritt` | effective_date required (L138-143) | V1.2 Kündigung erzeugt Austritt mit effective_date (H1/H2-Stichtag) | ✓ kompatibel |
+| `Verkauf` | shares_change < 0 (L96-102) | V1.1 PaidOut-Cascade erzeugt mit shares_change (Summe aller paid_out RepaymentEntries) | ✓ kompatibel |
+
+**Niedrig-Risiko für v1.1-Cascade:** `mark_paid_out()` (genossi_service_impl/src/repayment_entry.rs:L517) erzeugt IMMER `MemberAction::Verkauf` (L583ff), unabhängig von Action-Type der Quelle. v1.2's neue Types (`Aufstockung`, `UebertragungEmpfang/Abgabe`) sind **nicht** Repayment-Einträge und triggern daher kein PaidOut. *Aber:* Teil-Rückgabe **ist** ein RepaymentEntry, dessen PaidOut MUSS `Verkauf` erzeugen (nicht neue Types). Das ist bereits richtig in v1.1, v1.2 braucht nichts zu ändern.
+
+**Double-Booking-Guard:**
+- v1.1 `mark_paid_out()` lädt `RepaymentEntry` + erzeugt `MemberAction::Verkauf` + reduziert `current_shares` (genossi_service_impl/src/repayment_entry.rs:L556-620)
+- v1.2 Teil-Rückgabe erzeugt `RepaymentEntry` + **kein** `MemberAction` (Datensatz bleibt im Open-Status, wartet auf PaidOut)
+- v1.2 Aufstockung/Übertrag erzeugen `MemberAction` + reduzieren/erhöhen `current_shares` **sofort** (kein RepaymentEntry)
+- **Fazit:** Kein Doppelbuchen, da zwei unterschiedliche Pfade (MemberAction-direct vs. RepaymentEntry→PaidOut→MemberAction).
+
+---
+
+## 3. H1/H2-Stichtagsregel-Implementierung
+
+### Spezifikation aus PROJECT.md
+**Stichtagsregel (Kündigung + Teil-Rückgabe):**
+- **H1 (1.–6. Monat):** effective_date = 31.12. des **aktuellen** Geschäftsjahres
+- **H2 (7.–12. Monat):** effective_date = 31.12. des **folgenden** Geschäftsjahres
+
+### Implementierungs-Ort: Pure Function in Service-Impl
+
+**Platzierung:** `genossi_service_impl/src/member_action.rs` (neue Funktion)
+
+```rust
+/// Berechnet das Wirksamkeitsdatum nach H1/H2-Regel.
+/// - Willensbekundung im 1.-6. Monat → 31.12. des laufenden Jahres
+/// - Willensbekundung im 7.-12. Monat → 31.12. des nächsten Jahres
+/// Pure function, unit-testbar, keine I/O.
+pub(crate) fn compute_effective_date(
+    willensbekundung_datum: time::Date,
+) -> time::Date {
+    let month = willensbekundung_datum.month() as u8;
+    let year = if month <= 6 {
+        willensbekundung_datum.year()
+    } else {
+        willensbekundung_datum.year() + 1
+    };
+    
+    time::Date::from_calendar_date(year, time::Month::December, 31)
+        .expect("December 31 is always valid")
 }
 
-#[async_trait]
-pub trait AssemblyDao {
-    type Transaction;
-    async fn create(&self, entity: &AssemblyEntity, tx: Self::Transaction) -> Result<(), DaoError>;
-    async fn update(&self, entity: &AssemblyEntity, process: &str, tx: Self::Transaction) -> Result<(), DaoError>;
-    async fn dump_all(&self, tx: Self::Transaction) -> Result<Arc<[AssemblyEntity]>, DaoError>;
-    async fn find_by_id(&self, id: Uuid, tx: Self::Transaction) -> Result<Option<AssemblyEntity>, DaoError>;
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_h1_returns_dec31_current_year() {
+        let date = time::Date::from_calendar_date(2026, time::Month::March, 15).unwrap();
+        let result = compute_effective_date(date);
+        assert_eq!(result.year(), 2026);
+        assert_eq!(result.month(), time::Month::December);
+        assert_eq!(result.day(), 31);
+    }
+
+    #[test]
+    fn test_h2_returns_dec31_next_year() {
+        let date = time::Date::from_calendar_date(2026, time::Month::September, 10).unwrap();
+        let result = compute_effective_date(date);
+        assert_eq!(result.year(), 2027);
+        assert_eq!(result.month(), time::Month::December);
+        assert_eq!(result.day(), 31);
+    }
 }
-// KEIN impl Auditable — Anwesenheits-Aggregat ist explizit aus Audit-Scope ausgeschlossen.
 ```
 
-### Pattern 2: One-Time-Use Pre-Token mit atomarem Konsum
-
-**Was:** Vorstand erzeugt einen pre-token (UUID v4, hashed gespeichert). QR-Code-URL trägt das *Klartext*-Token als Pfad-Parameter. Beim Redeem-Endpoint wird in einer Transaktion: (1) Token-Hash gesucht, (2) `consumed_at IS NULL` geprüft, (3) `consumed_at = now()` gesetzt, (4) `UserSession` mit `claims` erzeugt, (5) `helper_pre_token.session_id` gesetzt. Schlägt einer der Schritte fehl → ROLLBACK. Antwort enthält Set-Cookie mit `session_id`.
-
-**Wann nutzen:** Wenn ein einmaliger, weitergebbarer aber pro Token nur einmal nutzbarer Login benötigt wird. Standard für Magic-Link, Invite-Token, Inventur-Token (siehe Kommentar `ensure_user_and_create_session_with_claims`).
-
-**Trade-offs:**
-- ➕ Token-Hash nur in DB → bei DB-Leak kein Replay
-- ➕ Atomic Konsum verhindert Race (zwei Helfer scannen denselben QR gleichzeitig)
-- ➕ Session erbt `expires_at` = Assembly-Schließzeitpunkt → automatisches Ablaufen
-- ➖ Erfordert Transaktions-Konsistenz zwischen pre_token-Tabelle und user_session-Tabelle (gleiche SQLite-DB → kein Issue)
-
-**Beispiel — Service:**
+**Aufruf in den neuen Service-Methoden:**
 ```rust
-// genossi_service_impl/src/helper_session.rs
-async fn redeem_pre_token(&self, plain_token: &str) -> Result<RedemptionResultTO, ServiceError> {
-    let tx = self.transaction_dao.transaction().await?;
-    let token_hash = sha256(plain_token);
+// create_cancellation + create_partial_repayment
+let effective_date = compute_effective_date(willensbekundungs_datum);
 
-    let pre_token = self.pre_token_dao
-        .find_by_hash(token_hash, tx.clone()).await?
-        .ok_or(ServiceError::Unauthorized)?;
+// transfer_shares + create_increase: NOT verwendet (sofort wirksam)
+// aber Willensbekundungs-Datum wird trotzdem als `date` im MemberAction gespeichert
+```
 
-    if pre_token.consumed_at.is_some() {
-        return Err(ServiceError::Unauthorized); // already used
+**Unit-Testbar:** ✓ Reine Funktion, keine Abhängigkeiten, einfache Datumsarithmetik.
+
+---
+
+## 4. Auto-Anlegen-Ziel-Phase-Strategie
+
+### Problem
+Teil-Rückgabe im H2 mit Willensbekundung Nov 2026 → effective_date = 31.12.2027 → benötigt RepaymentPhase für FY 2027. Was tun, wenn Phase noch nicht existiert?
+
+**Drei Optionen (aus PROJECT.md):**
+
+| Option | Vorteil | Nachteil |
+|--------|---------|---------|
+| A: Auto-Create in Preparation + D-11.1-Guard erweitern | Vorhersehbar: Phase immer vorhanden beim Create | Extra-DAO-Call, Status-Komplexität: RepaymentEntry in Open Phase erzeugt, aber Phase ist Preparation |
+| B: Auto-Create direkt in Open + Auto-Fill-Dedup | Konsistent mit open_repayment_phase (Phase 8): alle Entries sofort Open | Komplexe Dedup-Logik nötig (Teil-Rückgabe-Entry könnte doppelt landen wenn Phase Auto-Created + später auch Open wird) |
+| C: Defer RepaymentEntry bis Phase-Open | Fehlerkanal: wenn Phase nie opened wird, Member wartet ewig | Deferred-Semantik ist UI-schwer zu erklären; Undo-Path unklar |
+
+### Empfehlung: **Option B (Auto-Create direkt in Open)**
+
+**Begründung:**
+1. **Konsistenz mit v1.1:** `open_repayment_phase()` (Phase 8) erzeugt RepaymentEntries in Open-Status automatisch. Wenn v1.2 Teil-Rückgabe eine Phase Auto-Create in Open tut, ist die Semantik unify.
+2. **Keine Dedup-Komplexität:** Das Auto-Create-Skript erzeugt die **Ziel-Phase** auf Basis (fiscal_year = Wirksamkeits-Jahr). `open_repayment_phase()` filtert Members via `m.exit_date.is_some_and(|d| d >= fy_start && d <= fy_end)` — die Teil-Rückgabe-Entry wird NICHT doppelt erstellt, weil der Member noch kein `exit_date` hat (nur `current_shares` wurde reduziert).
+3. **UI-Simple:** Vorstand drückt "Teil-Rückgabe", System antwortet sofort mit "Teil-Rückgabe erstellt für FY 2027" (ggf. neue Phase angelegt). Kein Warten, kein "bitte öffne Phase später".
+
+**Implementierung:**
+
+```rust
+pub async fn create_partial_repayment(
+    &self,
+    member_id: Uuid,
+    share_count_to_pay_out: i32,
+    willensbekundungs_datum: time::Date,
+    context: Authentication<Self::Context>,
+) -> Result<(MemberAction, RepaymentEntry), ServiceError> {
+    let tx = self.transaction_dao.use_transaction(None).await?;
+    
+    // ...Permission-Check etc...
+    
+    // Step 1: Berechne effective_date nach H1/H2-Regel
+    let effective_date = compute_effective_date(willensbekundungs_datum);
+    let target_fiscal_year = effective_date.year();
+    
+    // Step 2: Versuche Phase zu laden; wenn nicht existiert, create in Open status
+    let phase = match self
+        .repayment_phase_dao
+        .find_by_fiscal_year(target_fiscal_year, tx.clone())
+        .await? {
+        Some(p) => p,
+        None => {
+            // Auto-Create in Open status
+            // Aber: für "share_value" braucht Vorstand Input oder sensible Default?
+            // Vorläufig: Fehler zurückgeben + UI sagt "bitte Create Phase erst".
+            // TODO(v1.2-discuss): Auto-Create mit share_value from latest phase?
+            return Err(ServiceError::Conflict(Arc::from(
+                format!("RepaymentPhase for fiscal_year {} does not exist; please create it first", target_fiscal_year)
+            )));
+        }
+    };
+    
+    // Guard: D-11.1 — Phase muss Open sein (v1.1-Constraint bleibt)
+    if phase.status != RepaymentPhaseStatus::Open {
+        return Err(ServiceError::Conflict(Arc::from(
+            format!("RepaymentPhase status must be Open, got {}", phase.status.as_str())
+        )));
     }
-
-    let assembly = self.assembly_dao
-        .find_by_id(pre_token.assembly_id, tx.clone()).await?
-        .ok_or(ServiceError::EntityNotFound(pre_token.assembly_id))?;
-    if assembly.status != AssemblyStatus::Open {
-        return Err(ServiceError::Unauthorized);
-    }
-
-    // Synthetic user_id = pre_token.id (deterministic, isolated from real users)
-    let synthetic_user = format!("helper:{}", pre_token.id);
-    let claims = serde_json::json!({"kind":"helper","assembly_id":assembly.id}).to_string();
-    let expires_at_secs = (assembly.date + Duration::hours(24)).unix_timestamp(); // hard upper bound
-
-    let session = self.session_service
-        .create_session_with_claims(&synthetic_user, expires_at_secs - now(), Some(claims)).await?;
-
-    let mut consumed = pre_token.clone();
-    consumed.consumed_at = Some(now());
-    consumed.session_id = Some(session.session_id.clone());
-    self.pre_token_dao.update(&consumed, "helper-session-redeem", tx.clone()).await?;
-
+    
+    // Step 3: Lade Member + validiere shares
+    let mut member = self
+        .member_dao
+        .find_by_id(member_id, tx.clone())
+        .await?
+        .ok_or(ServiceError::EntityNotFound(member_id))?;
+    
+    // Validierung (ENTR-02)
+    validate_entry_create(share_count_to_pay_out, member.current_shares)?;
+    
+    // Step 4: Erstelle MemberAction (keine shares_change, nur Intent-Marker)
+    // ABER: laut v1.2-Spec erzeugt Teil-Rückgabe KEINE MemberAction, sondern nur RepaymentEntry
+    // Das heißt: compute_dates() wird NICHT neu ausgeführt
+    // TODO(v1.2-discuss): Fallback Option — sollen wir einen "TeilRückgabe"-Type in ActionType hinzufügen?
+    // Für jetzt: keine MemberAction, nur RepaymentEntry
+    
+    // Step 5: Erstelle RepaymentEntry
+    let entry = RepaymentEntryEntity {
+        id: self.uuid_service.new_v4().await,
+        member_id,
+        phase_id: phase.id,
+        share_count_to_pay_out,
+        status: RepaymentEntryStatus::Open,
+        created: /* now */,
+        deleted: None,
+        version: self.uuid_service.new_v4().await,
+    };
+    
+    crate::audited_create!(
+        self,
+        self.repayment_entry_dao,
+        &entry,
+        "repayment-entry.create-from-membership-adjust",
+        &user_id,
+        tx
+    );
+    
     self.transaction_dao.commit(tx).await?;
-    Ok(RedemptionResultTO { session_id: session.session_id, assembly_id: assembly.id })
+    Ok((/* no MemberAction */, RepaymentEntry::from(&entry)))
 }
 ```
 
-### Pattern 3: Polymorphes AuthContext für „eine View, zwei Auth-Backends"
+**Problematisch:** Laut PROJECT.md "v1.2 erzeugt nur Intent-Datensätze — keine MemberAction". Teil-Rückgabe erzeugt nur RepaymentEntry. Das ist **OK**, weil v1.1's `mark_paid_out()` die Reduktion macht. *Aber:* wenn Vorstand ändert Gedanken und cancelt die RepaymentEntry, wurde `current_shares` nie reduziert → Member-State bleibt korrekt. ✓ Sauber.
 
-**Was:** Bestehender `AuthContext`-Enum (`genossi_service/src/auth_types.rs`) wird um Variante `Helper { session_id, assembly_id }` erweitert. Die `extract_auth_context`-Logik im SessionService liest `claims.kind` und gibt entweder `AuthContext::Oidc(...)` (Vorstand) oder `AuthContext::Helper{...}` (Helfer) zurück. AttendanceService akzeptiert beide.
+**Recommend für Discuss-Phase:** Klären, ob Fallback auf "Phase nicht existiert" → "Auto-Create Phase in Open" soll, oder ob Fehler → "Vorstand create manuell" acceptable ist.
 
-**Wann nutzen:** Wenn dasselbe UI/Feature von verschiedenen Authentifizierungs-Pfaden aufgerufen wird, aber unterschiedliche Privilege-Sätze hat.
+---
 
-**Trade-offs:**
-- ➕ Frontend muss nicht zwei API-Pfade unterhalten; eine `/api/attendance/...`-Route
-- ➕ Authorization bleibt zentralisiert in `AttendanceServiceImpl::check_can_mark_attendance(ctx, assembly_id)`
-- ➖ `AuthContext`-Enum wird größer; alle bestehenden `match`-Stellen müssen erweitert werden (clippy fängt das auf)
+## 5. Cross-Entity-Atomarität für Übertragung
 
-**Beispiel — Permission-Check:**
+### Anforderung
+**2 verlinkte MemberActions in einer Tx:**
+- A: `MemberAction(member_id=from, action_type=UebertragungAbgabe, shares_change=-n, transfer_member_id=to)`
+- B: `MemberAction(member_id=to, action_type=UebertragungEmpfang, shares_change=+n, transfer_member_id=from)`
+- Member A: `current_shares -= n`
+- Member B: `current_shares += n`
+- Genau-einmal-Semantik: beide oder keine
+
+### Pattern-Anker aus v1.1 Phase 9
+`genossi_service_impl/src/repayment_entry.rs:L517-620` `mark_paid_out()` — 12-Schritt-Cascade:
+1. Tx beginnen
+2. User-ID + Permission-Check
+3. RepaymentEntry laden + Status-Guard
+4. Member laden (Payout-Owner)
+5. Validierung (shares_change > 0)
+6. `audited_update!` RepaymentEntry.status = PaidOut
+7. `audited_create!` MemberAction::Verkauf (mit shares_change = −entry.share_count)
+8. `audited_update!` Member.current_shares -= shares_change
+9. `recalc_dates()` / `recalc_migrated()` falls nötig
+10. Re-read (CR-01)
+11. Commit
+12. Return
+
+**v1.2 Übertrag-Analogon (7 Schritte):**
+
 ```rust
-// genossi_service_impl/src/attendance.rs
-fn assert_can_access_assembly(&self, ctx: &AuthContext, assembly_id: Uuid) -> Result<(), ServiceError> {
-    match ctx {
-        AuthContext::Helper { assembly_id: helper_assembly, .. } if *helper_assembly == assembly_id => Ok(()),
-        AuthContext::Helper { .. } => Err(ServiceError::PermissionDenied), // Helfer einer ANDEREN GV
-        AuthContext::Oidc(_) | AuthContext::Mock(_) => {
-            // Vorstand braucht admin-privilege; check_permission delegiert
-            // an PermissionService → existing pattern
-            Ok(())
+pub async fn transfer_shares(
+    &self,
+    from_member_id: Uuid,
+    to_member_id: Uuid,
+    share_count: i32,
+    context: Authentication<Self::Context>,
+) -> Result<TransferResult, ServiceError> {
+    let tx = self.transaction_dao.use_transaction(None).await?;
+    
+    // Step 1-2: User + Permission
+    let user_id = self.permission_service.current_user_id(context.clone()).await?
+        .unwrap_or_else(|| "SYSTEM".to_string());
+    self.permission_service.check_permission(MANAGE_MEMBERS_PRIVILEGE, context).await?;
+    
+    // Step 3: Lade beide Members
+    let mut from_member = self.member_dao.find_by_id(from_member_id, tx.clone()).await?
+        .ok_or(ServiceError::EntityNotFound(from_member_id))?;
+    let mut to_member = self.member_dao.find_by_id(to_member_id, tx.clone()).await?
+        .ok_or(ServiceError::EntityNotFound(to_member_id))?;
+    
+    // Step 4: Validierungen
+    if share_count <= 0 {
+        return Err(ServiceError::ValidationError(vec![
+            ValidationFailureItem {
+                field: Arc::from("share_count"),
+                message: Arc::from("must be > 0"),
+            }
+        ]));
+    }
+    if from_member.current_shares < share_count {
+        return Err(ServiceError::ValidationError(vec![
+            ValidationFailureItem {
+                field: Arc::from("share_count"),
+                message: Arc::from(format!(
+                    "transfer count {} exceeds from_member current_shares {}",
+                    share_count, from_member.current_shares
+                )),
+            }
+        ]));
+    }
+    if to_member.exit_date.is_some() {
+        return Err(ServiceError::Conflict(Arc::from(
+            "cannot transfer to member with exit_date (not active)"
+        )));
+    }
+    
+    let now = time::OffsetDateTime::now_utc();
+    let now_pdt = time::PrimitiveDateTime::new(now.date(), now.time());
+    
+    // Step 5a: Erstelle MemberAction::UebertragungAbgabe
+    let from_action = MemberActionEntity {
+        id: self.uuid_service.new_v4().await,
+        member_id: from_member_id,
+        action_type: ActionType::UebertragungAbgabe,
+        date: now.date(),
+        shares_change: -(share_count as i32),
+        transfer_member_id: Some(to_member_id),
+        effective_date: None,  // sofort wirksam
+        comment: None,
+        created: now_pdt,
+        deleted: None,
+        version: self.uuid_service.new_v4().await,
+    };
+    
+    crate::audited_create!(
+        self,
+        self.member_action_dao,
+        &from_action,
+        "membership-adjust.transfer-out",
+        &user_id,
+        tx.clone()
+    );
+    
+    // Step 5b: Erstelle MemberAction::UebertragungEmpfang
+    let to_action = MemberActionEntity {
+        id: self.uuid_service.new_v4().await,
+        member_id: to_member_id,
+        action_type: ActionType::UebertragungEmpfang,
+        date: now.date(),
+        shares_change: share_count as i32,
+        transfer_member_id: Some(from_member_id),  // link back to source
+        effective_date: None,
+        comment: None,
+        created: now_pdt,
+        deleted: None,
+        version: self.uuid_service.new_v4().await,
+    };
+    
+    crate::audited_create!(
+        self,
+        self.member_action_dao,
+        &to_action,
+        "membership-adjust.transfer-in",
+        &user_id,
+        tx.clone()
+    );
+    
+    // Step 6: Reduziere from_member.current_shares
+    from_member.current_shares -= share_count;
+    // Wenn from → 0: setze exit_date
+    if from_member.current_shares == 0 {
+        from_member.exit_date = Some(now.date());
+    }
+    
+    crate::audited_update!(
+        self,
+        self.member_dao,
+        from_member_id,
+        &from_member,
+        "membership-adjust.transfer",
+        &user_id,
+        tx.clone()
+    );
+    
+    // Step 7: Erhöhe to_member.current_shares
+    to_member.current_shares += share_count;
+    
+    crate::audited_update!(
+        self,
+        self.member_dao,
+        to_member_id,
+        &to_member,
+        "membership-adjust.transfer",
+        &user_id,
+        tx.clone()
+    );
+    
+    // Step 8: recalc_dates für from (exit_date könnte gesetzt worden sein)
+    self.recalc_dates(from_member_id, tx.clone()).await?;
+    
+    self.transaction_dao.commit(tx).await?;
+    
+    Ok(TransferResult {
+        from_action_id: from_action.id,
+        to_action_id: to_action.id,
+    })
+}
+```
+
+**Cross-Entity-Linking:** Die zwei MemberActions verlinken sich via `transfer_member_id` (beide zeigen aufeinander). Das ist das existierende Pattern aus v1.1.
+
+---
+
+## 6. Frontend-Integration
+
+### Member-Detail-Page-Struktur
+**Pfad:** `/home/neosam/programming/rust/projects/genossi3/genossi-frontend/src/page/member_details.rs`
+
+**Aktuelle Page-Struktur (Zeilen 75ff):**
+```rust
+#[component]
+pub fn MemberDetails(id: String) -> Element {
+    let i18n = use_i18n();
+    let nav = navigator();
+    
+    // Signal: member (MemberTO)
+    let mut member = use_signal(|| { /* default */ });
+    
+    // UI-Sections:
+    // 1. TopBar (Zeile ~150)
+    // 2. Member-Daten (Form mit Feldern wie Name, Email, etc.)
+    // 3. Action-Buttons (z.B. "Eintrittsbestätigung generieren", Zeile ~200)
+    // 4. MemberAction-Timeline (CommunicationTimeline, Zeile ~350)
+    // 5. MemberDocuments (Zeile ~400)
+}
+```
+
+### Neue UI-Komponente: "Mitgliedschaft anpassen"-Button + Modal
+
+**Komponenten-Struktur (Component-First-Prinzip):**
+
+**1. New Component: `membership_adjust_modal.rs`**
+Pfad: `genossi-frontend/src/component/membership_adjust_modal.rs` (neue Datei)
+
+```rust
+#[component]
+pub fn MembershipAdjustModal(
+    member_id: Uuid,
+    is_open: bool,
+    on_close: EventHandler,
+    on_success: EventHandler,  // callback nach Aktion
+) -> Element {
+    let i18n = use_i18n();
+    
+    // State: welche Operation ist gewählt?
+    let mut operation = use_signal(|| MembershipOperation::Cancellation);
+    
+    // State: Datepicker (default: today)
+    let mut willensbekundungs_datum = use_signal(|| /* today */);
+    let mut share_count = use_signal(|| 1i32);
+    let mut target_member_id = use_signal(|| None::<Uuid>);
+    
+    // Rendering:
+    // 1. Modal-Wrapper
+    // 2. Tabs/RadioButtons für die 4 Operationen
+    // 3. Form-Felder pro Operation (z.B. target member für Übertrag)
+    // 4. Datepicker (für Willensbekundung)
+    // 5. Vorschau-Tabelle (read-only)
+    // 6. Confirm-Button + Cancel
+}
+
+enum MembershipOperation {
+    Cancellation,          // Kündigung
+    PartialRepayment,      // Teil-Rückgabe
+    TransferOut,           // Übertrag (nur shares_count + target_member)
+    Increase,              // Aufstockung (nur share_count)
+}
+```
+
+**Shared Components (reuse von v1.1):**
+- `Modal` (bestehend, genossi-frontend/src/component/modal.rs) — Wrapper für die Adjust-Modal
+- `MemberSearch` (bestehend, genossi-frontend/src/component/member_search.rs) — für target-member-Auswahl bei Übertrag
+- `RequirePrivilege` (bestehend?) — oder inline Permission-Check für Admin-only
+
+**2. Button-Integration in MemberDetails**
+`genossi-frontend/src/page/member_details.rs` — neue Button-Zeile:
+
+```rust
+// Nach den existing Buttons (z.B. "Eintrittsbestätigung generieren")
+// um Zeile ~200:
+
+let mut show_adjust_modal = use_signal(|| false);
+
+// Button:
+rsx! {
+    button {
+        disabled: !is_admin,  // nur Vorstand
+        onclick: move |_| show_adjust_modal.set(true),
+        "{i18n.t(Key::MembershipAdjustButton)}"  // "Mitgliedschaft anpassen"
+    }
+}
+
+// Modal:
+{
+    show_adjust_modal() && rsx! {
+        MembershipAdjustModal {
+            member_id: member.id.unwrap(),
+            is_open: show_adjust_modal(),
+            on_close: move |_| show_adjust_modal.set(false),
+            on_success: move |_| {
+                // Reload member data
+                show_adjust_modal.set(false);
+                // Trigger: refetch member from API
+            },
         }
     }
 }
 ```
 
-### Pattern 4: Refresh-Only Live-Counter (kein SSE/WebSocket)
-
-**Was:** Frontend ruft im Polling-Intervall (z. B. 5s, oder bei jedem Suchvorgang) `GET /api/assembly/:id/stats` auf. Backend gibt `{present: 47, total: 152}` zurück. Vorstand sieht Live-Counter, Helfer-Aktionen werden bei nächstem Refresh sichtbar.
-
-**Wann nutzen:** Wenn Echtzeit-Anforderungen lasch sind (PROJECT.md: „Sync zwischen Helfern nur bei Refresh, kein Live-Push") — vermeidet komplette SSE/WebSocket-Infrastruktur.
-
-**Trade-offs:**
-- ➕ Keine neue Infrastruktur; passt in bestehendes REST-Pattern
-- ➕ Doppel-Abhaken ist akzeptabel (Anwesend-Markierung ist idempotent: `UNIQUE(assembly_id, member_id) WHERE deleted IS NULL`)
-- ➖ N Helfer × Polling = N Requests/Sekunde — bei einer GV mit max ~10 Helfern unproblematisch
-
-**Beispiel:**
+**3. i18n Keys (neue Einträge)**
+`genossi-frontend/src/i18n/mod.rs`:
 ```rust
-// genossi_rest/src/assembly.rs
-async fn get_assembly_stats(/* ... */) -> Result<AttendanceStatsTO, RestError> {
-    let stats = service.get_stats(assembly_id, ctx).await?;
-    // counters, no member list
-    Ok(AttendanceStatsTO { present: stats.present, total: stats.total })
+pub enum Key {
+    // ... existing ...
+    MembershipAdjustButton,
+    MembershipAdjustCancellation,
+    MembershipAdjustPartialRepayment,
+    MembershipAdjustTransfer,
+    MembershipAdjustIncrease,
+    MembershipAdjustEffectiveDate,  // Wirksamkeitsdatum
+    MembershipAdjustTargetMember,   // für Übertrag
+    MembershipAdjustShareCount,
+    MembershipAdjustPreview,        // Vorschau-Sektion
+    MembershipAdjustConfirm,        // Bestätigung
 }
 ```
 
-## Data Flow
+**4. Service-Layer Frontend API**
+`genossi-frontend/src/api.rs` — neue Funktionen:
 
-### (a) GV Anlegen (Vorstand)
+```rust
+pub async fn create_cancellation(
+    member_id: Uuid,
+    effective_date: time::Date,
+) -> Result<MemberActionTO, String> {
+    // POST /api/members/{member_id}/cancel
+}
 
+pub async fn create_partial_repayment(
+    member_id: Uuid,
+    share_count: i32,
+    effective_date: time::Date,
+) -> Result<RepaymentEntryTO, String> {
+    // POST /api/members/{member_id}/partial-repayment
+}
+
+pub async fn transfer_shares(
+    from_member_id: Uuid,
+    to_member_id: Uuid,
+    share_count: i32,
+) -> Result<TransferResultTO, String> {
+    // POST /api/members/{from_member_id}/transfer-to/{to_member_id}
+}
+
+pub async fn create_increase(
+    member_id: Uuid,
+    share_count: i32,
+) -> Result<MemberActionTO, String> {
+    // POST /api/members/{member_id}/increase-shares
+}
 ```
-Browser (Vorstand)
-   │ POST /api/assembly  Body: {title, date}  Cookie: oidc_session
-   ▼
-auth_middleware → AuthContext::Oidc(...)
-   ▼
-assembly.rs::create_assembly()
-   ▼
-AssemblyServiceImpl::create()
-   ├─ permission.check_permission("admin", ctx)
-   ├─ uuid_service.new_uuid() → assembly_id
-   ├─ tx = transaction_dao.transaction()
-   ├─ assembly_dao.create(entity, tx)
-   └─ tx.commit()
-   ▼
-201 Created  Body: AssemblyTO
-```
-
-### (b) QR-Code für Helfer erzeugen (Vorstand)
-
-```
-Browser (Vorstand, assembly_detail.rs)
-   │ POST /api/assembly/:id/pre-token  Body: {memo_name: "Anna"}
-   ▼
-HelperSessionServiceImpl::create_pre_token(assembly_id, "Anna", ctx)
-   ├─ permission.check_permission("admin", ctx)
-   ├─ check assembly.status == Open
-   ├─ plain_token = uuid_service.new_uuid().to_string()  // 36-char base
-   ├─ token_hash = sha256(plain_token)
-   ├─ pre_token_dao.create({id, assembly_id, memo_name, token_hash, ...}, tx)
-   └─ commit
-   ▼
-201 Created  Body: {pre_token_id, redeem_url: "https://genossi/qr/<plain_token>", memo_name}
-   ▼
-Frontend rendert QrCard-Component mit redeem_url als QR
-```
-
-### (c) Helfer-Login per QR-Scan
-
-```
-Helfer öffnet QR-URL https://genossi/qr/<plain_token>
-   │
-   ▼
-Frontend Page qr_redeem.rs lädt
-   │ POST /api/helper-session/redeem  Body: {token: "<plain_token>"}
-   ▼
-helper_session.rs::redeem()
-   ▼
-HelperSessionServiceImpl::redeem_pre_token(plain_token)
-   ├─ tx = transaction.begin()
-   ├─ pre_token_dao.find_by_hash(sha256(token))
-   │    └─ NOT FOUND → 401
-   ├─ if pre_token.consumed_at.is_some() → 401  (already used)
-   ├─ assembly_dao.find_by_id(pre_token.assembly_id)
-   │    └─ status != Open → 401
-   ├─ session_id = uuid()
-   ├─ session_service.create_session_with_claims(
-   │     user_id = "helper:<pre_token.id>",
-   │     expires_in = (assembly.date_end_of_day - now),
-   │     claims = '{"kind":"helper","assembly_id":"..."}'
-   │   )
-   ├─ pre_token.consumed_at = now()
-   ├─ pre_token.session_id = session_id
-   ├─ pre_token_dao.update(pre_token, ...)
-   └─ tx.commit()
-   ▼
-200 OK  Body: {assembly_id, assembly_title}
-       Set-Cookie: session_id=<uuid>; HttpOnly; Secure; SameSite=Strict
-   ▼
-Frontend redirect → attendance_helper.rs?assembly_id=...
-```
-
-### (d) Anwesenheit markieren (Helfer ODER Vorstand)
-
-```
-Browser (Helfer ODER Vorstand)
-   │ POST /api/attendance/:assembly_id/:member_id  Cookie: session_id=<...>
-   ▼
-auth_middleware
-   ├─ liest cookie, extract_context_from_headers()
-   ├─ session_service.extract_auth_context(session_id)
-   │    └─ liest UserSession.claims, parse JSON
-   │    └─ wenn claims.kind == "helper" → AuthContext::Helper{...}
-   │    └─ sonst                          → AuthContext::Oidc(...)
-   └─ Request.extensions_mut().insert(auth_context)
-   ▼
-attendance.rs::mark_present(assembly_id, member_id)
-   ▼
-AttendanceServiceImpl::mark_present()
-   ├─ assert_can_access_assembly(ctx, assembly_id)  ← Pattern 3
-   ├─ check assembly.status == Open
-   ├─ existing = attendance_dao.find_by_assembly_member(assembly_id, member_id, tx)
-   ├─ if existing.is_some() && existing.deleted.is_none() → 200 (idempotent)
-   ├─ if existing.is_some() && existing.deleted.is_some() → update: deleted=None
-   ├─ else → attendance_dao.create({id, assembly_id, member_id, marked_by: ctx.actor_id(), marked_at: now})
-   └─ commit
-   ▼
-200 OK  (KEIN Audit-Log-Eintrag — explizit aus Scope; PROJECT.md Out-of-Scope)
-```
-
-### (e) GV schließen → Helper-Sessions invalidieren
-
-```
-Browser (Vorstand)
-   │ PUT /api/assembly/:id  Body: {status: "Closed"}
-   ▼
-AssemblyServiceImpl::close_assembly(id, ctx)
-   ├─ permission.check_permission("admin", ctx)
-   ├─ tx = transaction.begin()
-   ├─ assembly = assembly_dao.find_by_id(id, tx)
-   ├─ assembly.status = Closed
-   ├─ assembly.closed_at = Some(now())
-   ├─ assembly_dao.update(assembly, "assembly-close", tx)
-   ├─ // Cascade: alle helper_pre_tokens dieser Assembly mit gesetzter session_id invalidieren
-   ├─ tokens = pre_token_dao.list_by_assembly(id, tx)
-   ├─ for token in tokens.filter(t => t.session_id.is_some()):
-   │     session_service.invalidate_session(&token.session_id)
-   └─ tx.commit()
-   ▼
-200 OK
-```
-
-**Wichtig:** Auch ohne expliziten Cascade laufen Helper-Sessions automatisch ab, weil `expires_at` beim Anlegen der Session ans GV-Datums-Ende gebunden wird. Der Cascade in `close_assembly()` ist ein **Safety-Net** für vorzeitiges Schließen vor dem Tagesende.
-
-## Build-Reihenfolge (Phase-Empfehlung für den Roadmap-Schritt)
-
-Die folgende Reihenfolge minimiert Lock-In und macht jeden Schritt für sich testbar:
-
-1. **Phase A — Assembly-Aggregat (DAO → Service → REST)**
-   Abhängigkeit: keine (außer existing TransactionDao, UuidService, PermissionService).
-   - DAO: `genossi_dao/src/assembly.rs` + `genossi_dao_impl_sqlite/src/assembly.rs`
-   - Migration: `assembly`-Tabelle
-   - Service: `AssemblyServiceImpl::create/update/get_all/find_by_id/close_assembly` (close ohne Cascade noch — Cascade kommt in Phase C)
-   - REST: `POST/PUT/GET /api/assembly`
-   - DI-Wiring in `genossi_bin/src/lib.rs`
-   - Tests: Unit-Tests Service mit MockDaos, e2e POST/GET über Test-Server.
-   - Liefert: Vorstand kann GVs anlegen und schließen — Frontend noch nicht erforderlich.
-
-2. **Phase B — Pre-Token + HelperSession (DAO → Service → REST)**
-   Abhängigkeit: Assembly-Aggregat (für FK), bestehender SessionService.
-   - DAO: `helper_pre_token` mit `find_by_hash`, atomic `consume_pre_token`
-   - Migration: `helper_pre_token`-Tabelle
-   - Service: `HelperSessionServiceImpl` mit `create_pre_token`, `redeem_pre_token`
-   - **AuthContext-Erweiterung:** Variante `Helper { session_id, assembly_id }` in `auth_types.rs`; `SessionService::extract_auth_context` parst `claims.kind`
-   - REST: `POST /api/assembly/:id/pre-token`, `POST /api/helper-session/redeem` (setzt Cookie)
-   - Tests: Pre-Token Race-Test (zwei parallele redeems → genau einer erfolgreich); abgelaufene Sessions; Helper-AuthContext-Extraction.
-   - Liefert: Helfer können sich per QR-URL einloggen — eine Cookie-Session existiert, kann aber noch keine Anwesenheit markieren.
-
-3. **Phase C — Attendance-Aggregat + Cascade-Invalidation**
-   Abhängigkeit: Assembly + HelperSession.
-   - DAO: `attendance` als Join (UNIQUE(assembly_id, member_id) WHERE deleted IS NULL)
-   - Migration: `attendance`-Tabelle
-   - Service: `AttendanceServiceImpl::list_members_for_helper` (reduced view via SQL-Projection auf `member.member_number/name/title/salutation`), `mark_present`, `unmark`, `get_stats`
-   - Permission-Logik mit polymorphem `AuthContext` (Pattern 3)
-   - **Erweiterung von Phase A:** `AssemblyServiceImpl::close_assembly` cascade-invalidiert Helper-Sessions
-   - REST: `GET /api/attendance/:assembly_id/members`, `POST/DELETE /api/attendance/:assembly_id/:member_id`, `GET /api/assembly/:id/stats`
-   - Tests: Vorstand kann ohne Helper-Token markieren; Helper kann nur in eigener Assembly markieren; idempotent (zweimal POST → derselbe Zustand); Stats-Counter.
-   - Liefert: Backend-API ist vollständig, alle 9 Active-Requirements aus PROJECT.md sind funktional bedient (Frontend-Bonus folgt).
-
-4. **Phase D — Frontend-Components (Component-First)**
-   Abhängigkeit: Backend-Phasen A–C abgeschlossen.
-   - Reihenfolge: erst Components (`attendance_row`, `attendance_search`, `attendance_header`, `qr_card`, `live_counter`), dann Pages (`assembly_list`, `assembly_detail`, `qr_redeem`, `attendance_helper`).
-   - Eine UI-Bibliothek-Erweiterung: `attendance_helper.rs` muss prüfen, ob aktueller AuthContext `Helper` oder `Oidc` ist (sichtbar im API-Response — `/api/session` liefert Mode), und dann die richtige Top-Bar zeigen (Vorstand: full nav; Helfer: nur „Logout" + Assembly-Title).
-   - Live-Counter via `use_resource` mit Polling-Intervall (5s), Suchfeld filtert lokal (kein API-Roundtrip).
-
-5. **Phase E (optional) — Hardening**
-   - Rate-Limit auf `/api/helper-session/redeem` (z. B. tower-governor) gegen Token-Bruteforce
-   - Audit-Timestamp für `assembly.closed_at` via bestehende `audit_timestamp`-Infrastruktur (siehe `genossi_service_impl/src/timestamp_worker.rs`) — gibt RFC 3161 Beweis für Protokoll
-   - Excel-Export der Anwesenheitsliste über bestehende `MemberImportService`-Pattern (read-side)
-
-**Kritische Build-Reihenfolge-Regeln:**
-- **B vor C** ist zwingend, weil C die `AuthContext::Helper`-Variante nutzt
-- **Cascade-Invalidation in close_assembly** kommt erst in Phase C (nicht A), weil der Cascade die HelperPreTokenDao kennt — vermeidet zirkuläre Service-Deps in Phase A
-- **Frontend (D) erst nach Backend (A–C)** — die existierende Genossi-Konvention ist Backend-First (siehe `.planning/codebase/STRUCTURE.md`); Frontend nutzt API-Schemas via `genossi_rest_types`
-
-## State Management
-
-```
-Backend
-  ├─ user_session table (existing) — single source of truth für aktive Sessions (oidc + helper)
-  ├─ assembly table — Aggregat-Wurzel, status (Open/Closed) treibt Cascade-Invalidation
-  ├─ helper_pre_token table — One-Time-Use-Marker; consumed_at + session_id verbinden Pre-Token mit aktiver Session
-  └─ attendance table — Join, soft-delete = ausgetragen
-
-Frontend
-  ├─ State hooks pro Page (Dioxus use_resource für Server-State)
-  ├─ Helper-Session-State: Cookie-basiert (transparent), kein client-seitiges State-Management nötig
-  └─ Live-Counter: use_resource mit Polling-Intervall, manueller Refresh bei Search-Submit
-```
-
-## Anti-Patterns
-
-### Anti-Pattern 1: Helper-Session als komplett neues Cookie/Token-System bauen
-
-**Was Leute tun:** Eigene `helper_session`-Tabelle, eigener Header `X-Helper-Token`, eigene Middleware-Pipeline neben der OIDC-Middleware.
-
-**Warum falsch:** Verdoppelt die Auth-Codebase. Auth-Middleware in `genossi_rest/src/auth_middleware.rs` müsste an mehreren Stellen branchen. Bug-Fixes (Cookie-Flags, Timing-Attacks) müssten zweimal gemacht werden.
-
-**Stattdessen:** Bestehendes `user_session`-Schema mit `claims`-JSON-Feld nutzen (existiert für genau diesen Zweck — siehe Kommentar im Code: „Used for inventur token login auto-registration flow"). Eine Variante in `AuthContext`-Enum ergänzen.
-
-### Anti-Pattern 2: Plain-Token in DB speichern
-
-**Was Leute tun:** `helper_pre_token.token` als plain UUID-String in der Tabelle speichern.
-
-**Warum falsch:** DB-Backup-Leak = sofortiger Replay aller noch nicht eingelösten QR-Codes. Auch wenn das Window bis zur GV kurz ist — die Genossi-Codebase pflegt eine Hash-Chain für Audits, mit Plain-Token im DB ist diese Konsistenz-Story brüchig.
-
-**Stattdessen:** SHA256-Hash speichern, Plain-Token nur in der QR-URL. `find_by_hash`-Lookup beim Redeem. Bei Memo-Anzeige im Vorstand wird **nicht** der Token gezeigt, sondern die Pre-Token-ID + Memo-Name + Status (consumed/active).
-
-### Anti-Pattern 3: Helfer-View als zwei separate Pages bauen
-
-**Was Leute tun:** `helper_attendance.rs` und `admin_attendance.rs` als zwei Pages mit ähnlichem RSX.
-
-**Warum falsch:** Verstößt direkt gegen Component-First-Prinzip aus `genossi-frontend/CLAUDE.md` und das Memory-Item „Always use reusable components, never duplicate UI logic across pages". User hat dies in PROJECT.md explizit als Key Decision festgehalten („Helfer-View auch für Vorstand zugänglich (ohne QR), vermeidet UI-Duplikat").
-
-**Stattdessen:** Eine Page `attendance_helper.rs`, zwei Auth-Pfade. Components sind oblivious zur Auth-Quelle. Auth-spezifische Differenzen (Top-Bar, Logout-Verhalten) liegen in der Page selbst, nicht in den Components.
-
-### Anti-Pattern 4: Anwesenheit ans Member-Aggregat hängen
-
-**Was Leute tun:** `member.attended_assembly_id` oder Liste `member.attended_assemblies` als Felder am Member.
-
-**Warum falsch:** PROJECT.md Key Decision: „Anwesenheit als Join-Tabelle (`AssemblyAttendance`) statt Member-Flag" — Mehrfach-GV-Historie geht sonst verloren. Member-Schema-Migration triggert zudem Audit-Macros (Member ist auditiert!), während Attendance explizit aus Audit-Scope ausgeschlossen ist.
-
-**Stattdessen:** `attendance`-Join-Tabelle. Member bleibt unverändert.
-
-### Anti-Pattern 5: SSE/WebSocket „weil Live-Counter klingt nach Echtzeit"
-
-**Was Leute tun:** axum-streams, tokio_stream, Broadcast-Channel für Anwesenheits-Events.
-
-**Warum falsch:** PROJECT.md Out-of-Scope: „Live-Push zwischen Helfern (SSE/WebSocket) — Synchronisation nur bei Refresh/Suche". User hat das explizit ausgeschlossen, um Komplexität zu vermeiden.
-
-**Stattdessen:** Polling im Frontend (`use_resource` mit Refresh-Intervall). Backend-Endpoint `GET /api/assembly/:id/stats` ist eine simple SQL-Aggregation.
-
-## Integration Points
-
-### Externe Abhängigkeiten
-
-| Service | Integration-Pattern | Hinweise |
-|---------|-------------------|---------|
-| **Nextcloud OIDC** (existing) | unverändert; Vorstand authentifiziert sich gleich wie heute | Nichts neu — `AuthContext::Oidc` bleibt für Vorstand der einzige Pfad |
-| **QR-Code-Rendering** | Frontend-only via `qrcode` crate (WASM-kompatibel: `qrcode = { version, default-features = false, features = ["svg"] }`) | Backend liefert nur die `redeem_url`-String, Frontend rendert SVG |
-| **Tower-Sessions / tower-cookies** (existing) | unverändert; bestehender Cookie-Mechanismus für `session_id` setzt das Helper-Cookie genauso | Set-Cookie-Header in REST-Layer reicht aus |
-
-### Interne Boundaries
-
-| Boundary | Kommunikation | Hinweise |
-|----------|--------------|---------|
-| **Assembly ↔ HelperPreToken** | DAO-Layer FK-Constraint + Service-Layer `assembly_id`-Check | HelperPreToken kann nicht ohne existierende Assembly erzeugt werden; bei Assembly-Soft-Delete laufen pre_tokens ins Leere — akzeptabel, weil `redeem` zusätzlich `assembly.status == Open` prüft |
-| **HelperSession ↔ user_session** | Service-Layer; HelperSessionService nutzt `SessionService::create_session_with_claims` | KEINE direkte DB-Interaktion mit user_session aus HelperSessionService — alles über das Trait, damit Mocking + Tests stabil bleiben |
-| **AttendanceService ↔ MemberDao** | Read-only Projection beim `list_members_for_helper` | NICHT die volle MemberEntity zurückgeben — eigenes `AttendanceMemberTO` mit nur 4 Feldern, um DSGVO-Datenminimierung im Code sichtbar zu machen (siehe PROJECT.md Constraint „Datenschutz") |
-| **AssemblyService ↔ HelperSessionService** | Cascade-Invalidation via Trait-Aufruf in `close_assembly` | Beide Services bekommen einander als Dep injiziert in `genossi_bin/src/lib.rs::RestStateImpl::new()`; Reihenfolge: HelperSessionService zuerst konstruieren, dann AssemblyService mit Reference |
-| **AttendanceService ↔ AssemblyService** | Read-only `find_by_id` für Status-Check (Open/Closed) | Markierungen werden auf geschlossener GV abgelehnt → 409 Conflict |
-
-## Sources
-
-- `.planning/PROJECT.md` (Project context, Key Decisions, Out-of-Scope)
-- `.planning/codebase/ARCHITECTURE.md` (Layered architecture, Audit-Pattern, Anti-Patterns)
-- `.planning/codebase/STRUCTURE.md` (Directory layout, „Where to Add New Code"-Recipe)
-- `.planning/codebase/CONVENTIONS.md` (Naming-Patterns, Error-Handling-Patterns, Audit-Macros-Vorgaben)
-- `genossi_service/src/auth_types.rs` (AuthContext-Enum, UserSession.claims-Feld)
-- `genossi_service/src/session.rs` (SessionService-Trait mit `create_session_with_claims` und Kommentar zur Inventur-Token-Pattern-Wiederverwendung)
-- `genossi_rest/src/auth_middleware.rs` (extract_context_from_headers — Cookie + Bearer-Pfad ist bereits vorhanden)
-- `/home/neosam/.claude/projects/-home-neosam-programming-rust-projects-genossi3/memory/MEMORY.md` (Component-First, OIDC = Nextcloud)
 
 ---
-*Architecture research for: GV-Anwesenheits-Tracking als neuer Genossi-Domain-Bereich*
-*Researched: 2026-05-01*
+
+## 7. Permission-Funnel
+
+### Existierendes Permission-System
+`genossi_service/src/permission.rs` — `PermissionService` trait:
+- `check_permission(privilege: &str, context: Authentication<C>) -> Result<(), ServiceError>`
+- Kontext kann sein: `Full` (OIDC-authenticated) oder `Bearer` (QR-Token) oder other
+
+**Existierende Privileges:**
+- `"admin"` — Vorstand-only (v1.1 RepaymentPhase, MemberAction)
+- `"view_members"` — read-only Mitgliederliste
+- `"manage_members"` — Mitglieder-CRUD
+
+### v1.2 Permission-Strategy
+
+**Alle 4 Operationen:** Vorstand-only (`MANAGE_MEMBERS_PRIVILEGE`)
+
+```rust
+const MANAGE_MEMBERS_PRIVILEGE: &str = "manage_members";
+```
+
+**Service-Methods werden gated bei Entry (vgl. v1.1 Pattern):**
+
+```rust
+// Alle neuen Methods in MemberActionServiceImpl
+pub async fn create_cancellation(&self, ..., context: Authentication<Self::Context>) {
+    // Step 1: Check permission
+    self.permission_service.check_permission(MANAGE_MEMBERS_PRIVILEGE, context).await?;
+    // Step 2-N: proceed
+}
+```
+
+**Frontend-Check:**
+```rust
+// In member_details.rs
+let is_admin = auth.is_authenticated() && auth.has_privilege("manage_members");
+// button wird nur angezeigt wenn is_admin
+```
+
+**REST-Endpoint-Security:**
+`genossi_rest/src/member_action.rs` — die neuen Endpoints erben das Permission-Gating vom Service:
+```rust
+#[post("/api/members/{member_id}/cancel")]
+pub async fn cancel_membership(
+    State(state): State<RestState>,
+    Path(member_id): Path<Uuid>,
+    Authentication(auth): Authentication,
+) -> Result<Json<MemberActionTO>> {
+    let result = state
+        .member_action_service()
+        .create_cancellation(member_id, auth)
+        .await?;
+    Ok(Json(MemberActionTO::from(&result)))
+}
+```
+
+---
+
+## 8. Audit-Pflicht & Hash-Chain-Konformität
+
+### v1.2-Operationen = Audit-Einträge
+
+**Alle 4 Operationen erzeugen Audit-Log-Einträge via bestehende Macros:**
+
+| Operation | Entity | Macro | Audit-Einträge |
+|---|---|---|---|
+| **Kündigung** | MemberAction (Austritt) | `audited_create!` | 1× MemberAction-Create; 0× Member-Update (exit_date ist Computed aus MemberAction) |
+| **Teil-Rückgabe** | RepaymentEntry | `audited_create!` | 1× RepaymentEntry-Create (später `audited_update!` auf PaidOut + `audited_create!` MemberAction::Verkauf) |
+| **Übertrag** | MemberAction (2×) + Member (2×) | `audited_create!` (2×) + `audited_update!` (2×) | 2× MemberAction-Create + 2× Member-Update |
+| **Aufstockung** | MemberAction + Member | `audited_create!` + `audited_update!` | 1× MemberAction-Create + 1× Member-Update |
+
+### Hash-Chain-Konformität
+
+**Status:** ✓ Fully compatible. Alle Macros verwenden bestehendes Audit-System:
+
+`genossi_service_impl/src/audit_macros.rs:L1-36` — `audited_create!`:
+```rust
+#[macro_export]
+macro_rules! audited_create {
+    ($self:expr, $dao:expr, $entity:expr, $process:expr, $user_id:expr, $tx:expr) => {{
+        // 1. DAO-create aufrufen
+        $dao.create($entity, $process, $tx.clone()).await?;
+        
+        // 2. Latest hash laden
+        let prev_hash = $self.audit_log_dao.get_latest_hash($tx.clone()).await?
+            .unwrap_or_default();
+        
+        // 3. Audit-Einträge bauen (build_create_entries)
+        let entries = $crate::audit_log::build_create_entries(
+            $entity,
+            $user_id,
+            $process,
+            &prev_hash,  // ← chaining mit vorherigem Hash
+            &mut || uuid::Uuid::new_v4(),
+        );
+        
+        // 4. Einträge schreiben
+        if !entries.is_empty() {
+            $self.audit_log_dao.create_entries(&entries, $tx.clone()).await?;
+        }
+    }};
+}
+```
+
+**Process-Strings für v1.2 (zur Audit-Log-Rückverfolgung):**
+```rust
+const PROCESS_CANCELLATION: &str = "membership-adjust.cancellation";
+const PROCESS_PARTIAL_REPAYMENT: &str = "membership-adjust.partial-repayment";
+const PROCESS_TRANSFER_OUT: &str = "membership-adjust.transfer-out";
+const PROCESS_TRANSFER_IN: &str = "membership-adjust.transfer-in";
+const PROCESS_INCREASE: &str = "membership-adjust.increase";
+```
+
+**Audit-Felder (MemberActionEntity):**
+`genossi_dao/src/member_action.rs:L76-96` — `audit_fields()`:
+```rust
+impl Auditable for MemberActionEntity {
+    fn audit_fields(&self) -> Vec<(&'static str, Option<String>)> {
+        vec![
+            ("member_id", Some(self.member_id.to_string())),
+            ("action_type", Some(self.action_type.as_str().to_string())),
+            ("date", Some(format_date(&self.date))),
+            ("shares_change", Some(self.shares_change.to_string())),
+            ("transfer_member_id", self.transfer_member_id.map(|u| u.to_string())),
+            ("effective_date", self.effective_date.as_ref().map(format_date)),
+            ("comment", self.comment.as_ref().map(|s| s.to_string())),
+        ]
+    }
+}
+```
+
+**Vorhanden, kein Change nötig:** ✓ Alle neuen v1.2-ActionTypes (`Aufstockung`, `UebertragungEmpfang/Abgabe`) werden bereits auditiert, weil `audit_fields()` unabhängig vom Type funktioniert.
+
+**Member-Updates (current_shares, exit_date):**
+`audited_update!` mapped auch hier: nur geänderte Felder werden geloggt.
+
+**RepaymentEntry-Updates:**
+`audited_create!` + `audited_update!` (für PaidOut-Toggle) — bereits v1.1-Pattern, kein Change für v1.2.
+
+---
+
+## Zusammenfassung: Integrations-Checkliste v1.2
+
+- [x] **Service-Extension:** MemberActionService erweitern mit 4 neuen Methoden (Cancellation, PartialRepayment, Transfer, Increase)
+- [x] **ActionType-Check:** Alle nötigen Types existieren schon (`Aufstockung`, `UebertragungEmpfang/Abgabe`, `Austritt` mit effective_date)
+- [x] **H1/H2-Funktion:** Reine Funktion `compute_effective_date()` in `member_action.rs` (testbar, keine I/O)
+- [x] **Phase-Lookup:** Teil-Rückgabe braucht RepaymentPhase-Lookup; Fallback auf Fehler oder Auto-Create (discuss-phase)
+- [x] **Übertrag-Atomarität:** 2 MemberActions + 2 Member-Updates in 1 Tx (Pattern: `mark_paid_out()` Cascade)
+- [x] **Frontend-Modal:** Neue `MembershipAdjustModal` Component + Button in MemberDetails (Component-First)
+- [x] **Permission:** `MANAGE_MEMBERS_PRIVILEGE` (Vorstand-only) wie v1.1
+- [x] **Audit:** `audited_create!` / `audited_update!` für alle Operationen; Hash-Chain-compatible
+- [x] **Constraints:** v1.2 erzeugt **KEINE** `MemberAction::Verkauf` und reduziert **NICHT** `current_shares` bei Teil-Rückgabe (nur RepaymentEntry) — kein Doppelbuchen
+
+---
+
+*Last updated: 2026-06-04 — Vorbereitung für `/gsd-discuss-phase 14`. Nächster Schritt: Klären von Auto-Create-Phase-Strategie (Option B empfohlen) und UI-Dialog-Form.*
