@@ -334,6 +334,47 @@ impl From<&MemberTO> for genossi_service::member::Member {
     }
 }
 
+/// Reduzierte Darstellung eines Mitglieds fuer Empfaenger-Search (TRSF-06).
+///
+/// **PII-Leak-Guard:** Diese Struct hat EXAKT 6 Felder. KEIN
+/// `impl From<&MemberTO> for MemberSlimTO` — sonst wuerden neue MemberTO-Felder
+/// (email, bank_account, street, IBAN, current_shares, current_balance) durch
+/// `MemberTO`-Erweiterungen unbemerkt in den Slim-Endpunkt durchrutschen.
+/// Konversion EXKLUSIV via `From<&genossi_service::member::Member>` aus dem
+/// Service-Layer — jedes neue PII-Feld muss explizit hier ergaenzt werden.
+///
+/// Pattern-Vorbild: `AttendanceMemberTO` (ATTN-01 Slim-DTO mit identischer
+/// Whitelist-Disziplin und Pendant-Tests in `member_slim_to_tests`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct MemberSlimTO {
+    #[schema(example = "123e4567-e89b-12d3-a456-426614174000")]
+    pub id: Uuid,
+    #[schema(example = 42)]
+    pub member_number: i64,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub salutation: Option<SalutationTO>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[schema(example = "Dr.")]
+    pub title: Option<String>,
+    #[schema(example = "Anna")]
+    pub first_name: String,
+    #[schema(example = "Schmidt")]
+    pub last_name: String,
+}
+
+impl From<&genossi_service::member::Member> for MemberSlimTO {
+    fn from(m: &genossi_service::member::Member) -> Self {
+        Self {
+            id: m.id,
+            member_number: m.member_number,
+            salutation: m.salutation.as_ref().map(SalutationTO::from),
+            title: m.title.as_deref().map(String::from),
+            first_name: m.first_name.to_string(),
+            last_name: m.last_name.to_string(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub enum ActionTypeTO {
     Eintritt,
@@ -2380,5 +2421,138 @@ mod attendance_to_tests {
         let to = AttendanceStatsTO::from(&stats);
         assert_eq!(to.present, 7);
         assert_eq!(to.total, 25);
+    }
+}
+
+#[cfg(test)]
+mod member_slim_to_tests {
+    //! Phase 14 Plan 04 — Tests for `MemberSlimTO` (TRSF-06 Slim-DTO with PII guard).
+    //!
+    //! Verifies (1) the From<&Member> conversion populates exactly the 6 allowed
+    //! fields, (2) JSON serialization contains no PII fields (email, bank_account,
+    //! street, IBAN, current_shares), and (3) Option fields are skipped when None.
+    use super::*;
+    use std::sync::Arc;
+
+    fn sample_service_member() -> genossi_service::member::Member {
+        genossi_service::member::Member {
+            id: uuid::Uuid::new_v4(),
+            member_number: 42,
+            first_name: Arc::from("Anna"),
+            last_name: Arc::from("Schmidt"),
+            salutation: Some(Salutation::Frau),
+            title: Some(Arc::from("Dr.")),
+            email: Some(Arc::from("anna@example.com")),
+            company: None,
+            comment: None,
+            street: Some(Arc::from("Musterstraße")),
+            house_number: Some(Arc::from("12")),
+            postal_code: Some(Arc::from("12345")),
+            city: Some(Arc::from("Berlin")),
+            join_date: time::Date::from_calendar_date(2024, time::Month::January, 15).unwrap(),
+            shares_at_joining: 1,
+            current_shares: 3,
+            current_balance: 15000,
+            action_count: 0,
+            migrated: false,
+            exit_date: None,
+            bank_account: Some(Arc::from("DE89370400440532013000")),
+            status: MemberStatus::Normal,
+            created: {
+                let now = time::OffsetDateTime::now_utc();
+                time::PrimitiveDateTime::new(now.date(), now.time())
+            },
+            deleted: None,
+            version: uuid::Uuid::new_v4(),
+        }
+    }
+
+    #[test]
+    fn test_member_slim_to_from_member_populates_six_fields() {
+        let m = sample_service_member();
+        let slim = MemberSlimTO::from(&m);
+
+        assert_eq!(slim.id, m.id);
+        assert_eq!(slim.member_number, 42);
+        assert_eq!(slim.salutation, Some(SalutationTO::Frau));
+        assert_eq!(slim.title.as_deref(), Some("Dr."));
+        assert_eq!(slim.first_name, "Anna");
+        assert_eq!(slim.last_name, "Schmidt");
+    }
+
+    #[test]
+    fn test_member_slim_to_serializes_no_pii_fields() {
+        let m = sample_service_member();
+        let slim = MemberSlimTO::from(&m);
+        let json = serde_json::to_value(&slim).expect("serialize MemberSlimTO");
+
+        // PII-Leak-Guard: these fields MUST NEVER appear in the JSON output.
+        let obj = json.as_object().expect("MemberSlimTO serializes to object");
+        assert!(!obj.contains_key("email"), "email leaked into MemberSlimTO");
+        assert!(
+            !obj.contains_key("bank_account"),
+            "bank_account leaked into MemberSlimTO"
+        );
+        assert!(!obj.contains_key("iban"), "iban leaked into MemberSlimTO");
+        assert!(
+            !obj.contains_key("street"),
+            "street leaked into MemberSlimTO"
+        );
+        assert!(
+            !obj.contains_key("current_shares"),
+            "current_shares leaked into MemberSlimTO"
+        );
+        assert!(
+            !obj.contains_key("current_balance"),
+            "current_balance leaked into MemberSlimTO"
+        );
+        assert!(
+            !obj.contains_key("postal_code"),
+            "postal_code leaked into MemberSlimTO"
+        );
+        assert!(!obj.contains_key("city"), "city leaked into MemberSlimTO");
+    }
+
+    #[test]
+    fn test_member_slim_to_serializes_exactly_six_keys_when_all_present() {
+        let m = sample_service_member();
+        let slim = MemberSlimTO::from(&m);
+        let json = serde_json::to_value(&slim).expect("serialize MemberSlimTO");
+        let obj = json.as_object().expect("object");
+        let mut keys: Vec<&str> = obj.keys().map(|k| k.as_str()).collect();
+        keys.sort();
+        assert_eq!(
+            keys,
+            vec![
+                "first_name",
+                "id",
+                "last_name",
+                "member_number",
+                "salutation",
+                "title",
+            ]
+        );
+    }
+
+    #[test]
+    fn test_member_slim_to_skips_none_optional_fields() {
+        let mut m = sample_service_member();
+        m.salutation = None;
+        m.title = None;
+        let slim = MemberSlimTO::from(&m);
+        let json = serde_json::to_value(&slim).expect("serialize MemberSlimTO");
+        let obj = json.as_object().expect("object");
+        // 4 fields remaining after Option<Salutation> + Option<title> are skipped.
+        assert_eq!(
+            obj.len(),
+            4,
+            "salutation+title None should be skipped, leaving 4 fields"
+        );
+        assert!(!obj.contains_key("salutation"));
+        assert!(!obj.contains_key("title"));
+        assert!(obj.contains_key("id"));
+        assert!(obj.contains_key("member_number"));
+        assert!(obj.contains_key("first_name"));
+        assert!(obj.contains_key("last_name"));
     }
 }
