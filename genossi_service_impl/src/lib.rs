@@ -11,6 +11,7 @@ pub mod member;
 pub mod member_action;
 pub mod member_document;
 pub mod member_import;
+pub mod membership_adjust;
 pub mod pdf_generation;
 pub mod permission;
 pub mod repayment_context;
