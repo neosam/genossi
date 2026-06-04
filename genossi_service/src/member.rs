@@ -113,6 +113,19 @@ pub trait MemberService {
         tx: Option<Self::Transaction>,
     ) -> Result<Arc<[Member]>, ServiceError>;
 
+    /// Liefert alle aktiven Member als Transfer-Empfaenger-Kandidaten (TRSF-06).
+    ///
+    /// Filter: `exit_date IS NULL AND id != exclude_member_id AND deleted IS NULL`
+    /// (Soft-Delete-Filter kommt vom `member_dao.all()`-Default-Impl).
+    ///
+    /// Permission: ADMIN_PRIVILEGE (Vorstand-only).
+    async fn list_transfer_recipients(
+        &self,
+        exclude_member_id: Uuid,
+        context: Authentication<Self::Context>,
+        tx: Option<Self::Transaction>,
+    ) -> Result<Arc<[Member]>, ServiceError>;
+
     async fn get(
         &self,
         id: Uuid,
