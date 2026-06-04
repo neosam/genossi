@@ -57,7 +57,7 @@ Requirements für v1.2-Release. Jedes mappt auf genau eine Roadmap-Phase.
 ### Permission & Validation (PERM)
 
 - [ ] **PERM-01**: Alle 4 Operationen sind admin-only via `check_permission(ADMIN_PRIVILEGE, ...)` (Vorstand)
-- [ ] **PERM-02**: Server-Layer validiert das Willensbekundungs-Datum: muss im aktuell offenen GJ oder nächsten GJ liegen (zusätzlich zum Datepicker-Frontend-Guard)
+- [x] **PERM-02**: Server-Layer validiert das Willensbekundungs-Datum: muss im aktuell offenen GJ oder nächsten GJ liegen (zusätzlich zum Datepicker-Frontend-Guard)
 - [ ] **PERM-03**: Empfänger beim Übertrag muss aktives Mitglied sein (`exit_date IS NULL`) — Service-Layer-Guard zusätzlich zum Search-Filter (TRSF-06)
 
 ## v2 Requirements (Deferred)
@@ -129,7 +129,7 @@ Welche Phasen welche Requirements abdecken. Wird vom Roadmapper-Schritt befüllt
 | AUDT-01 | Phase 15 | Pending |
 | AUDT-02 | Phase 17 | Pending |
 | PERM-01 | Phase 15 | Pending |
-| PERM-02 | Phase 15 | Pending |
+| PERM-02 | Phase 15 | Complete |
 | PERM-03 | Phase 17 | Pending |
 
 **Coverage:**
