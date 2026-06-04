@@ -11,7 +11,7 @@
 
 | # | Phase | Goal | REQs | Plans (est.) |
 |---|-------|------|------|--------------|
-| 14 | DAO/Domain Foundation | 4/4 | Complete   | 2026-06-04 |
+| 14 | DAO/Domain Foundation | 4/4 | Complete    | 2026-06-04 |
 | 15 | Service+REST: Kündigung + Aufstockung | `cancel_membership` erzeugt Austritts-Action; `increase_shares` erzeugt Aufstockungs-Action + current_shares-Update; Admin-Permission + Datum-Validierung | 11 | 5–7 |
 | 16 | Service+REST: Teil-Rückgabe + Auto-Anlegen-Phase | `partial_repayment` erzeugt RepaymentEntry in Ziel-Phase mit Sum-Check; Auto-Anlegen-Ziel-Phase (Variante A/B/C aus Discuss); Auto-Fill-Skip-Pattern für Doppelbuchungs-Prävention | 6 | 5–7 |
 | 17 | Service+REST: Übertrag | `transfer_shares` mit 2 atomaren verlinkten MemberActions + gemeinsamem Process-String; Voll-Übertrag erzeugt zusätzliche Austritts-Action; Empfänger-aktiv-Guard; Self-Transfer-Block | 8 | 5–7 |
