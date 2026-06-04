@@ -112,12 +112,28 @@ impl<Deps: MemberServiceDeps> MemberService for MemberServiceImpl<Deps> {
 
     async fn list_transfer_recipients(
         &self,
-        _exclude_member_id: Uuid,
-        _context: Authentication<Self::Context>,
-        _tx: Option<Self::Transaction>,
+        exclude_member_id: Uuid,
+        context: Authentication<Self::Context>,
+        tx: Option<Self::Transaction>,
     ) -> Result<Arc<[Member]>, ServiceError> {
-        // TDD RED stub — replaced in GREEN phase.
-        todo!("list_transfer_recipients RED stub")
+        let tx = self.transaction_dao.use_transaction(tx).await?;
+
+        // Permission funnel: ADMIN_PRIVILEGE (Vorstand-only, D-14-11).
+        self.permission_service
+            .check_permission(ADMIN_PRIVILEGE, context)
+            .await?;
+
+        let members: Arc<[Member]> = self
+            .member_dao
+            .all(tx.clone())
+            .await?
+            .iter()
+            .filter(|e| e.exit_date.is_none() && e.id != exclude_member_id)
+            .map(Member::from)
+            .collect();
+
+        self.transaction_dao.commit(tx).await?;
+        Ok(members)
     }
 
     async fn get(
