@@ -37,10 +37,10 @@ Requirements für v1.2-Release. Jedes mappt auf genau eine Roadmap-Phase.
 
 ### Aufstockung (UPGD)
 
-- [ ] **UPGD-01**: Vorstand kann am Mitglied „Aufstocken" auslösen mit Anteils-Anzahl `n` und Willensbekundungs-Datum
-- [ ] **UPGD-02**: Aufstockung ist sofort wirksam (kein H1/H2, kein Geldfluss)
-- [ ] **UPGD-03**: System erzeugt eine `MemberAction::Aufstockung(shares_change=+n, transfer_member_id=None)` (existing ActionType-Variante) und erhöht `Member.current_shares` um n atomar in einer Tx
-- [ ] **UPGD-04**: Aufstockung ist blockiert für gekündigte Mitglieder (`exit_date IS NOT NULL` → HTTP 400)
+- [x] **UPGD-01**: Vorstand kann am Mitglied „Aufstocken" auslösen mit Anteils-Anzahl `n` und Willensbekundungs-Datum
+- [x] **UPGD-02**: Aufstockung ist sofort wirksam (kein H1/H2, kein Geldfluss)
+- [x] **UPGD-03**: System erzeugt eine `MemberAction::Aufstockung(shares_change=+n, transfer_member_id=None)` (existing ActionType-Variante) und erhöht `Member.current_shares` um n atomar in einer Tx
+- [x] **UPGD-04**: Aufstockung ist blockiert für gekündigte Mitglieder (`exit_date IS NOT NULL` → HTTP 400)
 
 ### UI
 
@@ -118,10 +118,10 @@ Welche Phasen welche Requirements abdecken. Wird vom Roadmapper-Schritt befüllt
 | TRSF-05 | Phase 17 | Pending |
 | TRSF-06 | Phase 14 | Pending |
 | TRSF-07 | Phase 17 | Pending |
-| UPGD-01 | Phase 15 | Pending |
-| UPGD-02 | Phase 15 | Pending |
-| UPGD-03 | Phase 15 | Pending |
-| UPGD-04 | Phase 15 | Pending |
+| UPGD-01 | Phase 15 | Complete |
+| UPGD-02 | Phase 15 | Complete |
+| UPGD-03 | Phase 15 | Complete |
+| UPGD-04 | Phase 15 | Complete |
 | UI-01 | Phase 18 | Pending |
 | UI-02 | Phase 18 | Pending |
 | UI-03 | Phase 18 | Pending |
