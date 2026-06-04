@@ -609,24 +609,30 @@ pub async fn partial_repayment<RestState: RestStateDef>(
 
 **Empty:** Alle anderen Claims sind via Source-Code-Grep oder explizite CONTEXT-Locked-Decisions verifiziert.
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+> All four questions were resolved during /gsd-plan-phase 16. Resolutions are reflected in plan files 16-01..16-04. This section retains the analysis for traceability.
 
 1. **Wie wird `RepaymentPhaseService::create_repayment_phase` in derselben Tx wie `audited_create!(RepaymentEntry)` ausgeführt?** (D-16-04 verlangt Single-Tx)
    - What we know: Methode öffnet aktuell eigene Tx via `use_transaction(None)`. Signatur akzeptiert kein tx-Parameter.
    - What's unclear: Trait-Erweiterung (a) vs. Inlining (b) vs. separate Tx (c). CONTEXT bevorzugt (a)+(b), schließt (c) aus.
    - Recommendation: **Planner entscheidet im Plan 01 oder 02.** Inline-Comment auf die gewählte Variante mit Verweis auf D-16-02 + D-16-04.
+   - **RESOLVED:** Variante (b) **Inlining** gewählt. Plan 02 reproduziert die ~33 LOC `create_repayment_phase`-Logik inline in `partial_repayment` und nutzt die gemeinsame `tx`. Begründung: minimaler Blast-Radius (kein Touchen von Phase 7/15/17-Code), volle Tx-Atomicity. Inline-Doc-Comment dokumentiert die Entscheidung mit Verweis auf D-16-02 + D-16-04.
 
 2. **Wo lebt `RepaymentEntryTO` und `RepaymentPhaseTO` für die Response?**
    - What we know: `MemberTO`, `MemberActionTO`, `CancelMembershipRequestTO` sind in `genossi_rest_types/src/lib.rs`. `RepaymentEntryTO` und `RepaymentPhaseTO` sind dort — anzunehmen ist, dass sie nicht existieren (oder anders heissen).
    - What's unclear: Existierende TO-Namen für RepaymentEntry/RepaymentPhase im REST-Layer.
    - Recommendation: Planner führt zu Beginn von Plan 04 `grep -n "RepaymentEntryTO\|RepaymentPhaseTO" genossi_rest_types/src/lib.rs` aus und prüft. Falls nicht vorhanden: bestehende ad-hoc Types im REST-Layer (`genossi_rest/src/repayment_entry.rs`, `genossi_rest/src/repayment_phase.rs`) übernehmen oder neue ToSchema-DTOs erstellen.
+   - **RESOLVED:** Plan 04 Task 1 startet mit Grep-Discovery für `RepaymentEntryTO`/`RepaymentPhaseTO` in `genossi_rest_types/src/lib.rs` und im REST-Layer; bestehende DTOs werden wiederverwendet bzw. ergänzt. Die Acceptance-Criteria verlangen, dass die DTOs am Ende ToSchema implementieren und im Response-Body korrekt verdrahtet sind.
 
 3. **`shares: i32` oder `i64`?** Siehe Pitfall #2 + #4.
    - Recommendation: `i32` — konsistent mit `MemberEntity.current_shares` (i32), `IncreaseSharesRequestTO.shares` (i32), `RepaymentEntryEntity.share_count_to_pay_out` (i32). CONTEXT Z. 12 ist vermutlich Tippfehler.
+   - **RESOLVED:** Plans 01, 02 verwenden durchgängig `i32` für `shares`, Sum, Range-Checks, DTO-Felder. `DEFAULT_SHARE_VALUE_CENT` bleibt `i64` (entspricht dem `share_value`-Feld auf der RepaymentPhase-Entity); shares ≠ share_value-Trennung damit sauber. CONTEXT-Tippfehler bei `i64`-Erwähnungen in D-16-08/D-16-12 ist im Plan-Layer überschrieben.
 
 4. **Soll die auto-erzeugte Phase im Audit-Log denselben Process-String wie der Entry erhalten?**
    - What we know: D-16-13 verlangt für den Entry `"member-adjust.partial-repayment"`. Phase-Auto-Create per D-16-02 nutzt die existing Service-Methode, also `REPAYMENT_PHASE_PROCESS_CREATE = "repayment-phase.create"`. Bei Inlining (Variante b) müsste der Planner entscheiden: gleicher String wie Service-Delegation oder eigener `"member-adjust.partial-repayment.auto-create-phase"`?
    - Recommendation: Bei Variante (b) den existing String `"repayment-phase.create"` beibehalten (semantisch identische Operation; konsistent mit anderen Phase-Create-Audit-Einträgen). Vorstand sieht "Phase wurde von Auto-Create-Mechanismus angelegt" durch die zeitliche Nähe zum Partial-Repayment-Audit-Eintrag.
+   - **RESOLVED:** Plan 02 nutzt für die inline-erzeugte Phase den existing String `"repayment-phase.create"` (konsistent mit der Service-Delegations-Semantik); der RepaymentEntry-Create nutzt `"member-adjust.partial-repayment"` per D-16-13. Zwei separate Audit-Transaktionen sind erwartetes Verhalten.
 
 ## Environment Availability
 

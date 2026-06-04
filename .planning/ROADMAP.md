@@ -78,9 +78,15 @@
 **Success Criteria:**
 1. `MembershipAdjustService::partial_repayment(member_id, n, willensbekundung_date, context)` erzeugt `RepaymentEntry` in der via `compute_effective_date(...).fiscal_year` berechneten Ziel-Phase
 2. Service-Layer-Sum-Check: `sum(open_entries.share_count for (member_id, target_phase_id)) + n <= member.current_shares` validiert vor Insert (HTTP 400 bei Verletzung)
-3. Auto-Anlegen-Ziel-Phase: wenn für berechnetes `fiscal_year` keine Phase existiert, wird sie via gewählter Variante (A/B/C aus `/gsd-discuss-phase 16`) angelegt mit `share_value` aus Vorgänger-Phase oder Defaults
+3. Auto-Anlegen-Ziel-Phase: wenn für berechnetes `fiscal_year` keine Phase existiert, wird sie via gewählter Variante (B = Auto-Create in Status `Open`, D-16-01) angelegt mit `share_value` aus Vorgänger-Phase oder `DEFAULT_SHARE_VALUE_CENT = 10000` (D-16-05..07)
 4. Auto-Fill-Skip-Pattern in `open_repayment_phase` (Erweiterung der existing Logik in `genossi_service_impl/src/repayment_phase.rs:319–395`): wenn `find_by_member_and_phase(member, phase) -> non-empty`, überspringt Auto-Fill den Member (Pitfall-Kategorie-1-Mitigation)
-5. 6 E2E-Tests: Happy-Path H1, Happy-Path H2 mit Auto-Anlegen-Phase, Sum-Check-Block 400, Auto-Fill-Skip-Test (Phase-Open nach v1.2-Teilrückgabe erzeugt kein Duplikat), Phase-not-existent-without-auto-create-Fallback, Audit-Chain-Verify
+5. 8 E2E-Tests: Happy-Path H1, Happy-Path H2 mit Auto-Anlegen-Phase, Sum-Check-Block 400, Auto-Fill-Skip-Test (Phase-Open nach v1.2-Teilrückgabe erzeugt kein Duplikat), Voll-Rückgabe-Block 400 (Verweis auf cancel_membership), Cancelled-Member-Block 409 (D-16-10 — divergent von Phase 15), Audit-Chain-Verify, Auto-Create-Default-Share-Value
+
+**Plans:** 4 plans
+- [ ] 16-01-PLAN.md — MembershipAdjustService trait extension (partial_repayment) + PartialRepaymentRequest/ResponseTO + DEFAULT_SHARE_VALUE_CENT + validate_partial_repayment_shares pure helper + 7 unit tests (PART-01, PART-06)
+- [ ] 16-02-PLAN.md — partial_repayment service impl with inlined phase-auto-create + sum-check via existing find_by_member_and_phase + 10 mock-based unit tests (PART-01, PART-02, PART-03, PART-05, PART-06)
+- [ ] 16-03-PLAN.md — Auto-fill skip-pattern insertion at repayment_phase.rs line 368 + 1 unit test (PART-04)
+- [ ] 16-04-PLAN.md — REST endpoint + sub-route registration (BEFORE /{id}) + DI wiring in genossi_bin + 8 E2E tests (PART-01..06 full stack)
 
 ---
 
