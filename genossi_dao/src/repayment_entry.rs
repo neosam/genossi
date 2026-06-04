@@ -148,6 +148,31 @@ pub trait RepaymentEntryDao {
             .collect();
         Ok(filtered.into())
     }
+
+    /// Liefert alle aktiven Eintraege einer Member-Phase-Kombination.
+    ///
+    /// Foundation fuer Phase-16-Sum-Check + Auto-Fill-Skip-Pattern
+    /// (PITFALLS Kat 1). SQLite-Impl ueberschreibt mit SQL-WHERE-Klausel
+    /// zur Performance-Skalierung; Default-Impl filtert in-memory ueber
+    /// `dump_all`.
+    ///
+    /// **Mockall-Hinweis:** `#[automock]` ueberschreibt Default-Impls,
+    /// daher muessen Service-Unit-Tests `.expect_find_by_member_and_phase()`
+    /// explizit setzen.
+    async fn find_by_member_and_phase(
+        &self,
+        member_id: Uuid,
+        phase_id: Uuid,
+        tx: Self::Transaction,
+    ) -> Result<Arc<[RepaymentEntryEntity]>, DaoError> {
+        let all_entities = self.dump_all(tx).await?;
+        let filtered: Vec<RepaymentEntryEntity> = all_entities
+            .iter()
+            .filter(|e| e.member_id == member_id && e.phase_id == phase_id && e.deleted.is_none())
+            .cloned()
+            .collect();
+        Ok(filtered.into())
+    }
 }
 
 #[cfg(test)]
@@ -288,5 +313,134 @@ mod tests {
         assert_eq!(fields[1].1, Some(entity.phase_id.to_string()));
         assert_eq!(fields[2].0, "share_count_to_pay_out");
         assert_eq!(fields[3].0, "status");
+    }
+
+    /// Hand-rolled Test-Stub fuer die Default-Impl-Verifikation.
+    ///
+    /// `#[automock]` ueberschreibt Default-Impls (Pitfall 2 / Phase-3-Plan-03-Lektion),
+    /// deshalb implementieren wir das Trait minimal selbst. Nur `dump_all` ist
+    /// non-trivial; `create`/`update` sind unimplemented (werden vom Default-Impl
+    /// nicht aufgerufen).
+    struct TestRepaymentEntryDao {
+        entries: Vec<RepaymentEntryEntity>,
+    }
+
+    #[async_trait]
+    impl RepaymentEntryDao for TestRepaymentEntryDao {
+        type Transaction = crate::MockTransaction;
+
+        async fn dump_all(
+            &self,
+            _tx: Self::Transaction,
+        ) -> Result<Arc<[RepaymentEntryEntity]>, DaoError> {
+            Ok(self.entries.clone().into())
+        }
+
+        async fn create(
+            &self,
+            _entity: &RepaymentEntryEntity,
+            _process: &str,
+            _tx: Self::Transaction,
+        ) -> Result<(), DaoError> {
+            unimplemented!("not used by default-impl test")
+        }
+
+        async fn update(
+            &self,
+            _entity: &RepaymentEntryEntity,
+            _process: &str,
+            _tx: Self::Transaction,
+        ) -> Result<(), DaoError> {
+            unimplemented!("not used by default-impl test")
+        }
+    }
+
+    #[tokio::test]
+    async fn test_find_by_member_and_phase_default_impl_filters_correctly() {
+        // Foundation fuer Phase-16-Sum-Check + Auto-Fill-Skip-Pattern
+        // (PITFALLS Kat 1). Default-Impl filtert in-memory via dump_all
+        // auf (member_id, phase_id) AND deleted IS NULL.
+        let member_a = Uuid::new_v4();
+        let member_b = Uuid::new_v4();
+        let phase_x = Uuid::new_v4();
+        let phase_y = Uuid::new_v4();
+
+        let date = time::Date::from_calendar_date(2026, time::Month::May, 30).unwrap();
+        let datetime = time::PrimitiveDateTime::new(date, time::Time::MIDNIGHT);
+
+        // 4 Eintraege:
+        // e1: (member_A, phase_X, deleted=None) -> MATCH
+        // e2: (member_A, phase_Y, deleted=None) -> phase differs -> exclude
+        // e3: (member_B, phase_X, deleted=None) -> member differs -> exclude
+        // e4: (member_A, phase_X, deleted=Some(...)) -> deleted -> exclude
+        let e1 = RepaymentEntryEntity {
+            id: Uuid::new_v4(),
+            member_id: member_a,
+            phase_id: phase_x,
+            share_count_to_pay_out: 2,
+            status: RepaymentEntryStatus::Open,
+            created: datetime,
+            deleted: None,
+            version: Uuid::new_v4(),
+        };
+        let e2 = RepaymentEntryEntity {
+            id: Uuid::new_v4(),
+            member_id: member_a,
+            phase_id: phase_y,
+            share_count_to_pay_out: 1,
+            status: RepaymentEntryStatus::Open,
+            created: datetime,
+            deleted: None,
+            version: Uuid::new_v4(),
+        };
+        let e3 = RepaymentEntryEntity {
+            id: Uuid::new_v4(),
+            member_id: member_b,
+            phase_id: phase_x,
+            share_count_to_pay_out: 3,
+            status: RepaymentEntryStatus::Open,
+            created: datetime,
+            deleted: None,
+            version: Uuid::new_v4(),
+        };
+        let e4 = RepaymentEntryEntity {
+            id: Uuid::new_v4(),
+            member_id: member_a,
+            phase_id: phase_x,
+            share_count_to_pay_out: 1,
+            status: RepaymentEntryStatus::Open,
+            created: datetime,
+            deleted: Some(datetime),
+            version: Uuid::new_v4(),
+        };
+
+        let dao = TestRepaymentEntryDao {
+            entries: vec![e1.clone(), e2, e3, e4],
+        };
+
+        let mock_tx = crate::MockTransaction::new();
+        let result = dao
+            .find_by_member_and_phase(member_a, phase_x, mock_tx)
+            .await
+            .expect("default-impl must succeed");
+
+        assert_eq!(
+            result.len(),
+            1,
+            "exactly one entry matches (member_A, phase_X) and is not deleted"
+        );
+        assert_eq!(result[0].id, e1.id, "the surviving entry must be e1");
+        assert_eq!(result[0].member_id, member_a);
+        assert_eq!(result[0].phase_id, phase_x);
+        assert!(result[0].deleted.is_none());
+
+        // Empty-input edge case
+        let empty_dao = TestRepaymentEntryDao { entries: vec![] };
+        let empty_tx = crate::MockTransaction::new();
+        let empty_result = empty_dao
+            .find_by_member_and_phase(member_a, phase_x, empty_tx)
+            .await
+            .expect("empty dump_all -> empty result");
+        assert_eq!(empty_result.len(), 0);
     }
 }
