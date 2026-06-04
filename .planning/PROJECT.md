@@ -44,7 +44,9 @@ Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachv
 - `membership-adjust-during-fiscal-year.md` (Haupt-Seed, planted 2026-06-04)
 - Design-Doc-Referenz: `.planning/notes/membership-adjust-design.md`
 
-**Next:** `/gsd-discuss-phase 14` oder `/gsd-plan-phase 14` nach Roadmap-Approval.
+**Next:** `/gsd-discuss-phase 15` — Service+REST: Kündigung + Aufstockung (Phase 14 abgeschlossen).
+
+**Phase 14 abgeschlossen (2026-06-04):** DAO/Domain Foundation — `compute_effective_date` Pure-Function (H1/H2-Stichtag, 6 Tests), `RepaymentEntryDao::find_by_member_and_phase` (Default-Impl + SQLite-Override, 3 Tests), `MemberService::list_transfer_recipients` (Admin-Gate, 3 Tests), REST-Endpoint `GET /api/members/transfer-recipients` mit `MemberSlimTO` (PII-Guard, 4 Unit + 1 E2E Test). CANC-02 und TRSF-06 erfüllt.
 
 ## Requirements
 
@@ -301,4 +303,4 @@ bestehende admin-only Listing-Route `GET /api/assembly/{id}/helper-tokens`).
 
 ---
 
-*Last updated: 2026-06-04 — v1.2 Mitgliedschaft-Anpassungen während des Geschäftsjahres gestartet via `/gsd-new-milestone`. v1.2-Scope: 4 Operationen (Kündigung/Teil-Rückgabe/Übertrag/Aufstockung) am Mitglied; klare Abgrenzung gegen v1.1's PaidOut-Cascade (v1.2 erzeugt nur Intent-Datensätze, KEINE Anteils-Reduktion und KEIN MemberAction::Verkauf-Vorgriff). Vorgeschichte: v1.1 Anteile-Rückzahlungsphase shipped 2026-06-02 (7 Phasen, 56 Pläne, 91 Tasks, 33/34 v1-Reqs satisfied — UI-06 partial). Seed-Source: `.planning/seeds/membership-adjust-during-fiscal-year.md` + Design-Doc `.planning/notes/membership-adjust-design.md`.*
+*Last updated: 2026-06-04 — Phase 14 (DAO/Domain Foundation) abgeschlossen: `compute_effective_date` Pure-Function, `find_by_member_and_phase` DAO-Methode, `list_transfer_recipients` Service+REST-Endpoint mit `MemberSlimTO` PII-Guard. CANC-02 + TRSF-06 satisfied. Vorgeschichte: v1.2 gestartet via `/gsd-new-milestone` (4 Operationen Kündigung/Teil-Rückgabe/Übertrag/Aufstockung; klare Abgrenzung gegen v1.1's PaidOut-Cascade — v1.2 erzeugt nur Intent-Datensätze). v1.1 Anteile-Rückzahlungsphase shipped 2026-06-02 (7 Phasen, 56 Pläne, 91 Tasks, 33/34 v1-Reqs satisfied — UI-06 partial).*
