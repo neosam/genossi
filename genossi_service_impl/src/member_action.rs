@@ -176,30 +176,47 @@ pub(crate) fn compute_dates(
     (join_date, exit_date)
 }
 
+/// Free-Function-Version von `recalc_dates` (D-15-04).
+///
+/// Vorher als private Methode auf `MemberActionServiceImpl<Deps>` — jetzt extrahiert,
+/// damit `MembershipAdjustServiceImpl::cancel_membership` (Phase 15) ohne
+/// `MemberActionServiceImpl`-Coupling auf dieselbe Logik zugreifen kann.
+pub(crate) async fn recalc_dates<Md, Mad, Tx>(
+    member_dao: &Md,
+    member_action_dao: &Mad,
+    member_id: Uuid,
+    tx: Tx,
+) -> Result<(), ServiceError>
+where
+    Md: genossi_dao::member::MemberDao<Transaction = Tx> + ?Sized + Sync,
+    Mad: genossi_dao::member_action::MemberActionDao<Transaction = Tx> + ?Sized + Sync,
+    Tx: genossi_dao::Transaction + Clone,
+{
+    let member = member_dao
+        .find_by_id(member_id, tx.clone())
+        .await?
+        .ok_or(ServiceError::EntityNotFound(member_id))?;
+
+    let actions = member_action_dao
+        .find_by_member_id(member_id, tx.clone())
+        .await?;
+
+    let (join_date, exit_date) = compute_dates(&member, &actions);
+
+    member_dao
+        .update_dates(member_id, join_date, exit_date, tx)
+        .await?;
+
+    Ok(())
+}
+
 impl<Deps: MemberActionServiceDeps> MemberActionServiceImpl<Deps> {
     async fn recalc_dates(
         &self,
         member_id: Uuid,
         tx: Deps::Transaction,
     ) -> Result<(), ServiceError> {
-        let member = self
-            .member_dao
-            .find_by_id(member_id, tx.clone())
-            .await?
-            .ok_or(ServiceError::EntityNotFound(member_id))?;
-
-        let actions = self
-            .member_action_dao
-            .find_by_member_id(member_id, tx.clone())
-            .await?;
-
-        let (join_date, exit_date) = compute_dates(&member, &actions);
-
-        self.member_dao
-            .update_dates(member_id, join_date, exit_date, tx)
-            .await?;
-
-        Ok(())
+        recalc_dates(&*self.member_dao, &*self.member_action_dao, member_id, tx).await
     }
 
     async fn recalc_migrated(
