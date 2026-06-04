@@ -4,14 +4,14 @@ milestone: v1.2
 milestone_name: Mitgliedschaft-Anpassungen während des Geschäftsjahres
 status: executing
 stopped_at: Phase 15 context gathered
-last_updated: "2026-06-04T12:02:02.647Z"
+last_updated: "2026-06-04T12:15:53.247Z"
 last_activity: 2026-06-04
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 8
-  completed_plans: 5
-  percent: 63
+  completed_plans: 6
+  percent: 75
 ---
 
 # State: Genossi — v1.1 Anteile-Rückzahlungsphase
@@ -30,7 +30,7 @@ See: `.planning/PROJECT.md` (updated 2026-06-02 after v1.1 close)
 ## Current Position
 
 Phase: 15 (service-rest-kuendigung-aufstockung) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
 Last activity: 2026-06-04
 

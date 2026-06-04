@@ -12,7 +12,7 @@
 | # | Phase | Goal | REQs | Plans (est.) |
 |---|-------|------|------|--------------|
 | 14 | DAO/Domain Foundation | 4/4 | Complete    | 2026-06-04 |
-| 15 | Service+REST: Kündigung + Aufstockung | 1/4 | In Progress|  |
+| 15 | Service+REST: Kündigung + Aufstockung | 2/4 | In Progress|  |
 | 16 | Service+REST: Teil-Rückgabe + Auto-Anlegen-Phase | `partial_repayment` erzeugt RepaymentEntry in Ziel-Phase mit Sum-Check; Auto-Anlegen-Ziel-Phase (Variante A/B/C aus Discuss); Auto-Fill-Skip-Pattern für Doppelbuchungs-Prävention | 6 | 5–7 |
 | 17 | Service+REST: Übertrag | `transfer_shares` mit 2 atomaren verlinkten MemberActions + gemeinsamem Process-String; Voll-Übertrag erzeugt zusätzliche Austritts-Action; Empfänger-aktiv-Guard; Self-Transfer-Block | 8 | 5–7 |
 | 18 | Frontend Component-First | `MembershipAdjustModal` shared Component mit Sub-Choice-Form, Datepicker, MemberSearch-Reuse, Vorschau-Section; Button auf Member-Detail-Page; i18n DE/EN | 4 | 5–7 |
@@ -60,9 +60,9 @@
 3. Server-Layer-Datum-Validierung lehnt Daten ausserhalb des offenen GJ + nächsten GJ ab (HTTP 400); 2 Edge-Case-Tests (Datum im vorletzten GJ, Datum im übernächsten GJ)
 4. `cargo test --test e2e_tests` und v1.1-Audit-Hashchain (`/api/audit/verify`) bleiben grün
 
-**Plans:** 1/4 plans executed
+**Plans:** 2/4 plans executed
 - [x] 15-01-PLAN.md — MembershipAdjustService trait + validate_willensbekundung_date pure function + recalc_dates free-function refactor (PERM-02)
-- [ ] 15-02-PLAN.md — cancel_membership impl + 4 service unit tests (CANC-01..05, PERM-01, AUDT-01)
+- [x] 15-02-PLAN.md — cancel_membership impl + 4 service unit tests (CANC-01..05, PERM-01, AUDT-01)
 - [ ] 15-03-PLAN.md — increase_shares impl + 4 service unit tests (UPGD-01..04, PERM-01, AUDT-01)
 - [ ] 15-04-PLAN.md — REST endpoints + DI wiring + 11 E2E tests (full stack + audit-chain-verify)
 

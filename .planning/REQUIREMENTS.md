@@ -9,11 +9,11 @@ Requirements für v1.2-Release. Jedes mappt auf genau eine Roadmap-Phase.
 
 ### Kündigung (CANC) — Voll-Rückgabe an Genossenschaft
 
-- [ ] **CANC-01**: Vorstand kann am Mitglied „Kündigung" auslösen (Single-Button auf Member-Detail-Page)
+- [x] **CANC-01**: Vorstand kann am Mitglied „Kündigung" auslösen (Single-Button auf Member-Detail-Page)
 - [ ] **CANC-02**: System berechnet H1/H2-Stichtag aus Willensbekundungs-Datum (H1 = Monat 1–6 → 31.12. aktuelles GJ; H2 = Monat 7–12 → 31.12. folgendes GJ)
-- [ ] **CANC-03**: System erzeugt eine `MemberAction::Austritt` mit `date = Willensbekundungs-Datum`, `effective_date = berechneter H1/H2-Stichtag`, `shares_change = 0` (Anteile bleiben bis zur Auszahlung unverändert)
-- [ ] **CANC-04**: `Member.exit_date` wird via existing `recalc_dates`-Hook automatisch aus der Austritts-Action gesetzt (keine direkte Mutation außerhalb von `recalc_dates`)
-- [ ] **CANC-05**: System erzeugt KEINE `MemberAction::Verkauf` und KEIN `RepaymentEntry` direkt; `current_shares` bleibt unverändert — v1.1's PaidOut-Cascade übernimmt Anteils-Reduktion und Verkauf-Action beim späteren Ausbezahlt-Toggle (Auto-Befüllung in `open_repayment_phase` picked den Member über `exit_date in fiscal_year` auf)
+- [x] **CANC-03**: System erzeugt eine `MemberAction::Austritt` mit `date = Willensbekundungs-Datum`, `effective_date = berechneter H1/H2-Stichtag`, `shares_change = 0` (Anteile bleiben bis zur Auszahlung unverändert)
+- [x] **CANC-04**: `Member.exit_date` wird via existing `recalc_dates`-Hook automatisch aus der Austritts-Action gesetzt (keine direkte Mutation außerhalb von `recalc_dates`)
+- [x] **CANC-05**: System erzeugt KEINE `MemberAction::Verkauf` und KEIN `RepaymentEntry` direkt; `current_shares` bleibt unverändert — v1.1's PaidOut-Cascade übernimmt Anteils-Reduktion und Verkauf-Action beim späteren Ausbezahlt-Toggle (Auto-Befüllung in `open_repayment_phase` picked den Member über `exit_date in fiscal_year` auf)
 - [ ] **CANC-06**: Vorschau-Confirm-Dialog zeigt Willensbekundungs-Datum, berechneten Stichtag, prognostizierte Ziel-Auszahlungsphase (fiscal_year) und Wirkungs-Timeline vor dem finalen Commit
 
 ### Teil-Rückgabe (PART) — Anteile zurück an die Genossenschaft, Mitgliedschaft bleibt
@@ -51,12 +51,12 @@ Requirements für v1.2-Release. Jedes mappt auf genau eine Roadmap-Phase.
 
 ### Audit (AUDT)
 
-- [ ] **AUDT-01**: Alle v1.2-Operationen erzeugen Audit-Einträge via `audited_create!`/`audited_update!`-Macros (kein direkter DAO-Write außerhalb der Macros)
+- [x] **AUDT-01**: Alle v1.2-Operationen erzeugen Audit-Einträge via `audited_create!`/`audited_update!`-Macros (kein direkter DAO-Write außerhalb der Macros)
 - [ ] **AUDT-02**: Übertrag-Pair (Aus + Ein) teilt sich gemeinsamen Process-String `process="member-adjust.transfer"` und kann via `/api/audit/verify` + Process-Filter als zusammenhängender Vorgang gefunden werden
 
 ### Permission & Validation (PERM)
 
-- [ ] **PERM-01**: Alle 4 Operationen sind admin-only via `check_permission(ADMIN_PRIVILEGE, ...)` (Vorstand)
+- [x] **PERM-01**: Alle 4 Operationen sind admin-only via `check_permission(ADMIN_PRIVILEGE, ...)` (Vorstand)
 - [x] **PERM-02**: Server-Layer validiert das Willensbekundungs-Datum: muss im aktuell offenen GJ oder nächsten GJ liegen (zusätzlich zum Datepicker-Frontend-Guard)
 - [ ] **PERM-03**: Empfänger beim Übertrag muss aktives Mitglied sein (`exit_date IS NULL`) — Service-Layer-Guard zusätzlich zum Search-Filter (TRSF-06)
 
@@ -99,11 +99,11 @@ Welche Phasen welche Requirements abdecken. Wird vom Roadmapper-Schritt befüllt
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CANC-01 | Phase 15 | Pending |
+| CANC-01 | Phase 15 | Complete |
 | CANC-02 | Phase 14 | Pending |
-| CANC-03 | Phase 15 | Pending |
-| CANC-04 | Phase 15 | Pending |
-| CANC-05 | Phase 15 | Pending |
+| CANC-03 | Phase 15 | Complete |
+| CANC-04 | Phase 15 | Complete |
+| CANC-05 | Phase 15 | Complete |
 | CANC-06 | Phase 18 | Pending |
 | PART-01 | Phase 16 | Pending |
 | PART-02 | Phase 16 | Pending |
@@ -126,9 +126,9 @@ Welche Phasen welche Requirements abdecken. Wird vom Roadmapper-Schritt befüllt
 | UI-02 | Phase 18 | Pending |
 | UI-03 | Phase 18 | Pending |
 | UI-04 | Phase 18 | Pending |
-| AUDT-01 | Phase 15 | Pending |
+| AUDT-01 | Phase 15 | Complete |
 | AUDT-02 | Phase 17 | Pending |
-| PERM-01 | Phase 15 | Pending |
+| PERM-01 | Phase 15 | Complete |
 | PERM-02 | Phase 15 | Complete |
 | PERM-03 | Phase 17 | Pending |
 
