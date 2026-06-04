@@ -3,9 +3,72 @@
 //! Phase 14 liefert ausschliesslich die Pure-Function `compute_effective_date`. Phase 15-17
 //! wird dieses Modul mit Service-Methoden + `MembershipAdjustService`-Trait erweitern.
 
-use genossi_service::ValidationFailureItem;
+use async_trait::async_trait;
+use genossi_dao::audit_log::AuditLogDao;
+use genossi_dao::member::MemberDao;
+use genossi_dao::member_action::{ActionType, MemberActionDao, MemberActionEntity};
+use genossi_dao::TransactionDao;
+use genossi_service::member::Member;
+use genossi_service::member_action::MemberAction;
+use genossi_service::membership_adjust::MembershipAdjustService;
+use genossi_service::permission::{Authentication, PermissionService, ADMIN_PRIVILEGE};
+use genossi_service::uuid_service::UuidService;
+use genossi_service::{ServiceError, ValidationFailureItem};
 use std::sync::Arc;
 use time::Date;
+use uuid::Uuid;
+
+use crate::gen_service_impl;
+
+/// Audit-Process-String fuer cancel_membership (D-15-02).
+const CANCEL_PROCESS: &str = "member-adjust.cancel";
+
+/// Audit-Process-String fuer increase_shares — wird in Plan 03 verwendet (D-15-02).
+#[allow(dead_code)]
+const UPGRADE_PROCESS: &str = "member-adjust.upgrade";
+
+gen_service_impl! {
+    struct MembershipAdjustServiceImpl: MembershipAdjustService = MembershipAdjustServiceDeps {
+        MemberActionDao: MemberActionDao<Transaction = Self::Transaction> = member_action_dao,
+        MemberDao: MemberDao<Transaction = Self::Transaction> = member_dao,
+        AuditLogDao: AuditLogDao<Transaction = Self::Transaction> = audit_log_dao,
+        PermissionService: PermissionService<Context = Self::Context> = permission_service,
+        UuidService: UuidService = uuid_service,
+        TransactionDao: TransactionDao<Transaction = Self::Transaction> = transaction_dao,
+    }
+}
+
+#[async_trait]
+impl<Deps: MembershipAdjustServiceDeps> MembershipAdjustService for MembershipAdjustServiceImpl<Deps> {
+    type Context = <Deps as MembershipAdjustServiceDeps>::Context;
+    type Transaction = <Deps as MembershipAdjustServiceDeps>::Transaction;
+
+    async fn cancel_membership(
+        &self,
+        _member_id: Uuid,
+        _willensbekundung_date: Date,
+        _context: Authentication<Self::Context>,
+        _tx: Option<Self::Transaction>,
+    ) -> Result<(MemberAction, Member), ServiceError> {
+        Err(ServiceError::InternalError(Arc::from(
+            "cancel_membership not yet implemented — Task 2",
+        )))
+    }
+
+    async fn increase_shares(
+        &self,
+        _member_id: Uuid,
+        _shares: i32,
+        _willensbekundung_date: Date,
+        _context: Authentication<Self::Context>,
+        _tx: Option<Self::Transaction>,
+    ) -> Result<(MemberAction, Member), ServiceError> {
+        // Wird in Plan 03 ueberschrieben
+        Err(ServiceError::InternalError(Arc::from(
+            "increase_shares — Plan 03",
+        )))
+    }
+}
 
 /// Berechnet den Wirksamkeits-Stichtag nach Verbands-Konvention H1/H2.
 ///
