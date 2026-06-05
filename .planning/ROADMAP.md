@@ -13,7 +13,7 @@
 |---|-------|------|------|--------------|
 | 14 | DAO/Domain Foundation | 4/4 | Complete    | 2026-06-04 |
 | 15 | Service+REST: Kündigung + Aufstockung | 4/4 | Complete    | 2026-06-04 |
-| 16 | Service+REST: Teil-Rückgabe + Auto-Anlegen-Phase | 3/4 | In Progress|  |
+| 16 | Service+REST: Teil-Rückgabe + Auto-Anlegen-Phase | 4/4 | Complete   | 2026-06-05 |
 | 17 | Service+REST: Übertrag | `transfer_shares` mit 2 atomaren verlinkten MemberActions + gemeinsamem Process-String; Voll-Übertrag erzeugt zusätzliche Austritts-Action; Empfänger-aktiv-Guard; Self-Transfer-Block | 8 | 5–7 |
 | 18 | Frontend Component-First | `MembershipAdjustModal` shared Component mit Sub-Choice-Form, Datepicker, MemberSearch-Reuse, Vorschau-Section; Button auf Member-Detail-Page; i18n DE/EN | 4 | 5–7 |
 
@@ -82,11 +82,11 @@
 4. Auto-Fill-Skip-Pattern in `open_repayment_phase` (Erweiterung der existing Logik in `genossi_service_impl/src/repayment_phase.rs:319–395`): wenn `find_by_member_and_phase(member, phase) -> non-empty`, überspringt Auto-Fill den Member (Pitfall-Kategorie-1-Mitigation)
 5. 8 E2E-Tests: Happy-Path H1, Happy-Path H2 mit Auto-Anlegen-Phase, Sum-Check-Block 400, Auto-Fill-Skip-Test (Phase-Open nach v1.2-Teilrückgabe erzeugt kein Duplikat), Voll-Rückgabe-Block 400 (Verweis auf cancel_membership), Cancelled-Member-Block 409 (D-16-10 — divergent von Phase 15), Audit-Chain-Verify, Auto-Create-Default-Share-Value
 
-**Plans:** 3/4 plans executed
+**Plans:** 4/4 plans complete
 - [x] 16-01-PLAN.md — MembershipAdjustService trait extension (partial_repayment) + PartialRepaymentRequest/ResponseTO + DEFAULT_SHARE_VALUE_CENT + validate_partial_repayment_shares pure helper + 7 unit tests (PART-01, PART-06)
 - [x] 16-02-PLAN.md — partial_repayment service impl with inlined phase-auto-create + sum-check via existing find_by_member_and_phase + 10 mock-based unit tests (PART-01, PART-02, PART-03, PART-05, PART-06)
 - [x] 16-03-PLAN.md — Auto-fill skip-pattern insertion at repayment_phase.rs line 368 + 1 unit test (PART-04)
-- [ ] 16-04-PLAN.md — REST endpoint + sub-route registration (BEFORE /{id}) + DI wiring in genossi_bin + 8 E2E tests (PART-01..06 full stack)
+- [x] 16-04-PLAN.md — REST endpoint + sub-route registration (BEFORE /{id}) + DI wiring in genossi_bin + 8 E2E tests (PART-01..06 full stack)
 
 ---
 
