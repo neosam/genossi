@@ -271,24 +271,186 @@ impl<Deps: MembershipAdjustServiceDeps> MembershipAdjustService for MembershipAd
         Ok((new_action, Member::from(&updated_entity)))
     }
 
-    /// Plan 16-01 stub. Full implementation lands in Plan 16-02 (Service-Impl).
+    /// PART-01..06 / D-16-01..19: Teil-Rueckgabe.
     ///
-    /// This stub satisfies the trait contract introduced by D-16-17 so the workspace
-    /// compiles during Wave-1 (contracts only). It MUST NOT be called from production
-    /// code paths before Plan 16-02 wires Permission-Funnel, Range-Validation,
-    /// Auto-Anlegen-Phase (Variante B, D-16-01), Sum-Check, and `audited_create!`.
+    /// INLINING-STRATEGY (D-16-04 + Phase 16 research finding #2): Die Phase-Auto-Create-
+    /// Branch reproduziert die ~33 LOC von `RepaymentPhaseServiceImpl::create_repayment_phase`
+    /// inline, damit die aeussere `tx` geteilt werden kann. Trait-Erweiterung Variante (a)
+    /// wurde verworfen (Aenderung an Phase 7/15/17-Code); separate Tx Variante (c) ist von
+    /// D-16-04 explizit ausgeschlossen. Audit-Process-String fuer die inlined Phase-Create
+    /// bleibt `"repayment-phase.create"` (semantisch identisch zur Service-Delegation,
+    /// Open Question #4 Recommendation).
     async fn partial_repayment(
         &self,
-        _member_id: Uuid,
-        _shares: i32,
-        _willensbekundung_date: Date,
-        _context: Authentication<Self::Context>,
-        _tx: Option<Self::Transaction>,
+        member_id: Uuid,
+        shares: i32,
+        willensbekundung_date: Date,
+        context: Authentication<Self::Context>,
+        tx: Option<Self::Transaction>,
     ) -> Result<(Member, RepaymentEntry, Option<RepaymentPhase>), ServiceError> {
-        // Plan-16-01-Stub: replaced by Plan 16-02 Service-Impl.
-        Err(ServiceError::InternalError(Arc::from(
-            "partial_repayment not yet implemented (Plan 16-02)",
-        )))
+        // Step 1: Tx-Lifecycle (D-16-04 single tx atomar).
+        let tx = self.transaction_dao.use_transaction(tx).await?;
+
+        // Step 2: user_id (SYSTEM fallback per Phase 15 convention).
+        let user_id = self
+            .permission_service
+            .current_user_id(context.clone())
+            .await?
+            .unwrap_or_else(|| "SYSTEM".to_string());
+
+        // Step 3: PERM-01 / D-15-01 ADMIN_PRIVILEGE-Funnel.
+        self.permission_service
+            .check_permission(ADMIN_PRIVILEGE, context)
+            .await?;
+
+        // Step 4: Member existence.
+        let member_entity = self
+            .member_dao
+            .find_by_id(member_id, tx.clone())
+            .await?
+            .ok_or(ServiceError::EntityNotFound(member_id))?;
+
+        // Step 5: D-16-10 — Cancelled member -> HTTP 409 Conflict.
+        // DIVERGENCE vom Phase 15 UPGD-04 (das gibt 400 ValidationError zurueck).
+        // PART hat explizit eigene Semantik: gekuendigte Members gehen via v1.1-PaidOut-
+        // Cascade in die naechste Auszahlungsphase — Conflict signalisiert "falscher
+        // Workflow", nicht "ungueltige Eingabe".
+        if member_entity.exit_date.is_some() {
+            return Err(ServiceError::Conflict(Arc::from(format!(
+                "Cannot start partial repayment for cancelled member (exit_date={:?})",
+                member_entity.exit_date
+            ))));
+        }
+
+        // Step 6: D-16-11/12 — Range-Validation via Pure-Helper aus Plan 01.
+        if let Err(errs) = validate_partial_repayment_shares(shares, member_entity.current_shares) {
+            return Err(ServiceError::ValidationError(errs));
+        }
+
+        // Step 7: D-15-05..08 / D-16-18 — Datum-Bounds-Validierung (Phase 15 reuse).
+        let today = time::OffsetDateTime::now_utc().date();
+        let validation_errors = validate_willensbekundung_date(willensbekundung_date, today);
+        if !validation_errors.is_empty() {
+            return Err(ServiceError::ValidationError(validation_errors));
+        }
+
+        // Step 8: CANC-02 / D-14-04..07 — H1/H2-Stichtag via Phase-14-Pure-Function.
+        let effective = compute_effective_date(willensbekundung_date);
+
+        // Step 9: ensure_repayment_phase — find existing or auto-create (D-16-01 Variante B).
+        // `all()` (Default-Impl) filtert soft-deleted aus. SQLite-Impl von dump_all ordnet
+        // `ORDER BY fiscal_year DESC, created DESC` (RESEARCH §"Don't Hand-Roll"), also ist
+        // `first()` die juengste Phase fuer den share_value-Fallback (D-16-05).
+        let all_phases = self.repayment_phase_dao.all(tx.clone()).await?;
+        let target_phase_existing = all_phases
+            .iter()
+            .find(|p| p.fiscal_year == effective.fiscal_year)
+            .cloned();
+
+        let now_offset = time::OffsetDateTime::now_utc();
+        let now_pdt = time::PrimitiveDateTime::new(now_offset.date(), now_offset.time());
+
+        let (target_phase, was_created): (RepaymentPhaseEntity, bool) = match target_phase_existing
+        {
+            Some(p) => (p, false),
+            None => {
+                // D-16-05/06/07 — share_value aus juengster Phase oder Default-Fallback.
+                let share_value = all_phases
+                    .first()
+                    .map(|p| p.share_value)
+                    .unwrap_or(DEFAULT_SHARE_VALUE_CENT);
+
+                let auto_phase = RepaymentPhaseEntity {
+                    id: self.uuid_service.new_v4().await,
+                    fiscal_year: effective.fiscal_year,
+                    share_value,
+                    // D-16-01 Variante B: Auto-Create in Status `Open` (NICHT Preparation).
+                    // Direkt-Insert in die Phase ist sofort moeglich; Skip-Pattern in
+                    // open_repayment_phase (Plan 03) verhindert Duplikate.
+                    status: RepaymentPhaseStatus::Open,
+                    opened_at: Some(now_pdt),
+                    closed_at: None,
+                    created: now_pdt,
+                    deleted: None,
+                    version: self.uuid_service.new_v4().await,
+                };
+
+                // INLINING (research finding #2): audited_create! statt
+                // self.repayment_phase_service.create_repayment_phase(...). Audit-Process-
+                // String "repayment-phase.create" = identisch mit der Service-Methode,
+                // damit der Audit-Log forensisch nicht unterscheidbar ist.
+                crate::audited_create!(
+                    self,
+                    self.repayment_phase_dao,
+                    &auto_phase,
+                    REPAYMENT_PHASE_CREATE_PROCESS,
+                    &user_id,
+                    tx
+                );
+
+                (auto_phase, true)
+            }
+        };
+
+        // Step 10: Sum-Check Foundation — existing entries fuer (member, phase).
+        // Research finding #1: find_by_member_and_phase existiert bereits auf Trait UND
+        // SQLite-Impl seit Phase 14. KEINE neue DAO-Methode.
+        let existing = self
+            .repayment_entry_dao
+            .find_by_member_and_phase(member_id, target_phase.id, tx.clone())
+            .await?;
+
+        // Step 11: D-16-08/09 Sum-Check — Filter status != PaidOut (Contacted zaehlt mit).
+        let sum_open: i32 = existing
+            .iter()
+            .filter(|e| e.status != RepaymentEntryStatus::PaidOut)
+            .map(|e| e.share_count_to_pay_out)
+            .sum();
+
+        if sum_open + shares > member_entity.current_shares {
+            return Err(ServiceError::ValidationError(vec![ValidationFailureItem {
+                field: Arc::from("shares"),
+                message: Arc::from(format!(
+                    "sum of open repayments ({}) plus new ({}) exceeds current_shares ({})",
+                    sum_open, shares, member_entity.current_shares
+                )),
+            }]));
+        }
+
+        // Step 12: PART-03 — RepaymentEntry erzeugen (Status Open) via audited_create!.
+        let new_entry = RepaymentEntryEntity {
+            id: self.uuid_service.new_v4().await,
+            member_id,
+            phase_id: target_phase.id,
+            share_count_to_pay_out: shares,
+            status: RepaymentEntryStatus::Open,
+            created: now_pdt,
+            deleted: None,
+            version: self.uuid_service.new_v4().await,
+        };
+
+        crate::audited_create!(
+            self,
+            self.repayment_entry_dao,
+            &new_entry,
+            PARTIAL_REPAYMENT_PROCESS,
+            &user_id,
+            tx
+        );
+
+        // Step 13: Commit. PART-06 / D-16-19: KEIN recalc_dates, KEIN audited_update!
+        // auf Member, KEIN MemberAction. v1.1-PaidOut-Cascade uebernimmt das beim Toggle.
+        self.transaction_dao.commit(tx).await?;
+
+        // Step 14: Return tuple. Member wird unveraendert zurueckgegeben (keine Mutation).
+        let member_dto = Member::from(&member_entity);
+        let entry_dto = RepaymentEntry::from(&new_entry);
+        let phase_dto = if was_created {
+            Some(RepaymentPhase::from(&target_phase))
+        } else {
+            None
+        };
+        Ok((member_dto, entry_dto, phase_dto))
     }
 }
 
