@@ -886,3 +886,76 @@ async fn test_cancel_membership_date_in_overnext_year_rejected() {
         .expect("cancel");
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 }
+
+/// Phase 16.05 / CR-01 — Closed phase darf KEINEN partial_repayment-Entry aufnehmen.
+/// Sequenz: Phase create (Preparation) -> POST /open -> POST /close -> POST partial-repayment
+/// -> erwartet HTTP 409 Conflict mit Body-Substring "closed".
+#[tokio::test]
+async fn test_partial_repayment_closed_phase_returns_409() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let m = create_active_member(&client, &server, 1108, "PartClosed").await;
+    let m = put_member_current_shares(&client, &server, &m, 3).await;
+    let member_id = m.id.expect("id");
+
+    let h1_date = today_march_15();
+    let target_fy = h1_date.year();
+
+    // 1) Phase fuer target_fy anlegen (Preparation).
+    let phase = create_repayment_phase(&client, &server, target_fy, 10000).await;
+    let phase_id = phase["id"].as_str().expect("phase.id");
+
+    // 2) Phase oeffnen.
+    let r_open = client
+        .post(server.url(&format!("/api/repayment-phase/{}/open", phase_id)))
+        .send()
+        .await
+        .expect("open phase");
+    assert_eq!(
+        r_open.status(),
+        StatusCode::OK,
+        "open phase: {}",
+        r_open.text().await.unwrap_or_default()
+    );
+
+    // 3) Phase schliessen.
+    let r_close = client
+        .post(server.url(&format!("/api/repayment-phase/{}/close", phase_id)))
+        .send()
+        .await
+        .expect("close phase");
+    assert_eq!(
+        r_close.status(),
+        StatusCode::OK,
+        "close phase: {}",
+        r_close.text().await.unwrap_or_default()
+    );
+
+    // 4) partial-repayment auf geschlossene Phase -> 409 Conflict (D-11.1 Guard).
+    let resp = client
+        .post(server.url(&format!("/api/members/{}/partial-repayment", member_id)))
+        .json(&partial_repayment_body(&h1_date.to_string(), 1))
+        .send()
+        .await
+        .expect("POST partial-repayment");
+    let status = resp.status();
+    let body_text = resp.text().await.unwrap_or_default();
+    assert_eq!(
+        status,
+        StatusCode::CONFLICT,
+        "expected 409 Conflict for closed phase, got {}: {}",
+        status,
+        body_text
+    );
+    assert!(
+        body_text.contains("closed"),
+        "expected body to mention 'closed', got: {}",
+        body_text
+    );
+    assert!(
+        body_text.contains(&target_fy.to_string()),
+        "expected body to mention fiscal_year {}, got: {}",
+        target_fy,
+        body_text
+    );
+}
