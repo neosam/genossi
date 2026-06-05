@@ -440,6 +440,60 @@ mod tests {
         let date = Date::from_calendar_date(2024, Month::February, 29).unwrap();
         assert!(validate_willensbekundung_date(date, today).is_empty());
     }
+
+    // -------------------------------------------------------------------------
+    // validate_partial_repayment_shares — D-16-11 + D-16-12 Range-Validation
+    // (Phase 16, 7 cases per Plan-16-01 Task 3).
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn validate_partial_repayment_shares_zero_rejected() {
+        let errs = validate_partial_repayment_shares(0, 5).expect_err("shares=0 must reject");
+        assert_eq!(errs.len(), 1);
+        assert_eq!(&*errs[0].field, "shares");
+        assert!(errs[0].message.contains("at least 1"));
+    }
+
+    #[test]
+    fn validate_partial_repayment_shares_negative_rejected() {
+        let errs = validate_partial_repayment_shares(-5, 5).expect_err("negative shares must reject");
+        assert!(errs[0].message.contains("at least 1"));
+    }
+
+    #[test]
+    fn validate_partial_repayment_shares_equal_to_current_rejected_with_cancel_hint() {
+        let errs = validate_partial_repayment_shares(10, 10)
+            .expect_err("shares == current_shares must reject");
+        assert!(
+            errs[0].message.contains("cancel_membership"),
+            "error must reference cancel_membership (D-16-11), got: {}",
+            errs[0].message
+        );
+    }
+
+    #[test]
+    fn validate_partial_repayment_shares_above_current_rejected() {
+        let errs = validate_partial_repayment_shares(11, 10)
+            .expect_err("shares > current_shares must reject");
+        assert!(errs[0].message.contains("exceeds current_shares"));
+    }
+
+    #[test]
+    fn validate_partial_repayment_shares_full_one_member_rejected() {
+        // Member has 1 share; any positive shares-value equals current_shares = Voll-Rueckgabe.
+        let errs = validate_partial_repayment_shares(1, 1).expect_err("1/1 is voll, must reject");
+        assert!(errs[0].message.contains("cancel_membership"));
+    }
+
+    #[test]
+    fn validate_partial_repayment_shares_happy_path_minimum() {
+        validate_partial_repayment_shares(1, 2).expect("1 of 2 must accept");
+    }
+
+    #[test]
+    fn validate_partial_repayment_shares_happy_path_middle() {
+        validate_partial_repayment_shares(5, 10).expect("5 of 10 must accept");
+    }
 }
 
 #[cfg(test)]
