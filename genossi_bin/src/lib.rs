@@ -497,6 +497,11 @@ impl genossi_service_impl::membership_adjust::MembershipAdjustServiceDeps
     type PermissionService = PermissionService;
     type UuidService = UuidService;
     type TransactionDao = TransactionDao;
+    // Phase 16 (D-16-02 Inlining + D-16-08 Sum-Check): zwei neue DAO-Deps fuer
+    // `partial_repayment` — inlined Phase-Auto-Create via `repayment_phase_dao`,
+    // Sum-Check + Entry-Create via `repayment_entry_dao`.
+    type RepaymentPhaseDao = RepaymentPhaseDao;
+    type RepaymentEntryDao = RepaymentEntryDao;
 }
 
 type MembershipAdjustService = genossi_service_impl::membership_adjust::MembershipAdjustServiceImpl<
@@ -718,9 +723,20 @@ impl RestStateImpl {
             },
         );
 
-        // Phase 15 v1.2 (D-15-16): MembershipAdjustService — selbes Deps-Set
-        // wie MemberActionService; alle Arcs sind die kanonischen Per-Process-
-        // Instances (single Arc shared across services).
+        // Phase 16 (D-16-02 / D-16-08): RepaymentPhaseDao + RepaymentEntryDao
+        // werden hier (frueher als zuvor) deklariert, damit
+        // `MembershipAdjustServiceImpl` sie ueber Arc::clone() als Dependency
+        // erhaelt. Die downstream-Consumer (RepaymentPhaseServiceImpl,
+        // RepaymentEntryServiceImpl und Plan-09-Services) nutzen weiterhin
+        // dieselben Arcs via `.clone()` — single Arc per DAO pro Process
+        // (T-08-05-04 mitigation).
+        let repayment_phase_dao = Arc::new(RepaymentPhaseDao::new(pool.clone()));
+        let repayment_entry_dao = Arc::new(RepaymentEntryDao::new(pool.clone()));
+
+        // Phase 15 v1.2 (D-15-16) + Phase 16 (D-16-02 / D-16-08):
+        // MembershipAdjustService — Phase 15-Set + 2 neue Phase-16-DAO-Deps.
+        // Alle Arcs sind die kanonischen Per-Process-Instances (single Arc
+        // shared across services).
         let membership_adjust_service = Arc::new(
             genossi_service_impl::membership_adjust::MembershipAdjustServiceImpl {
                 member_action_dao: member_action_dao.clone(),
@@ -729,6 +745,11 @@ impl RestStateImpl {
                 permission_service: permission_service.clone(),
                 uuid_service: uuid_service.clone(),
                 transaction_dao: transaction_dao.clone(),
+                // Phase 16 D-16-02/08 — Inlined phase-create + sum-check via
+                // existing find_by_member_and_phase. Arc-shared mit
+                // RepaymentPhase/Entry-Services weiter unten.
+                repayment_phase_dao: repayment_phase_dao.clone(),
+                repayment_entry_dao: repayment_entry_dao.clone(),
             },
         );
 
@@ -897,8 +918,11 @@ impl RestStateImpl {
         //   konsistente DAO-State über alle Aufrufe (T-08-05-04 mitigation).
         // - audit_log_dao wird mit allen anderen audited Services geteilt
         //   (T-07-04-05 mitigation: single hash chain across the workspace).
-        let repayment_phase_dao = Arc::new(RepaymentPhaseDao::new(pool.clone()));
-        let repayment_entry_dao = Arc::new(RepaymentEntryDao::new(pool.clone()));
+        //
+        // Phase 16 (D-16-02 / D-16-08): repayment_phase_dao und
+        // repayment_entry_dao werden bereits weiter oben fuer
+        // MembershipAdjustServiceImpl deklariert; hier nur Re-Cloning der
+        // bestehenden Arcs (single Arc per DAO pro Process).
         let repayment_phase_service = Arc::new(
             genossi_service_impl::repayment_phase::RepaymentPhaseServiceImpl {
                 repayment_phase_dao: repayment_phase_dao.clone(),
