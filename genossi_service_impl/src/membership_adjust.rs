@@ -2088,4 +2088,72 @@ mod service_tests {
         assert_eq!(entry.share_count_to_pay_out, 3);
         assert!(phase_opt.is_none(), "existing phase reused");
     }
+
+    // ---------- Test 11: Closed phase rejected (Phase 16.05 / CR-01) ----------
+    // Phase 16.05 / CR-01 — Closed phase MUST be rejected with ServiceError::Conflict.
+    // Service must not call repayment_phase_dao.create (no auto-create on Closed) and
+    // not call repayment_entry_dao.create (no entry write). The guard short-circuits
+    // BEFORE the sum-check, so find_by_member_and_phase must not be called either.
+    #[tokio::test]
+    async fn test_partial_repayment_rejects_closed_phase() {
+        let member_id = Uuid::new_v4();
+        let willensbekundung = h1_test_date();
+        let target_fy = h1_target_fy();
+
+        let mut member_dao = MockTestMemberDao::new();
+        member_dao
+            .expect_find_by_id()
+            .times(1)
+            .returning(move |_, _| Ok(Some(sample_member_entity_with_shares(member_id, 3, None))));
+
+        // Existing phase for target_fy in status Closed (Phase 14 prep workflow finished).
+        let mut closed_phase = sample_repayment_phase(target_fy, 10000);
+        closed_phase.status = RepaymentPhaseStatus::Closed;
+        let phases: Arc<[RepaymentPhaseEntity]> = Arc::from(vec![closed_phase]);
+
+        let mut repayment_phase_dao = MockTestRepaymentPhaseDao::new();
+        repayment_phase_dao
+            .expect_all()
+            .returning(move |_| Ok(phases.clone()));
+        // Guard short-circuits BEFORE auto-create.
+        repayment_phase_dao.expect_create().times(0);
+
+        let mut repayment_entry_dao = MockTestRepaymentEntryDao::new();
+        // Guard short-circuits BEFORE sum-check + entry write.
+        repayment_entry_dao.expect_find_by_member_and_phase().times(0);
+        repayment_entry_dao.expect_create().times(0);
+
+        let service = build_service_part(
+            member_dao,
+            MockTestMemberActionDao::new(),
+            allow_audit_log(),
+            allow_admin_perms(),
+            setup_tx_dao(),
+            repayment_phase_dao,
+            repayment_entry_dao,
+        );
+
+        let result = service
+            .partial_repayment(member_id, 1, willensbekundung, Authentication::Full, None)
+            .await;
+
+        match result {
+            Err(ServiceError::Conflict(msg)) => {
+                let text = msg.to_string();
+                assert!(
+                    text.contains("closed"),
+                    "expected message to mention 'closed', got: {}",
+                    text
+                );
+                assert!(
+                    text.contains(&target_fy.to_string()),
+                    "expected message to mention fiscal_year {}, got: {}",
+                    target_fy,
+                    text
+                );
+            }
+            Err(other) => panic!("expected ServiceError::Conflict, got {:?}", other),
+            Ok(_) => panic!("expected ServiceError::Conflict, got Ok(_)"),
+        }
+    }
 }
