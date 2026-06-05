@@ -366,6 +366,35 @@ impl<Deps: RepaymentPhaseServiceDeps> RepaymentPhaseService for RepaymentPhaseSe
         targets.sort_by_key(|m| m.member_number);
 
         for member in targets {
+            // ===== Phase 16 (D-16-03 / PART-04 / PITFALLS-Kat-1) =====
+            // Skip-Pattern: Verhindert Doppelbuchung wenn ein Member bereits
+            // einen RepaymentEntry in dieser Phase hat (typischerweise durch
+            // v1.2-`partial_repayment` aus `MembershipAdjustService`, Plan 02).
+            // Ohne diesen Skip wuerden Member, die im fiscal_year ausgetreten
+            // sind UND vorher eine Teil-Rueckgabe hatten, zwei Open-Entries
+            // bekommen — Audit-Disziplin bleibt formal intakt, aber Sum-Check
+            // + Auszahlungs-UI brechen mit inkonsistenten Anteils-Zahlen.
+            //
+            // Filter: ANY status (Open/Contacted/PaidOut). Ein PaidOut-Entry
+            // zeigt dass die Phase fuer diesen Member bereits final ist —
+            // kein zweiter Open-Entry waere semantisch sinnvoll.
+            //
+            // Foundation: die Lookup-Methode existiert seit Phase 14 auf
+            // Trait UND SQLite-Impl — keine neue DAO-Methode.
+            //
+            // Tx-Sharing: `tx.clone()` propagiert die outer audited_update!
+            // (Phase)-Tx, damit der Skip-Check innerhalb derselben
+            // Snapshot-Konsistenz laeuft (gleiche Pattern wie der
+            // `audited_create!`-Call weiter unten).
+            let existing_entries = self
+                .repayment_entry_dao
+                .find_by_member_and_phase(member.id, id, tx.clone())
+                .await?;
+            if !existing_entries.is_empty() {
+                continue;
+            }
+            // ===== /Phase 16 Skip-Pattern =====
+
             let entry_now_offset = time::OffsetDateTime::now_utc();
             let entry_now_pdt =
                 time::PrimitiveDateTime::new(entry_now_offset.date(), entry_now_offset.time());
@@ -733,6 +762,14 @@ mod tests {
             ) -> Result<Option<RepaymentEntryEntity>, DaoError>;
             async fn find_by_phase_id(
                 &self,
+                phase_id: Uuid,
+                tx: TestTransaction,
+            ) -> Result<Arc<[RepaymentEntryEntity]>, DaoError>;
+            // Phase 16 (D-16-03 / PART-04 / PITFALLS-Kat-1): Default-Impl-Override
+            // muss explizit gemockt werden (Mockall-Hinweis im DAO-Trait).
+            async fn find_by_member_and_phase(
+                &self,
+                member_id: Uuid,
                 phase_id: Uuid,
                 tx: TestTransaction,
             ) -> Result<Arc<[RepaymentEntryEntity]>, DaoError>;
@@ -1694,6 +1731,11 @@ mod tests {
             .returning(move |_, _| Ok(Some(post_for_3.clone())));
 
         let mut entry_dao = MockTestRepaymentEntryDao::new();
+        // Phase 16 (D-16-03): Skip-Pattern fragt pro Member ab — return empty
+        // damit alle 3 Members einen RepaymentEntry erhalten.
+        entry_dao
+            .expect_find_by_member_and_phase()
+            .returning(|_, _, _| Ok(Arc::from(vec![])));
         entry_dao
             .expect_create()
             .times(3)
@@ -1852,6 +1894,11 @@ mod tests {
             .returning(|_, _, _| Ok(()));
 
         let mut entry_dao = MockTestRepaymentEntryDao::new();
+        // Phase 16 (D-16-03): Skip-Pattern fragt pro Member ab — return empty
+        // damit der Code zum entry_dao.create() durchlaeuft (das dann failt).
+        entry_dao
+            .expect_find_by_member_and_phase()
+            .returning(|_, _, _| Ok(Arc::from(vec![])));
         // First create fails — bubbles up; we expect <= 1 call.
         entry_dao.expect_create().returning(|_, _, _| {
             Err(DaoError::DatabaseError(Arc::from(
