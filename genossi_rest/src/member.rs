@@ -69,6 +69,12 @@ pub fn generate_route<RestState: RestStateDef>() -> Router<RestState> {
             "/{id}/increase-shares",
             post(crate::membership_adjust::increase_shares::<RestState>),
         )
+        // Phase 16 v1.2 (D-16-14): Sub-Route fuer Teil-Rueckgabe.
+        // MUSS vor /{id} registriert sein (D-14-08-Lesson) — axum-Routing-Defense.
+        .route(
+            "/{id}/partial-repayment",
+            post(crate::membership_adjust::partial_repayment::<RestState>),
+        )
         // Path-parameter routes LAST.
         .route("/{id}", get(get_member::<RestState>))
         .route("/", post(create_member::<RestState>))
