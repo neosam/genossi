@@ -543,6 +543,36 @@ pub struct MembershipAdjustResponseTO {
     pub member: MemberTO,
 }
 
+/// Request-Body fuer `POST /api/members/{id}/partial-repayment` (PART-01, D-16-15).
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct PartialRepaymentRequestTO {
+    #[serde(
+        serialize_with = "iso8601_date_required::serialize",
+        deserialize_with = "iso8601_date_required::deserialize"
+    )]
+    #[schema(example = "2026-06-15")]
+    pub willensbekundung_date: time::Date,
+    /// Anzahl der zurueckgegebenen Anteile (1..current_shares; D-16-11/12 enforce
+    /// strict `< current_shares`). Type ist `i32` konsistent mit
+    /// `MemberEntity.current_shares` und `RepaymentEntryEntity.share_count_to_pay_out`
+    /// (research finding #3 — CONTEXT Z. 12 sagt faelschlicherweise i64).
+    #[schema(example = 2)]
+    pub shares: i32,
+}
+
+/// Response-Body fuer `POST /api/members/{id}/partial-repayment` (D-16-16).
+///
+/// `phase` ist nur bei Auto-Anlegen befuellt (D-16-01 Variante B); ansonsten `None`
+/// → wird aus dem JSON entfernt (`skip_serializing_if`). Frontend (Phase 18) zeigt
+/// dann den Hinweis "Phase fuer FY YYYY wurde automatisch angelegt".
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct PartialRepaymentResponseTO {
+    pub entry: RepaymentEntryTO,
+    pub member: MemberTO,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub phase: Option<RepaymentPhaseTO>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct MigrationStatusTO {
     pub member_id: Uuid,
