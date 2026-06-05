@@ -4,14 +4,14 @@ milestone: v1.2
 milestone_name: Mitgliedschaft-Anpassungen während des Geschäftsjahres
 status: executing
 stopped_at: Phase 16 context gathered
-last_updated: "2026-06-05T05:23:27.644Z"
-last_activity: 2026-06-05 -- Phase 16 execution started
+last_updated: "2026-06-05T07:29:07.143Z"
+last_activity: 2026-06-05 -- Phase 16 planning complete
 progress:
   total_phases: 3
   completed_phases: 2
-  total_plans: 12
-  completed_plans: 8
-  percent: 67
+  total_plans: 13
+  completed_plans: 12
+  percent: 92
 ---
 
 # State: Genossi — v1.1 Anteile-Rückzahlungsphase
@@ -31,8 +31,8 @@ See: `.planning/PROJECT.md` (updated 2026-06-02 after v1.1 close)
 
 Phase: 16 (service-rest-teil-rueckgabe-auto-anlegen-phase) — EXECUTING
 Plan: 1 of 4
-Status: Executing Phase 16
-Last activity: 2026-06-05 -- Phase 16 execution started
+Status: Ready to execute
+Last activity: 2026-06-05 -- Phase 16 planning complete
 
 ## v1.2 Roadmap (Phases 14–18)
 
