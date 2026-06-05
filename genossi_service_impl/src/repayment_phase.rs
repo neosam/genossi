@@ -1923,6 +1923,111 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn test_open_repayment_phase_skips_members_with_existing_entry() {
+        // Phase 16 D-16-03 / PART-04 / PITFALLS-Kat-1: Auto-Fill skippt
+        // Members, fuer die ein RepaymentEntry bereits existiert (z.B. via
+        // v1.2-partial_repayment aus MembershipAdjustService Plan 02).
+        //
+        // Setup: Zwei Members im fiscal_year 2026 mit exit_date.
+        // - Member A: existing Open-Entry in der Phase  -> SKIP, kein create
+        // - Member B: keine existing Entries           -> Auto-Fill creates 1 entry
+        //
+        // Expectation: repayment_entry_dao.create() wird genau 1x aufgerufen
+        // (für Member B). Verifiziert via mockall .expect_create().times(1).
+        let phase_entity = phase_in_status(RepaymentPhaseStatus::Preparation);
+        let phase_id = phase_entity.id;
+        let post_open = RepaymentPhaseEntity {
+            status: RepaymentPhaseStatus::Open,
+            opened_at: Some(phase_entity.created),
+            version: Uuid::new_v4(),
+            ..phase_entity.clone()
+        };
+
+        let in_fy = time::Date::from_calendar_date(2026, time::Month::June, 15).unwrap();
+        let m_a = make_member(1, 5, Some(in_fy));
+        let m_b = make_member(2, 3, Some(in_fy));
+        let m_a_id = m_a.id;
+        let m_b_id = m_b.id;
+
+        // Phase-DAO: same Sequence-Pattern wie test_open_phase_auto_fill_*
+        let mut phase_dao = MockTestRepaymentPhaseDao::new();
+        let mut seq = mockall::Sequence::new();
+        let pre_1 = phase_entity.clone();
+        phase_dao
+            .expect_find_by_id()
+            .times(1)
+            .in_sequence(&mut seq)
+            .returning(move |_, _| Ok(Some(pre_1.clone())));
+        let pre_2 = phase_entity.clone();
+        phase_dao
+            .expect_find_by_id()
+            .times(1)
+            .in_sequence(&mut seq)
+            .returning(move |_, _| Ok(Some(pre_2.clone())));
+        phase_dao
+            .expect_update()
+            .times(1)
+            .in_sequence(&mut seq)
+            .returning(|_, _, _| Ok(()));
+        let post_for_3 = post_open.clone();
+        phase_dao
+            .expect_find_by_id()
+            .times(1)
+            .in_sequence(&mut seq)
+            .returning(move |_, _| Ok(Some(post_for_3.clone())));
+
+        // Entry-DAO: Member A hat existierenden Entry -> skip; Member B leer.
+        let existing_entry = RepaymentEntryEntity {
+            id: Uuid::new_v4(),
+            member_id: m_a_id,
+            phase_id,
+            share_count_to_pay_out: 2,
+            status: RepaymentEntryStatus::Open,
+            created: time::PrimitiveDateTime::new(
+                time::Date::from_calendar_date(2026, time::Month::June, 1).unwrap(),
+                time::Time::MIDNIGHT,
+            ),
+            deleted: None,
+            version: Uuid::new_v4(),
+        };
+        let existing_arc: Arc<[RepaymentEntryEntity]> = Arc::from(vec![existing_entry]);
+        let empty_arc: Arc<[RepaymentEntryEntity]> = Arc::from(vec![]);
+
+        let mut entry_dao = MockTestRepaymentEntryDao::new();
+        // withf gates per-member-ID; returning clones the per-branch Arc.
+        entry_dao
+            .expect_find_by_member_and_phase()
+            .withf(move |mid, _pid, _tx| *mid == m_a_id)
+            .returning(move |_, _, _| Ok(existing_arc.clone()));
+        entry_dao
+            .expect_find_by_member_and_phase()
+            .withf(move |mid, _pid, _tx| *mid == m_b_id)
+            .returning(move |_, _, _| Ok(empty_arc.clone()));
+
+        // CRITICAL ASSERTION: create() wird genau 1x aufgerufen (Member B).
+        entry_dao
+            .expect_create()
+            .times(1)
+            .returning(|_, _, _| Ok(()));
+
+        // Member-DAO: gibt beide Members zurück (sortiert dann nach member_number).
+        let mut member_dao = MockTestMemberDao::new();
+        let members_arc: Arc<[MemberEntity]> = Arc::from(vec![m_a.clone(), m_b.clone()]);
+        member_dao
+            .expect_all()
+            .returning(move |_| Ok(members_arc.clone()));
+
+        let service = build_service_full(phase_dao, entry_dao, member_dao);
+
+        let result = service
+            .open_repayment_phase(phase_id, Authentication::Full)
+            .await
+            .expect("open_repayment_phase must succeed with skip applied");
+        assert_eq!(result.status, RepaymentPhaseStatus::Open);
+        // Implicit assertion via mockall: create.times(1) verifies exactly 1 call.
+    }
+
     // ---------- Close-Validation tests (PHAS-03 / D-13/D-14/D-15) ----------
 
     #[tokio::test]
