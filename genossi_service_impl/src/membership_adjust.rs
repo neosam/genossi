@@ -347,6 +347,19 @@ impl<Deps: MembershipAdjustServiceDeps> MembershipAdjustService for MembershipAd
             .find(|p| p.fiscal_year == effective.fiscal_year)
             .cloned();
 
+        // Phase 16.05 / CR-01 — D-11.1-Status-Guard: Eine geschlossene Phase darf
+        // keinen neuen Entry aufnehmen. Preparation und Open passieren (Preparation =
+        // Phase-14-Pre-Workflow-Reuse, Open = Standardfall, Auto-Create unten erzeugt
+        // ohnehin Open). Closed -> HTTP 409 Conflict.
+        if let Some(ref existing) = target_phase_existing {
+            if existing.status == RepaymentPhaseStatus::Closed {
+                return Err(ServiceError::Conflict(Arc::from(format!(
+                    "Phase for fiscal_year {} is closed (D-11.1)",
+                    effective.fiscal_year
+                ))));
+            }
+        }
+
         let now_offset = time::OffsetDateTime::now_utc();
         let now_pdt = time::PrimitiveDateTime::new(now_offset.date(), now_offset.time());
 
