@@ -21,7 +21,7 @@ Requirements für v1.2-Release. Jedes mappt auf genau eine Roadmap-Phase.
 - [ ] **PART-01**: Vorstand kann am Mitglied „Teil-Rückgabe" auslösen mit Anteils-Anzahl `n` (1..current_shares) und Willensbekundungs-Datum
 - [ ] **PART-02**: System berechnet H1/H2-Stichtag (Ziel-fiscal_year) analog Kündigung
 - [ ] **PART-03**: System erzeugt `RepaymentEntry` in der Ziel-Phase mit `share_count_to_pay_out = n`, Status `Open`
-- [ ] **PART-04**: System validiert `sum(open_entries.share_count for member in target_phase) + n <= member.current_shares` (Sum-Check verhindert Über-Rückgabe)
+- [x] **PART-04**: System validiert `sum(open_entries.share_count for member in target_phase) + n <= member.current_shares` (Sum-Check verhindert Über-Rückgabe)
 - [ ] **PART-05**: System legt Ziel-RepaymentPhase automatisch an, falls für das berechnete fiscal_year noch nicht existent (exakte Variante A/B/C aus PITFALLS-Kat-2 wird in `/gsd-discuss-phase` fixiert)
 - [ ] **PART-06**: System erzeugt KEINE MemberAction und reduziert NICHT `current_shares` direkt (das macht v1.1's PaidOut-Cascade beim Ausbezahlt-Toggle)
 
@@ -108,7 +108,7 @@ Welche Phasen welche Requirements abdecken. Wird vom Roadmapper-Schritt befüllt
 | PART-01 | Phase 16 | Pending |
 | PART-02 | Phase 16 | Pending |
 | PART-03 | Phase 16 | Pending |
-| PART-04 | Phase 16 | Pending |
+| PART-04 | Phase 16 | Complete |
 | PART-05 | Phase 16 | Pending |
 | PART-06 | Phase 16 | Pending |
 | TRSF-01 | Phase 17 | Pending |
