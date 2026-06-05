@@ -1,23 +1,24 @@
 ---
-status: failed
+status: resolved
 phase: 16-service-rest-teil-rueckgabe-auto-anlegen-phase
 source: [16-VERIFICATION.md, 16-REVIEW.md]
 started: 2026-06-05T10:00:00Z
-updated: 2026-06-05T10:30:00Z
-decision: gap-closure (Option A — Status-Guard einbauen via Phase 16.1)
+updated: 2026-06-05T13:40:00Z
+decision: gap-closure (Option A — Status-Guard einbauen via Plan 16-05)
+resolved_by: plan 16-05 (commits 87f97841, 5b334cc9, 4ec92404)
 ---
 
 ## Current Test
 
-[user decision recorded: Option A — Gap-Closure via Phase 16.1]
+[resolved via Plan 16-05 — Closed-Phase-Status-Guard implementiert + 1 Unit-Test + 1 E2E-Test]
 
 ## Tests
 
 ### 1. Closed-Phase-Status-Guard (CR-01 aus 16-REVIEW.md)
 
 expected: HTTP 409 Conflict — Phase ist geschlossen, kein neuer Entry erlaubt. Alternativ falls Preparation absichtlich erlaubt ist: nur Closed soll 409 geben.
-result: failed (user confirmed missing guard is a bug; routed to gap closure)
-debug_session: [pending — gap plan will define implementation]
+result: resolved (Plan 16-05 — Closed → 409 mit Body 'closed' + fiscal_year; Preparation/Open passieren)
+debug_session: [n/a — direct gap-closure implementation]
 
 **Test-Setup (HTTP gegen lokalen Server):**
 
@@ -36,8 +37,8 @@ debug_session: [pending — gap plan will define implementation]
 ## Summary
 
 total: 1
-passed: 0
-issues: 1
+passed: 1
+issues: 0
 pending: 0
 skipped: 0
 blocked: 0
@@ -46,8 +47,9 @@ blocked: 0
 
 ### 1. CR-01: Closed-Phase-Reuse in partial_repayment
 
-status: failed
+status: resolved
 source: 16-REVIEW.md CR-01 + 16-HUMAN-UAT.md Test 1
 description: `partial_repayment` lookt die Zielphase ohne Status-Filter; eine geschlossene Phase wird wiederverwendet und bekommt einen neuen Entry, was D-11.1 umgeht.
 proposed_fix: Status-Guard in `genossi_service_impl/src/membership_adjust.rs:344-348` einbauen — Closed-Phase → ServiceError::Conflict (HTTP 409). Plus 1 Unit-Test (mockall) + 1 E2E-Test gegen Closed-Phase-Reuse.
-target_phase: 16.1 (gap closure)
+target_phase: 16 (Plan 16-05 gap-closure innerhalb Major-Phase)
+resolved_by: Plan 16-05 (Commits 87f97841 feat + 5b334cc9 unit-test + 4ec92404 e2e-test); SUMMARY: `16-05-SUMMARY.md`
