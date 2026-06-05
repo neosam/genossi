@@ -1,21 +1,23 @@
 ---
-status: partial
+status: failed
 phase: 16-service-rest-teil-rueckgabe-auto-anlegen-phase
 source: [16-VERIFICATION.md, 16-REVIEW.md]
 started: 2026-06-05T10:00:00Z
-updated: 2026-06-05T10:00:00Z
+updated: 2026-06-05T10:30:00Z
+decision: gap-closure (Option A — Status-Guard einbauen via Phase 16.1)
 ---
 
 ## Current Test
 
-[awaiting human testing]
+[user decision recorded: Option A — Gap-Closure via Phase 16.1]
 
 ## Tests
 
 ### 1. Closed-Phase-Status-Guard (CR-01 aus 16-REVIEW.md)
 
 expected: HTTP 409 Conflict — Phase ist geschlossen, kein neuer Entry erlaubt. Alternativ falls Preparation absichtlich erlaubt ist: nur Closed soll 409 geben.
-result: [pending]
+result: failed (user confirmed missing guard is a bug; routed to gap closure)
+debug_session: [pending — gap plan will define implementation]
 
 **Test-Setup (HTTP gegen lokalen Server):**
 
@@ -35,9 +37,17 @@ result: [pending]
 
 total: 1
 passed: 0
-issues: 0
-pending: 1
+issues: 1
+pending: 0
 skipped: 0
 blocked: 0
 
 ## Gaps
+
+### 1. CR-01: Closed-Phase-Reuse in partial_repayment
+
+status: failed
+source: 16-REVIEW.md CR-01 + 16-HUMAN-UAT.md Test 1
+description: `partial_repayment` lookt die Zielphase ohne Status-Filter; eine geschlossene Phase wird wiederverwendet und bekommt einen neuen Entry, was D-11.1 umgeht.
+proposed_fix: Status-Guard in `genossi_service_impl/src/membership_adjust.rs:344-348` einbauen — Closed-Phase → ServiceError::Conflict (HTTP 409). Plus 1 Unit-Test (mockall) + 1 E2E-Test gegen Closed-Phase-Reuse.
+target_phase: 16.1 (gap closure)

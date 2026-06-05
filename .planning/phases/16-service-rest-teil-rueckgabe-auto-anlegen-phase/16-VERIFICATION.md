@@ -1,7 +1,7 @@
 ---
 phase: 16-service-rest-teil-rueckgabe-auto-anlegen-phase
 verified: 2026-06-05T10:00:00Z
-status: human_needed
+status: gaps_found
 score: 9/9 must-haves verified
 overrides_applied: 0
 human_verification:
@@ -117,9 +117,19 @@ Keine — alle Phase-16-Must-Haves sind in dieser Phase adressiert.
 
 ### Gaps Summary
 
-Keine strukturellen Gaps bezüglich des Phase-16-Ziels. Alle 9 Truths sind VERIFIED, alle 8 E2E-Tests bestehen, alle 6 Requirement-IDs (PART-01..06) sind durch Code-Evidence gedeckt.
+**Post-User-Decision (2026-06-05, Option A):** CR-01 als Bug klassifiziert → Status auf `gaps_found` gesetzt; Gap-Closure via Phase 16.1.
 
-Der Status `human_needed` ergibt sich ausschließlich aus CR-01 der advisory Code-Review: Die `partial_repayment`-Implementierung wiederverwendet eine Zielphase unabhängig von deren Status (Preparation, Open, **Closed**). Ob das gewollt ist oder eine Status-Prüfung ergänzt werden muss, ist eine Domänen-Entscheidung.
+**Gap 1 — Closed-Phase-Status-Guard (CR-01):**
+
+- **What's missing:** Status-Filter beim Phase-Lookup in `partial_repayment` (Closed-Phase darf keinen neuen Entry bekommen).
+- **Source:** `genossi_service_impl/src/membership_adjust.rs:344-348`
+- **Target:** Phase 16.1 (gap_closure plan)
+- **Required artifacts:**
+  1. Guard vor Auto-Create-Block (Closed → ServiceError::Conflict 409)
+  2. Unit-Test `test_partial_repayment_rejects_closed_phase` (mockall)
+  3. E2E-Test `test_partial_repayment_closed_phase_returns_409` in `membership_adjust_e2e.rs`
+
+Keine weiteren strukturellen Gaps. Alle 9 Truths sind VERIFIED, alle 8 E2E-Tests bestehen, alle 6 Requirement-IDs (PART-01..06) sind durch Code-Evidence gedeckt.
 
 **Empfehlung:** Wenn Closed-Phasen durch `partial_repayment` nicht beschreibbar sein sollen, füge den folgenden Guard vor dem Auto-Create-Block in `membership_adjust.rs:350` ein:
 ```rust
