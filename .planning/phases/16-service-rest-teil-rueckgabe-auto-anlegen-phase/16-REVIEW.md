@@ -2,131 +2,93 @@
 phase: 16-service-rest-teil-rueckgabe-auto-anlegen-phase
 reviewed: 2026-06-05T00:00:00Z
 depth: standard
-files_reviewed: 8
+files_reviewed: 2
 files_reviewed_list:
-  - genossi_service/src/membership_adjust.rs
   - genossi_service_impl/src/membership_adjust.rs
-  - genossi_service_impl/src/repayment_phase.rs
-  - genossi_rest_types/src/lib.rs
-  - genossi_rest/src/membership_adjust.rs
-  - genossi_rest/src/member.rs
-  - genossi_bin/src/lib.rs
   - genossi_bin/tests/membership_adjust_e2e.rs
 findings:
-  blocker: 2
-  warning: 6
-  total: 8
+  blocker: 1
+  warning: 4
+  total: 5
 status: issues_found
+supersedes: 16-REVIEW.md (commits 62a9dbda, 87f97841)
+gap_closure_scope: plan 16-05 — CR-01 Closed-Phase-Status-Guard
+carried_forward:
+  - CR-02 (permission-check-ordering) — explicitly out-of-scope for this pass per workflow config
 ---
 
-# Phase 16: Code Review Report
+# Phase 16: Code Review Report (Replacement nach Gap-Closure 16-05)
 
 **Reviewed:** 2026-06-05T00:00:00Z
 **Depth:** standard
-**Files Reviewed:** 8
+**Files Reviewed:** 2 (gap-closure-scoped — full prior review siehe Commit 62a9dbda)
 **Status:** issues_found
+**Supersedes:** prior 16-REVIEW.md (commits 62a9dbda, 87f97841)
+**Focus:** Plan 16-05 (CR-01) — Closed-Phase-Status-Guard in `partial_repayment`
+**Carried-forward (still open):** CR-02 (permission-check-ordering) — siehe unten
 
 ## Summary
 
-Phase 16 fuegt `MembershipAdjustService::partial_repayment` mit Auto-Phase-Create,
-Sum-Check, Skip-Pattern in `open_repayment_phase` und REST-Handler
-`POST /api/members/{id}/partial-repayment` hinzu. Die Implementierung ist
-diszipliniert: Audit-Macros (`audited_create!`) werden konsequent fuer
-MemberAction, Member, RepaymentPhase und RepaymentEntry verwendet; PERM-Gate
-laeuft fuer alle drei Endpunkte; Single-Arc-per-DAO-Invariante bleibt
-intakt (genossi_bin/src/lib.rs:733/734 + 740-754); Optimistic-Locking-
-Pattern aus Phase 15 wurde nicht verletzt (Member.version wird beim
-audited_update! nicht angepasst, korrekt).
+Plan 16-05 schliesst CR-01 aus dem urspruenglichen 16-REVIEW (Closed-Phase-Wiederverwendung in `partial_repayment` ohne Status-Guard). Drei Commits liefern die Loesung:
+- `87f97841` Guard in `partial_repayment` (Service-Impl Z. 350-361)
+- `5b334cc9` Unit-Test `test_partial_repayment_rejects_closed_phase` (Z. 2097-2158)
+- `4ec92404` E2E-Test `test_partial_repayment_closed_phase_returns_409` (membership_adjust_e2e.rs Z. 893-961)
 
-**Zwei BLOCKER muessen vor Ship adressiert werden:**
+**Verifikations-Resultat fuer CR-01:**
 
-1. **Closed/Preparation-Phase wird ohne Status-Guard wiederverwendet** —
-   `partial_repayment` ruft `find()` ueber alle Phasen fuer das fiscal_year
-   ohne `status`-Filter (Service-Impl Z. 345-348). Eine bereits geschlossene
-   Phase fuer das Ziel-Jahr wird stillschweigend wiederverwendet — Entries
-   in Closed-Phase widersprechen D-11.1 und der Lifecycle-Invariante (D-05,
-   D-06 in repayment_phase.rs). Test-Lage haerteet die Annahme: Der Happy-Path-
-   Test akzeptiert sogar Preparation als gueltige Wiederverwendung, obwohl
-   `create_repayment_entry` (regulaerer Pfad) explizit Open verlangt.
+| Pruefkriterium | Ergebnis |
+|----------------|----------|
+| Guard sitzt VOR `audited_create!`-Calls (Audit-Chain-Hygiene) | OK — Z. 354-361 vor Z. 395 (Phase) und Z. 445 (Entry) |
+| Guard sitzt VOR der Auto-Create-Branch (existing-only) | OK — `if let Some(ref existing) = target_phase_existing` |
+| `Preparation` und `Open` passieren durch | OK — nur `== RepaymentPhaseStatus::Closed` rejected |
+| Conflict-Message enthaelt lowercase `'closed'` + `fiscal_year` | OK — `format!("Phase for fiscal_year {} is closed (D-11.1)", ...)` |
+| Unit-Test pinnt `expect_create().times(0)` auf beide DAOs | OK — Z. 2119, Z. 2124 |
+| Unit-Test pinnt `expect_find_by_member_and_phase().times(0)` (short-circuit BEFORE sum-check) | OK — Z. 2123 |
+| Unit-Test assertiert sowohl `'closed'` als auch `fiscal_year` im Body | OK — Z. 2143-2153 |
+| E2E-Sequenz create -> open -> close -> POST partial-repayment -> 409 mit `'closed'` Substring | OK — Z. 905-960 |
+| E2E assertiert auch `fiscal_year` im Body | OK — Z. 955-960 |
+| Auto-Create-Branch (target_phase_existing is None) bleibt unberuehrt | OK — Guard ist innerhalb `if let Some(ref existing) = target_phase_existing` |
+| Kein Orphan-Audit-Eintrag durch rejected Request | OK — Reject vor jedem `audited_create!`-Call; `MockTestAuditLogDao` ohne `expect_create_entries`-Mock im Unit-Test wuerde panic, aber `allow_audit_log()` ist generisch erlaubend; entscheidend ist `entity_dao.expect_create().times(0)`, der per Macro-Vertrag den Audit-Schreibvorgang an die Existenz eines DAO-Writes koppelt |
+| Tx-Lifecycle: kein `commit()` nach Reject (Rollback implizit via tx-Drop) | OK — `return Err(...)` vor `self.transaction_dao.commit(tx)` Z. 456 |
+| Rust-Idiome | `if let Some(ref existing) = target_phase_existing` + `existing.status == RepaymentPhaseStatus::Closed`: idiomatisch; nutzt borrow, kein clone |
 
-2. **Inkonsistente Tx-Lebensdauer in `partial_repayment`'s Member-Response** —
-   Nach `audited_create!(RepaymentEntry)` wird Member NICHT re-gelesen, sondern
-   der pre-Read entity wird zurueckgegeben. Das ist nach PART-06/D-16-19
-   inhaltlich korrekt (Member-Mutation findet hier nicht statt). Aber: Wenn
-   in der gleichen Tx z.B. ein async-Task / paralleler Worker (Audit-Snapshot)
-   den Member modifizieren wuerde, wird ein stale `version` zurueckgereicht.
-   Da Phase 16 aktuell keinen solchen Code-Pfad hat, ist die Konsequenz
-   begrenzt — Warning, nicht Blocker (siehe WR-04).
+CR-01 ist sauber geschlossen. Ein **neuer BLOCKER** ist beim Re-Review aufgetaucht (Audit-Process-String-Bug in der Auto-Create-Branch — siehe CR-01-new unten). Vier WARNINGS aus dem vorherigen Review bleiben gueltig (PII-Leak, unwrap() im REST-Layer, partial_repayment Re-Read-Konsistenz, fehlende Date-Bounds-E2E-Tests). CR-02 (Permission-Check-Ordering) ist per Auftrag explizit out-of-scope fuer diesen Pass und wird unten unveraendert mitgefuehrt.
 
-Weitere 6 Warnings konzentrieren sich auf inkonsistente Check-Reihenfolge,
-PII in Error-Messages, fehlendes Closed-Phase-Test-Szenario, undurchsichtige
-Audit-Process-String-Duplizierung, fehlende negative Tests im REST-Layer,
-und ein implizites unwrap() bei der Response-Builder-Konstruktion.
+## Blocker Issues
 
-## Critical Issues
+### CR-01-new: BLOCKER — Audit-Process-String fuer Auto-Created Phase wird als "repayment-phase.create" geschrieben, NICHT als `PARTIAL_REPAYMENT_PROCESS` — Audit-Spur fuer Plan-16-05-Gap unklar (re-review-Befund)
 
-### CR-01: BLOCKER — Closed/Preparation-Phase wird ohne Status-Guard wiederverwendet
+**Stance:** Tatsachenbefund — vorhandener Code-Pfad, kein hypothetischer.
 
-**File:** `genossi_service_impl/src/membership_adjust.rs:344-348`
+**File:** `genossi_service_impl/src/membership_adjust.rs:48`, `395-402`
 **Issue:**
 ```rust
-let all_phases = self.repayment_phase_dao.all(tx.clone()).await?;
-let target_phase_existing = all_phases
-    .iter()
-    .find(|p| p.fiscal_year == effective.fiscal_year)
-    .cloned();
+const REPAYMENT_PHASE_CREATE_PROCESS: &str = "repayment-phase.create";
+...
+crate::audited_create!(
+    self,
+    self.repayment_phase_dao,
+    &auto_phase,
+    REPAYMENT_PHASE_CREATE_PROCESS,  // <- gleicher Prozess wie regulaerer Create
+    &user_id,
+    tx
+);
 ```
-Es gibt keinen Status-Filter. Wenn fuer `effective.fiscal_year` bereits eine
-Phase im Status `Closed` oder `Preparation` existiert, wird sie blind
-wiederverwendet und ein neuer `RepaymentEntry` darin erstellt — selbst wenn
-sie geschlossen ist. Vergleich:
-- `RepaymentEntryServiceImpl::create_repayment_entry` (repayment_entry.rs:128)
-  rejected explizit `phase.status != Open` mit `Conflict` (D-11.1).
-- `RepaymentEntryServiceImpl::mark_paid_out` (repayment_entry.rs:575) erzwingt
-  ebenfalls `Open` als Defense-in-Depth.
 
-`partial_repayment` umgeht beide Invarianten. Auch wenn die Auto-Create-Branch
-mit `RepaymentPhaseStatus::Open` startet (Z. 370), ist die existing-Branch
-loop-hole. Praktische Konsequenz:
-- Geschlossene Phase wird "wiederbelebt" via neuer Entries → Audit-Spur lecht
-  Closed-Phase-Invarianten.
-- D-09 (kein Lifecycle-Reverse) wird auf Entry-Ebene umgangen.
-- Frontend zeigt einen erfolgreichen Entry in einer Closed-Phase, obwohl der
-  Vorstand erwartet, dass Closed-Phasen final sind.
+Re-Review-Befund: Dies ist KEIN durch Plan 16-05 eingefuehrter Bug — die String-Duplizierung war bereits im urspruenglichen 16-REVIEW als **WR-05** klassifiziert. Aber die Re-Read-Pruefung der Guard-Interaktion zeigt, dass das Risiko durch Plan 16-05 NICHT entschaerft wurde: Wenn ein Caller versehentlich eine Closed-Phase fuer `effective.fiscal_year` UND ein passendes vorhandenes Preparation-Phase-Setup hat (was per `find()` durch `fiscal_year`-Match exklusiv ist — also nicht parallel moeglich), ist die Auto-Create-Branch unerreichbar. Korrekt. Damit ist die Auto-Create-Branch nur in der "noch keine Phase fuer fiscal_year"-Situation aktiv — dort ist sie sauber.
 
-Der E2E-Test `test_partial_repayment_happy_path_h1` (membership_adjust_e2e.rs:543)
-demonstriert die Schwaeche: Er legt explizit eine `Preparation`-Phase an
-(`create_repayment_phase` defaultet zu Preparation, repayment_phase.rs:122)
-und erwartet Erfolg. Das ist inkonsistent mit D-11.1.
+**Re-Klassifizierung:** Dies bleibt **WARNING** (nicht BLOCKER) und wird unten als **WR-05** mitgefuehrt. Der Guard selbst ist korrekt; die String-Drift-Sorge ist orthogonal.
 
-**Fix:**
-```rust
-let target_phase_existing = all_phases
-    .iter()
-    .find(|p| p.fiscal_year == effective.fiscal_year)
-    .cloned();
+→ Es gibt **keinen** neuen Blocker durch Plan 16-05. CR-01 ist geschlossen. Status-Klassifikation wird unten zu `issues_found` mit 1 BLOCKER (CR-02 carried-forward) heruntergesetzt.
 
-if let Some(ref phase) = target_phase_existing {
-    if phase.status != RepaymentPhaseStatus::Open
-        && phase.status != RepaymentPhaseStatus::Preparation
-    {
-        return Err(ServiceError::Conflict(Arc::from(format!(
-            "Cannot create partial repayment: phase for fiscal_year {} is '{}' (D-11.1)",
-            effective.fiscal_year, phase.status.as_str()
-        ))));
-    }
-}
-```
-Falls bewusst Preparation erlaubt sein soll (Vorbereitungs-Drafts), den
-Test-Pfad explizit dokumentieren. Closed MUSS rejected werden. Ergaenzend
-neuer Unit-Test `test_partial_repayment_rejects_closed_phase` + neuer
-E2E-Test der Phase erst `open` + `close` macht und dann partial_repayment
-mit 409-Erwartung.
+## Critical Issues (carried forward)
 
-### CR-02: BLOCKER — Permission-Check laeuft NACH `current_user_id` und kann Side-Channel zur User-Existence-Pruefung bilden
+### CR-02: BLOCKER (carried forward — out of scope per workflow config) — Permission-Check laeuft NACH `current_user_id` und kann Side-Channel zur User-Existence-Pruefung bilden
 
-**File:** `genossi_service_impl/src/membership_adjust.rs:295-304` (analog Z. 87-96 + Z. 177-186)
-**Issue:**
+**Status:** EXPLICITLY OUT OF SCOPE fuer diesen Review-Pass (per `<config>` "CR-02 remains open and is OUT-OF-SCOPE"). Carry-forward zur Sicherstellung, dass der nachfolgende Workflow den Befund nicht verliert.
+
+**File:** `genossi_service_impl/src/membership_adjust.rs:295-304` (auch Z. 87-96 + Z. 177-186)
+**Issue (verbatim aus prior REVIEW):**
 ```rust
 let user_id = self
     .permission_service
@@ -138,102 +100,36 @@ self.permission_service
     .check_permission(ADMIN_PRIVILEGE, context)  // <- erst danach
     .await?;
 ```
-`current_user_id()` wird VOR `check_permission()` aufgerufen. Wenn
-`current_user_id()` z.B. fuer ungueltige/abgelaufene Sessions einen Fehler
-ueber `?` durchpropagiert (z.B. `SessionExpired`, `AuthenticationFailed`,
-siehe ServiceError-Varianten in `genossi_service/src/lib.rs`), wird die
-Permission-Pruefung nie erreicht — der Caller weiss bereits, dass die
-Session "lebt aber unzureichend ist" vs. "tot". Schlimmer: wenn der
-`permission_service.current_user_id()` einen Datenbank-Fehler liefert
-(`DataAccess`), wird `?` `InternalError` durchgereicht, BEVOR der
-Permission-Funnel die Anfrage rejectet.
+`current_user_id()` wird VOR `check_permission()` aufgerufen. Wenn `current_user_id()` z.B. fuer ungueltige/abgelaufene Sessions einen Fehler ueber `?` durchpropagiert (z.B. `SessionExpired`, `AuthenticationFailed`), wird die Permission-Pruefung nie erreicht — Side-Channel zur Session-Status-Pruefung. Schwerer: bei `Ok(None)` wird `"SYSTEM"` als Actor in den Audit-Log geschrieben, BEVOR `check_permission()` bestaetigt, dass ein Login vorliegt. Wenn das Auth-System spaeter einen Default-Admin-Mock einbaut, entstuende ein Audit-Eintrag unter `"SYSTEM"` ohne nachvollziehbaren Akteur.
 
-Konsequenz nicht "Authentication-Bypass" (Permission wird trotzdem
-gechecked), aber:
-- Side-Channel: Antwort-Time-Differenz zwischen "session existiert nicht"
-  und "session existiert, kein admin" verraet Session-Status an
-  unprivilegierte Caller.
-- Audit-Log-User-Attribution: `user_id` wird fuer den `audited_create!`-
-  Prozess-String genutzt. Wenn `current_user_id()` `Ok(None)` retourniert
-  (kein Login), wird `"SYSTEM"` als Actor in den Audit-Log geschrieben —
-  und das BEVOR `check_permission()` bestaetigt, dass ein Login vorliegt.
-  Falls `check_permission(ADMIN_PRIVILEGE, AnonymousContext)` durch eine
-  spaetere Refactoring versehentlich `Ok(())` retourniert (z.B. wenn das
-  Auth-System einen Default-Admin-Mock einbaut), entstuende ein
-  Audit-Eintrag unter "SYSTEM" ohne nachvollziehbaren Akteur.
+**Re-Verifikation gegen aktuellen Code:** Status unveraendert. Plan 16-05 hat den Code-Pfad nicht angefasst. Befund bleibt.
 
-**Fix:**
+**Fix (siehe prior REVIEW):**
 ```rust
-// 1) Permission-Funnel ZUERST (bricht ab bei Unauthorized/PermissionDenied).
+// 1) Permission-Funnel ZUERST.
 self.permission_service
     .check_permission(ADMIN_PRIVILEGE, context.clone())
     .await?;
 
-// 2) Erst danach user_id auflösen für Audit-Attribution.
+// 2) Erst danach user_id aufloesen.
 let user_id = self
     .permission_service
     .current_user_id(context)
     .await?
-    .ok_or(ServiceError::Unauthorized)?;  // KEIN unwrap_or "SYSTEM"
+    .ok_or(ServiceError::Unauthorized)?;  // KEIN "SYSTEM"-Fallback
 ```
-Identisches Refactor in `cancel_membership` (Z. 87-96) und `increase_shares`
-(Z. 177-186). Hinweis: Das gleiche Anti-Pattern existiert in
-`repayment_phase.rs` (Z. 101-108 in allen 5 Methoden) — denselben Fix
-extrahieren in `genossi_service_impl/src/macros.rs::gen_auth_admin!`-
-Helper oder Free-Function.
-
-NOTE: `current_user_id()` retourniert `Result<Option<String>, ServiceError>`.
-Die `None`-Branch wird per `"SYSTEM"`-Fallback maskiert. Dieses Verhalten
-wurde anscheinend von Phase 15 uebernommen und Phase 16 hat das Muster
-weiter repliziert. Das ist ein Audit-Forensik-Hole: jeder unautorisierte
-Anonym-Try, der den check_permission()-Gate passieren wuerde (z.B.
-bei einem Auth-Bypass), wuerde als `"SYSTEM"` im Audit auftauchen — nicht
-als "anonym" oder "unauthenticated". `"SYSTEM"` ist normalerweise fuer
-Worker / Backup-Jobs reserviert und sollte nicht von User-Requests
-geschrieben werden.
+Identisches Refactoring auch in `cancel_membership` und `increase_shares`. Dasselbe Anti-Pattern existiert auch in `repayment_phase.rs` (alle 5 Methoden) — extrahier-faehig in `gen_auth_admin!`-Helper.
 
 ## Warnings
 
-### WR-01: Inkonsistente Check-Reihenfolge zwischen partial_repayment und cancel_membership
+### WR-01: Inkonsistente Check-Reihenfolge zwischen partial_repayment und cancel_membership (carried forward, unveraendert nach 16-05)
 
 **File:** `genossi_service_impl/src/membership_adjust.rs:283-335` vs. `99-115`
-**Issue:** In `cancel_membership` ist die Reihenfolge:
-1. PERM
-2. validate_willensbekundung_date (Date-Bounds, vor DB-Roundtrip)
-3. member_dao.find_by_id
-4. exit_date-Check
+**Issue:** `cancel_membership` validiert `willensbekundung_date` VOR dem Member-Load (Z. 99-103); `partial_repayment` macht den Member-Load + exit_date-Check ZUERST und validiert das Datum erst nach `validate_partial_repayment_shares` (Z. 330-335). Konsequenz: Bad-Date-Spam triggert pro Anfrage eine SELECT. Plan 16-05 hat dieses Pattern nicht angefasst — Befund bleibt gueltig.
 
-In `partial_repayment`:
-1. PERM
-2. member_dao.find_by_id
-3. exit_date-Check
-4. validate_partial_repayment_shares
-5. validate_willensbekundung_date
+**Fix:** Cheap Pure-Function (`validate_willensbekundung_date`) vor `member_dao.find_by_id` ziehen. Sum-Check + shares-Range-Check brauchen weiterhin `current_shares` (also nach Member-Load) — nur die Date-Validierung ist vorziehbar.
 
-Side-Effect: Bei einem ungueltigen `willensbekundung_date` (z.B. 1999-01-01)
-laesst `partial_repayment` unnoetig einen DB-Roundtrip auf `member_dao.find_by_id`
-+ Conflict-Check durchlaufen, bevor die Validation 400 wirft. Bei
-`cancel_membership` ist die Reihenfolge defensiver (cheap Pure-Function
-zuerst). Konsequenz: Phase 16 ist marginal weniger DOS-resistent als Phase 15
-fuer Bad-Date-Spam (jede Anfrage triggert eine SELECT).
-
-**Fix:** Vor `member_dao.find_by_id` die `validate_willensbekundung_date` +
-`validate_partial_repayment_shares(shares, ?)` aufrufen. `current_shares`
-ist erst nach Member-Load bekannt — also nur das Date-Bounds-Check
-vorziehen:
-```rust
-// Step 4: Pre-DB Validierung (cheap pure functions zuerst).
-let today = time::OffsetDateTime::now_utc().date();
-let validation_errors = validate_willensbekundung_date(willensbekundung_date, today);
-if !validation_errors.is_empty() {
-    return Err(ServiceError::ValidationError(validation_errors));
-}
-
-// Step 5: Member existence (DB roundtrip danach).
-let member_entity = self.member_dao.find_by_id(...).await?....;
-```
-
-### WR-02: PII-Leak in `Conflict`-Error-Message via `{:?}` auf `Option<Date>`
+### WR-02: PII-Leak in `Conflict`-Error-Message via `{:?}` auf `Option<Date>` (carried forward, unveraendert nach 16-05)
 
 **File:** `genossi_service_impl/src/membership_adjust.rs:319-322`
 **Issue:**
@@ -243,12 +139,9 @@ return Err(ServiceError::Conflict(Arc::from(format!(
     member_entity.exit_date
 ))));
 ```
-`exit_date` ist Mitgliederdaten. Die Conflict-Message wird via `From<ServiceError>
-for RestError` (genossi_rest/src/lib.rs:115) in den HTTP-409-Body geschrieben.
-Damit lecht die Bestaetigung "ja, dieses Mitglied existiert UND ist
-gekuendigt UND ist am DATUM ausgetreten" an jeden, der die Member-UUID
-kennt. Vergleich `cancel_membership` (Z. 114): `"member already cancelled"` —
-keine PII-Exposition.
+`exit_date` ist Mitgliederdaten und wird via `From<ServiceError> for RestError` in den HTTP-409-Body geschrieben. Vergleich `cancel_membership` (Z. 114): `"member already cancelled"` — keine PII.
+
+**Hinweis fuer Konsistenz:** Die neue Closed-Phase-Conflict-Message (Z. 357-359, `"Phase for fiscal_year {} is closed (D-11.1)"`) ist **PII-frei** — `fiscal_year` ist eine Jahreszahl (kein Personendatum). Pattern hier sauber.
 
 **Fix:**
 ```rust
@@ -256,113 +149,27 @@ return Err(ServiceError::Conflict(Arc::from(
     "Cannot start partial repayment for cancelled member"
 )));
 ```
-Der Caller braucht den `exit_date` nicht — die Frontend-UI weiss ihn aus
-GET /api/members/{id} bereits (oder kann ihn dort holen, wenn berechtigt).
 
-### WR-03: `unwrap()` auf `Response::builder()` koennte panicken — kein Crash-Schutz
+### WR-03: `unwrap()` auf `Response::builder()` koennte panicken — kein Crash-Schutz (carried forward, REST-Layer NICHT in dieser Review-Scope)
 
-**File:** `genossi_rest/src/membership_adjust.rs:73-77, 119-123, 176-180`
-**Issue:**
-```rust
-Ok(Response::builder()
-    .status(200)
-    .header("Content-Type", "application/json")
-    .body(Body::new(serde_json::to_string(&response)?))
-    .unwrap())
-```
-`Response::builder()` kann `Err` retournieren, wenn z.B. ein ungueltiger
-Header-Name angegeben wird. `"Content-Type"` + Status 200 sind harmless,
-also faktisch infallible — aber das gleiche `.unwrap()`-Pattern aus dem
-Repo (s. genossi_rest/src/member.rs:109-113, 200-203, 240-243) hat
-mindestens einmal eine fragile Wiederverwendung produziert. Konsistenz-
-Pattern ist OK, aber wenn jemand spaeter einen dynamischen Header-Wert
-einbaut (z.B. `Content-Disposition: filename="{user_input}"`), kracht
-es im Production. Niedrige Prioritaet, aber ein einfaches `.map_err(|_|
-RestError::InternalError("...".to_string()))?` waere defensiver.
+**File:** `genossi_rest/src/membership_adjust.rs:73-77, 119-123, 176-180` (nicht im Review-Scope, aber carry-forward zur Vollstaendigkeit)
+**Issue:** `.unwrap()` auf `Response::builder()`. Hier mit statischen Headern infallible, aber Pattern-Drift-Risiko fuer Zukunft. Niedrige Prio.
 
-**Fix:** Im Rest-Layer eine kleine Helper-Function ergaenzen:
-```rust
-fn json_response<T: serde::Serialize>(status: u16, body: &T) -> Result<Response, RestError> {
-    Response::builder()
-        .status(status)
-        .header("Content-Type", "application/json")
-        .body(Body::new(serde_json::to_string(body)?))
-        .map_err(|e| RestError::InternalError(format!("response builder: {e}")))
-}
-```
-Migration ist out-of-scope fuer diesen Review, aber Phase-16-Code sollte
-keine neuen `unwrap()`s einfuehren. Konsistenz mit Phase 15 — also nicht
-BLOCKER.
+**Fix:** Helper-Function `fn json_response<T: Serialize>(status: u16, body: &T) -> Result<Response, RestError>`.
 
-### WR-04: `partial_repayment` retourniert pre-Read Member ohne re-read nach Tx-Commit
+### WR-04: `partial_repayment` retourniert pre-Read Member ohne re-read nach Tx-Commit (carried forward, unveraendert nach 16-05)
 
-**File:** `genossi_service_impl/src/membership_adjust.rs:445-454`
-**Issue:**
-```rust
-self.transaction_dao.commit(tx).await?;
+**File:** `genossi_service_impl/src/membership_adjust.rs:456-466`
+**Issue:** PART-06/D-16-19 sagt explizit, dass Member nicht mutiert wird — daher korrekt. Aber Pattern-Inkonsistenz zu `repayment_phase.rs` (re-read nach `audited_*!`-Macros).
 
-// Step 14: Return tuple. Member wird unveraendert zurueckgegeben (keine Mutation).
-let member_dto = Member::from(&member_entity);  // <- pre-Read
-let entry_dto = RepaymentEntry::from(&new_entry);
-```
-PART-06/D-16-19 sagt explizit, dass `partial_repayment` Member NICHT
-mutiert. Korrekt im Code. Aber: in CR-01-Fix in `repayment_phase.rs`
-wird konsequent `find_by_id`-Re-Read nach `audited_*!`-Macros gemacht
-(Z. 152, 252, 437, 559), um die DAO-generierte neue `version` zu fangen.
-Hier wird das nicht gemacht — gerechtfertigt durch "keine Mutation".
-ABER: Falls in Zukunft `recalc_dates`/`recalc_migrated` als Hook
-nachgeladen werden (z.B. um `action_count` zu inkrementieren), wird
-der Member-DTO stale. Aktuell kein Bug, aber Bug-Fluchtweg ist
-abgeschnitten. Defensiv waere:
+**Fix:** Niedrige Prio. Wenn die Konvention "Re-Read nach Write" projektweit etabliert ist, sollte sie hier konsistent angewendet werden, auch wenn die Member-Row nicht direkt geschrieben wurde.
 
-```rust
-let refreshed = self
-    .member_dao
-    .find_by_id(member_id, tx.clone())  // BEFORE commit
-    .await?
-    .ok_or(ServiceError::InternalError(Arc::from("member disappeared mid-tx")))?;
-self.transaction_dao.commit(tx).await?;
-Ok((Member::from(&refreshed), entry_dto, phase_dto))
-```
-
-**Fix:** Niedrige Prioritaet — Code ist heute korrekt. Wenn die Konvention
-"Re-Read nach Write" projektweit etabliert ist (siehe repayment_phase.rs),
-sollte sie hier konsistent angewendet werden, auch wenn die Member-Row
-nicht direkt geschrieben wurde.
-
-### WR-05: Audit-Process-String-Duplizierung statt Cross-Modul-Konstante
+### WR-05: Audit-Process-String-Duplizierung statt Cross-Modul-Konstante (carried forward, Plan 16-05 hat das nicht beruehrt)
 
 **File:** `genossi_service_impl/src/membership_adjust.rs:40-48` und `repayment_phase.rs:45`
-**Issue:**
-```rust
-// membership_adjust.rs
-const REPAYMENT_PHASE_CREATE_PROCESS: &str = "repayment-phase.create";
+**Issue:** `const REPAYMENT_PHASE_CREATE_PROCESS: &str = "repayment-phase.create"` ist als Literal in beiden Modulen dupliziert. String-Drift-Risiko: bei Aenderung in einem Modul nicht synchron. Test-Coverage `test_partial_repayment_auto_create_*_share_value` (Z. 1893, Z. 1955) und `test_partial_repayment_auto_create_fallback_default_share_value` (Z. 1955) pinnen den String, aber pro Modul separat — kein Cross-Pinning.
 
-// repayment_phase.rs
-const REPAYMENT_PHASE_PROCESS_CREATE: &str = "repayment-phase.create";
-```
-Zwei identische String-Literale in zwei Modulen. Der inline-Kommentar
-(Z. 41-47) erklaert die Absicht: "forensisch nicht von einer regulaeren
-RepaymentPhaseService-Operation zu unterscheiden". Das ist OK als
-Design-Decision, aber String-Drift-Risiko ist real: wenn Phase 17
-oder ein Follow-up den String in `repayment_phase.rs` aendert (z.B. zu
-`repayment-phase.create.v2`), wird die membership_adjust-Copie nicht
-mitgezogen und der Audit-Trail spaltet sich auf zwei Process-Strings.
-Test-Coverage faengt das nicht — Z. 1880 und Z. 1942 in den service-
-Tests pinnen den String hart an `"repayment-phase.create"`, aber wenn
-der `RepaymentPhaseService`-Konstante geaendert wird, schlaegt nur die
-RepaymentPhase-Test-Suite fehl, nicht die membership_adjust-Suite.
-
-**Fix:** `pub(crate)` Sichtbarkeit fuer `REPAYMENT_PHASE_PROCESS_CREATE`
-in `repayment_phase.rs` (Z. 45) und Cross-Modul-Import in
-`membership_adjust.rs`:
-```rust
-use crate::repayment_phase::REPAYMENT_PHASE_PROCESS_CREATE;
-```
-Der Kommentar in Z. 41-47 sagt "Cross-Modul-Import absichtlich vermieden
-(Modul-Boundary sauber halten)" — das ist ein legitimer Standpunkt, aber
-der Trade-off ist String-Drift-Risiko vs. Modul-Kupplung. Mindestens
-einen Compiletime-Sync-Test einfuehren:
+**Fix:** Sync-Test ergaenzen:
 ```rust
 #[test]
 fn test_audit_process_string_sync() {
@@ -373,58 +180,95 @@ fn test_audit_process_string_sync() {
 }
 ```
 
-### WR-06: E2E-Test-Coverage-Luecke: kein Test fuer Closed-Phase-Edge-Case + kein Test fuer Date-Bounds bei partial_repayment
+## Gap-Closure-Verifikation (Plan 16-05)
 
-**File:** `genossi_bin/tests/membership_adjust_e2e.rs:464-867`
-**Issue:** Acht E2E-Tests fuer `partial_repayment` decken Happy-Path,
-Sum-Check, Auto-Fill-Skip, Full-Return-Block, Cancelled-Member-409,
-Audit-Chain-Verify und Default-Share-Value ab. Fehlt:
-1. **Closed-Phase-Reuse-Test** — Es gibt keinen Test der Phase erst
-   `open` + `close` macht und dann `partial_repayment` aufruft. Genau
-   dieser Pfad triggert CR-01.
-2. **Date-Bounds-Test fuer partial_repayment** — `cancel_membership`
-   hat zwei dedizierte Tests (Vorjahr + uebernaechstes Jahr,
-   Z. 442-461, Z. 869-887). `partial_repayment` ruft `validate_willensbekundung_date`
-   (selbe Funktion!) aber kein E2E-Test pinnt das.
-3. **shares > current_shares (nicht == current_shares)** — Z. 717
-   testet `shares == current_shares` (Voll-Rueckgabe-Block), aber nicht
-   `shares > current_shares` (Out-of-Bound). Service-Unit-Test
-   `validate_partial_repayment_shares_above_current_rejected` (Z. 706-711)
-   deckt es ab, aber E2E nicht. Lower-Confidence Fix-Test-Diversity.
+### Code (Service-Layer, Z. 350-361)
 
-**Fix:** Drei neue E2E-Tests ergaenzen, ggf. als Issue/Follow-up:
+```rust
+// Phase 16.05 / CR-01 — D-11.1-Status-Guard: Eine geschlossene Phase darf
+// keinen neuen Entry aufnehmen. Preparation und Open passieren (Preparation =
+// Phase-14-Pre-Workflow-Reuse, Open = Standardfall, Auto-Create unten erzeugt
+// ohnehin Open). Closed -> HTTP 409 Conflict.
+if let Some(ref existing) = target_phase_existing {
+    if existing.status == RepaymentPhaseStatus::Closed {
+        return Err(ServiceError::Conflict(Arc::from(format!(
+            "Phase for fiscal_year {} is closed (D-11.1)",
+            effective.fiscal_year
+        ))));
+    }
+}
+```
+
+**Bewertung:** Minimal, idiomatisch, korrekt positioniert. Drei wichtige Eigenschaften:
+
+1. **Borrow-Pattern (`if let Some(ref existing)`):** Verhindert Move; `target_phase_existing` wird unten in der `match`-Arms weiterverwendet (Z. 366-406). Ohne `ref` waere ein zweiter Clone noetig.
+
+2. **Position zwischen DAO-Read und beiden `audited_create!`-Calls:** Reject vor `repayment_phase_dao.create` (Z. 395) UND vor `repayment_entry_dao.create` (Z. 445). Damit kein Orphan-Audit-Row und kein Partial-Write.
+
+3. **Status-Match nur fuer `Closed`:** `Preparation` und `Open` werden bewusst durchgelassen (siehe Kommentar Z. 351-353). Das ist konsistent mit dem Auto-Create-Default in Z. 383 (`status: RepaymentPhaseStatus::Open`) und dem Pre-Workflow-Reuse von Preparation.
+
+### Unit-Test (Z. 2097-2158)
+
 ```rust
 #[tokio::test]
 async fn test_partial_repayment_rejects_closed_phase() {
-    let server = setup().await;
-    let client = reqwest::Client::new();
-    let m = create_active_member(&client, &server, 1108, "Closed").await;
-    let m = put_member_current_shares(&client, &server, &m, 3).await;
-    let h1_date = today_march_15();
-    let target_fy = h1_date.year();
-    let phase = create_repayment_phase(&client, &server, target_fy, 10000).await;
-    let phase_id = phase["id"].as_str().unwrap();
-
-    // open + close
-    client.post(server.url(&format!("/api/repayment-phase/{}/open", phase_id))).send().await.unwrap();
-    client.post(server.url(&format!("/api/repayment-phase/{}/close", phase_id))).send().await.unwrap();
-
-    // partial_repayment must reject Closed phase (CR-01)
-    let resp = client.post(server.url(&format!("/api/members/{}/partial-repayment", m.id.unwrap())))
-        .json(&partial_repayment_body(&h1_date.to_string(), 1))
-        .send().await.unwrap();
-    assert_eq!(resp.status(), StatusCode::CONFLICT);  // ggf. 400 je nach Fix
+    let mut closed_phase = sample_repayment_phase(target_fy, 10000);
+    closed_phase.status = RepaymentPhaseStatus::Closed;
+    ...
+    repayment_phase_dao.expect_create().times(0);            // Z. 2119
+    repayment_entry_dao.expect_find_by_member_and_phase().times(0); // Z. 2123
+    repayment_entry_dao.expect_create().times(0);            // Z. 2124
+    ...
+    match result {
+        Err(ServiceError::Conflict(msg)) => {
+            assert!(text.contains("closed"), ...);
+            assert!(text.contains(&target_fy.to_string()), ...);
+        }
+        ...
+    }
 }
-
-#[tokio::test]
-async fn test_partial_repayment_date_in_previous_year_rejected() { /* analog cancel */ }
-
-#[tokio::test]
-async fn test_partial_repayment_shares_above_current_rejected() { /* shares=5, current=3 */ }
 ```
+
+**Bewertung:** Korrekt. Der Test verifiziert:
+- `expect_create().times(0)` auf beide DAOs (entry + phase) — keine Audit-Spur
+- `expect_find_by_member_and_phase().times(0)` — Guard short-circuited VOR Sum-Check
+- Conflict-Body enthaelt `'closed'` UND fiscal_year
+
+### E2E-Test (membership_adjust_e2e.rs Z. 893-961)
+
+Die Sequenz **create -> open -> close -> POST /partial-repayment** ist sauber implementiert:
+- Z. 905: `create_repayment_phase(&client, &server, target_fy, 10000)` (Preparation)
+- Z. 909-919: POST /api/repayment-phase/{id}/open
+- Z. 922-932: POST /api/repayment-phase/{id}/close
+- Z. 935-940: POST /api/members/{id}/partial-repayment mit H1-Datum
+- Z. 942-948: `assert_eq!(status, StatusCode::CONFLICT)`
+- Z. 950-954: `assert!(body_text.contains("closed"))`
+- Z. 955-960: `assert!(body_text.contains(&target_fy.to_string()))`
+
+Damit ist der HTTP-409-Mapping-Pfad `ServiceError::Conflict -> RestError::Conflict -> 409` (per `genossi_rest/src/lib.rs:115`) end-to-end nachgewiesen.
+
+### Zusammenfassung Gap-Closure
+
+CR-01 ist **vollstaendig geschlossen**. Code, Unit-Test und E2E-Test decken den Pfad konsistent ab. Keine neuen Bugs durch die Aenderung eingefuehrt.
+
+---
+
+## Carry-Forward-Klassifizierung — Status
+
+| Befund (prior REVIEW) | Status nach 16-05 |
+|------|---|
+| CR-01 (closed-phase-status-guard) | **CLOSED** durch Plan 16-05 |
+| CR-02 (permission-check-ordering) | **STILL OPEN** (out-of-scope dieser Pass) |
+| WR-01 (check-reihenfolge) | unveraendert, carry-forward |
+| WR-02 (PII-Leak `exit_date={:?}`) | unveraendert, carry-forward |
+| WR-03 (`unwrap()` REST-Layer) | unveraendert, carry-forward (REST nicht im Scope) |
+| WR-04 (member-re-read-konsistenz) | unveraendert, carry-forward |
+| WR-05 (audit-process-string-duplizierung) | unveraendert, carry-forward |
+| WR-06 (E2E-Coverage-Luecke) | **Teil-geschlossen:** Closed-Phase-E2E-Test ist jetzt vorhanden (Z. 893-961). Date-Bounds-E2E-Test fuer `partial_repayment` und Out-of-Bound-shares-E2E-Test bleiben ausstehend. |
 
 ---
 
 _Reviewed: 2026-06-05T00:00:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
 _Depth: standard_
+_Scope: Plan 16-05 gap-closure (CR-01) + carry-forward CR-02_
