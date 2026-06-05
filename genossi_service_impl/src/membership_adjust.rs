@@ -28,6 +28,17 @@ const CANCEL_PROCESS: &str = "member-adjust.cancel";
 /// Audit-Process-String fuer increase_shares (D-15-02).
 const UPGRADE_PROCESS: &str = "member-adjust.upgrade";
 
+/// Audit-Process-String fuer partial_repayment (D-15-02 / D-16-13).
+#[allow(dead_code)] // wired into RepaymentEntry-audited_create! in Plan 16-02
+const PARTIAL_REPAYMENT_PROCESS: &str = "member-adjust.partial-repayment";
+
+/// Fallback fuer Auto-Anlegen-Phase wenn keine Vorgaenger-RepaymentPhase existiert
+/// (D-16-06/07). Entspricht 100 EUR pro Anteil — Standardwert in Genossi-
+/// Installationen. Vorstand sieht die neue Phase im Audit-Log und kann den Wert
+/// nachtraeglich via existing v1.1 RepaymentPhase-Update-Endpoint korrigieren.
+#[allow(dead_code)] // wired into ensure_repayment_phase fallback in Plan 16-02
+pub(crate) const DEFAULT_SHARE_VALUE_CENT: i64 = 10000;
+
 gen_service_impl! {
     struct MembershipAdjustServiceImpl: MembershipAdjustService = MembershipAdjustServiceDeps {
         MemberActionDao: MemberActionDao<Transaction = Self::Transaction> = member_action_dao,
@@ -320,6 +331,46 @@ pub(crate) fn validate_willensbekundung_date(
             )),
         }]
     }
+}
+
+/// Pure-Function range-validator fuer Teil-Rueckgabe (D-16-11 + D-16-12).
+///
+/// Wirft `ValidationError` bei:
+/// - `shares <= 0` (mindestens 1 Anteil)
+/// - `shares >= current_shares` (Voll-Rueckgabe-Block; Verweis auf cancel_membership)
+///
+/// Returns `Ok(())` fuer `1 <= shares < current_shares`. Sum-Check gegen offene
+/// Repayment-Entries der gleichen Phase erfolgt SPAETER im Service (D-16-08),
+/// nachdem die Ziel-Phase aufgeloest ist — diese Funktion ist DAO-frei.
+#[allow(dead_code)] // wired into partial_repayment service flow in Plan 16-02
+pub(crate) fn validate_partial_repayment_shares(
+    shares: i32,
+    current_shares: i32,
+) -> Result<(), Vec<ValidationFailureItem>> {
+    if shares <= 0 {
+        return Err(vec![ValidationFailureItem {
+            field: Arc::from("shares"),
+            message: Arc::from("shares must be at least 1"),
+        }]);
+    }
+    if shares == current_shares {
+        return Err(vec![ValidationFailureItem {
+            field: Arc::from("shares"),
+            message: Arc::from(
+                "shares must be strictly less than current_shares — use cancel_membership for full return",
+            ),
+        }]);
+    }
+    if shares > current_shares {
+        return Err(vec![ValidationFailureItem {
+            field: Arc::from("shares"),
+            message: Arc::from(format!(
+                "shares ({}) exceeds current_shares ({})",
+                shares, current_shares
+            )),
+        }]);
+    }
+    Ok(())
 }
 
 #[cfg(test)]
