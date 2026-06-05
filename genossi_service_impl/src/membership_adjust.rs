@@ -7,6 +7,12 @@ use async_trait::async_trait;
 use genossi_dao::audit_log::AuditLogDao;
 use genossi_dao::member::MemberDao;
 use genossi_dao::member_action::{ActionType, MemberActionDao, MemberActionEntity};
+use genossi_dao::repayment_entry::{
+    RepaymentEntryDao, RepaymentEntryEntity, RepaymentEntryStatus,
+};
+use genossi_dao::repayment_phase::{
+    RepaymentPhaseDao, RepaymentPhaseEntity, RepaymentPhaseStatus,
+};
 use genossi_dao::TransactionDao;
 use genossi_service::member::Member;
 use genossi_service::member_action::MemberAction;
@@ -29,14 +35,22 @@ const CANCEL_PROCESS: &str = "member-adjust.cancel";
 const UPGRADE_PROCESS: &str = "member-adjust.upgrade";
 
 /// Audit-Process-String fuer partial_repayment (D-15-02 / D-16-13).
-#[allow(dead_code)] // wired into RepaymentEntry-audited_create! in Plan 16-02
 const PARTIAL_REPAYMENT_PROCESS: &str = "member-adjust.partial-repayment";
+
+/// Audit-Process-String fuer den inline auto-erzeugten RepaymentPhase-Create
+/// in `partial_repayment` (D-16-02 + Resolved Open Question #4).
+///
+/// Identisch mit `genossi_service_impl::repayment_phase::REPAYMENT_PHASE_PROCESS_CREATE`
+/// — die Konstante wird hier lokal dupliziert, damit der Audit-Log forensisch nicht
+/// von einer regulaeren `RepaymentPhaseService::create_repayment_phase`-Operation zu
+/// unterscheiden ist. Cross-Modul-Import absichtlich vermieden (Modul-Boundary
+/// sauber halten).
+const REPAYMENT_PHASE_CREATE_PROCESS: &str = "repayment-phase.create";
 
 /// Fallback fuer Auto-Anlegen-Phase wenn keine Vorgaenger-RepaymentPhase existiert
 /// (D-16-06/07). Entspricht 100 EUR pro Anteil — Standardwert in Genossi-
 /// Installationen. Vorstand sieht die neue Phase im Audit-Log und kann den Wert
 /// nachtraeglich via existing v1.1 RepaymentPhase-Update-Endpoint korrigieren.
-#[allow(dead_code)] // wired into ensure_repayment_phase fallback in Plan 16-02
 pub(crate) const DEFAULT_SHARE_VALUE_CENT: i64 = 10000;
 
 gen_service_impl! {
@@ -47,6 +61,12 @@ gen_service_impl! {
         PermissionService: PermissionService<Context = Self::Context> = permission_service,
         UuidService: UuidService = uuid_service,
         TransactionDao: TransactionDao<Transaction = Self::Transaction> = transaction_dao,
+        // Phase 16 (D-16-02 Inlining-Strategy / D-16-08 Sum-Check): zwei neue DAO-Deps.
+        // RepaymentPhaseDao: inlined create + dump_all-Lookup fuer Auto-Anlegen (D-16-01/05/06).
+        // RepaymentEntryDao: find_by_member_and_phase fuer Sum-Check (D-16-08) +
+        //                    audited_create!(RepaymentEntry) (PART-03).
+        RepaymentPhaseDao: RepaymentPhaseDao<Transaction = Self::Transaction> = repayment_phase_dao,
+        RepaymentEntryDao: RepaymentEntryDao<Transaction = Self::Transaction> = repayment_entry_dao,
     }
 }
 
@@ -342,7 +362,6 @@ pub(crate) fn validate_willensbekundung_date(
 /// Returns `Ok(())` fuer `1 <= shares < current_shares`. Sum-Check gegen offene
 /// Repayment-Entries der gleichen Phase erfolgt SPAETER im Service (D-16-08),
 /// nachdem die Ziel-Phase aufgeloest ist — diese Funktion ist DAO-frei.
-#[allow(dead_code)] // wired into partial_repayment service flow in Plan 16-02
 pub(crate) fn validate_partial_repayment_shares(
     shares: i32,
     current_shares: i32,
