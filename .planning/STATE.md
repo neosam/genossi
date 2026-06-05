@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Mitgliedschaft-Anpassungen während des Geschäftsjahres
-status: executing
+status: milestone_complete
 stopped_at: Completed 16-05 (CR-01 gap-closure: Closed-Phase status guard in partial_repayment)
 last_updated: "2026-06-05T13:35:00.000Z"
 last_activity: 2026-06-05 -- Plan 16-05 CR-01 gap-closure completed (Closed-Phase status guard)
 progress:
   total_phases: 3
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 13
   completed_plans: 13
-  percent: 100
+  percent: 133
 ---
 
 # State: Genossi — v1.1 Anteile-Rückzahlungsphase
@@ -29,10 +29,10 @@ See: `.planning/PROJECT.md` (updated 2026-06-02 after v1.1 close)
 
 ## Current Position
 
-Phase: 16 (service-rest-teil-rueckgabe-auto-anlegen-phase) — EXECUTING (gap-closure phase)
-Plan: 16-05 (CR-01 gap-closure) COMPLETED — 4 of 5 main plans + 1 gap-closure plan done
-Status: Phase 16 main plans (01-04) + gap-closure 05 complete; pending /gsd-verify-work re-run to flip 16-VERIFICATION.md from gaps_found to passed
-Last activity: 2026-06-05 -- Plan 16-05 completed (Closed-Phase status guard in partial_repayment, CR-01 closed)
+Phase: 16
+Plan: Not started
+Status: Milestone complete
+Last activity: 2026-06-05
 
 ## v1.2 Roadmap (Phases 14–18)
 
