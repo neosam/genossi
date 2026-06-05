@@ -12,6 +12,8 @@ use genossi_service::member::Member;
 use genossi_service::member_action::MemberAction;
 use genossi_service::membership_adjust::MembershipAdjustService;
 use genossi_service::permission::{Authentication, PermissionService, ADMIN_PRIVILEGE};
+use genossi_service::repayment_entry::RepaymentEntry;
+use genossi_service::repayment_phase::RepaymentPhase;
 use genossi_service::uuid_service::UuidService;
 use genossi_service::{ServiceError, ValidationFailureItem};
 use std::sync::Arc;
@@ -236,6 +238,26 @@ impl<Deps: MembershipAdjustServiceDeps> MembershipAdjustService for MembershipAd
         self.transaction_dao.commit(tx).await?;
 
         Ok((new_action, Member::from(&updated_entity)))
+    }
+
+    /// Plan 16-01 stub. Full implementation lands in Plan 16-02 (Service-Impl).
+    ///
+    /// This stub satisfies the trait contract introduced by D-16-17 so the workspace
+    /// compiles during Wave-1 (contracts only). It MUST NOT be called from production
+    /// code paths before Plan 16-02 wires Permission-Funnel, Range-Validation,
+    /// Auto-Anlegen-Phase (Variante B, D-16-01), Sum-Check, and `audited_create!`.
+    async fn partial_repayment(
+        &self,
+        _member_id: Uuid,
+        _shares: i32,
+        _willensbekundung_date: Date,
+        _context: Authentication<Self::Context>,
+        _tx: Option<Self::Transaction>,
+    ) -> Result<(Member, RepaymentEntry, Option<RepaymentPhase>), ServiceError> {
+        // Plan-16-01-Stub: replaced by Plan 16-02 Service-Impl.
+        Err(ServiceError::InternalError(Arc::from(
+            "partial_repayment not yet implemented (Plan 16-02)",
+        )))
     }
 }
 

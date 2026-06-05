@@ -11,6 +11,8 @@ use uuid::Uuid;
 use crate::member::Member;
 use crate::member_action::MemberAction;
 use crate::permission::Authentication;
+use crate::repayment_entry::RepaymentEntry;
+use crate::repayment_phase::RepaymentPhase;
 use crate::ServiceError;
 
 /// Service-Trait fuer v1.2-Mitgliedschaft-Anpassungen (PERM-01: admin-only).
@@ -41,4 +43,31 @@ pub trait MembershipAdjustService {
         context: Authentication<Self::Context>,
         tx: Option<Self::Transaction>,
     ) -> Result<(MemberAction, Member), ServiceError>;
+
+    /// Erzeugt einen `RepaymentEntry` in der Ziel-Phase fuer eine Teil-Rueckgabe
+    /// (PART-01, PART-03, PART-05, PART-06).
+    ///
+    /// - `shares` ist die Anzahl Anteile (`1 <= shares < member.current_shares`,
+    ///   D-16-11/12). Type ist `i32` konsistent mit `MemberEntity.current_shares`
+    ///   und `RepaymentEntryEntity.share_count_to_pay_out` (Research Pitfall 2).
+    /// - `willensbekundung_date` muss im aktuellen oder naechsten Geschaeftsjahr
+    ///   liegen (D-16-18, wiederverwendet `validate_willensbekundung_date`).
+    /// - Wenn die Ziel-`RepaymentPhase` fuer das per `compute_effective_date`
+    ///   ermittelte `fiscal_year` noch nicht existiert, wird sie automatisch in
+    ///   Status `Open` angelegt (D-16-01 Variante B) und im Return als
+    ///   `Some(phase)` geliefert. Andernfalls `None`.
+    /// - Gekuendigte Mitglieder (`exit_date IS NOT NULL`) werden mit
+    ///   `ServiceError::Conflict` geblockt (D-16-10 -> HTTP 409).
+    /// - **PART-06 / D-16-19:** Diese Methode erzeugt KEINE `MemberAction` und
+    ///   mutiert `Member.current_shares` NICHT. Die v1.1-PaidOut-Cascade
+    ///   uebernimmt beides beim spaeteren Ausbezahlt-Toggle.
+    ///   `recalc_dates`/`recalc_migrated` werden NICHT aufgerufen.
+    async fn partial_repayment(
+        &self,
+        member_id: Uuid,
+        shares: i32,
+        willensbekundung_date: time::Date,
+        context: Authentication<Self::Context>,
+        tx: Option<Self::Transaction>,
+    ) -> Result<(Member, RepaymentEntry, Option<RepaymentPhase>), ServiceError>;
 }
