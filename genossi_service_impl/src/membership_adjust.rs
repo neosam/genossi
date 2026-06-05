@@ -805,6 +805,36 @@ mod service_tests {
         }
     }
 
+    // Phase 16 Plan 02 — mocks for the two new DAO-deps.
+
+    mock! {
+        pub TestRepaymentPhaseDao {}
+        #[async_trait]
+        impl RepaymentPhaseDao for TestRepaymentPhaseDao {
+            type Transaction = TestTransaction;
+            async fn dump_all(&self, tx: TestTransaction) -> Result<Arc<[RepaymentPhaseEntity]>, DaoError>;
+            async fn create(&self, entity: &RepaymentPhaseEntity, process: &str, tx: TestTransaction) -> Result<(), DaoError>;
+            async fn update(&self, entity: &RepaymentPhaseEntity, process: &str, tx: TestTransaction) -> Result<(), DaoError>;
+            async fn all(&self, tx: TestTransaction) -> Result<Arc<[RepaymentPhaseEntity]>, DaoError>;
+            async fn find_by_id(&self, id: Uuid, tx: TestTransaction) -> Result<Option<RepaymentPhaseEntity>, DaoError>;
+        }
+    }
+
+    mock! {
+        pub TestRepaymentEntryDao {}
+        #[async_trait]
+        impl RepaymentEntryDao for TestRepaymentEntryDao {
+            type Transaction = TestTransaction;
+            async fn dump_all(&self, tx: TestTransaction) -> Result<Arc<[RepaymentEntryEntity]>, DaoError>;
+            async fn create(&self, entity: &RepaymentEntryEntity, process: &str, tx: TestTransaction) -> Result<(), DaoError>;
+            async fn update(&self, entity: &RepaymentEntryEntity, process: &str, tx: TestTransaction) -> Result<(), DaoError>;
+            async fn all(&self, tx: TestTransaction) -> Result<Arc<[RepaymentEntryEntity]>, DaoError>;
+            async fn find_by_id(&self, id: Uuid, tx: TestTransaction) -> Result<Option<RepaymentEntryEntity>, DaoError>;
+            async fn find_by_phase_id(&self, phase_id: Uuid, tx: TestTransaction) -> Result<Arc<[RepaymentEntryEntity]>, DaoError>;
+            async fn find_by_member_and_phase(&self, member_id: Uuid, phase_id: Uuid, tx: TestTransaction) -> Result<Arc<[RepaymentEntryEntity]>, DaoError>;
+        }
+    }
+
     mock! {
         pub TestAuditLogDao {}
         #[async_trait]
@@ -867,6 +897,9 @@ mod service_tests {
         type PermissionService = MockTestPermissionService;
         type UuidService = StaticUuidService;
         type TransactionDao = MockTestTxDao;
+        // Phase 16 Plan 02 — DAO-deps for partial_repayment.
+        type RepaymentPhaseDao = MockTestRepaymentPhaseDao;
+        type RepaymentEntryDao = MockTestRepaymentEntryDao;
     }
 
     fn sample_member_entity(id: Uuid, exit_date: Option<time::Date>) -> MemberEntity {
@@ -914,6 +947,14 @@ mod service_tests {
         permission_service: MockTestPermissionService,
         tx_dao: MockTestTxDao,
     ) -> MembershipAdjustServiceImpl<TestDeps> {
+        // Phase 16 Plan 02: Phase-15-Tests benoetigen die zwei neuen DAO-Deps NICHT
+        // (cancel_membership + increase_shares ruefen sie nicht auf). Wir injizieren
+        // leere Mocks ohne Expectations — mockall faellt bei einem unerwarteten Call
+        // mit Panic. Das macht das Pattern selbst-validierend: falls Phase 15 versehentlich
+        // anfangen wuerde, die RepaymentPhase/Entry-DAOs zu nutzen, schlugen die
+        // bestehenden Tests sofort fehl.
+        let repayment_phase_dao = MockTestRepaymentPhaseDao::new();
+        let repayment_entry_dao = MockTestRepaymentEntryDao::new();
         MembershipAdjustServiceImpl {
             member_action_dao: Arc::new(member_action_dao),
             member_dao: Arc::new(member_dao),
@@ -921,6 +962,80 @@ mod service_tests {
             permission_service: Arc::new(permission_service),
             uuid_service: Arc::new(StaticUuidService),
             transaction_dao: Arc::new(tx_dao),
+            repayment_phase_dao: Arc::new(repayment_phase_dao),
+            repayment_entry_dao: Arc::new(repayment_entry_dao),
+        }
+    }
+
+    /// Phase 16 Plan 02 — Service-Builder fuer partial_repayment-Tests
+    /// (mit den zwei neuen DAO-Deps).
+    fn build_service_part(
+        member_dao: MockTestMemberDao,
+        member_action_dao: MockTestMemberActionDao,
+        audit_log_dao: MockTestAuditLogDao,
+        permission_service: MockTestPermissionService,
+        tx_dao: MockTestTxDao,
+        repayment_phase_dao: MockTestRepaymentPhaseDao,
+        repayment_entry_dao: MockTestRepaymentEntryDao,
+    ) -> MembershipAdjustServiceImpl<TestDeps> {
+        MembershipAdjustServiceImpl {
+            member_action_dao: Arc::new(member_action_dao),
+            member_dao: Arc::new(member_dao),
+            audit_log_dao: Arc::new(audit_log_dao),
+            permission_service: Arc::new(permission_service),
+            uuid_service: Arc::new(StaticUuidService),
+            transaction_dao: Arc::new(tx_dao),
+            repayment_phase_dao: Arc::new(repayment_phase_dao),
+            repayment_entry_dao: Arc::new(repayment_entry_dao),
+        }
+    }
+
+    /// Phase 16 Plan 02 — sample MemberEntity with explicit `current_shares`.
+    fn sample_member_entity_with_shares(
+        id: Uuid,
+        current_shares: i32,
+        exit_date: Option<time::Date>,
+    ) -> MemberEntity {
+        let mut m = sample_member_entity(id, exit_date);
+        m.current_shares = current_shares;
+        m
+    }
+
+    /// Phase 16 Plan 02 — sample RepaymentPhaseEntity for a given fiscal_year.
+    fn sample_repayment_phase(fiscal_year: i32, share_value: i64) -> RepaymentPhaseEntity {
+        let date = time::Date::from_calendar_date(2020, time::Month::January, 1).unwrap();
+        let datetime = time::PrimitiveDateTime::new(date, time::Time::MIDNIGHT);
+        RepaymentPhaseEntity {
+            id: Uuid::new_v4(),
+            fiscal_year,
+            share_value,
+            status: RepaymentPhaseStatus::Open,
+            opened_at: Some(datetime),
+            closed_at: None,
+            created: datetime,
+            deleted: None,
+            version: Uuid::new_v4(),
+        }
+    }
+
+    /// Phase 16 Plan 02 — sample existing RepaymentEntryEntity for sum-check tests.
+    fn sample_repayment_entry(
+        member_id: Uuid,
+        phase_id: Uuid,
+        share_count: i32,
+        status: RepaymentEntryStatus,
+    ) -> RepaymentEntryEntity {
+        let date = time::Date::from_calendar_date(2020, time::Month::January, 1).unwrap();
+        let datetime = time::PrimitiveDateTime::new(date, time::Time::MIDNIGHT);
+        RepaymentEntryEntity {
+            id: Uuid::new_v4(),
+            member_id,
+            phase_id,
+            share_count_to_pay_out: share_count,
+            status,
+            created: datetime,
+            deleted: None,
+            version: Uuid::new_v4(),
         }
     }
 
@@ -1389,5 +1504,575 @@ mod service_tests {
             }
             other => panic!("Expected ValidationError with field=shares, got {:?}", other),
         }
+    }
+
+    // =========================================================================
+    // Phase 16 Plan 02 — partial_repayment service tests (10 cases)
+    //
+    // Coverage:
+    //   1) happy_path (existing phase, sum-check OK, entry created)
+    //   2) n_zero_invalid (validation rejects, no DAO writes)
+    //   3) n_negative_invalid
+    //   4) n_equals_current_shares_blocked (D-16-11 cancel hint)
+    //   5) cancelled_member_blocked (D-16-10 -> Conflict 409, NOT ValidationError)
+    //   6) sum_check_violation
+    //   7) auto_create_uses_previous_share_value (latest phase share_value)
+    //   8) auto_create_fallback_default_share_value (no phases at all)
+    //   9) permission_denied (no DAO touches at all)
+    //  10) paid_out_entries_excluded_from_sum (D-16-09)
+    //
+    // All tests use the Plan-15-mock-pattern but inject the two new DAO mocks
+    // (MockTestRepaymentPhaseDao, MockTestRepaymentEntryDao). Test helpers
+    // sample_repayment_phase / sample_repayment_entry are defined above.
+    // =========================================================================
+
+    /// Test date that always falls into H1 of the current calendar year.
+    fn h1_test_date() -> Date {
+        let today = time::OffsetDateTime::now_utc().date();
+        today
+            .replace_month(time::Month::March)
+            .expect("March in today.year() is valid")
+            .replace_day(15)
+            .expect("Day 15 always valid")
+    }
+
+    /// Test date that always falls into H2 of the current calendar year.
+    /// `compute_effective_date(this) -> fiscal_year = today.year() + 1`.
+    fn h2_test_date() -> Date {
+        let today = time::OffsetDateTime::now_utc().date();
+        today
+            .replace_month(time::Month::December)
+            .expect("December in today.year() is valid")
+            .replace_day(15)
+            .expect("Day 15 always valid")
+    }
+
+    /// Returns the fiscal_year H1-Tests target (= today.year()).
+    fn h1_target_fy() -> i32 {
+        time::OffsetDateTime::now_utc().date().year()
+    }
+
+    /// Returns the fiscal_year H2-Tests target (= today.year() + 1).
+    fn h2_target_fy() -> i32 {
+        time::OffsetDateTime::now_utc().date().year() + 1
+    }
+
+    fn allow_admin_perms() -> MockTestPermissionService {
+        let mut p = MockTestPermissionService::new();
+        p.expect_current_user_id()
+            .returning(|_| Ok(Some("admin".to_string())));
+        p.expect_check_permission().returning(|_, _| Ok(()));
+        p
+    }
+
+    fn allow_audit_log() -> MockTestAuditLogDao {
+        let mut a = MockTestAuditLogDao::new();
+        a.expect_get_latest_hash().returning(|_| Ok(None));
+        a.expect_create_entries().returning(|_, _| Ok(()));
+        a
+    }
+
+    // ---------- Test 1: Happy-Path ----------
+    #[tokio::test]
+    async fn test_partial_repayment_happy_path() {
+        // 5 current shares, request 2; existing matching phase, no existing entries.
+        let member_id = Uuid::new_v4();
+        let willensbekundung = h1_test_date();
+        let target_fy = h1_target_fy();
+
+        let mut member_dao = MockTestMemberDao::new();
+        member_dao
+            .expect_find_by_id()
+            .times(1)
+            .returning(move |_, _| Ok(Some(sample_member_entity_with_shares(member_id, 5, None))));
+
+        let phase = sample_repayment_phase(target_fy, 12000);
+        let phase_id = phase.id;
+        let phases: Arc<[RepaymentPhaseEntity]> = Arc::from(vec![phase]);
+        let mut repayment_phase_dao = MockTestRepaymentPhaseDao::new();
+        repayment_phase_dao
+            .expect_all()
+            .returning(move |_| Ok(phases.clone()));
+        // No phase auto-create:
+        repayment_phase_dao.expect_create().times(0);
+
+        let mut repayment_entry_dao = MockTestRepaymentEntryDao::new();
+        let empty_entries: Arc<[RepaymentEntryEntity]> = Arc::from(Vec::<RepaymentEntryEntity>::new());
+        repayment_entry_dao
+            .expect_find_by_member_and_phase()
+            .withf(move |m, p, _| *m == member_id && *p == phase_id)
+            .returning(move |_, _, _| Ok(empty_entries.clone()));
+        repayment_entry_dao
+            .expect_create()
+            .withf(|entity, process, _| {
+                process == "member-adjust.partial-repayment" && entity.share_count_to_pay_out == 2
+            })
+            .times(1)
+            .returning(|_, _, _| Ok(()));
+
+        let service = build_service_part(
+            member_dao,
+            MockTestMemberActionDao::new(),
+            allow_audit_log(),
+            allow_admin_perms(),
+            setup_tx_dao(),
+            repayment_phase_dao,
+            repayment_entry_dao,
+        );
+
+        let (_member, entry, phase_opt) = service
+            .partial_repayment(member_id, 2, willensbekundung, Authentication::Full, None)
+            .await
+            .expect("happy path must succeed");
+
+        assert_eq!(entry.share_count_to_pay_out, 2);
+        assert!(
+            phase_opt.is_none(),
+            "existing phase reused — Option must be None"
+        );
+    }
+
+    // ---------- Test 2: shares=0 invalid ----------
+    #[tokio::test]
+    async fn test_partial_repayment_n_zero_invalid() {
+        let member_id = Uuid::new_v4();
+        let willensbekundung = h1_test_date();
+
+        let mut member_dao = MockTestMemberDao::new();
+        // find_by_id may run (validate-after-member-load order). Allow at most 1 call.
+        member_dao
+            .expect_find_by_id()
+            .returning(move |_, _| Ok(Some(sample_member_entity_with_shares(member_id, 5, None))));
+
+        // No DAO writes expected.
+        let mut repayment_phase_dao = MockTestRepaymentPhaseDao::new();
+        repayment_phase_dao.expect_create().times(0);
+        let mut repayment_entry_dao = MockTestRepaymentEntryDao::new();
+        repayment_entry_dao.expect_create().times(0);
+
+        let service = build_service_part(
+            member_dao,
+            MockTestMemberActionDao::new(),
+            allow_audit_log(),
+            allow_admin_perms(),
+            setup_tx_dao(),
+            repayment_phase_dao,
+            repayment_entry_dao,
+        );
+
+        let result = service
+            .partial_repayment(member_id, 0, willensbekundung, Authentication::Full, None)
+            .await;
+
+        match result {
+            Err(ServiceError::ValidationError(errs)) => {
+                assert!(errs.iter().any(|e| e.message.contains("at least 1")));
+            }
+            other => panic!("Expected ValidationError 'at least 1', got {:?}", other),
+        }
+    }
+
+    // ---------- Test 3: shares=-1 invalid ----------
+    #[tokio::test]
+    async fn test_partial_repayment_n_negative_invalid() {
+        let member_id = Uuid::new_v4();
+        let willensbekundung = h1_test_date();
+
+        let mut member_dao = MockTestMemberDao::new();
+        member_dao
+            .expect_find_by_id()
+            .returning(move |_, _| Ok(Some(sample_member_entity_with_shares(member_id, 5, None))));
+
+        let mut repayment_phase_dao = MockTestRepaymentPhaseDao::new();
+        repayment_phase_dao.expect_create().times(0);
+        let mut repayment_entry_dao = MockTestRepaymentEntryDao::new();
+        repayment_entry_dao.expect_create().times(0);
+
+        let service = build_service_part(
+            member_dao,
+            MockTestMemberActionDao::new(),
+            allow_audit_log(),
+            allow_admin_perms(),
+            setup_tx_dao(),
+            repayment_phase_dao,
+            repayment_entry_dao,
+        );
+
+        let result = service
+            .partial_repayment(member_id, -1, willensbekundung, Authentication::Full, None)
+            .await;
+
+        assert!(
+            matches!(result, Err(ServiceError::ValidationError(_))),
+            "expected ValidationError for negative shares, got {:?}",
+            result
+        );
+    }
+
+    // ---------- Test 4: shares == current_shares blocked (Voll-Rueckgabe) ----------
+    #[tokio::test]
+    async fn test_partial_repayment_n_equals_current_shares_blocked() {
+        let member_id = Uuid::new_v4();
+        let willensbekundung = h1_test_date();
+
+        let mut member_dao = MockTestMemberDao::new();
+        member_dao
+            .expect_find_by_id()
+            .returning(move |_, _| Ok(Some(sample_member_entity_with_shares(member_id, 3, None))));
+
+        let mut repayment_phase_dao = MockTestRepaymentPhaseDao::new();
+        repayment_phase_dao.expect_create().times(0);
+        let mut repayment_entry_dao = MockTestRepaymentEntryDao::new();
+        repayment_entry_dao.expect_create().times(0);
+
+        let service = build_service_part(
+            member_dao,
+            MockTestMemberActionDao::new(),
+            allow_audit_log(),
+            allow_admin_perms(),
+            setup_tx_dao(),
+            repayment_phase_dao,
+            repayment_entry_dao,
+        );
+
+        let result = service
+            .partial_repayment(member_id, 3, willensbekundung, Authentication::Full, None)
+            .await;
+
+        match result {
+            Err(ServiceError::ValidationError(errs)) => {
+                assert!(
+                    errs.iter().any(|e| e.message.contains("cancel_membership")),
+                    "expected message to reference cancel_membership (D-16-11), got: {:?}",
+                    errs
+                );
+            }
+            other => panic!("Expected ValidationError mentioning cancel_membership, got {:?}", other),
+        }
+    }
+
+    // ---------- Test 5: Cancelled-Member -> HTTP 409 Conflict (D-16-10) ----------
+    #[tokio::test]
+    async fn test_partial_repayment_cancelled_member_blocked() {
+        let member_id = Uuid::new_v4();
+        let willensbekundung = h1_test_date();
+        let exit = time::Date::from_calendar_date(2026, time::Month::January, 1).unwrap();
+
+        let mut member_dao = MockTestMemberDao::new();
+        member_dao
+            .expect_find_by_id()
+            .times(1)
+            .returning(move |_, _| Ok(Some(sample_member_entity_with_shares(member_id, 5, Some(exit)))));
+
+        // No DAO writes; no phase lookup either (exit_date check is BEFORE phase lookup).
+        let mut repayment_phase_dao = MockTestRepaymentPhaseDao::new();
+        repayment_phase_dao.expect_create().times(0);
+        let mut repayment_entry_dao = MockTestRepaymentEntryDao::new();
+        repayment_entry_dao.expect_create().times(0);
+
+        let service = build_service_part(
+            member_dao,
+            MockTestMemberActionDao::new(),
+            allow_audit_log(),
+            allow_admin_perms(),
+            setup_tx_dao(),
+            repayment_phase_dao,
+            repayment_entry_dao,
+        );
+
+        let result = service
+            .partial_repayment(member_id, 2, willensbekundung, Authentication::Full, None)
+            .await;
+
+        // D-16-10: MUST be Conflict (HTTP 409), NOT ValidationError (HTTP 400).
+        assert!(
+            matches!(result, Err(ServiceError::Conflict(_))),
+            "expected ServiceError::Conflict (D-16-10 -> HTTP 409, distinct from Phase 15 UPGD-04 which uses ValidationError), got {:?}",
+            result
+        );
+    }
+
+    // ---------- Test 6: Sum-Check Violation ----------
+    #[tokio::test]
+    async fn test_partial_repayment_sum_check_violation() {
+        // Member has 5 shares; one existing Open entry with 3 -> sum=3.
+        // Requesting +3 more -> 3+3=6 > 5 -> ValidationError.
+        let member_id = Uuid::new_v4();
+        let willensbekundung = h1_test_date();
+        let target_fy = h1_target_fy();
+
+        let mut member_dao = MockTestMemberDao::new();
+        member_dao
+            .expect_find_by_id()
+            .times(1)
+            .returning(move |_, _| Ok(Some(sample_member_entity_with_shares(member_id, 5, None))));
+
+        let phase = sample_repayment_phase(target_fy, 12000);
+        let phase_id = phase.id;
+        let phases: Arc<[RepaymentPhaseEntity]> = Arc::from(vec![phase]);
+        let mut repayment_phase_dao = MockTestRepaymentPhaseDao::new();
+        repayment_phase_dao
+            .expect_all()
+            .returning(move |_| Ok(phases.clone()));
+        repayment_phase_dao.expect_create().times(0);
+
+        let existing_entry =
+            sample_repayment_entry(member_id, phase_id, 3, RepaymentEntryStatus::Open);
+        let existing: Arc<[RepaymentEntryEntity]> = Arc::from(vec![existing_entry]);
+        let mut repayment_entry_dao = MockTestRepaymentEntryDao::new();
+        repayment_entry_dao
+            .expect_find_by_member_and_phase()
+            .returning(move |_, _, _| Ok(existing.clone()));
+        repayment_entry_dao.expect_create().times(0);
+
+        let service = build_service_part(
+            member_dao,
+            MockTestMemberActionDao::new(),
+            allow_audit_log(),
+            allow_admin_perms(),
+            setup_tx_dao(),
+            repayment_phase_dao,
+            repayment_entry_dao,
+        );
+
+        let result = service
+            .partial_repayment(member_id, 3, willensbekundung, Authentication::Full, None)
+            .await;
+
+        match result {
+            Err(ServiceError::ValidationError(errs)) => {
+                assert!(
+                    errs.iter().any(|e| e.message.contains("sum of open repayments")),
+                    "expected message to mention sum-of-open-repayments, got: {:?}",
+                    errs
+                );
+            }
+            other => panic!("Expected ValidationError for sum-check, got {:?}", other),
+        }
+    }
+
+    // ---------- Test 7: Auto-Create uses previous-phase share_value ----------
+    #[tokio::test]
+    async fn test_partial_repayment_auto_create_uses_previous_share_value() {
+        // No phase for target FY (H2 -> next year); but a previous phase exists with
+        // share_value=20000 -> auto-created phase must use 20000 (D-16-05).
+        let member_id = Uuid::new_v4();
+        let willensbekundung = h2_test_date();
+        let target_fy = h2_target_fy();
+
+        let mut member_dao = MockTestMemberDao::new();
+        member_dao
+            .expect_find_by_id()
+            .times(1)
+            .returning(move |_, _| Ok(Some(sample_member_entity_with_shares(member_id, 5, None))));
+
+        // Previous phase for an EARLIER fiscal_year (target_fy - 1) with share_value=20000.
+        let prev_phase = sample_repayment_phase(target_fy - 1, 20000);
+        let phases: Arc<[RepaymentPhaseEntity]> = Arc::from(vec![prev_phase]);
+        let mut repayment_phase_dao = MockTestRepaymentPhaseDao::new();
+        repayment_phase_dao
+            .expect_all()
+            .returning(move |_| Ok(phases.clone()));
+        // Auto-create must run exactly once with share_value=20000 and status=Open.
+        repayment_phase_dao
+            .expect_create()
+            .withf(move |entity, process, _| {
+                process == "repayment-phase.create"
+                    && entity.share_value == 20000
+                    && entity.status == RepaymentPhaseStatus::Open
+                    && entity.fiscal_year == target_fy
+            })
+            .times(1)
+            .returning(|_, _, _| Ok(()));
+
+        let mut repayment_entry_dao = MockTestRepaymentEntryDao::new();
+        let empty_entries: Arc<[RepaymentEntryEntity]> =
+            Arc::from(Vec::<RepaymentEntryEntity>::new());
+        repayment_entry_dao
+            .expect_find_by_member_and_phase()
+            .returning(move |_, _, _| Ok(empty_entries.clone()));
+        repayment_entry_dao
+            .expect_create()
+            .times(1)
+            .returning(|_, _, _| Ok(()));
+
+        let service = build_service_part(
+            member_dao,
+            MockTestMemberActionDao::new(),
+            allow_audit_log(),
+            allow_admin_perms(),
+            setup_tx_dao(),
+            repayment_phase_dao,
+            repayment_entry_dao,
+        );
+
+        let (_member, _entry, phase_opt) = service
+            .partial_repayment(member_id, 2, willensbekundung, Authentication::Full, None)
+            .await
+            .expect("auto-create with previous share_value must succeed");
+
+        let phase = phase_opt.expect("phase auto-created => Some(_)");
+        assert_eq!(phase.share_value, 20000);
+        assert_eq!(phase.fiscal_year, target_fy);
+    }
+
+    // ---------- Test 8: Auto-Create falls back to DEFAULT_SHARE_VALUE_CENT ----------
+    #[tokio::test]
+    async fn test_partial_repayment_auto_create_fallback_default_share_value() {
+        // No phases at all -> auto-created phase uses DEFAULT_SHARE_VALUE_CENT=10000.
+        let member_id = Uuid::new_v4();
+        let willensbekundung = h2_test_date();
+        let target_fy = h2_target_fy();
+
+        let mut member_dao = MockTestMemberDao::new();
+        member_dao
+            .expect_find_by_id()
+            .times(1)
+            .returning(move |_, _| Ok(Some(sample_member_entity_with_shares(member_id, 5, None))));
+
+        let mut repayment_phase_dao = MockTestRepaymentPhaseDao::new();
+        let empty_phases: Arc<[RepaymentPhaseEntity]> =
+            Arc::from(Vec::<RepaymentPhaseEntity>::new());
+        repayment_phase_dao
+            .expect_all()
+            .returning(move |_| Ok(empty_phases.clone()));
+        repayment_phase_dao
+            .expect_create()
+            .withf(move |entity, process, _| {
+                process == "repayment-phase.create"
+                    && entity.share_value == DEFAULT_SHARE_VALUE_CENT
+                    && entity.status == RepaymentPhaseStatus::Open
+                    && entity.fiscal_year == target_fy
+            })
+            .times(1)
+            .returning(|_, _, _| Ok(()));
+
+        let mut repayment_entry_dao = MockTestRepaymentEntryDao::new();
+        let empty_entries: Arc<[RepaymentEntryEntity]> =
+            Arc::from(Vec::<RepaymentEntryEntity>::new());
+        repayment_entry_dao
+            .expect_find_by_member_and_phase()
+            .returning(move |_, _, _| Ok(empty_entries.clone()));
+        repayment_entry_dao
+            .expect_create()
+            .times(1)
+            .returning(|_, _, _| Ok(()));
+
+        let service = build_service_part(
+            member_dao,
+            MockTestMemberActionDao::new(),
+            allow_audit_log(),
+            allow_admin_perms(),
+            setup_tx_dao(),
+            repayment_phase_dao,
+            repayment_entry_dao,
+        );
+
+        let (_member, _entry, phase_opt) = service
+            .partial_repayment(member_id, 1, willensbekundung, Authentication::Full, None)
+            .await
+            .expect("fallback auto-create must succeed");
+
+        let phase = phase_opt.expect("phase auto-created => Some(_)");
+        assert_eq!(phase.share_value, DEFAULT_SHARE_VALUE_CENT);
+    }
+
+    // ---------- Test 9: Permission Denied -> NO DAO touches ----------
+    #[tokio::test]
+    async fn test_partial_repayment_permission_denied() {
+        let willensbekundung = h1_test_date();
+
+        let mut permission_service = MockTestPermissionService::new();
+        permission_service
+            .expect_current_user_id()
+            .returning(|_| Ok(Some("user".to_string())));
+        permission_service
+            .expect_check_permission()
+            .returning(|_, _| Err(ServiceError::PermissionDenied));
+
+        // No DAO touches at all.
+        let mut repayment_phase_dao = MockTestRepaymentPhaseDao::new();
+        repayment_phase_dao.expect_create().times(0);
+        let mut repayment_entry_dao = MockTestRepaymentEntryDao::new();
+        repayment_entry_dao.expect_create().times(0);
+
+        let service = build_service_part(
+            MockTestMemberDao::new(),
+            MockTestMemberActionDao::new(),
+            MockTestAuditLogDao::new(),
+            permission_service,
+            setup_tx_dao(),
+            repayment_phase_dao,
+            repayment_entry_dao,
+        );
+
+        let result = service
+            .partial_repayment(Uuid::new_v4(), 2, willensbekundung, Authentication::Full, None)
+            .await;
+
+        assert!(
+            matches!(result, Err(ServiceError::PermissionDenied)),
+            "expected PermissionDenied, got {:?}",
+            result
+        );
+    }
+
+    // ---------- Test 10: PaidOut entries excluded from sum-check (D-16-09) ----------
+    #[tokio::test]
+    async fn test_partial_repayment_paid_out_entries_excluded_from_sum() {
+        // Member has 5 shares. Existing PaidOut entry with share_count=10 (would
+        // block if counted). Sum-check must exclude PaidOut so sum_open = 0, and
+        // a new entry with shares=3 must be created.
+        let member_id = Uuid::new_v4();
+        let willensbekundung = h1_test_date();
+        let target_fy = h1_target_fy();
+
+        let mut member_dao = MockTestMemberDao::new();
+        member_dao
+            .expect_find_by_id()
+            .times(1)
+            .returning(move |_, _| Ok(Some(sample_member_entity_with_shares(member_id, 5, None))));
+
+        let phase = sample_repayment_phase(target_fy, 12000);
+        let phase_id = phase.id;
+        let phases: Arc<[RepaymentPhaseEntity]> = Arc::from(vec![phase]);
+        let mut repayment_phase_dao = MockTestRepaymentPhaseDao::new();
+        repayment_phase_dao
+            .expect_all()
+            .returning(move |_| Ok(phases.clone()));
+        repayment_phase_dao.expect_create().times(0);
+
+        let paid_out_entry =
+            sample_repayment_entry(member_id, phase_id, 10, RepaymentEntryStatus::PaidOut);
+        let existing: Arc<[RepaymentEntryEntity]> = Arc::from(vec![paid_out_entry]);
+        let mut repayment_entry_dao = MockTestRepaymentEntryDao::new();
+        repayment_entry_dao
+            .expect_find_by_member_and_phase()
+            .returning(move |_, _, _| Ok(existing.clone()));
+        repayment_entry_dao
+            .expect_create()
+            .withf(|entity, process, _| {
+                process == "member-adjust.partial-repayment" && entity.share_count_to_pay_out == 3
+            })
+            .times(1)
+            .returning(|_, _, _| Ok(()));
+
+        let service = build_service_part(
+            member_dao,
+            MockTestMemberActionDao::new(),
+            allow_audit_log(),
+            allow_admin_perms(),
+            setup_tx_dao(),
+            repayment_phase_dao,
+            repayment_entry_dao,
+        );
+
+        let (_member, entry, phase_opt) = service
+            .partial_repayment(member_id, 3, willensbekundung, Authentication::Full, None)
+            .await
+            .expect("PaidOut-exclusion must allow this request");
+
+        assert_eq!(entry.share_count_to_pay_out, 3);
+        assert!(phase_opt.is_none(), "existing phase reused");
     }
 }
