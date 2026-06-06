@@ -75,6 +75,14 @@ pub fn generate_route<RestState: RestStateDef>() -> Router<RestState> {
             "/{id}/partial-repayment",
             post(crate::membership_adjust::partial_repayment::<RestState>),
         )
+        // Phase 17 v1.2 (D-17 / C-17-CF-06): Sub-Route fuer Uebertrag.
+        // MUSS vor /{id} registriert sein (D-14-08-Lesson) — axum-Routing-Defense.
+        // Path-Parameter heisst {from_id} statt {id}, damit der Handler-Signatur
+        // klar macht, welche der beiden Member-IDs der Sender ist.
+        .route(
+            "/{from_id}/transfer-shares",
+            post(crate::membership_adjust::transfer_shares::<RestState>),
+        )
         // Path-parameter routes LAST.
         .route("/{id}", get(get_member::<RestState>))
         .route("/", post(create_member::<RestState>))
