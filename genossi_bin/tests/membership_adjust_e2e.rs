@@ -1229,3 +1229,337 @@ async fn test_transfer_shares_recipient_not_found_404() {
         "Nicht-existierender Empfaenger muss 404"
     );
 }
+
+/// D-17-05 / AUDT-02 Doppel-Assertion fuer den Uebertrag-Audit-Trail.
+///
+/// **Plan-Drift-Notiz (Rule 1 auto-fix):** Plan-Truth #6 nahm an, alle
+/// Transfer-Audit-Eintraege teilen EINE `transaction_id`. Realitaet
+/// (`genossi_service_impl/src/audit_log.rs:65`): `build_audit_entries`
+/// generiert eine NEUE `transaction_id` PRO `audited_*!`-Macro-Aufruf.
+/// `transaction_id` gruppiert nur die Field-Level-Rows einer EINZELNEN
+/// Macro-Invocation, nicht den gesamten Service-Pipeline-Aufruf.
+///
+/// Die Plan-Intention "Atomarity" wird stattdessen ueber drei robustere
+/// Kriterien sichergestellt:
+/// (a) Audit-Hashchain bleibt valid — der staerkste Atomarity-Beweis: alle
+///     Eintraege wurden in EINER DB-Transaction comitted (sonst waere bei
+///     einem Partial-Commit die Hashchain gebrochen).
+/// (b) Anzahl distinkter `transaction_id`s entspricht der erwarteten Anzahl
+///     `audited_*!`-Macro-Aufrufe (Teil-Uebertrag: 4 = abgabe + empfang
+///     + from + to; Voll-Uebertrag: 5 = + austritt).
+/// (c) Anzahl distinkter MemberAction-`entity_id`s = expected_action_count
+///     (Teil=2, Voll=3) — bewahrt Plan-Truth #6 Teil-(b).
+///
+/// JSON-Schema (verifiziert in genossi_rest_types/src/lib.rs:1741-1783):
+///   root: { entries: [AuditLogEntryTO], total, page, size }
+///   entry: { id, timestamp, user_id, process, transaction_id, entity_type,
+///            entity_id, action, field_name, old_value?, new_value? }
+///
+/// Default-Page-Size=50; ?size=200 schuetzt vor Silent-Pass (WARNING #4),
+/// auch wenn die Audit-Tabelle waechst.
+async fn assert_transfer_audit_trail(
+    client: &reqwest::Client,
+    server: &TestServer,
+    expected_action_count: usize,
+) {
+    let resp = client
+        .get(server.url("/api/audit?size=200"))
+        .send()
+        .await
+        .expect("GET /api/audit");
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: Value = resp.json().await.expect("decode audit list");
+    let entries = body["entries"].as_array().expect("entries array");
+
+    // Filter auf Phase-17-Process.
+    let transfer_entries: Vec<&Value> = entries
+        .iter()
+        .filter(|e| e["process"].as_str() == Some("member-adjust.transfer"))
+        .collect();
+
+    assert!(
+        !transfer_entries.is_empty(),
+        "es muessen Transfer-Audit-Entries existieren"
+    );
+
+    // WARNING #4 — Empty-Array-Schutz gegen Silent-Pass.
+    // AUDT-02 erwartet: pro MemberAction-create ~1 Audit-Row pro Feld + pro
+    // Member-Update ~1 Audit-Row pro veraendertem Feld.
+    // Teil-Uebertrag: 2 Action-creates + 2 Member-Updates (mind. current_shares)
+    //                 >= 4 Rows (typisch deutlich mehr, da Action mehrere Felder hat).
+    // Voll-Uebertrag: 3 Action-creates + 2 Member-Updates (current_shares + exit_date)
+    //                 >= 5 Rows.
+    // Falls weniger: JSON-Schema-Mismatch (z.B. Field-Name "tx_id" statt
+    // "transaction_id"), und Folge-Checks koennten silent passen.
+    assert!(
+        transfer_entries.len() >= 4,
+        "expected >=4 audit rows for 2 actions + 2 member updates per AUDT-02; \
+         got {} — JSON schema mismatch?",
+        transfer_entries.len()
+    );
+
+    // (a) Audit-Hashchain bleibt valid — bester Beweis, dass alle Writes in
+    //     EINER DB-Transaction commit gemacht haben (sonst waere bei einem
+    //     Partial-Commit die Hashchain-Verlinkung gebrochen).
+    let verify_resp = client
+        .get(server.url("/api/audit/verify"))
+        .send()
+        .await
+        .expect("GET /api/audit/verify");
+    let verify_body: Value = verify_resp.json().await.expect("decode verify");
+    assert_eq!(
+        verify_body["valid"].as_bool(),
+        Some(true),
+        "Audit-Hashchain muss valid bleiben (Atomarity-Beweis)"
+    );
+
+    // (b) Anzahl distinkter transaction_ids entspricht der Anzahl
+    //     audited_*!-Macro-Aufrufe. Teil-Uebertrag = 4 (abgabe-create +
+    //     empfang-create + from-update + to-update). Voll-Uebertrag = 5
+    //     (zusaetzlicher austritt-create).
+    let expected_tx_count = if expected_action_count == 2 { 4 } else { 5 };
+    let mut distinct_tx_ids = std::collections::HashSet::new();
+    for e in &transfer_entries {
+        let tx = e["transaction_id"]
+            .as_str()
+            .expect("transaction_id")
+            .to_string();
+        distinct_tx_ids.insert(tx);
+    }
+    assert_eq!(
+        distinct_tx_ids.len(),
+        expected_tx_count,
+        "AUDT-02: erwarte {} distinkte transaction_ids (1 pro audited_*!-Aufruf), \
+         got {}",
+        expected_tx_count,
+        distinct_tx_ids.len()
+    );
+
+    // (c) MemberAction-Entity-Count == expected_action_count.
+    //     Jede MemberAction kann mehrere Audit-Rows haben (1 pro changed-field).
+    //     Gruppe nach entity_id, dann zaehle distinkte entity_ids.
+    //     entity_type-Schluessel = "member_action" per
+    //     `genossi_dao/src/member_action.rs:68` (NICHT "MemberAction" — vgl.
+    //     `impl Auditable for MemberActionEntity`).
+    let member_action_entries: Vec<&Value> = transfer_entries
+        .iter()
+        .filter(|e| e["entity_type"].as_str() == Some("member_action"))
+        .copied()
+        .collect();
+    let mut distinct_ids = std::collections::HashSet::new();
+    for e in &member_action_entries {
+        if let Some(id) = e["entity_id"].as_str() {
+            distinct_ids.insert(id.to_string());
+        }
+    }
+    assert_eq!(
+        distinct_ids.len(),
+        expected_action_count,
+        "D-17-05 (b): MemberAction-Count == {} (Teil=2, Voll=3)",
+        expected_action_count
+    );
+}
+
+/// Test 6 (AUDT-02 / D-17-05) — Audit-Trail-Verifikation fuer Teil-Uebertrag.
+///
+/// Nach erfolgreichem Teil-Uebertrag (2 MemberAction-Eintraege):
+/// (a) Audit-Hashchain bleibt valid (Atomarity-Beweis);
+/// (b) 4 distinkte transaction_ids (1 pro audited_*!-Aufruf:
+///     abgabe-create + empfang-create + from-update + to-update);
+/// (c) 2 distinkte MemberAction-entity_ids.
+///
+/// Details zur Plan-Drift siehe `assert_transfer_audit_trail`-Doc.
+#[tokio::test]
+async fn test_transfer_shares_audit_pair_verify_doppel_assertion() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let a = create_active_member(&client, &server, 1250, "AuditFrom").await;
+    let a = put_member_current_shares(&client, &server, &a, 5).await;
+    let b = create_active_member(&client, &server, 1251, "AuditTo").await;
+    let a_id = a.id.expect("a.id");
+    let b_id = b.id.expect("b.id");
+
+    // Teil-Uebertrag: 2 MemberAction-Eintraege erwartet.
+    let resp = client
+        .post(server.url(&format!("/api/members/{}/transfer-shares", a_id)))
+        .json(&transfer_shares_body(&b_id, 2, &today_march_15().to_string()))
+        .send()
+        .await
+        .expect("POST transfer for audit-verify");
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    assert_transfer_audit_trail(&client, &server, 2).await;
+}
+
+/// Test 7 (D-17-06) — Race Same-Direction, SQLITE_BUSY-Pfad.
+///
+/// Setup: A.current_shares=4, B aktiv. Bei shares=2 koennen NICHT beide
+/// gleichzeitig durchgehen (A waere sonst auf -1 reduziert).
+///
+/// Pattern (analog test_mark_paid_out_race_one_succeeds_one_conflicts):
+///   - Pool-Warm-up via 1ms tokio::sleep (Pitfall #11).
+///   - tokio::join! zwei identische POSTs.
+///   - sortierte Statuses [200, 409|500]; NIE [200, 200].
+///
+/// Post-Konsistenz: A.current_shares = 4 - 2 = 2 (genau eine Cascade gelang).
+/// Audit-Chain bleibt valid (Verlierer-Tx sauber rolled-back).
+#[tokio::test]
+async fn test_transfer_shares_race_same_direction_sqlite_busy() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let a = create_active_member(&client, &server, 1260, "RaceFromA").await;
+    let a = put_member_current_shares(&client, &server, &a, 4).await;
+    let b = create_active_member(&client, &server, 1261, "RaceToB").await;
+    let a_id = a.id.expect("a.id");
+    let b_id = b.id.expect("b.id");
+
+    let url = server.url(&format!("/api/members/{}/transfer-shares", a_id));
+    let body = transfer_shares_body(&b_id, 2, &today_march_15().to_string());
+
+    // Pool-Warm-up (Pitfall #11).
+    tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+
+    // D-17-06: Beide POSTs parallel via tokio::join!.
+    let (resp_a, resp_b) = tokio::join!(
+        client.post(&url).json(&body).send(),
+        client.post(&url).json(&body).send(),
+    );
+    let r_a = resp_a.expect("race a");
+    let r_b = resp_b.expect("race b");
+    let status_a = r_a.status();
+    let status_b = r_b.status();
+
+    let mut statuses = [status_a, status_b];
+    statuses.sort_by_key(|s| s.as_u16());
+
+    assert_eq!(
+        statuses[0],
+        StatusCode::OK,
+        "D-17-06: genau ein Race-Aufruf muss 200 sein; got {:?}",
+        statuses
+    );
+    assert!(
+        statuses[1] == StatusCode::CONFLICT || statuses[1] == StatusCode::INTERNAL_SERVER_ERROR,
+        "D-17-06: Race-Verlierer muss 409 ODER 500 sein; got {:?}",
+        statuses
+    );
+    assert!(
+        !(status_a == StatusCode::OK && status_b == StatusCode::OK),
+        "D-17-06: NIE [200, 200] (waere Double-Cascade)"
+    );
+
+    // Post-Konsistenz: A.current_shares == 4 - 2 == 2 (genau 1 erfolgreiche Cascade).
+    let a_after_resp = client
+        .get(server.url(&format!("/api/members/{}", a_id)))
+        .send()
+        .await
+        .expect("GET A");
+    let a_after: Value = a_after_resp.json().await.expect("decode A");
+    assert_eq!(
+        a_after["current_shares"].as_i64().expect("a.current_shares"),
+        2,
+        "Race-Sieger reduziert A.current_shares genau einmal"
+    );
+
+    // Audit-Chain bleibt valid.
+    let verify: Value = client
+        .get(server.url("/api/audit/verify"))
+        .send()
+        .await
+        .expect("GET verify")
+        .json()
+        .await
+        .expect("decode verify");
+    assert_eq!(verify["valid"].as_bool(), Some(true), "Audit-Chain valid");
+}
+
+/// Test 8 (D-17-06) — Race Cross-Direction Consistency-Check.
+///
+/// Setup: A.current_shares=5, B.current_shares=5. Cross-Transfer 2 in beide
+/// Richtungen (A->B und B->A) parallel.
+///
+/// Per D-17-06 / threat_model T-17-04-07: [200, 200] ist bei Cross-Direction
+/// ERLAUBT (keine konkurrierenden Locks auf dem gleichen Member-Row).
+/// Akzeptierte Statuses: [(200, 200), (200, 409|500)].
+/// VERBOTEN: [409|500, 409|500] (waere Total-Deadlock).
+///
+/// Post-Konsistenz: Anteile-Summe A+B bleibt erhalten (Start: 5+5=10).
+/// Audit-Chain bleibt valid.
+#[tokio::test]
+async fn test_transfer_shares_race_cross_direction_consistency_check() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let a = create_active_member(&client, &server, 1270, "CrossA").await;
+    let a = put_member_current_shares(&client, &server, &a, 5).await;
+    let b = create_active_member(&client, &server, 1271, "CrossB").await;
+    let b = put_member_current_shares(&client, &server, &b, 5).await;
+    let a_id = a.id.expect("a.id");
+    let b_id = b.id.expect("b.id");
+
+    let url_ab = server.url(&format!("/api/members/{}/transfer-shares", a_id));
+    let url_ba = server.url(&format!("/api/members/{}/transfer-shares", b_id));
+    let body_ab = transfer_shares_body(&b_id, 2, &today_march_15().to_string());
+    let body_ba = transfer_shares_body(&a_id, 2, &today_march_15().to_string());
+
+    // Pool-Warm-up (Pitfall #11).
+    tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+
+    let (resp_ab, resp_ba) = tokio::join!(
+        client.post(&url_ab).json(&body_ab).send(),
+        client.post(&url_ba).json(&body_ba).send(),
+    );
+    let r_ab = resp_ab.expect("race ab");
+    let r_ba = resp_ba.expect("race ba");
+    let status_ab = r_ab.status();
+    let status_ba = r_ba.status();
+
+    // D-17-06: NIE Total-Deadlock (beide failen).
+    let both_failed = (status_ab == StatusCode::CONFLICT
+        || status_ab == StatusCode::INTERNAL_SERVER_ERROR)
+        && (status_ba == StatusCode::CONFLICT
+            || status_ba == StatusCode::INTERNAL_SERVER_ERROR);
+    assert!(
+        !both_failed,
+        "D-17-06: NIE Total-Deadlock; got [{}, {}]",
+        status_ab, status_ba
+    );
+
+    // Konsistenz: Anteile-Summe bleibt erhalten (a_start + b_start = 10).
+    let a_after: Value = client
+        .get(server.url(&format!("/api/members/{}", a_id)))
+        .send()
+        .await
+        .expect("GET A")
+        .json()
+        .await
+        .expect("decode A");
+    let b_after: Value = client
+        .get(server.url(&format!("/api/members/{}", b_id)))
+        .send()
+        .await
+        .expect("GET B")
+        .json()
+        .await
+        .expect("decode B");
+    let total_after = a_after["current_shares"].as_i64().expect("a.current_shares")
+        + b_after["current_shares"].as_i64().expect("b.current_shares");
+    assert_eq!(
+        total_after, 10,
+        "Cross-Race: Anteile-Summe muss erhalten bleiben (5+5=10); got A={}, B={}",
+        a_after["current_shares"], b_after["current_shares"]
+    );
+
+    // Audit-Chain bleibt valid.
+    let verify: Value = client
+        .get(server.url("/api/audit/verify"))
+        .send()
+        .await
+        .expect("GET verify")
+        .json()
+        .await
+        .expect("decode verify");
+    assert_eq!(verify["valid"].as_bool(), Some(true), "Audit-Chain valid");
+}
