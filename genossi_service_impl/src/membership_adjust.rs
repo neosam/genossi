@@ -589,6 +589,52 @@ pub(crate) fn validate_partial_repayment_shares(
     Ok(())
 }
 
+/// Pure-Function range-validator fuer Uebertrag (D-17-09 / TRSF-07).
+///
+/// Sammelt ALLE Verletzungen (kein early-return), damit das Frontend mehrere
+/// Felder gleichzeitig anzeigen kann.
+///
+/// Wirft einen `ValidationFailureItem` pro Verletzung bei:
+/// - `from_id == to_id` (TRSF-07 self-transfer, field=`to_member_id`)
+/// - `shares <= 0` (mindestens 1 Anteil, field=`shares`)
+/// - `shares > from_current_shares` (field=`shares`; Voll-Uebertrag-Boundary
+///   `shares == from_current_shares` ist GUELTIG -- Voll-Uebertrag-Branch
+///   wird im Service ausgewertet, D-17-01)
+///
+/// Returns empty `Vec` fuer alle gueltigen Eingaben (`1 <= shares <= from_current_shares`
+/// und `from_id != to_id`).
+#[allow(dead_code)] // Plan 17-02 ruft die Funktion aus der Pipeline auf.
+pub(crate) fn validate_transfer_inputs(
+    from_id: Uuid,
+    to_id: Uuid,
+    shares: i32,
+    from_current_shares: i32,
+) -> Vec<ValidationFailureItem> {
+    let mut errors = Vec::new();
+    if from_id == to_id {
+        errors.push(ValidationFailureItem {
+            field: Arc::from("to_member_id"),
+            message: Arc::from("cannot transfer to self"),
+        });
+    }
+    if shares <= 0 {
+        errors.push(ValidationFailureItem {
+            field: Arc::from("shares"),
+            message: Arc::from("shares must be at least 1"),
+        });
+    }
+    if shares > from_current_shares {
+        errors.push(ValidationFailureItem {
+            field: Arc::from("shares"),
+            message: Arc::from(format!(
+                "shares ({}) exceeds from.current_shares ({})",
+                shares, from_current_shares
+            )),
+        });
+    }
+    errors
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -760,6 +806,97 @@ mod tests {
     #[test]
     fn validate_partial_repayment_shares_happy_path_middle() {
         validate_partial_repayment_shares(5, 10).expect("5 of 10 must accept");
+    }
+
+    // -------------------------------------------------------------------------
+    // D-17-09 / TRSF-07: validate_transfer_inputs (7 Edge-Cases, Plan 17-01).
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_validate_transfer_n_zero_invalid() {
+        let from = uuid::Uuid::new_v4();
+        let to = uuid::Uuid::new_v4();
+        let errs = super::validate_transfer_inputs(from, to, 0, 5);
+        assert_eq!(errs.len(), 1, "n=0 must produce exactly one error");
+        assert_eq!(&*errs[0].field, "shares");
+        assert!(errs[0].message.contains("at least 1"));
+    }
+
+    #[test]
+    fn test_validate_transfer_n_negative_invalid() {
+        let from = uuid::Uuid::new_v4();
+        let to = uuid::Uuid::new_v4();
+        let errs = super::validate_transfer_inputs(from, to, -1, 5);
+        assert_eq!(errs.len(), 1, "n=-1 must produce exactly one error");
+        assert_eq!(&*errs[0].field, "shares");
+    }
+
+    #[test]
+    fn test_validate_transfer_n_equal_current_shares_valid() {
+        let from = uuid::Uuid::new_v4();
+        let to = uuid::Uuid::new_v4();
+        let errs = super::validate_transfer_inputs(from, to, 5, 5);
+        assert!(
+            errs.is_empty(),
+            "Voll-Uebertrag-Boundary (n == current_shares) must be valid; got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn test_validate_transfer_n_exceeds_current_shares_invalid() {
+        let from = uuid::Uuid::new_v4();
+        let to = uuid::Uuid::new_v4();
+        let errs = super::validate_transfer_inputs(from, to, 6, 5);
+        assert_eq!(
+            errs.len(),
+            1,
+            "n>current_shares must produce exactly one error"
+        );
+        assert_eq!(&*errs[0].field, "shares");
+        assert!(errs[0].message.contains("exceeds"));
+    }
+
+    #[test]
+    fn test_validate_transfer_self_invalid() {
+        let id = uuid::Uuid::new_v4();
+        let errs = super::validate_transfer_inputs(id, id, 1, 5);
+        assert!(
+            errs.iter().any(|e| &*e.field == "to_member_id"),
+            "self-transfer must produce a to_member_id error; got {:?}",
+            errs
+        );
+        assert!(
+            errs.iter()
+                .any(|e| e.message.contains("cannot transfer to self")),
+            "must include the canonical message; got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn test_validate_transfer_n_one_valid() {
+        let from = uuid::Uuid::new_v4();
+        let to = uuid::Uuid::new_v4();
+        let errs = super::validate_transfer_inputs(from, to, 1, 5);
+        assert!(
+            errs.is_empty(),
+            "n=1 (Teil-Uebertrag) must be valid; got {:?}",
+            errs
+        );
+    }
+
+    #[test]
+    fn test_validate_transfer_multiple_violations_accumulate() {
+        let id = uuid::Uuid::new_v4();
+        // Self-transfer AND shares=0 -- beide Fehler muessen gesammelt werden.
+        let errs = super::validate_transfer_inputs(id, id, 0, 5);
+        assert_eq!(
+            errs.len(),
+            2,
+            "two distinct violations must accumulate; got {:?}",
+            errs
+        );
     }
 }
 
