@@ -4,8 +4,8 @@ milestone: v1.2
 milestone_name: Mitgliedschaft-Anpassungen während des Geschäftsjahres
 status: executing
 stopped_at: Phase 17 context gathered
-last_updated: "2026-06-06T10:26:30.884Z"
-last_activity: 2026-06-06 -- Phase 17 planning complete
+last_updated: "2026-06-06T10:29:53.549Z"
+last_activity: 2026-06-06 -- Phase 17 execution started
 progress:
   total_phases: 4
   completed_phases: 3
@@ -25,14 +25,14 @@ See: `.planning/PROJECT.md` (updated 2026-06-02 after v1.1 close)
 
 **Core Value:** Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachvollziehbar (Audit-Hashchain), mit weniger manueller Arbeit.
 
-**Current Focus:** Phase 16 — service-rest-teil-rueckgabe-auto-anlegen-phase
+**Current Focus:** Phase 17 — service-rest-uebertrag-cascade
 
 ## Current Position
 
-Phase: 16
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-06-06 -- Phase 17 planning complete
+Phase: 17 (service-rest-uebertrag-cascade) — EXECUTING
+Plan: 1 of 4
+Status: Executing Phase 17
+Last activity: 2026-06-06 -- Phase 17 execution started
 
 ## v1.2 Roadmap (Phases 14–18)
 
