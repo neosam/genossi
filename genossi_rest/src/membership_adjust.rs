@@ -23,7 +23,7 @@ use axum::{
 use genossi_rest_types::{
     CancelMembershipRequestTO, IncreaseSharesRequestTO, MemberActionTO, MemberTO,
     MembershipAdjustResponseTO, PartialRepaymentRequestTO, PartialRepaymentResponseTO,
-    RepaymentEntryTO, RepaymentPhaseTO,
+    RepaymentEntryTO, RepaymentPhaseTO, TransferSharesRequestTO, TransferSharesResponseTO,
 };
 use genossi_service::membership_adjust::MembershipAdjustService;
 use tracing::instrument;
@@ -183,16 +183,80 @@ pub async fn partial_repayment<RestState: RestStateDef>(
     )
 }
 
+// Phase 17 v1.2 (TRSF-01 / C-17-CF-07): Voll-/Teil-Uebertrag von Anteilen
+// zwischen Mitgliedern.
+//
+// Path-Parameter `from_id` ist der Sender; `req.to_member_id` ist der
+// Empfaenger. Service-Layer (Plan 17-01/02) prueft self-transfer-block
+// (TRSF-07 / D-17-08), shares-Range und transfer_date-Bounds.
+//
+// D-15-12 / Phase 15 Resolution: `ServiceError::PermissionDenied` wird auf
+// HTTP 401 gemappt (NICHT 403) per globalem `From<ServiceError> for RestError`
+// in `genossi_rest/src/lib.rs`. KEIN 403-Eintrag in responses(...).
+#[instrument(skip(rest_state))]
+#[utoipa::path(
+    post,
+    tag = "Members",
+    path = "/{from_id}/transfer-shares",
+    params(("from_id" = Uuid, Path, description = "Sender Member ID (path parameter)")),
+    request_body = TransferSharesRequestTO,
+    responses(
+        (status = 200, description = "Transfer successful (returns 2 actions for Teil-Uebertrag, 3 for Voll-Uebertrag inkl. Austritt)", body = TransferSharesResponseTO),
+        (status = 400, description = "Validation error: self-transfer (TRSF-07), shares out of range (1..=from.current_shares), or transfer_date outside [today.year(), today.year()+1]"),
+        // D-15-12 / Phase 15 Resolution: ServiceError::PermissionDenied -> 401
+        // (NICHT 403) via globalem From-Mapping in genossi_rest/src/lib.rs.
+        (status = 401, description = "Unauthorized — kein Login oder keine admin-Rolle (D-15-12: PermissionDenied wird auf 401 gemappt, NICHT auf 403 — Codebase-Mapping)"),
+        (status = 404, description = "From oder To Member nicht gefunden / soft-deleted"),
+        (status = 409, description = "Recipient already cancelled (PERM-03 / D-17-07) ODER optimistic-locking conflict"),
+        (status = 500, description = "SQLITE_BUSY mid-cascade (Race-Test Verlierer-Pfad, D-17-06)"),
+    ),
+)]
+pub async fn transfer_shares<RestState: RestStateDef>(
+    rest_state: State<RestState>,
+    Extension(context): Extension<Context>,
+    Path(from_id): Path<Uuid>,
+    Json(req): Json<TransferSharesRequestTO>,
+) -> Response {
+    error_handler(
+        (async {
+            let (actions, from, to) = rest_state
+                .membership_adjust_service()
+                .transfer_shares(
+                    from_id,
+                    req.to_member_id,
+                    req.shares,
+                    req.transfer_date,
+                    crate::extract_auth_context(Some(context))?,
+                    None,
+                )
+                .await?;
+            let response = TransferSharesResponseTO {
+                actions: actions.iter().map(MemberActionTO::from).collect(),
+                from: MemberTO::from(&from),
+                to: MemberTO::from(&to),
+            };
+            Ok(Response::builder()
+                .status(200)
+                .header("Content-Type", "application/json")
+                .body(Body::new(serde_json::to_string(&response)?))
+                .unwrap())
+        })
+        .await,
+    )
+}
+
 #[derive(utoipa::OpenApi)]
 #[openapi(
-    paths(cancel_membership, increase_shares, partial_repayment),
+    paths(cancel_membership, increase_shares, partial_repayment, transfer_shares),
     components(schemas(
         CancelMembershipRequestTO,
         IncreaseSharesRequestTO,
         MembershipAdjustResponseTO,
         PartialRepaymentRequestTO,
         PartialRepaymentResponseTO,
+        TransferSharesRequestTO,
+        TransferSharesResponseTO,
     )),
-    tags((name = "Members", description = "Phase 15-16 v1.2 membership-adjust endpoints"))
+    tags((name = "Members", description = "Phase 15-17 v1.2 membership-adjust endpoints"))
 )]
 pub struct ApiDoc;
