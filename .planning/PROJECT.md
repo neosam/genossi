@@ -44,7 +44,9 @@ Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachv
 - `membership-adjust-during-fiscal-year.md` (Haupt-Seed, planted 2026-06-04)
 - Design-Doc-Referenz: `.planning/notes/membership-adjust-design.md`
 
-**Next:** Phase 17 (Übertragung `transfer_shares`) — erweitert den bestehenden `MembershipAdjustService`-Trait inkrementell (D-15-13 Pattern).
+**Next:** Phase 18 (Frontend für `transfer_shares`) — bindet den neuen REST-Endpoint im `MembershipAdjustModal` an.
+
+**Phase 17 abgeschlossen (2026-06-06):** Service+REST Übertragung — `MembershipAdjustService::transfer_shares(from_id, to_id, shares, transfer_date, context)` als 15-Schritt-Single-Tx-Cascade mit Pre-write-Detection des Voll-Übertrags (D-17-01). Pure-Function `validate_transfer_inputs` mit 7 Edge-Case-Tests (n>0, n≤current_shares, from≠to, Akkumulation). 5 `audited_*!`-Aufrufe (UebertragungAbgabe, UebertragungEmpfang, from-update, to-update, optional Austritt bei Voll-Übertrag) mit gemeinsamem `TRANSFER_PROCESS = "member-adjust.transfer"`. `recalc_dates(from)` läuft exakt einmal nach Voll-Übertrag (D-17-02). REST-Endpoint `POST /api/members/{from_id}/transfer-shares` (Sub-Route VOR `/{id}`-Catch-All), DTOs `TransferSharesRequestTO`/`ResponseTO` mit ISO8601-Datum + Response-Shape `{ actions, from, to }`. 10 Mock-basierte Service-Tests + 8 E2E-Tests (alle 8 REQ-IDs + 2 D-17-06-Race-Patterns) + 2 Race-Tests (same- und cross-direction). 4 Pläne, 12 Commits, TRSF-01..05, TRSF-07, AUDT-02, PERM-03 satisfied. Pre-existing Mail-Preview-Test (test_mail_preview_repayment_no_entries_does_not_default_to_one) als pre-existing failing markiert — keine Phase-17-Regression (auch auf `da1b41c` fail).
 
 **Phase 16 abgeschlossen (2026-06-05):** Service+REST Teil-Rückgabe + Auto-Anlegen-Phase — `MembershipAdjustService::partial_repayment(member_id, shares, willensbekundung_date, context)` erzeugt atomar einen `RepaymentEntry` in der via `compute_effective_date` berechneten Ziel-Phase. Auto-Create-Branch legt die Phase bei Bedarf in Status `Open` mit `share_value` aus Vorgänger oder `DEFAULT_SHARE_VALUE_CENT=10000` an (D-16-01 Variante B). Sum-Check via `find_by_member_and_phase` verhindert Überzahlung; Auto-Fill-Skip-Pattern in `open_repayment_phase` mitigiert Doppelbuchung (PITFALLS-Kat-1). Closed-Phase-Status-Guard (Plan 16-05 Gap-Closure für CR-01) blockt Schreibversuche in geschlossenen Phasen mit HTTP 409 vor jedem audited_create. REST-Endpoint `POST /api/members/{id}/partial-repayment` (Sub-Route vor `/{id}` Catch-All), 11 Service-Unit-Tests + 18 E2E-Tests bestanden, Audit-Chain bleibt valid. 5 Pläne (inkl. 16-05 Gap-Closure), PART-01..06 satisfied.
 
@@ -114,7 +116,7 @@ Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachv
 
 - [x] Kündigung (Voll-Rückgabe) erzeugt exit_date mit H1/H2-Stichtagsregel — v1.2 Phase 15 (CANC-01, CANC-03, CANC-04, CANC-05)
 - [ ] Teil-Rückgabe erzeugt RepaymentEntry in Ziel-Phase ohne MemberAction-Vorgriff
-- [ ] Anteils-Übertragung erzeugt 2 verlinkte MemberActions (neuer Übertrag-Action-Typ) + aktualisiert current_shares atomar
+- [x] Anteils-Übertragung erzeugt 2 verlinkte MemberActions (`UebertragungAbgabe`/`UebertragungEmpfang`) + aktualisiert current_shares atomar; Voll-Übertrag triggert zusätzlich `MemberAction::Austritt` — v1.2 Phase 17 (TRSF-01, TRSF-02, TRSF-03, TRSF-04, TRSF-05, TRSF-07, AUDT-02, PERM-03)
 - [x] Aufstockung erzeugt MemberAction (`Aufstockung`-Variante) + aktualisiert current_shares atomar via `audited_update!` — v1.2 Phase 15 (UPGD-01, UPGD-02, UPGD-03, UPGD-04)
 - [ ] Single-Button „Mitgliedschaft anpassen" + Vorschau-Confirm-Dialog auf Member-Detail-Frontend (Vorstand-only)
 
