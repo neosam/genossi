@@ -27,13 +27,13 @@ Requirements für v1.2-Release. Jedes mappt auf genau eine Roadmap-Phase.
 
 ### Übertrag (TRSF) — Anteile an aktives Mitglied (Teil oder voll)
 
-- [ ] **TRSF-01**: Vorstand kann am Mitglied „Übertragen an Mitglied" auslösen mit Empfänger-Mitglied und Anteils-Anzahl `n` (1..source.current_shares)
-- [ ] **TRSF-02**: Übertrag ist sofort wirksam (kein H1/H2-Stichtag, da kein Geldfluss aus der Genossenschaft)
-- [ ] **TRSF-03**: System erzeugt 2 verlinkte MemberActions atomar in einer Tx: `MemberAction::UebertragungAbgabe(A: shares_change=−n, transfer_member_id=B.id)` + `MemberAction::UebertragungEmpfang(B: shares_change=+n, transfer_member_id=A.id)` (existing ActionType-Varianten)
-- [ ] **TRSF-04**: System aktualisiert `Member.current_shares` für A (−n) und B (+n) atomar in derselben Tx
-- [ ] **TRSF-05**: Bei Voll-Übertrag (A.current_shares → 0 nach Übertrag) erzeugt System zusätzlich eine `MemberAction::Austritt` für A mit `date = Übertrags-Datum` und `effective_date = Übertrags-Datum`; `Member.exit_date` wird via `recalc_dates` automatisch gesetzt (gleiche Austritt-Konsistenz-Story wie CANC-03)
+- [x] **TRSF-01**: Vorstand kann am Mitglied „Übertragen an Mitglied" auslösen mit Empfänger-Mitglied und Anteils-Anzahl `n` (1..source.current_shares)
+- [x] **TRSF-02**: Übertrag ist sofort wirksam (kein H1/H2-Stichtag, da kein Geldfluss aus der Genossenschaft)
+- [x] **TRSF-03**: System erzeugt 2 verlinkte MemberActions atomar in einer Tx: `MemberAction::UebertragungAbgabe(A: shares_change=−n, transfer_member_id=B.id)` + `MemberAction::UebertragungEmpfang(B: shares_change=+n, transfer_member_id=A.id)` (existing ActionType-Varianten)
+- [x] **TRSF-04**: System aktualisiert `Member.current_shares` für A (−n) und B (+n) atomar in derselben Tx
+- [x] **TRSF-05**: Bei Voll-Übertrag (A.current_shares → 0 nach Übertrag) erzeugt System zusätzlich eine `MemberAction::Austritt` für A mit `date = Übertrags-Datum` und `effective_date = Übertrags-Datum`; `Member.exit_date` wird via `recalc_dates` automatisch gesetzt (gleiche Austritt-Konsistenz-Story wie CANC-03)
 - [ ] **TRSF-06**: Empfänger-Search liefert nur aktive Mitglieder (`exit_date IS NULL AND id != source_id`) — neuer REST-Endpoint `GET /api/members/transfer-recipients?exclude_self={uuid}`
-- [ ] **TRSF-07**: Self-Transfer ist verboten — Service-Layer-Guard liefert HTTP 400 bei `from_member_id == to_member_id`
+- [x] **TRSF-07**: Self-Transfer ist verboten — Service-Layer-Guard liefert HTTP 400 bei `from_member_id == to_member_id`
 
 ### Aufstockung (UPGD)
 
@@ -52,13 +52,13 @@ Requirements für v1.2-Release. Jedes mappt auf genau eine Roadmap-Phase.
 ### Audit (AUDT)
 
 - [x] **AUDT-01**: Alle v1.2-Operationen erzeugen Audit-Einträge via `audited_create!`/`audited_update!`-Macros (kein direkter DAO-Write außerhalb der Macros)
-- [ ] **AUDT-02**: Übertrag-Pair (Aus + Ein) teilt sich gemeinsamen Process-String `process="member-adjust.transfer"` und kann via `/api/audit/verify` + Process-Filter als zusammenhängender Vorgang gefunden werden
+- [x] **AUDT-02**: Übertrag-Pair (Aus + Ein) teilt sich gemeinsamen Process-String `process="member-adjust.transfer"` und kann via `/api/audit/verify` + Process-Filter als zusammenhängender Vorgang gefunden werden
 
 ### Permission & Validation (PERM)
 
 - [x] **PERM-01**: Alle 4 Operationen sind admin-only via `check_permission(ADMIN_PRIVILEGE, ...)` (Vorstand)
 - [x] **PERM-02**: Server-Layer validiert das Willensbekundungs-Datum: muss im aktuell offenen GJ oder nächsten GJ liegen (zusätzlich zum Datepicker-Frontend-Guard)
-- [ ] **PERM-03**: Empfänger beim Übertrag muss aktives Mitglied sein (`exit_date IS NULL`) — Service-Layer-Guard zusätzlich zum Search-Filter (TRSF-06)
+- [x] **PERM-03**: Empfänger beim Übertrag muss aktives Mitglied sein (`exit_date IS NULL`) — Service-Layer-Guard zusätzlich zum Search-Filter (TRSF-06)
 
 ## v2 Requirements (Deferred)
 
@@ -111,13 +111,13 @@ Welche Phasen welche Requirements abdecken. Wird vom Roadmapper-Schritt befüllt
 | PART-04 | Phase 16 | Complete |
 | PART-05 | Phase 16 | Pending |
 | PART-06 | Phase 16 | Pending |
-| TRSF-01 | Phase 17 | Pending |
-| TRSF-02 | Phase 17 | Pending |
-| TRSF-03 | Phase 17 | Pending |
-| TRSF-04 | Phase 17 | Pending |
-| TRSF-05 | Phase 17 | Pending |
+| TRSF-01 | Phase 17 | Complete |
+| TRSF-02 | Phase 17 | Complete |
+| TRSF-03 | Phase 17 | Complete |
+| TRSF-04 | Phase 17 | Complete |
+| TRSF-05 | Phase 17 | Complete |
 | TRSF-06 | Phase 14 | Pending |
-| TRSF-07 | Phase 17 | Pending |
+| TRSF-07 | Phase 17 | Complete |
 | UPGD-01 | Phase 15 | Complete |
 | UPGD-02 | Phase 15 | Complete |
 | UPGD-03 | Phase 15 | Complete |
@@ -127,10 +127,10 @@ Welche Phasen welche Requirements abdecken. Wird vom Roadmapper-Schritt befüllt
 | UI-03 | Phase 18 | Pending |
 | UI-04 | Phase 18 | Pending |
 | AUDT-01 | Phase 15 | Complete |
-| AUDT-02 | Phase 17 | Pending |
+| AUDT-02 | Phase 17 | Complete |
 | PERM-01 | Phase 15 | Complete |
 | PERM-02 | Phase 15 | Complete |
-| PERM-03 | Phase 17 | Pending |
+| PERM-03 | Phase 17 | Complete |
 
 **Coverage:**
 - v1.2 requirements: 31 total
