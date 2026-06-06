@@ -106,6 +106,12 @@
 4. Self-Transfer-Block (HTTP 400 wenn `from_id == to_id`); Empfänger-aktiv-Guard (HTTP 400 wenn `to.exit_date IS NOT NULL`)
 5. 8 E2E-Tests: Teil-Übertrag Happy-Path, Voll-Übertrag mit exit_date-Cascade, Self-Transfer 400, Empfänger-gekündigt 400, Empfänger-soft-deleted 404, Audit-Pair-Verlinkung-Verify, SQLITE_BUSY-Race (akzeptiert `[200, 409|500]`), Multi-Endpoint-Audit-Verify
 
+**Plans:** 4 plans
+- [ ] 17-01-PLAN.md — MembershipAdjustService trait extension (transfer_shares) + validate_transfer_inputs pure helper + TRANSFER_PROCESS constant + 7 edge-case unit tests (TRSF-07)
+- [ ] 17-02-PLAN.md — transfer_shares 15-step single-tx cascade pipeline + pre-write Voll-Uebertrag detection + ~10 mock-based unit tests (TRSF-01..05, AUDT-02, PERM-03)
+- [ ] 17-03-PLAN.md — TransferSharesRequestTO/ResponseTO + Axum handler with Utoipa annotations + sub-route registration BEFORE /{id} catch-all (TRSF-01, TRSF-07)
+- [ ] 17-04-PLAN.md — 8 E2E tests covering all REQ-IDs incl. Same- + Cross-Direction race tests + audit doppel-assertion helper (TRSF-01..05, TRSF-07, AUDT-02, PERM-03)
+
 ---
 
 ## Phase 18 — Frontend Component-First
