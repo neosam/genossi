@@ -2519,4 +2519,616 @@ mod service_tests {
             Ok(_) => panic!("expected ServiceError::Conflict, got Ok(_)"),
         }
     }
+
+    // =========================================================================
+    // Phase 17 Plan 02 — transfer_shares service tests (10 cases)
+    //
+    // Coverage:
+    //   1) partial_happy_path (Teil-Uebertrag, 2 Actions, 2 Updates)
+    //   2) full_branch_creates_austritt (Voll-Uebertrag, 3 Actions inkl. Austritt
+    //      mit transfer_member_id=Some(to_id) + effective_date=Some(transfer_date))
+    //   3) validation_n_zero_rejected (shares=0, KEINE DAO writes)
+    //   4) validation_n_negative_rejected (shares=-1, KEINE DAO writes)
+    //   5) validation_n_exceeds_rejected (shares=6 > current=5, KEINE DAO writes)
+    //   6) validation_self_transfer_rejected (from_id == to_id)
+    //   7) recipient_cancelled_returns_conflict (PERM-03: to.exit_date.is_some())
+    //   8) permission_denied_no_dao_load
+    //   9) from_not_found_returns_entity_not_found
+    //  10) to_not_found_returns_entity_not_found
+    //
+    // Mock-Counts (Happy-Path):
+    //   member_dao.find_by_id(from) x4  (Schritt 3, 11-audited_update-load, 14-recalc, 15-reread)
+    //   member_dao.find_by_id(to)   x3  (Schritt 6, 12-audited_update-load, 15-reread)
+    //   member_dao.update           x2  (Schritt 11+12)
+    //   member_dao.update_dates     x1  (recalc_dates Schritt 14)
+    //   member_action_dao.create    x2 (Teil) / x3 (Voll)
+    //   member_action_dao.find_by_member_id x1 (recalc_dates Schritt 14)
+    //   audit_log_dao.get_latest_hash + create_entries: any-count (one per audited_*! call)
+    // =========================================================================
+
+    /// Builds a default permission_service mock that always allows the admin path.
+    fn allow_admin_perms_transfer() -> MockTestPermissionService {
+        let mut p = MockTestPermissionService::new();
+        p.expect_current_user_id()
+            .returning(|_| Ok(Some("admin".to_string())));
+        p.expect_check_permission().returning(|_, _| Ok(()));
+        p
+    }
+
+    /// Builds a default audit_log_dao that accepts any number of writes (the
+    /// audited_*! macros call this internally; per-test counts are implementation-
+    /// detail).
+    fn allow_audit_log_transfer() -> MockTestAuditLogDao {
+        let mut a = MockTestAuditLogDao::new();
+        a.expect_get_latest_hash().returning(|_| Ok(None));
+        a.expect_create_entries().returning(|_, _| Ok(()));
+        a
+    }
+
+    /// Test date within the current calendar year (H1) so
+    /// validate_willensbekundung_date passes regardless of when the test runs.
+    fn transfer_test_date() -> Date {
+        let today = time::OffsetDateTime::now_utc().date();
+        today
+            .replace_month(time::Month::March)
+            .expect("March in today.year() is valid")
+            .replace_day(15)
+            .expect("Day 15 always valid")
+    }
+
+    // ---------- Test 1: Happy-Path Teil-Uebertrag ----------
+    #[tokio::test]
+    async fn test_transfer_shares_partial_happy_path_calls_two_creates_two_updates() {
+        let from_id = Uuid::new_v4();
+        let to_id = Uuid::new_v4();
+        let transfer_date = transfer_test_date();
+
+        let from_entity = sample_member_entity_with_shares(from_id, 5, None);
+        let to_entity = sample_member_entity_with_shares(to_id, 1, None);
+
+        let mut member_dao = MockTestMemberDao::new();
+        // from-load (Schritt 3) + audited_update-load (Schritt 11) + recalc_dates load
+        // (Schritt 14) + final re-read (Schritt 15) = 4.
+        let from_clone = from_entity.clone();
+        member_dao
+            .expect_find_by_id()
+            .withf(move |id, _| *id == from_id)
+            .times(4)
+            .returning(move |_, _| Ok(Some(from_clone.clone())));
+        // to-load (Schritt 6) + audited_update-load (Schritt 12) + final re-read
+        // (Schritt 15) = 3.
+        let to_clone = to_entity.clone();
+        member_dao
+            .expect_find_by_id()
+            .withf(move |id, _| *id == to_id)
+            .times(3)
+            .returning(move |_, _| Ok(Some(to_clone.clone())));
+        // 2 Member-Updates (from -= 2, to += 2). Beide nutzen TRANSFER_PROCESS.
+        member_dao
+            .expect_update()
+            .withf(|_entity, process, _| process == "member-adjust.transfer")
+            .times(2)
+            .returning(|_, _, _| Ok(()));
+        // recalc_dates fuehrt update_dates auf from aus.
+        member_dao
+            .expect_update_dates()
+            .times(1)
+            .returning(|_, _, _, _| Ok(()));
+
+        let mut member_action_dao = MockTestMemberActionDao::new();
+        // 2 audited_create! (Abgabe + Empfang). KEIN Austritt im Teil-Pfad.
+        member_action_dao
+            .expect_create()
+            .withf(|_entity, process, _| process == "member-adjust.transfer")
+            .times(2)
+            .returning(|_, _, _| Ok(()));
+        // recalc_dates ruft find_by_member_id(from) auf.
+        member_action_dao
+            .expect_find_by_member_id()
+            .returning(|_, _| Ok(Arc::from(Vec::<MemberActionEntity>::new())));
+
+        let service = build_service_part(
+            member_dao,
+            member_action_dao,
+            allow_audit_log_transfer(),
+            allow_admin_perms_transfer(),
+            setup_tx_dao(),
+            MockTestRepaymentPhaseDao::new(),
+            MockTestRepaymentEntryDao::new(),
+        );
+
+        let res = service
+            .transfer_shares(from_id, to_id, 2, transfer_date, Authentication::Full, None)
+            .await;
+
+        let (actions, _from, _to) = res.expect("Teil-Uebertrag happy path");
+        assert_eq!(
+            actions.len(),
+            2,
+            "Teil-Uebertrag = 2 Actions (Abgabe + Empfang)"
+        );
+        assert_eq!(actions[0].action_type, ActionType::UebertragungAbgabe);
+        assert_eq!(actions[0].shares_change, -2);
+        assert_eq!(actions[1].action_type, ActionType::UebertragungEmpfang);
+        assert_eq!(actions[1].shares_change, 2);
+    }
+
+    // ---------- Test 2: Voll-Uebertrag -> Austritt-Branch ----------
+    #[tokio::test]
+    async fn test_transfer_shares_full_branch_creates_austritt() {
+        use std::sync::Mutex;
+
+        let from_id = Uuid::new_v4();
+        let to_id = Uuid::new_v4();
+        let transfer_date = transfer_test_date();
+
+        let from_entity = sample_member_entity_with_shares(from_id, 3, None);
+        let to_entity = sample_member_entity_with_shares(to_id, 1, None);
+
+        let mut member_dao = MockTestMemberDao::new();
+        let from_clone = from_entity.clone();
+        member_dao
+            .expect_find_by_id()
+            .withf(move |id, _| *id == from_id)
+            .times(4)
+            .returning(move |_, _| Ok(Some(from_clone.clone())));
+        let to_clone = to_entity.clone();
+        member_dao
+            .expect_find_by_id()
+            .withf(move |id, _| *id == to_id)
+            .times(3)
+            .returning(move |_, _| Ok(Some(to_clone.clone())));
+        member_dao
+            .expect_update()
+            .withf(|_entity, process, _| process == "member-adjust.transfer")
+            .times(2)
+            .returning(|_, _, _| Ok(()));
+        member_dao
+            .expect_update_dates()
+            .times(1)
+            .returning(|_, _, _, _| Ok(()));
+
+        // D-17-03 verstaerkte Assertion: Capture aller 3 MemberAction-Entities und
+        // pruefe positiv, dass der 3. Eintrag Austritt mit den korrekten Fields ist.
+        let captured: Arc<Mutex<Vec<MemberActionEntity>>> = Arc::new(Mutex::new(Vec::new()));
+        let captured_clone = captured.clone();
+
+        let mut member_action_dao = MockTestMemberActionDao::new();
+        member_action_dao
+            .expect_create()
+            .withf(|_entity, process, _| process == "member-adjust.transfer")
+            .times(3)
+            .returning(move |entity: &MemberActionEntity, _process, _tx| {
+                captured_clone.lock().unwrap().push(entity.clone());
+                Ok(())
+            });
+        member_action_dao
+            .expect_find_by_member_id()
+            .returning(|_, _| Ok(Arc::from(Vec::<MemberActionEntity>::new())));
+
+        let service = build_service_part(
+            member_dao,
+            member_action_dao,
+            allow_audit_log_transfer(),
+            allow_admin_perms_transfer(),
+            setup_tx_dao(),
+            MockTestRepaymentPhaseDao::new(),
+            MockTestRepaymentEntryDao::new(),
+        );
+
+        let res = service
+            .transfer_shares(from_id, to_id, 3, transfer_date, Authentication::Full, None)
+            .await;
+
+        let (actions, _from, _to) = res.expect("Voll-Uebertrag happy path");
+        assert_eq!(
+            actions.len(),
+            3,
+            "Voll-Uebertrag = 3 Actions (Abgabe + Empfang + Austritt)"
+        );
+        assert_eq!(actions[2].action_type, ActionType::Austritt);
+
+        // D-17-03 Fields-Assertion auf das von audited_create! akzeptierte Entity:
+        // (1) action_type == Austritt, (2) transfer_member_id == Some(to_id),
+        // (3) effective_date == Some(transfer_date).
+        let captured_vec = captured.lock().unwrap();
+        assert_eq!(
+            captured_vec.len(),
+            3,
+            "3 MemberAction-Entities wurden via DAO erzeugt"
+        );
+        let austritt = &captured_vec[2];
+        assert_eq!(
+            austritt.action_type,
+            ActionType::Austritt,
+            "3. captured Entity = Austritt"
+        );
+        assert!(
+            austritt.transfer_member_id == Some(to_id),
+            "Austritt.transfer_member_id muss Some(to_id) sein (D-17-03 — divergiert von Phase-15 CANC)"
+        );
+        assert!(
+            austritt.effective_date == Some(transfer_date),
+            "Austritt.effective_date muss Some(transfer_date) sein (TRSF-05 sofort wirksam)"
+        );
+    }
+
+    // ---------- Test 3: shares=0 rejected without writes ----------
+    #[tokio::test]
+    async fn test_transfer_shares_validation_n_zero_rejected_no_dao_writes() {
+        let from_id = Uuid::new_v4();
+        let to_id = Uuid::new_v4();
+        let transfer_date = transfer_test_date();
+
+        let from_entity = sample_member_entity_with_shares(from_id, 5, None);
+
+        let mut member_dao = MockTestMemberDao::new();
+        let from_clone = from_entity.clone();
+        // only from-load (Schritt 3); validation bricht VOR to-Load ab.
+        member_dao
+            .expect_find_by_id()
+            .withf(move |id, _| *id == from_id)
+            .times(1)
+            .returning(move |_, _| Ok(Some(from_clone.clone())));
+        // KEINE update/update_dates Calls erwartet (mockall panics on unexpected).
+        member_dao.expect_update().times(0);
+        member_dao.expect_update_dates().times(0);
+
+        let mut member_action_dao = MockTestMemberActionDao::new();
+        member_action_dao.expect_create().times(0);
+
+        let service = build_service_part(
+            member_dao,
+            member_action_dao,
+            allow_audit_log_transfer(),
+            allow_admin_perms_transfer(),
+            setup_tx_dao(),
+            MockTestRepaymentPhaseDao::new(),
+            MockTestRepaymentEntryDao::new(),
+        );
+
+        let res = service
+            .transfer_shares(from_id, to_id, 0, transfer_date, Authentication::Full, None)
+            .await;
+
+        match res {
+            Err(ServiceError::ValidationError(errs)) => {
+                assert!(
+                    errs.iter().any(|e| &*e.field == "shares"),
+                    "expected ValidationError with field=shares, got: {:?}",
+                    errs
+                );
+            }
+            other => panic!("expected ValidationError, got {:?}", other),
+        }
+    }
+
+    // ---------- Test 4: shares=-1 rejected ----------
+    #[tokio::test]
+    async fn test_transfer_shares_validation_n_negative_rejected() {
+        let from_id = Uuid::new_v4();
+        let to_id = Uuid::new_v4();
+        let transfer_date = transfer_test_date();
+
+        let from_entity = sample_member_entity_with_shares(from_id, 5, None);
+
+        let mut member_dao = MockTestMemberDao::new();
+        let from_clone = from_entity.clone();
+        member_dao
+            .expect_find_by_id()
+            .withf(move |id, _| *id == from_id)
+            .times(1)
+            .returning(move |_, _| Ok(Some(from_clone.clone())));
+        member_dao.expect_update().times(0);
+        member_dao.expect_update_dates().times(0);
+
+        let mut member_action_dao = MockTestMemberActionDao::new();
+        member_action_dao.expect_create().times(0);
+
+        let service = build_service_part(
+            member_dao,
+            member_action_dao,
+            allow_audit_log_transfer(),
+            allow_admin_perms_transfer(),
+            setup_tx_dao(),
+            MockTestRepaymentPhaseDao::new(),
+            MockTestRepaymentEntryDao::new(),
+        );
+
+        let res = service
+            .transfer_shares(from_id, to_id, -1, transfer_date, Authentication::Full, None)
+            .await;
+
+        assert!(
+            matches!(res, Err(ServiceError::ValidationError(_))),
+            "expected ValidationError for negative shares, got {:?}",
+            res
+        );
+    }
+
+    // ---------- Test 5: shares > from.current_shares rejected ----------
+    #[tokio::test]
+    async fn test_transfer_shares_validation_n_exceeds_rejected() {
+        let from_id = Uuid::new_v4();
+        let to_id = Uuid::new_v4();
+        let transfer_date = transfer_test_date();
+
+        // from.current_shares = 5, request 6 -> validation rejects.
+        let from_entity = sample_member_entity_with_shares(from_id, 5, None);
+
+        let mut member_dao = MockTestMemberDao::new();
+        let from_clone = from_entity.clone();
+        member_dao
+            .expect_find_by_id()
+            .withf(move |id, _| *id == from_id)
+            .times(1)
+            .returning(move |_, _| Ok(Some(from_clone.clone())));
+        member_dao.expect_update().times(0);
+        member_dao.expect_update_dates().times(0);
+
+        let mut member_action_dao = MockTestMemberActionDao::new();
+        member_action_dao.expect_create().times(0);
+
+        let service = build_service_part(
+            member_dao,
+            member_action_dao,
+            allow_audit_log_transfer(),
+            allow_admin_perms_transfer(),
+            setup_tx_dao(),
+            MockTestRepaymentPhaseDao::new(),
+            MockTestRepaymentEntryDao::new(),
+        );
+
+        let res = service
+            .transfer_shares(from_id, to_id, 6, transfer_date, Authentication::Full, None)
+            .await;
+
+        match res {
+            Err(ServiceError::ValidationError(errs)) => {
+                assert!(
+                    errs.iter().any(|e| e.message.contains("exceeds")),
+                    "expected message to mention 'exceeds', got: {:?}",
+                    errs
+                );
+            }
+            other => panic!("expected ValidationError, got {:?}", other),
+        }
+    }
+
+    // ---------- Test 6: Self-Transfer rejected (TRSF-07) ----------
+    #[tokio::test]
+    async fn test_transfer_shares_validation_self_transfer_rejected() {
+        let id = Uuid::new_v4();
+        let transfer_date = transfer_test_date();
+
+        let entity = sample_member_entity_with_shares(id, 5, None);
+
+        let mut member_dao = MockTestMemberDao::new();
+        let entity_clone = entity.clone();
+        // Self-transfer load: from_id == to_id wird einmal als from geladen,
+        // dann scheitert validate_transfer_inputs.
+        member_dao
+            .expect_find_by_id()
+            .times(1)
+            .returning(move |_, _| Ok(Some(entity_clone.clone())));
+        member_dao.expect_update().times(0);
+        member_dao.expect_update_dates().times(0);
+
+        let mut member_action_dao = MockTestMemberActionDao::new();
+        member_action_dao.expect_create().times(0);
+
+        let service = build_service_part(
+            member_dao,
+            member_action_dao,
+            allow_audit_log_transfer(),
+            allow_admin_perms_transfer(),
+            setup_tx_dao(),
+            MockTestRepaymentPhaseDao::new(),
+            MockTestRepaymentEntryDao::new(),
+        );
+
+        let res = service
+            .transfer_shares(id, id, 1, transfer_date, Authentication::Full, None)
+            .await;
+
+        match res {
+            Err(ServiceError::ValidationError(errs)) => {
+                assert!(
+                    errs.iter().any(|e| &*e.field == "to_member_id"),
+                    "expected ValidationError with field=to_member_id, got: {:?}",
+                    errs
+                );
+            }
+            other => panic!("expected ValidationError, got {:?}", other),
+        }
+    }
+
+    // ---------- Test 7: PERM-03 recipient cancelled -> Conflict ----------
+    #[tokio::test]
+    async fn test_transfer_shares_recipient_cancelled_returns_conflict() {
+        let from_id = Uuid::new_v4();
+        let to_id = Uuid::new_v4();
+        let transfer_date = transfer_test_date();
+
+        let from_entity = sample_member_entity_with_shares(from_id, 5, None);
+        // to bereits exit_date gesetzt -> PERM-03-Trigger.
+        let exit = time::Date::from_calendar_date(2026, time::Month::January, 1).unwrap();
+        let to_entity = sample_member_entity_with_shares(to_id, 1, Some(exit));
+
+        let mut member_dao = MockTestMemberDao::new();
+        let from_clone = from_entity.clone();
+        member_dao
+            .expect_find_by_id()
+            .withf(move |id, _| *id == from_id)
+            .times(1)
+            .returning(move |_, _| Ok(Some(from_clone.clone())));
+        let to_clone = to_entity.clone();
+        member_dao
+            .expect_find_by_id()
+            .withf(move |id, _| *id == to_id)
+            .times(1)
+            .returning(move |_, _| Ok(Some(to_clone.clone())));
+        // KEIN update / update_dates nach PERM-03-Conflict.
+        member_dao.expect_update().times(0);
+        member_dao.expect_update_dates().times(0);
+
+        let mut member_action_dao = MockTestMemberActionDao::new();
+        member_action_dao.expect_create().times(0);
+
+        let service = build_service_part(
+            member_dao,
+            member_action_dao,
+            allow_audit_log_transfer(),
+            allow_admin_perms_transfer(),
+            setup_tx_dao(),
+            MockTestRepaymentPhaseDao::new(),
+            MockTestRepaymentEntryDao::new(),
+        );
+
+        let res = service
+            .transfer_shares(from_id, to_id, 2, transfer_date, Authentication::Full, None)
+            .await;
+
+        match res {
+            Err(ServiceError::Conflict(msg)) => {
+                assert!(
+                    msg.contains("recipient already cancelled"),
+                    "expected message 'recipient already cancelled', got: {}",
+                    msg
+                );
+            }
+            other => panic!("expected Conflict, got {:?}", other),
+        }
+    }
+
+    // ---------- Test 8: Permission Denied -> NO DAO load ----------
+    #[tokio::test]
+    async fn test_transfer_shares_permission_denied_no_dao_load() {
+        let from_id = Uuid::new_v4();
+        let to_id = Uuid::new_v4();
+        let transfer_date = transfer_test_date();
+
+        // KEIN find_by_id Call erwartet — Permission-Denied bricht vor DAO-Touches ab.
+        let mut member_dao = MockTestMemberDao::new();
+        member_dao.expect_find_by_id().times(0);
+        member_dao.expect_update().times(0);
+        member_dao.expect_update_dates().times(0);
+
+        let mut member_action_dao = MockTestMemberActionDao::new();
+        member_action_dao.expect_create().times(0);
+
+        let mut permission_service = MockTestPermissionService::new();
+        permission_service
+            .expect_current_user_id()
+            .returning(|_| Ok(Some("user".to_string())));
+        permission_service
+            .expect_check_permission()
+            .returning(|_, _| Err(ServiceError::PermissionDenied));
+
+        let service = build_service_part(
+            member_dao,
+            member_action_dao,
+            MockTestAuditLogDao::new(),
+            permission_service,
+            setup_tx_dao(),
+            MockTestRepaymentPhaseDao::new(),
+            MockTestRepaymentEntryDao::new(),
+        );
+
+        let res = service
+            .transfer_shares(from_id, to_id, 1, transfer_date, Authentication::Full, None)
+            .await;
+
+        assert!(
+            matches!(res, Err(ServiceError::PermissionDenied)),
+            "expected PermissionDenied, got {:?}",
+            res
+        );
+    }
+
+    // ---------- Test 9: from not found -> EntityNotFound(from_id) ----------
+    #[tokio::test]
+    async fn test_transfer_shares_from_not_found_returns_entity_not_found() {
+        let from_id = Uuid::new_v4();
+        let to_id = Uuid::new_v4();
+        let transfer_date = transfer_test_date();
+
+        let mut member_dao = MockTestMemberDao::new();
+        member_dao
+            .expect_find_by_id()
+            .withf(move |id, _| *id == from_id)
+            .times(1)
+            .returning(|_, _| Ok(None));
+        member_dao.expect_update().times(0);
+        member_dao.expect_update_dates().times(0);
+
+        let mut member_action_dao = MockTestMemberActionDao::new();
+        member_action_dao.expect_create().times(0);
+
+        let service = build_service_part(
+            member_dao,
+            member_action_dao,
+            allow_audit_log_transfer(),
+            allow_admin_perms_transfer(),
+            setup_tx_dao(),
+            MockTestRepaymentPhaseDao::new(),
+            MockTestRepaymentEntryDao::new(),
+        );
+
+        let res = service
+            .transfer_shares(from_id, to_id, 1, transfer_date, Authentication::Full, None)
+            .await;
+
+        match res {
+            Err(ServiceError::EntityNotFound(id)) => assert_eq!(id, from_id),
+            other => panic!("expected EntityNotFound(from_id), got {:?}", other),
+        }
+    }
+
+    // ---------- Test 10: to not found -> EntityNotFound(to_id) ----------
+    #[tokio::test]
+    async fn test_transfer_shares_to_not_found_returns_entity_not_found() {
+        let from_id = Uuid::new_v4();
+        let to_id = Uuid::new_v4();
+        let transfer_date = transfer_test_date();
+
+        let from_entity = sample_member_entity_with_shares(from_id, 5, None);
+
+        let mut member_dao = MockTestMemberDao::new();
+        let from_clone = from_entity.clone();
+        member_dao
+            .expect_find_by_id()
+            .withf(move |id, _| *id == from_id)
+            .times(1)
+            .returning(move |_, _| Ok(Some(from_clone.clone())));
+        member_dao
+            .expect_find_by_id()
+            .withf(move |id, _| *id == to_id)
+            .times(1)
+            .returning(|_, _| Ok(None));
+        member_dao.expect_update().times(0);
+        member_dao.expect_update_dates().times(0);
+
+        let mut member_action_dao = MockTestMemberActionDao::new();
+        member_action_dao.expect_create().times(0);
+
+        let service = build_service_part(
+            member_dao,
+            member_action_dao,
+            allow_audit_log_transfer(),
+            allow_admin_perms_transfer(),
+            setup_tx_dao(),
+            MockTestRepaymentPhaseDao::new(),
+            MockTestRepaymentEntryDao::new(),
+        );
+
+        let res = service
+            .transfer_shares(from_id, to_id, 1, transfer_date, Authentication::Full, None)
+            .await;
+
+        match res {
+            Err(ServiceError::EntityNotFound(id)) => assert_eq!(id, to_id),
+            other => panic!("expected EntityNotFound(to_id), got {:?}", other),
+        }
+    }
 }
