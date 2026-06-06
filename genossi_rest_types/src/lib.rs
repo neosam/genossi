@@ -573,6 +573,41 @@ pub struct PartialRepaymentResponseTO {
     pub phase: Option<RepaymentPhaseTO>,
 }
 
+/// Request-Body fuer `POST /api/members/{from_id}/transfer-shares` (TRSF-01).
+///
+/// `shares` muss im Bereich `1..=from.current_shares` liegen (Service-Validation).
+/// `shares == from.current_shares` triggert Voll-Uebertrag mit Austritt-Cascade
+/// (D-17-01). `to_member_id` darf NICHT gleich dem Path-Parameter `from_id`
+/// sein (TRSF-07 / D-17-08, Self-Transfer-Block).
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct TransferSharesRequestTO {
+    pub to_member_id: Uuid,
+    /// Anzahl der zu uebertragenden Anteile (1..=from.current_shares).
+    #[schema(example = 2)]
+    pub shares: i32,
+    /// Wirksamkeitsdatum des Uebertrags (TRSF-05 sofort wirksam, kein H1/H2).
+    /// Muss in [today.year(), today.year()+1] liegen (Phase-15 D-15-05 Re-use).
+    #[serde(
+        serialize_with = "iso8601_date_required::serialize",
+        deserialize_with = "iso8601_date_required::deserialize"
+    )]
+    #[schema(example = "2026-06-15")]
+    pub transfer_date: time::Date,
+}
+
+/// Response-Body fuer `POST /api/members/{from_id}/transfer-shares` (C-17-CF-07).
+///
+/// `actions.len()` ist 2 (Teil-Uebertrag) oder 3 (Voll-Uebertrag inkl. Austritt).
+/// `from` + `to` enthalten die aktualisierten Members nach Tx-Commit (inkl.
+/// neuer `version` und ggf. `exit_date` bei Voll-Uebertrag), so dass das Frontend
+/// (Phase 18) mit einem Round-Trip beide Member-Detail-Views refreshen kann.
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct TransferSharesResponseTO {
+    pub actions: Vec<MemberActionTO>,
+    pub from: MemberTO,
+    pub to: MemberTO,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct MigrationStatusTO {
     pub member_id: Uuid,
