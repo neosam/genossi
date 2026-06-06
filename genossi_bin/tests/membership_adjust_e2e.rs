@@ -31,6 +31,7 @@ use reqwest::StatusCode;
 use serde_json::Value;
 use sqlx::SqlitePool;
 use std::sync::Arc;
+use uuid::Uuid;
 
 // ============================================================================
 // Test-Setup (1:1 aus transfer_recipients_e2e.rs uebernommen)
@@ -957,5 +958,274 @@ async fn test_partial_repayment_closed_phase_returns_409() {
         "expected body to mention fiscal_year {}, got: {}",
         target_fy,
         body_text
+    );
+}
+
+// ============================================================
+// Phase 17 - Uebertrag (Transfer Shares)
+// SC #5: 8 E2E-Tests fuer POST /api/members/{from_id}/transfer-shares
+// Decken TRSF-01..05, TRSF-07, AUDT-02, PERM-03 ab + D-17-06 Race-Patterns.
+// ============================================================
+
+/// JSON-Body fuer POST /api/members/{from_id}/transfer-shares.
+/// Spiegelt `TransferSharesRequestTO` aus genossi_rest_types (Plan 17-03).
+fn transfer_shares_body(to: &Uuid, shares: i32, transfer_date: &str) -> Value {
+    serde_json::json!({
+        "to_member_id": to.to_string(),
+        "shares": shares,
+        "transfer_date": transfer_date,
+    })
+}
+
+/// Test 1 (TRSF-01 / TRSF-04) — Teil-Uebertrag Happy-Path.
+///
+/// Setup: A.current_shares=5, B.current_shares=1. Transfer shares=2.
+/// Assertion: 200, actions.len()==2 (Abgabe + Empfang),
+/// from.current_shares==3, from.exit_date is null (kein Voll-Uebertrag),
+/// to.current_shares==3 (=1+2), to bleibt aktiv.
+#[tokio::test]
+async fn test_transfer_shares_partial_happy_path() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let a = create_active_member(&client, &server, 1200, "FromA").await;
+    let a = put_member_current_shares(&client, &server, &a, 5).await;
+    let b = create_active_member(&client, &server, 1201, "ToB").await;
+
+    let a_id = a.id.expect("a.id");
+    let b_id = b.id.expect("b.id");
+
+    let transfer_date = today_march_15();
+
+    let resp = client
+        .post(server.url(&format!("/api/members/{}/transfer-shares", a_id)))
+        .json(&transfer_shares_body(&b_id, 2, &transfer_date.to_string()))
+        .send()
+        .await
+        .expect("POST transfer-shares");
+    let status = resp.status();
+    let body_text = resp.text().await.unwrap_or_default();
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "Happy-Path muss 200 returnen; body: {}",
+        body_text
+    );
+
+    let body: Value = serde_json::from_str(&body_text).expect("decode TransferSharesResponseTO");
+
+    let actions = body["actions"].as_array().expect("actions array");
+    assert_eq!(actions.len(), 2, "Teil-Uebertrag = 2 Actions (Abgabe + Empfang)");
+
+    // from-Mitglied bleibt aktiv mit reduzierten Anteilen.
+    assert_eq!(
+        body["from"]["current_shares"].as_i64().expect("from.current_shares"),
+        3,
+        "from.current_shares = 5 - 2"
+    );
+    assert!(
+        body["from"]["exit_date"].is_null(),
+        "Teil-Uebertrag darf KEIN exit_date setzen"
+    );
+
+    // to-Mitglied bekommt +2 Anteile (sample_member shares_at_joining = 1, +2 = 3).
+    assert_eq!(
+        body["to"]["current_shares"].as_i64().expect("to.current_shares"),
+        3,
+        "to.current_shares = 1 + 2"
+    );
+    assert!(body["to"]["exit_date"].is_null(), "to bleibt aktiv");
+}
+
+/// Test 2 (TRSF-03 / TRSF-05 / D-17-01..03) — Voll-Uebertrag mit exit_date-Cascade.
+///
+/// Setup: A.current_shares=3, B.current_shares=1. Transfer shares=3 (Voll-Uebertrag).
+/// Assertion: 200, actions.len()==3 (Abgabe + Empfang + Austritt),
+/// 3. Action ist Austritt mit transfer_member_id=Some(b_id) + effective_date=transfer_date,
+/// from.current_shares==0, from.exit_date==transfer_date (recalc_dates Cascade).
+#[tokio::test]
+async fn test_transfer_shares_full_with_exit_date_cascade() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let a = create_active_member(&client, &server, 1210, "FullFromA").await;
+    let a = put_member_current_shares(&client, &server, &a, 3).await;
+    let b = create_active_member(&client, &server, 1211, "FullToB").await;
+
+    let a_id = a.id.expect("a.id");
+    let b_id = b.id.expect("b.id");
+    let transfer_date = today_march_15();
+
+    let resp = client
+        .post(server.url(&format!("/api/members/{}/transfer-shares", a_id)))
+        .json(&transfer_shares_body(&b_id, 3, &transfer_date.to_string()))
+        .send()
+        .await
+        .expect("POST transfer-shares full");
+    let status = resp.status();
+    let body_text = resp.text().await.unwrap_or_default();
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "Voll-Uebertrag muss 200 returnen; body: {}",
+        body_text
+    );
+
+    let body: Value = serde_json::from_str(&body_text).expect("decode");
+    let actions = body["actions"].as_array().expect("actions");
+
+    // D-17-01: Voll-Uebertrag = 3 Actions.
+    assert_eq!(actions.len(), 3, "Voll-Uebertrag = 3 Actions");
+
+    // D-17-03: 3. Action ist Austritt mit transfer_member_id=Some(b_id),
+    // effective_date=Some(transfer_date).
+    let last_action = &actions[2];
+    assert_eq!(
+        last_action["action_type"].as_str().expect("action_type"),
+        "Austritt",
+        "3. Action = Austritt"
+    );
+    assert_eq!(
+        last_action["transfer_member_id"].as_str(),
+        Some(b_id.to_string().as_str()),
+        "Austritt.transfer_member_id = b_id (D-17-03 — divergiert von Phase-15 CANC)"
+    );
+    assert_eq!(
+        last_action["effective_date"].as_str().expect("effective_date"),
+        transfer_date.to_string().as_str(),
+        "Austritt.effective_date = transfer_date (TRSF-05 sofort wirksam)"
+    );
+
+    // D-17-02 + TRSF-04: from.current_shares == 0; from.exit_date == transfer_date
+    // (via recalc_dates Cascade).
+    assert_eq!(
+        body["from"]["current_shares"].as_i64().expect("from.current_shares"),
+        0,
+        "Voll-Uebertrag: from.current_shares = 0"
+    );
+    assert_eq!(
+        body["from"]["exit_date"].as_str().expect("from.exit_date"),
+        transfer_date.to_string().as_str(),
+        "Voll-Uebertrag: from.exit_date = transfer_date"
+    );
+
+    // to bleibt aktiv und bekommt +3.
+    assert_eq!(
+        body["to"]["current_shares"].as_i64().expect("to.current_shares"),
+        4,
+        "to.current_shares = 1 + 3"
+    );
+    assert!(body["to"]["exit_date"].is_null(), "to bleibt aktiv");
+}
+
+/// Test 3 (TRSF-07 / D-17-08) — Self-Transfer 400.
+///
+/// Setup: A.current_shares=5. POST mit body.to_member_id == a_id.
+/// Assertion: 400, body enthaelt "cannot transfer to self".
+#[tokio::test]
+async fn test_transfer_shares_self_transfer_400() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let a = create_active_member(&client, &server, 1220, "Self").await;
+    let a = put_member_current_shares(&client, &server, &a, 5).await;
+    let a_id = a.id.expect("a.id");
+    let transfer_date = today_march_15();
+
+    let resp = client
+        .post(server.url(&format!("/api/members/{}/transfer-shares", a_id)))
+        .json(&transfer_shares_body(&a_id, 1, &transfer_date.to_string()))
+        .send()
+        .await
+        .expect("POST self-transfer");
+    assert_eq!(
+        resp.status(),
+        StatusCode::BAD_REQUEST,
+        "Self-Transfer muss 400 returnen (TRSF-07 / D-17-08)"
+    );
+    let body = resp.text().await.unwrap_or_default();
+    assert!(
+        body.contains("cannot transfer to self"),
+        "Body muss Hinweis enthalten; got: {}",
+        body
+    );
+}
+
+/// Test 4 (PERM-03 / D-17-07) — Recipient cancelled 409.
+///
+/// Setup: A aktiv, B gekuendigt (POST /cancel mit willensbekundung_date).
+/// Action: POST transfer A->B.
+/// Assertion: 409, body enthaelt "recipient already cancelled".
+#[tokio::test]
+async fn test_transfer_shares_recipient_cancelled_409() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let a = create_active_member(&client, &server, 1230, "ActiveFrom").await;
+    let a = put_member_current_shares(&client, &server, &a, 5).await;
+    let b = create_active_member(&client, &server, 1231, "ToBeCancelledB").await;
+
+    let a_id = a.id.expect("a.id");
+    let b_id = b.id.expect("b.id");
+
+    // B kuendigen (Phase-15 cancel-Endpoint).
+    // Pattern aus test_partial_repayment_cancelled_member_block_409 (Z. 746-780).
+    let cancel_resp = client
+        .post(server.url(&format!("/api/members/{}/cancel", b_id)))
+        .json(&cancel_body(&today_march_15().to_string()))
+        .send()
+        .await
+        .expect("POST cancel B");
+    assert_eq!(
+        cancel_resp.status(),
+        StatusCode::OK,
+        "Cancel B muss 200; got body: {}",
+        cancel_resp.text().await.unwrap_or_default()
+    );
+
+    // Jetzt Transfer A -> B versuchen.
+    let resp = client
+        .post(server.url(&format!("/api/members/{}/transfer-shares", a_id)))
+        .json(&transfer_shares_body(&b_id, 2, &today_march_15().to_string()))
+        .send()
+        .await
+        .expect("POST transfer A->B");
+    assert_eq!(
+        resp.status(),
+        StatusCode::CONFLICT,
+        "PERM-03: gekuendigter Empfaenger muss 409 (D-17-07)"
+    );
+    let body = resp.text().await.unwrap_or_default();
+    assert!(
+        body.contains("recipient already cancelled"),
+        "Body muss Hinweis enthalten; got: {}",
+        body
+    );
+}
+
+/// Test 5 (D-17-10) — Recipient not found 404.
+///
+/// Action: POST transfer mit to_member_id = Uuid::new_v4() (nicht existent).
+/// Assertion: 404.
+#[tokio::test]
+async fn test_transfer_shares_recipient_not_found_404() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let a = create_active_member(&client, &server, 1240, "FromA").await;
+    let a = put_member_current_shares(&client, &server, &a, 5).await;
+    let a_id = a.id.expect("a.id");
+    let fake_b_id = Uuid::new_v4();
+
+    let resp = client
+        .post(server.url(&format!("/api/members/{}/transfer-shares", a_id)))
+        .json(&transfer_shares_body(&fake_b_id, 2, &today_march_15().to_string()))
+        .send()
+        .await
+        .expect("POST transfer fake recipient");
+    assert_eq!(
+        resp.status(),
+        StatusCode::NOT_FOUND,
+        "Nicht-existierender Empfaenger muss 404"
     );
 }
