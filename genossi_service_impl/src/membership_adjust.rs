@@ -40,7 +40,6 @@ const PARTIAL_REPAYMENT_PROCESS: &str = "member-adjust.partial-repayment";
 /// Shared Audit-Process-String fuer ALLE Cascade-Writes des Uebertrags (D-17-04 / AUDT-02).
 /// Filter `WHERE process = 'member-adjust.transfer'` findet ALLE Writes eines
 /// Uebertrag-Vorgangs (2 oder 3 MemberAction-Creates + 2 Member-Updates).
-#[allow(dead_code)] // Plan 17-02 verwendet die Konstante in der Pipeline-Impl.
 const TRANSFER_PROCESS: &str = "member-adjust.transfer";
 
 /// Audit-Process-String fuer den inline auto-erzeugten RepaymentPhase-Create
@@ -472,20 +471,226 @@ impl<Deps: MembershipAdjustServiceDeps> MembershipAdjustService for MembershipAd
         Ok((member_dto, entry_dto, phase_dto))
     }
 
-    /// Stub fuer Plan 17-01 — Plan 17-02 implementiert die 15-step Pipeline
-    /// (Permission-Funnel, Validierung, Cascade-Writes mit `TRANSFER_PROCESS`).
-    /// Signatur ist hier eingefroren, damit Plan 17-02 nur den Body ersetzen muss
-    /// und Trait-Drift vermieden wird (D-17-04 / C-17-CF-01).
+    /// TRSF-01..05 / AUDT-02 / PERM-03 / D-17-01..10: 15-step Single-Tx Cascade.
+    ///
+    /// Pipeline-Reihenfolge:
+    /// 1. Tx-Begin + current_user_id (SYSTEM-fallback)
+    /// 2. PERM-01 ADMIN_PRIVILEGE-Funnel (erste DAO-touching Op)
+    /// 3. from-Load (EntityNotFound bei None)
+    /// 4. validate_transfer_inputs (braucht from.current_shares)
+    /// 5. validate_willensbekundung_date
+    /// 6. to-Load (EntityNotFound bei None)
+    /// 7. PERM-03 Empfaenger-Aktiv-Check (Conflict wenn to.exit_date.is_some())
+    /// 8. will_become_zero (Pre-write-Detection, D-17-01)
+    /// 9. audited_create! MemberAction::UebertragungAbgabe (TRANSFER_PROCESS)
+    /// 10. audited_create! MemberAction::UebertragungEmpfang (TRANSFER_PROCESS)
+    /// 11. audited_update! Member from.current_shares -= shares
+    /// 12. audited_update! Member to.current_shares += shares
+    /// 13. Voll-Uebertrag-Branch: audited_create! MemberAction::Austritt mit
+    ///     transfer_member_id=Some(to_id) + effective_date=Some(transfer_date) (D-17-03 / TRSF-05)
+    /// 14. recalc_dates(from.id) EXAKT EINMAL (D-17-02)
+    /// 15. Re-Read both members + Tx-Commit
     async fn transfer_shares(
         &self,
-        _from_id: Uuid,
-        _to_id: Uuid,
-        _shares: i32,
-        _transfer_date: Date,
-        _context: Authentication<Self::Context>,
-        _tx: Option<Self::Transaction>,
+        from_id: Uuid,
+        to_id: Uuid,
+        shares: i32,
+        transfer_date: Date,
+        context: Authentication<Self::Context>,
+        tx: Option<Self::Transaction>,
     ) -> Result<(Vec<MemberAction>, Member, Member), ServiceError> {
-        unimplemented!("Plan 17-02 implements the 15-step pipeline")
+        // Schritt 1: Tx-Begin + user_id.
+        let tx = self.transaction_dao.use_transaction(tx).await?;
+
+        let user_id = self
+            .permission_service
+            .current_user_id(context.clone())
+            .await?
+            .unwrap_or_else(|| "SYSTEM".to_string());
+
+        // Schritt 2: PERM-01 ADMIN_PRIVILEGE-Funnel.
+        self.permission_service
+            .check_permission(ADMIN_PRIVILEGE, context)
+            .await?;
+
+        // Schritt 3: from-Load.
+        let from_entity = self
+            .member_dao
+            .find_by_id(from_id, tx.clone())
+            .await?
+            .ok_or(ServiceError::EntityNotFound(from_id))?;
+
+        // Schritt 4: validate_transfer_inputs (nutzt from.current_shares).
+        let validation_errors =
+            validate_transfer_inputs(from_id, to_id, shares, from_entity.current_shares);
+        if !validation_errors.is_empty() {
+            return Err(ServiceError::ValidationError(validation_errors));
+        }
+
+        // Schritt 5: validate_willensbekundung_date.
+        let today = time::OffsetDateTime::now_utc().date();
+        let date_errors = validate_willensbekundung_date(transfer_date, today);
+        if !date_errors.is_empty() {
+            return Err(ServiceError::ValidationError(date_errors));
+        }
+
+        // Schritt 6: to-Load.
+        let to_entity = self
+            .member_dao
+            .find_by_id(to_id, tx.clone())
+            .await?
+            .ok_or(ServiceError::EntityNotFound(to_id))?;
+
+        // Schritt 7: PERM-03 Empfaenger-Aktiv-Check (D-17-07).
+        if to_entity.exit_date.is_some() {
+            return Err(ServiceError::Conflict(Arc::from(
+                "recipient already cancelled",
+            )));
+        }
+
+        // Schritt 8: Pre-write-Detection Voll-Uebertrag (D-17-01).
+        let will_become_zero = from_entity.current_shares - shares == 0;
+
+        let now = time::OffsetDateTime::now_utc();
+        let created_pdt = time::PrimitiveDateTime::new(now.date(), now.time());
+
+        // Schritt 9: MemberAction::UebertragungAbgabe (from).
+        let abgabe_entity = MemberActionEntity {
+            id: self.uuid_service.new_v4().await,
+            member_id: from_entity.id,
+            action_type: ActionType::UebertragungAbgabe,
+            date: transfer_date,
+            shares_change: -shares,
+            transfer_member_id: Some(to_entity.id),
+            effective_date: None,
+            comment: None,
+            created: created_pdt,
+            deleted: None,
+            version: self.uuid_service.new_v4().await,
+        };
+        crate::audited_create!(
+            self,
+            self.member_action_dao,
+            &abgabe_entity,
+            TRANSFER_PROCESS,
+            &user_id,
+            tx
+        );
+
+        // Schritt 10: MemberAction::UebertragungEmpfang (to).
+        let empfang_entity = MemberActionEntity {
+            id: self.uuid_service.new_v4().await,
+            member_id: to_entity.id,
+            action_type: ActionType::UebertragungEmpfang,
+            date: transfer_date,
+            shares_change: shares,
+            transfer_member_id: Some(from_entity.id),
+            effective_date: None,
+            comment: None,
+            created: created_pdt,
+            deleted: None,
+            version: self.uuid_service.new_v4().await,
+        };
+        crate::audited_create!(
+            self,
+            self.member_action_dao,
+            &empfang_entity,
+            TRANSFER_PROCESS,
+            &user_id,
+            tx
+        );
+
+        // Schritt 11: Member.from.current_shares -= shares (audited_update! bumpt version intern).
+        let mut from_updated = from_entity.clone();
+        from_updated.current_shares -= shares;
+        crate::audited_update!(
+            self,
+            self.member_dao,
+            from_entity.id,
+            &from_updated,
+            TRANSFER_PROCESS,
+            &user_id,
+            tx
+        );
+
+        // Schritt 12: Member.to.current_shares += shares.
+        let mut to_updated = to_entity.clone();
+        to_updated.current_shares += shares;
+        crate::audited_update!(
+            self,
+            self.member_dao,
+            to_entity.id,
+            &to_updated,
+            TRANSFER_PROCESS,
+            &user_id,
+            tx
+        );
+
+        // Schritt 13: Voll-Uebertrag-Branch (D-17-01/03 / TRSF-05).
+        let austritt_entity_opt: Option<MemberActionEntity> = if will_become_zero {
+            let austritt_entity = MemberActionEntity {
+                id: self.uuid_service.new_v4().await,
+                member_id: from_entity.id,
+                action_type: ActionType::Austritt,
+                date: transfer_date,
+                shares_change: 0,
+                // D-17-03: divergiert von Phase-15 CANC (None).
+                transfer_member_id: Some(to_entity.id),
+                // TRSF-05: sofort wirksam (kein H1/H2-Stichtag).
+                effective_date: Some(transfer_date),
+                comment: None,
+                created: created_pdt,
+                deleted: None,
+                version: self.uuid_service.new_v4().await,
+            };
+            crate::audited_create!(
+                self,
+                self.member_action_dao,
+                &austritt_entity,
+                TRANSFER_PROCESS,
+                &user_id,
+                tx
+            );
+            Some(austritt_entity)
+        } else {
+            None
+        };
+
+        // Schritt 14: recalc_dates(from.id) EXAKT EINMAL (D-17-02).
+        // Nur from.id, weil to.exit_date durch den Empfang nicht beeinflusst wird
+        // (Empfaenger bleibt aktiv; PERM-03 hat oben sichergestellt, dass to nicht
+        // gekuendigt war).
+        crate::member_action::recalc_dates(
+            &*self.member_dao,
+            &*self.member_action_dao,
+            from_entity.id,
+            tx.clone(),
+        )
+        .await?;
+
+        // Schritt 15: Re-Read beider Members fuer Response (recalc_dates kann
+        // exit_date auf from gesetzt haben) + Tx-Commit.
+        let from_final = self
+            .member_dao
+            .find_by_id(from_entity.id, tx.clone())
+            .await?
+            .ok_or(ServiceError::EntityNotFound(from_entity.id))?;
+        let to_final = self
+            .member_dao
+            .find_by_id(to_entity.id, tx.clone())
+            .await?
+            .ok_or(ServiceError::EntityNotFound(to_entity.id))?;
+
+        self.transaction_dao.commit(tx).await?;
+
+        let mut actions = vec![
+            MemberAction::from(&abgabe_entity),
+            MemberAction::from(&empfang_entity),
+        ];
+        if let Some(austritt) = austritt_entity_opt {
+            actions.push(MemberAction::from(&austritt));
+        }
+        Ok((actions, Member::from(&from_final), Member::from(&to_final)))
     }
 }
 
@@ -603,7 +808,6 @@ pub(crate) fn validate_partial_repayment_shares(
 ///
 /// Returns empty `Vec` fuer alle gueltigen Eingaben (`1 <= shares <= from_current_shares`
 /// und `from_id != to_id`).
-#[allow(dead_code)] // Plan 17-02 ruft die Funktion aus der Pipeline auf.
 pub(crate) fn validate_transfer_inputs(
     from_id: Uuid,
     to_id: Uuid,
