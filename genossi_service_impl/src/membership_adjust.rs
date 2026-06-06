@@ -37,6 +37,12 @@ const UPGRADE_PROCESS: &str = "member-adjust.upgrade";
 /// Audit-Process-String fuer partial_repayment (D-15-02 / D-16-13).
 const PARTIAL_REPAYMENT_PROCESS: &str = "member-adjust.partial-repayment";
 
+/// Shared Audit-Process-String fuer ALLE Cascade-Writes des Uebertrags (D-17-04 / AUDT-02).
+/// Filter `WHERE process = 'member-adjust.transfer'` findet ALLE Writes eines
+/// Uebertrag-Vorgangs (2 oder 3 MemberAction-Creates + 2 Member-Updates).
+#[allow(dead_code)] // Plan 17-02 verwendet die Konstante in der Pipeline-Impl.
+const TRANSFER_PROCESS: &str = "member-adjust.transfer";
+
 /// Audit-Process-String fuer den inline auto-erzeugten RepaymentPhase-Create
 /// in `partial_repayment` (D-16-02 + Resolved Open Question #4).
 ///
@@ -464,6 +470,22 @@ impl<Deps: MembershipAdjustServiceDeps> MembershipAdjustService for MembershipAd
             None
         };
         Ok((member_dto, entry_dto, phase_dto))
+    }
+
+    /// Stub fuer Plan 17-01 — Plan 17-02 implementiert die 15-step Pipeline
+    /// (Permission-Funnel, Validierung, Cascade-Writes mit `TRANSFER_PROCESS`).
+    /// Signatur ist hier eingefroren, damit Plan 17-02 nur den Body ersetzen muss
+    /// und Trait-Drift vermieden wird (D-17-04 / C-17-CF-01).
+    async fn transfer_shares(
+        &self,
+        _from_id: Uuid,
+        _to_id: Uuid,
+        _shares: i32,
+        _transfer_date: Date,
+        _context: Authentication<Self::Context>,
+        _tx: Option<Self::Transaction>,
+    ) -> Result<(Vec<MemberAction>, Member, Member), ServiceError> {
+        unimplemented!("Plan 17-02 implements the 15-step pipeline")
     }
 }
 

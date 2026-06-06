@@ -70,4 +70,23 @@ pub trait MembershipAdjustService {
         context: Authentication<Self::Context>,
         tx: Option<Self::Transaction>,
     ) -> Result<(Member, RepaymentEntry, Option<RepaymentPhase>), ServiceError>;
+
+    /// Uebertraegt `shares` Anteile von `from_id` an `to_id`. Sofort wirksam,
+    /// kein H1/H2-Stichtag (TRSF-05). Bei Voll-Uebertrag (`from.current_shares == shares`)
+    /// wird zusaetzlich ein `MemberAction::Austritt(from)` mit
+    /// `transfer_member_id = Some(to_id)` erzeugt (D-17-01/03).
+    ///
+    /// Returns tuple `(actions, from, to)`:
+    /// - `actions`: 2 (Teil) oder 3 (Voll) `MemberAction`-Eintraege (Abgabe, Empfang,
+    ///   optional Austritt). C-17-CF-08 — domain-Werte, kein DTO-Wrapping.
+    /// - `from`/`to`: aktualisierte Member nach Tx-Commit.
+    async fn transfer_shares(
+        &self,
+        from_id: Uuid,
+        to_id: Uuid,
+        shares: i32,
+        transfer_date: time::Date,
+        context: Authentication<Self::Context>,
+        tx: Option<Self::Transaction>,
+    ) -> Result<(Vec<MemberAction>, Member, Member), ServiceError>;
 }
