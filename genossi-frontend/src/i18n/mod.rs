@@ -703,6 +703,80 @@ pub enum Key {
     RepaymentLetterDownloadToastSkipped,
     /// Fehler-Template mit `{error}`-Placeholder.
     RepaymentLetterDownloadToastFailure,
+
+    // ─── Phase 18 ─── MembershipAdjustModal + FiscalYearDateInput ────
+    /// Button-Label auf der Member-Detail-Page.
+    MembershipAdjustButtonLabel,
+    /// Modal-Titel (top-level).
+    MembershipAdjustModalTitle,
+    /// Sub-Choice-Frage ueber den 4 flat Buttons.
+    MembershipAdjustSubChoiceQuestion,
+    /// Sub-Choice-Button-Labels + Descriptions.
+    MembershipAdjustSubChoiceCancel,
+    MembershipAdjustSubChoiceCancelDesc,
+    MembershipAdjustSubChoicePartialRepayment,
+    MembershipAdjustSubChoicePartialRepaymentDesc,
+    MembershipAdjustSubChoiceTransfer,
+    MembershipAdjustSubChoiceTransferDesc,
+    MembershipAdjustSubChoiceUpgrade,
+    MembershipAdjustSubChoiceUpgradeDesc,
+    /// Sub-View-Header + globale Buttons.
+    MembershipAdjustBack,
+    MembershipAdjustCancelButton,
+    MembershipAdjustPreviewLabel,
+    /// Cancel Sub-View.
+    MembershipAdjustCancelTitle,
+    MembershipAdjustCancelDateLabel,
+    /// Format-Args: {name}, {shares}, {effective_date}, {half_year}, {fiscal_year}.
+    MembershipAdjustCancelPreview,
+    MembershipAdjustHalfYearH1,
+    MembershipAdjustHalfYearH2,
+    MembershipAdjustCancelSubmit,
+    MembershipAdjustCancelSuccess,
+    /// Partial-Repayment Sub-View.
+    MembershipAdjustPartialRepaymentTitle,
+    MembershipAdjustPartialRepaymentDateLabel,
+    MembershipAdjustPartialRepaymentSharesLabel,
+    /// Format-Args: {name}, {current_shares}, {new_shares}, {effective_date}, {fiscal_year}.
+    MembershipAdjustPartialRepaymentPreview,
+    /// Format-Args: {fiscal_year}.
+    MembershipAdjustPartialRepaymentAutoCreateHint,
+    MembershipAdjustPartialRepaymentSubmit,
+    MembershipAdjustPartialRepaymentSuccess,
+    /// Format-Args: {fiscal_year}.
+    MembershipAdjustPartialRepaymentSuccessAutoCreate,
+    /// Transfer Sub-View.
+    MembershipAdjustTransferTitle,
+    MembershipAdjustTransferDateLabel,
+    MembershipAdjustTransferSharesLabel,
+    MembershipAdjustTransferRecipientLabel,
+    MembershipAdjustTransferRecipientLoadError,
+    /// Format-Args: {from_name}, {from_shares}, {from_new}, {to_name}, {to_shares}, {to_new}, {transfer_date}.
+    MembershipAdjustTransferPreview,
+    /// Format-Args: {from_name}, {transfer_date}.
+    MembershipAdjustTransferFullExitWarning,
+    MembershipAdjustTransferSubmit,
+    MembershipAdjustTransferSuccess,
+    /// Upgrade Sub-View.
+    MembershipAdjustUpgradeTitle,
+    MembershipAdjustUpgradeDateLabel,
+    MembershipAdjustUpgradeSharesLabel,
+    /// Format-Args: {name}, {current_shares}, {new_shares}, {date}.
+    MembershipAdjustUpgradePreview,
+    MembershipAdjustUpgradeSubmit,
+    MembershipAdjustUpgradeSuccess,
+    /// Loading + Empty + Validation.
+    MembershipAdjustLoading,
+    MembershipAdjustNoRecipients,
+    MembershipAdjustSharesMustBePositive,
+    MembershipAdjustPartialRepaymentSharesExceed,
+    MembershipAdjustTransferSelfError,
+    /// Generic Success-Toast wenn nicht-spezifischer Op (Fallback fuer Page-Integration).
+    MembershipAdjustSuccess,
+    /// FiscalYearDateInput Component-Keys.
+    /// Format-Args: {min_year}, {max_year}.
+    FiscalYearDateInputHelper,
+    FiscalYearDateOutOfRange,
 }
 
 pub struct I18n {
@@ -896,5 +970,108 @@ mod tests {
             i18n.format_datetime_long("2026-04-16 16:03:34"),
             "2026-04-16 16:03:34"
         );
+    }
+
+    /// Phase 18 — Stellt sicher dass JEDER Phase-18-Key in DE und EN UNTERSCHIEDLICHE,
+    /// nicht-leere Strings hat. Faengt Copy-Paste-Fehler zwischen `de.rs` und `en.rs`
+    /// sowie vertauschte oder fehlende Translations.
+    ///
+    /// Whitelist `WHITELIST_IDENTICAL_DE_EN`: Keys, deren DE+EN absichtlich identisch sind
+    /// (z.B. internationale Codes wie H1/H2).
+    #[test]
+    fn phase_18_keys_have_distinct_de_en_translations() {
+        // Alle 46 Phase-18-Keys (siehe Key-Enum-Erweiterung).
+        let phase_18_keys: &[Key] = &[
+            Key::MembershipAdjustButtonLabel,
+            Key::MembershipAdjustModalTitle,
+            Key::MembershipAdjustSubChoiceQuestion,
+            Key::MembershipAdjustSubChoiceCancel,
+            Key::MembershipAdjustSubChoiceCancelDesc,
+            Key::MembershipAdjustSubChoicePartialRepayment,
+            Key::MembershipAdjustSubChoicePartialRepaymentDesc,
+            Key::MembershipAdjustSubChoiceTransfer,
+            Key::MembershipAdjustSubChoiceTransferDesc,
+            Key::MembershipAdjustSubChoiceUpgrade,
+            Key::MembershipAdjustSubChoiceUpgradeDesc,
+            Key::MembershipAdjustBack,
+            Key::MembershipAdjustCancelButton,
+            Key::MembershipAdjustPreviewLabel,
+            Key::MembershipAdjustCancelTitle,
+            Key::MembershipAdjustCancelDateLabel,
+            Key::MembershipAdjustCancelPreview,
+            Key::MembershipAdjustHalfYearH1,
+            Key::MembershipAdjustHalfYearH2,
+            Key::MembershipAdjustCancelSubmit,
+            Key::MembershipAdjustCancelSuccess,
+            Key::MembershipAdjustPartialRepaymentTitle,
+            Key::MembershipAdjustPartialRepaymentDateLabel,
+            Key::MembershipAdjustPartialRepaymentSharesLabel,
+            Key::MembershipAdjustPartialRepaymentPreview,
+            Key::MembershipAdjustPartialRepaymentAutoCreateHint,
+            Key::MembershipAdjustPartialRepaymentSubmit,
+            Key::MembershipAdjustPartialRepaymentSuccess,
+            Key::MembershipAdjustPartialRepaymentSuccessAutoCreate,
+            Key::MembershipAdjustTransferTitle,
+            Key::MembershipAdjustTransferDateLabel,
+            Key::MembershipAdjustTransferSharesLabel,
+            Key::MembershipAdjustTransferRecipientLabel,
+            Key::MembershipAdjustTransferRecipientLoadError,
+            Key::MembershipAdjustTransferPreview,
+            Key::MembershipAdjustTransferFullExitWarning,
+            Key::MembershipAdjustTransferSubmit,
+            Key::MembershipAdjustTransferSuccess,
+            Key::MembershipAdjustUpgradeTitle,
+            Key::MembershipAdjustUpgradeDateLabel,
+            Key::MembershipAdjustUpgradeSharesLabel,
+            Key::MembershipAdjustUpgradePreview,
+            Key::MembershipAdjustUpgradeSubmit,
+            Key::MembershipAdjustUpgradeSuccess,
+            Key::MembershipAdjustLoading,
+            Key::MembershipAdjustNoRecipients,
+            Key::MembershipAdjustSharesMustBePositive,
+            Key::MembershipAdjustPartialRepaymentSharesExceed,
+            Key::MembershipAdjustTransferSelfError,
+            Key::MembershipAdjustSuccess,
+            Key::FiscalYearDateInputHelper,
+            Key::FiscalYearDateOutOfRange,
+        ];
+
+        // Whitelist: Keys, deren DE+EN absichtlich identisch sind.
+        // H1/H2 sind internationale Halbjahres-Codes; gleiche Form in beiden Sprachen erwartet.
+        let whitelist_identical: &[Key] = &[
+            Key::MembershipAdjustHalfYearH1,
+            Key::MembershipAdjustHalfYearH2,
+        ];
+
+        let de = I18n::new(Locale::De);
+        let en = I18n::new(Locale::En);
+
+        for key in phase_18_keys {
+            let de_str = de.t(key.clone()).to_string();
+            let en_str = en.t(key.clone()).to_string();
+
+            assert!(
+                !de_str.is_empty(),
+                "Key {:?}: DE-Translation ist leer.",
+                key
+            );
+            assert!(
+                !en_str.is_empty(),
+                "Key {:?}: EN-Translation ist leer.",
+                key
+            );
+
+            if whitelist_identical.iter().any(|w| w == key) {
+                // Whitelisted: identische Strings absichtlich.
+                continue;
+            }
+
+            assert_ne!(
+                de_str, en_str,
+                "Key {:?}: DE und EN sind identisch ('{}'). \
+                 Pruefe ob Copy-Paste-Fehler vorliegt oder ergaenze die Whitelist.",
+                key, de_str
+            );
+        }
     }
 }
