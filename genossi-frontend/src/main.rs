@@ -19,6 +19,7 @@ mod page;
 mod router;
 mod service;
 mod state;
+mod util;
 
 fn main() {
     dioxus_logger::init(Level::INFO).expect("failed to init logger");
