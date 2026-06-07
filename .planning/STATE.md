@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Mitgliedschaft-Anpassungen während des Geschäftsjahres
-status: verifying
+status: milestone_complete
 stopped_at: Phase 18 UI-SPEC approved
 last_updated: "2026-06-07T06:23:02.147Z"
 last_activity: 2026-06-07
 progress:
   total_phases: 5
-  completed_phases: 5
+  completed_phases: 6
   total_plans: 24
   completed_plans: 24
-  percent: 100
+  percent: 120
 ---
 
 # State: Genossi — v1.1 Anteile-Rückzahlungsphase
@@ -29,9 +29,9 @@ See: `.planning/PROJECT.md` (updated 2026-06-02 after v1.1 close)
 
 ## Current Position
 
-Phase: 18 (frontend-component-first) — EXECUTING
-Plan: 7 of 7
-Status: Phase complete — ready for verification
+Phase: 18
+Plan: Not started
+Status: Milestone complete
 Last activity: 2026-06-07
 
 ## v1.2 Roadmap (Phases 14–18)

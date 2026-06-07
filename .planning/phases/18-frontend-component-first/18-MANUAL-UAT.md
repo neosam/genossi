@@ -1,8 +1,10 @@
 ---
 phase: 18
 artifact: manual-uat
-status: pending-signoff
+status: passed
 created: 2026-06-07
+signed_off: 2026-06-07
+signed_off_by: Simon Goller (Vorstand)
 ---
 
 # Phase 18 — Manual UAT (Browser Walk-Through)

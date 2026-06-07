@@ -15,7 +15,7 @@
 | 15 | Service+REST: Kündigung + Aufstockung | 4/4 | Complete    | 2026-06-04 |
 | 16 | Service+REST: Teil-Rückgabe + Auto-Anlegen-Phase | 5/5 | Complete    | 2026-06-05 |
 | 17 | Service+REST: Übertrag | 4/4 | Complete    | 2026-06-06 |
-| 18 | Frontend Component-First | 7/7 | Complete   | 2026-06-07 |
+| 18 | Frontend Component-First | 7/7 | Complete    | 2026-06-07 |
 
 **Total:** 31 REQs in 5 Phasen, alle abgedeckt (Coverage: 100%).
 
