@@ -504,6 +504,15 @@ pub enum Key {
     OpenInboxCount,
     OpenInboxNone,
 
+    // Phase 19 — Inbox attachments
+    InboxAttachmentsHeader,
+    InboxAttachmentsDownload,
+    InboxAttachmentsPreview,
+    InboxAttachmentsEmptyLegacy,
+    InboxAttachmentsOversized,
+    InboxAttachmentsDownloadError,
+    InboxAttachmentsImageAltPrefix,
+
     // Messages
     NoDataFound,
     ErrorLoadingData,

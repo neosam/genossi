@@ -436,6 +436,14 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::OpenInboxCount => "{} offene Mails".into(),
         Key::OpenInboxNone => "Keine offenen Mails".into(),
 
+        Key::InboxAttachmentsHeader => "Anhänge".into(),
+        Key::InboxAttachmentsDownload => "Herunterladen".into(),
+        Key::InboxAttachmentsPreview => "Vorschau".into(),
+        Key::InboxAttachmentsEmptyLegacy => "Anhang vor Phase 19 empfangen — bitte im Mail-Client öffnen".into(),
+        Key::InboxAttachmentsOversized => "Zu groß — bitte im Mail-Client öffnen".into(),
+        Key::InboxAttachmentsDownloadError => "Anhang konnte nicht geladen werden — bitte erneut versuchen".into(),
+        Key::InboxAttachmentsImageAltPrefix => "Vorschau für".into(),
+
         Key::NoDataFound => "Keine Daten gefunden.".into(),
         Key::ErrorLoadingData => "Fehler beim Laden der Daten.".into(),
         Key::ConfirmDelete => "Sind Sie sicher, dass Sie dieses Mitglied löschen möchten?".into(),

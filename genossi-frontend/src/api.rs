@@ -1362,6 +1362,15 @@ pub struct InboundMailTO {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct InboundMailAttachmentTO {
+    pub id: String,
+    pub file_name: String,
+    pub mime_type: String,
+    pub size_bytes: i64,
+    pub oversized: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct InboundMailDetailTO {
     pub id: String,
     pub from_address: String,
@@ -1375,6 +1384,8 @@ pub struct InboundMailDetailTO {
     pub archived: bool,
     pub assigned_member_id: Option<String>,
     pub assigned_member_name: Option<String>,
+    #[serde(default)]
+    pub attachments: Vec<InboundMailAttachmentTO>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]

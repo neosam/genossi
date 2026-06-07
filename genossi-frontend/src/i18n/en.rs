@@ -434,6 +434,14 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::OpenInboxCount => "{} open mails".into(),
         Key::OpenInboxNone => "No open mails".into(),
 
+        Key::InboxAttachmentsHeader => "Attachments".into(),
+        Key::InboxAttachmentsDownload => "Download".into(),
+        Key::InboxAttachmentsPreview => "Preview".into(),
+        Key::InboxAttachmentsEmptyLegacy => "Attachment received before Phase 19 — open in your mail client".into(),
+        Key::InboxAttachmentsOversized => "Too large — open in your mail client".into(),
+        Key::InboxAttachmentsDownloadError => "Could not load attachment — please try again".into(),
+        Key::InboxAttachmentsImageAltPrefix => "Preview of".into(),
+
         Key::NoDataFound => "No data found.".into(),
         Key::ErrorLoadingData => "Error loading data.".into(),
         Key::ConfirmDelete => "Are you sure you want to delete this member?".into(),
