@@ -8,10 +8,12 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::dao::{
-    InboundMail, InboundMailDao, MailJob, MailJobDao, MailRecipient, MailRecipientDao,
+    InboundMail, InboundMailAttachment, InboundMailAttachmentDao, InboundMailDao, MailJob,
+    MailJobDao, MailRecipient, MailRecipientDao,
 };
 use crate::service::MailServiceError;
 use genossi_config::service::ConfigService;
+use genossi_service::document_storage::DocumentStorage;
 
 // ────────────────────────────────────────────────────────────────────────────
 // Configuration
@@ -125,6 +127,18 @@ pub trait InboxImapClient: Send + Sync + 'static {
         min_uid: i64,
     ) -> Result<Vec<FetchedMessage>, MailServiceError>;
 
+    /// Fetch a single message by UID, with a UIDVALIDITY drift check.
+    /// Returns `Ok(Some(msg))` if the UID exists, `Ok(None)` if it does not
+    /// exist in the mailbox, and `Err` if either the IMAP request fails or
+    /// the server's current UIDVALIDITY does not match `expected_uid_validity`
+    /// (the caller is responsible for silent-skip on drift per D-06).
+    async fn fetch_one_by_uid(
+        &self,
+        config: &ImapConfig,
+        expected_uid_validity: i64,
+        uid: i64,
+    ) -> Result<Option<FetchedMessage>, MailServiceError>;
+
     /// Set the `\Seen` flag on a specific UID in the configured mailbox.
     async fn mark_seen(&self, config: &ImapConfig, uid: i64) -> Result<(), MailServiceError>;
 
@@ -139,6 +153,15 @@ pub trait InboxImapClient: Send + Sync + 'static {
 // Parsing
 // ────────────────────────────────────────────────────────────────────────────
 
+/// A single attachment extracted from a parsed mail. Carries the raw bytes
+/// so the caller (worker / backfill) can decide whether to persist them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedAttachment {
+    pub file_name: String,
+    pub mime_type: String,
+    pub bytes: Vec<u8>,
+}
+
 /// Result of parsing a raw mail into fields ready for storage.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedMail {
@@ -151,6 +174,128 @@ pub struct ParsedMail {
     pub raw_html_body: Option<String>,
     pub in_reply_to: Option<String>,
     pub message_id: Option<String>,
+    /// Phase 19: full attachment payloads extracted from the mail. Populated
+    /// from `msg.attachments()`. Empty vec when no attachments are present
+    /// (kept in sync with `has_attachments`).
+    pub attachments: Vec<ParsedAttachment>,
+}
+
+/// Phase 19 (D-02): hard upper bound for attachment bytes on disk. Larger
+/// attachments are stored metadata-only (`oversized=true`, `relative_path=None`)
+/// and the bytes are dropped — they never hit `DocumentStorage::save`.
+const ATTACHMENT_MAX_BYTES: u64 = 10 * 1024 * 1024;
+
+/// Extract every attachment part from a parsed mail. Mirrors the
+/// `mail_parser` example pattern: walk `msg.attachments()`, treat
+/// `is_message()` parts as embedded `.eml`, and fall back to synthetic
+/// filenames + `application/octet-stream` when the headers don't carry them.
+fn extract_attachments(msg: &mail_parser::Message) -> Vec<ParsedAttachment> {
+    use mail_parser::MimeHeaders;
+
+    let mut out = Vec::new();
+    for (idx, part) in msg.attachments().enumerate() {
+        if part.is_message() {
+            // Forwarded-as-attachment .eml: store raw bytes verbatim.
+            let bytes = part.contents().to_vec();
+            let name = part
+                .attachment_name()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| format!("forwarded_{}.eml", idx));
+            out.push(ParsedAttachment {
+                file_name: name,
+                mime_type: "message/rfc822".to_string(),
+                bytes,
+            });
+            continue;
+        }
+        let mime = part
+            .content_type()
+            .map(|ct| {
+                let mut s = String::from(ct.ctype());
+                if let Some(sub) = ct.subtype() {
+                    s.push('/');
+                    s.push_str(sub);
+                }
+                s
+            })
+            .unwrap_or_else(|| "application/octet-stream".to_string());
+        let name = part
+            .attachment_name()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| format!("attachment_{}.bin", idx));
+        out.push(ParsedAttachment {
+            file_name: name,
+            mime_type: mime,
+            bytes: part.contents().to_vec(),
+        });
+    }
+    out
+}
+
+/// Persist one parsed attachment using the save-then-DB pattern (T-07).
+///
+/// Hard rules:
+///  * Oversized payloads (> `ATTACHMENT_MAX_BYTES`, D-02) skip storage entirely
+///    — the row is created with `oversized=true` and `relative_path=None`, no
+///    bytes touch disk.
+///  * Otherwise: write to `DocumentStorage` first, then create the DB row.
+///    If the DB insert fails, delete the file (best-effort rollback) before
+///    returning the error — leaves at most a logged warning, never a DB row
+///    pointing at a missing file (T-07).
+///  * The storage path is `inbound_mail_attachments/{mail_id}/{attachment_id}`
+///    — UUIDs only, never the attacker-controlled filename (T-02, D-04).
+async fn persist_attachment(
+    storage: &dyn DocumentStorage,
+    dao: &dyn InboundMailAttachmentDao,
+    inbound_mail_id: Uuid,
+    file_name: &str,
+    mime_type: &str,
+    bytes: &[u8],
+) -> Result<InboundMailAttachment, MailServiceError> {
+    let id = Uuid::new_v4();
+    let size = bytes.len() as i64;
+    let oversized = bytes.len() as u64 > ATTACHMENT_MAX_BYTES;
+
+    let relative_path = if oversized {
+        None
+    } else {
+        Some(format!("inbound_mail_attachments/{}/{}", inbound_mail_id, id))
+    };
+
+    // For non-oversized attachments: filesystem first, then DB.
+    if let Some(ref rel_path) = relative_path {
+        storage.save(rel_path, bytes).await.map_err(|e| {
+            MailServiceError::DataAccess(Arc::from(format!("storage save: {}", e)))
+        })?;
+    }
+
+    let entity = InboundMailAttachment {
+        id,
+        inbound_mail_id,
+        created: now_primitive(),
+        file_name: Arc::from(file_name),
+        mime_type: Arc::from(mime_type),
+        size_bytes: size,
+        relative_path: relative_path.as_deref().map(Arc::from),
+        oversized,
+    };
+
+    if let Err(e) = dao.create(&entity).await {
+        if let Some(ref rel_path) = relative_path {
+            // Best-effort rollback (T-07). A leftover orphaned file is
+            // acceptable — bounded by D-02's 10 MB cap; a half-persisted DB
+            // row pointing at nothing is NOT.
+            if let Err(del_err) = storage.delete(rel_path).await {
+                tracing::warn!(
+                    "persist_attachment rollback: storage.delete failed: {:?}",
+                    del_err
+                );
+            }
+        }
+        return Err(e.into());
+    }
+
+    Ok(entity)
 }
 
 /// Parse raw RFC 5322 bytes into the fields stored on `InboundMail`.
@@ -174,7 +319,7 @@ pub fn parse_raw_mail(raw: &[u8]) -> ParsedMail {
         received_at,
         body_text,
         html,
-        has_attachments,
+        attachments,
         in_reply_to,
         message_id,
     ) = if let Some(msg) = parsed {
@@ -205,7 +350,7 @@ pub fn parse_raw_mail(raw: &[u8]) -> ParsedMail {
             .find_map(|i| msg.body_html(i))
             .map(|s| s.into_owned());
 
-        let has_attachments = msg.attachment_count() > 0;
+        let attachments = extract_attachments(&msg);
 
         let in_reply_to = msg
             .in_reply_to()
@@ -221,7 +366,7 @@ pub fn parse_raw_mail(raw: &[u8]) -> ParsedMail {
             received_at,
             body_text,
             html,
-            has_attachments,
+            attachments,
             in_reply_to,
             message_id,
         )
@@ -232,7 +377,7 @@ pub fn parse_raw_mail(raw: &[u8]) -> ParsedMail {
             now_primitive(),
             String::new(),
             None,
-            false,
+            Vec::new(),
             None,
             None,
         )
@@ -240,6 +385,7 @@ pub fn parse_raw_mail(raw: &[u8]) -> ParsedMail {
 
     let has_html_body = html.is_some();
     let raw_html_body = html;
+    let has_attachments = !attachments.is_empty();
 
     ParsedMail {
         from_address,
@@ -251,6 +397,7 @@ pub fn parse_raw_mail(raw: &[u8]) -> ParsedMail {
         raw_html_body,
         in_reply_to,
         message_id,
+        attachments,
     }
 }
 
@@ -280,30 +427,52 @@ pub trait InboxService: Send + Sync + 'static {
     async fn list_folders(&self) -> Result<Vec<String>, MailServiceError>;
     async fn reply(&self, id: Uuid, subject: &str, body: &str)
         -> Result<MailJob, MailServiceError>;
+
+    /// Phase 19: return one attachment if it belongs to `mail_id`. The DAO
+    /// guard (`find_by_id_and_mail`) enforces T-03 IDOR protection: a wrong
+    /// `mail_id` returns `Ok(None)` even if the attachment id exists for
+    /// another mail.
+    async fn find_attachment(
+        &self,
+        mail_id: Uuid,
+        attachment_id: Uuid,
+    ) -> Result<Option<InboundMailAttachment>, MailServiceError>;
+
+    /// Phase 19: list all attachments belonging to one inbound mail.
+    async fn list_attachments(
+        &self,
+        mail_id: Uuid,
+    ) -> Result<Arc<[InboundMailAttachment]>, MailServiceError>;
 }
 
-pub struct InboxServiceImpl<C, D, I, J, R>
+pub struct InboxServiceImpl<C, D, I, J, R, A, St>
 where
     C: ConfigService,
     D: InboundMailDao,
     I: InboxImapClient,
     J: MailJobDao,
     R: MailRecipientDao,
+    A: InboundMailAttachmentDao,
+    St: DocumentStorage + 'static,
 {
     pub config_service: Arc<C>,
     pub dao: Arc<D>,
     pub imap_client: Arc<I>,
     pub job_dao: Arc<J>,
     pub recipient_dao: Arc<R>,
+    pub attachment_dao: Arc<A>,
+    pub storage: Arc<St>,
 }
 
-impl<C, D, I, J, R> InboxServiceImpl<C, D, I, J, R>
+impl<C, D, I, J, R, A, St> InboxServiceImpl<C, D, I, J, R, A, St>
 where
     C: ConfigService,
     D: InboundMailDao,
     I: InboxImapClient,
     J: MailJobDao,
     R: MailRecipientDao,
+    A: InboundMailAttachmentDao,
+    St: DocumentStorage + 'static,
 {
     pub fn new(
         config_service: Arc<C>,
@@ -311,6 +480,8 @@ where
         imap_client: Arc<I>,
         job_dao: Arc<J>,
         recipient_dao: Arc<R>,
+        attachment_dao: Arc<A>,
+        storage: Arc<St>,
     ) -> Self {
         Self {
             config_service,
@@ -318,6 +489,8 @@ where
             imap_client,
             job_dao,
             recipient_dao,
+            attachment_dao,
+            storage,
         }
     }
 
@@ -330,13 +503,15 @@ where
 }
 
 #[async_trait]
-impl<C, D, I, J, R> InboxService for InboxServiceImpl<C, D, I, J, R>
+impl<C, D, I, J, R, A, St> InboxService for InboxServiceImpl<C, D, I, J, R, A, St>
 where
     C: ConfigService,
     D: InboundMailDao,
     I: InboxImapClient,
     J: MailJobDao,
     R: MailRecipientDao,
+    A: InboundMailAttachmentDao,
+    St: DocumentStorage + 'static,
 {
     async fn list(&self) -> Result<Arc<[InboundMail]>, MailServiceError> {
         Ok(self.dao.list_active().await?)
@@ -455,21 +630,53 @@ where
 
         Ok(job)
     }
+
+    async fn find_attachment(
+        &self,
+        mail_id: Uuid,
+        attachment_id: Uuid,
+    ) -> Result<Option<InboundMailAttachment>, MailServiceError> {
+        Ok(self
+            .attachment_dao
+            .find_by_id_and_mail(mail_id, attachment_id)
+            .await?)
+    }
+
+    async fn list_attachments(
+        &self,
+        mail_id: Uuid,
+    ) -> Result<Arc<[InboundMailAttachment]>, MailServiceError> {
+        Ok(self.attachment_dao.find_by_inbound_mail_id(mail_id).await?)
+    }
 }
 
 // ────────────────────────────────────────────────────────────────────────────
 // Inbox worker
 // ────────────────────────────────────────────────────────────────────────────
 
-pub async fn start_inbox_worker<C, D, I>(config_service: Arc<C>, dao: Arc<D>, imap_client: Arc<I>)
-where
+pub async fn start_inbox_worker<C, D, I, A, St>(
+    config_service: Arc<C>,
+    dao: Arc<D>,
+    imap_client: Arc<I>,
+    attachment_dao: Arc<A>,
+    storage: Arc<St>,
+) where
     C: ConfigService,
     D: InboundMailDao,
     I: InboxImapClient,
+    A: InboundMailAttachmentDao,
+    St: DocumentStorage + 'static,
 {
     loop {
         let interval = load_poll_interval(config_service.as_ref()).await;
-        if let Err(e) = poll_once(config_service.as_ref(), dao.as_ref(), imap_client.as_ref()).await
+        if let Err(e) = poll_once(
+            config_service.as_ref(),
+            dao.as_ref(),
+            imap_client.as_ref(),
+            attachment_dao.as_ref(),
+            storage.as_ref(),
+        )
+        .await
         {
             tracing::warn!("Inbox worker: poll cycle failed: {:?}", e);
         }
@@ -477,17 +684,23 @@ where
     }
 }
 
-/// One poll cycle: load config, fetch new UIDs, parse, insert.
-/// Returns Ok(inserted_count) on success.
-pub async fn poll_once<C, D, I>(
+/// One poll cycle: load config, fetch new UIDs, parse, insert mail + attachments.
+/// Returns Ok(inserted_count) on success. Attachment persistence is best-effort
+/// per D-06: failure to persist a single attachment logs a warning and the
+/// cycle continues with the next attachment / next mail.
+pub async fn poll_once<C, D, I, A, St>(
     config_service: &C,
     dao: &D,
     imap_client: &I,
+    attachment_dao: &A,
+    storage: &St,
 ) -> Result<usize, MailServiceError>
 where
     C: ConfigService,
     D: InboundMailDao,
     I: InboxImapClient,
+    A: InboundMailAttachmentDao,
+    St: DocumentStorage + 'static,
 {
     let config = match load_imap_config(config_service).await {
         Ok(c) => c,
@@ -536,6 +749,28 @@ where
             );
         } else {
             inserted += 1;
+            // Phase 19: persist attachments after the parent mail row exists.
+            // Best-effort (D-06): a single attachment failure must NOT abort
+            // the cycle — log a warn and continue.
+            for att in parsed.attachments.iter() {
+                if let Err(e) = persist_attachment(
+                    storage,
+                    attachment_dao,
+                    mail.id,
+                    &att.file_name,
+                    &att.mime_type,
+                    &att.bytes,
+                )
+                .await
+                {
+                    tracing::warn!(
+                        "inbox_poll: persist_attachment failed for mail {} file '{}': {:?}",
+                        mail.id,
+                        att.file_name,
+                        e
+                    );
+                }
+            }
         }
     }
     if inserted > 0 {
@@ -551,9 +786,13 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dao::{MockInboundMailDao, MockMailJobDao, MockMailRecipientDao};
+    use crate::dao::{
+        MailDaoError, MockInboundMailAttachmentDao, MockInboundMailDao, MockMailJobDao,
+        MockMailRecipientDao,
+    };
     use genossi_config::dao::ConfigEntry;
     use genossi_config::service::MockConfigService;
+    use genossi_service::document_storage::{MockDocumentStorage, StorageError};
 
     fn cfg_entry(key: &str, value: &str, ty: &str) -> ConfigEntry {
         ConfigEntry {
@@ -714,6 +953,8 @@ mod tests {
             Arc::new(imap),
             Arc::new(MockMailJobDao::new()),
             Arc::new(MockMailRecipientDao::new()),
+            Arc::new(MockInboundMailAttachmentDao::new()),
+            Arc::new(MockDocumentStorage::new()),
         );
         let updated = svc.assign_member(mail_id, member_id).await.unwrap();
         assert_eq!(updated.assigned_member_id, Some(member_id));
@@ -741,6 +982,8 @@ mod tests {
             Arc::new(imap),
             Arc::new(MockMailJobDao::new()),
             Arc::new(MockMailRecipientDao::new()),
+            Arc::new(MockInboundMailAttachmentDao::new()),
+            Arc::new(MockDocumentStorage::new()),
         );
         let updated = svc.mark_done(mail_id).await.unwrap();
         assert!(updated.done);
@@ -769,6 +1012,8 @@ mod tests {
             Arc::new(imap),
             Arc::new(MockMailJobDao::new()),
             Arc::new(MockMailRecipientDao::new()),
+            Arc::new(MockInboundMailAttachmentDao::new()),
+            Arc::new(MockDocumentStorage::new()),
         );
         let res = svc.archive(mail_id).await;
         assert!(matches!(res, Err(MailServiceError::ConfigMissing(_))));
@@ -778,8 +1023,12 @@ mod tests {
     async fn poll_once_skips_when_unconfigured() {
         let dao = MockInboundMailDao::new();
         let imap = MockInboxImapClient::new();
+        let attachment_dao = MockInboundMailAttachmentDao::new();
+        let storage = MockDocumentStorage::new();
         let cfg = mock_config(vec![]); // no imap_host
-        let n = poll_once(&cfg, &dao, &imap).await.unwrap();
+        let n = poll_once(&cfg, &dao, &imap, &attachment_dao, &storage)
+            .await
+            .unwrap();
         assert_eq!(n, 0);
     }
 
@@ -807,7 +1056,13 @@ mod tests {
         dao.expect_exists_by_uid().returning(|_, _| Ok(false));
         dao.expect_create().returning(|_| Ok(()));
 
-        let n = poll_once(&cfg, &dao, &imap).await.unwrap();
+        // No attachments in this mail; mocks need no expectations.
+        let attachment_dao = MockInboundMailAttachmentDao::new();
+        let storage = MockDocumentStorage::new();
+
+        let n = poll_once(&cfg, &dao, &imap, &attachment_dao, &storage)
+            .await
+            .unwrap();
         assert_eq!(n, 1);
     }
 
@@ -832,7 +1087,12 @@ mod tests {
         dao.expect_max_uid_for_validity().returning(|_| Ok(Some(4)));
         dao.expect_exists_by_uid().returning(|_, _| Ok(true));
 
-        let n = poll_once(&cfg, &dao, &imap).await.unwrap();
+        let attachment_dao = MockInboundMailAttachmentDao::new();
+        let storage = MockDocumentStorage::new();
+
+        let n = poll_once(&cfg, &dao, &imap, &attachment_dao, &storage)
+            .await
+            .unwrap();
         assert_eq!(n, 0);
     }
 
@@ -874,6 +1134,8 @@ mod tests {
             Arc::new(imap),
             Arc::new(job_dao),
             Arc::new(recipient_dao),
+            Arc::new(MockInboundMailAttachmentDao::new()),
+            Arc::new(MockDocumentStorage::new()),
         );
         let job = svc.reply(mail_id, "Re: s", "My reply").await.unwrap();
         assert_eq!(job.subject.as_ref(), "Re: s");
@@ -893,8 +1155,108 @@ mod tests {
             Arc::new(imap),
             Arc::new(MockMailJobDao::new()),
             Arc::new(MockMailRecipientDao::new()),
+            Arc::new(MockInboundMailAttachmentDao::new()),
+            Arc::new(MockDocumentStorage::new()),
         );
         let result = svc.reply(Uuid::new_v4(), "Re: x", "body").await;
         assert!(matches!(result, Err(MailServiceError::NotFound)));
+    }
+
+    // ── Phase 19: Attachment pipeline tests ────────────────────────────
+
+    /// Test A — parse_raw_mail extracts attachments from a multipart message.
+    /// Uses a small inline PNG (1×1 transparent pixel, base64) so the test
+    /// stays self-contained.
+    #[test]
+    fn test_parse_raw_mail_extracts_attachments() {
+        // 1×1 transparent PNG (67 bytes). Base64 encoded inline.
+        let raw = b"From: sender@example.com\r\n\
+                    To: inbox@example.com\r\n\
+                    Subject: Mail mit Anhang\r\n\
+                    MIME-Version: 1.0\r\n\
+                    Content-Type: multipart/mixed; boundary=BOUNDARY\r\n\
+                    \r\n\
+                    --BOUNDARY\r\n\
+                    Content-Type: text/plain\r\n\
+                    \r\n\
+                    Hallo, im Anhang ist ein Bild.\r\n\
+                    --BOUNDARY\r\n\
+                    Content-Type: image/png\r\n\
+                    Content-Transfer-Encoding: base64\r\n\
+                    Content-Disposition: attachment; filename=\"test.png\"\r\n\
+                    \r\n\
+                    iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=\r\n\
+                    --BOUNDARY--\r\n";
+        let p = parse_raw_mail(raw);
+        assert_eq!(p.attachments.len(), 1, "expected exactly one attachment");
+        assert_eq!(p.attachments[0].file_name, "test.png");
+        assert_eq!(p.attachments[0].mime_type, "image/png");
+        assert!(
+            !p.attachments[0].bytes.is_empty(),
+            "attachment bytes should be non-empty"
+        );
+        assert!(p.has_attachments);
+    }
+
+    /// Test B — oversized attachment skips DocumentStorage entirely and
+    /// persists a metadata-only row (`oversized=true`, `relative_path=None`).
+    #[tokio::test]
+    async fn test_persist_attachment_oversized_skips_storage() {
+        let mut storage = MockDocumentStorage::new();
+        // The critical assertion: storage.save MUST NOT be called for an
+        // oversized attachment (D-02, T-01).
+        storage.expect_save().times(0);
+
+        let mut dao = MockInboundMailAttachmentDao::new();
+        dao.expect_create().times(1).returning(|a| {
+            assert!(a.oversized, "oversized flag must be true");
+            assert!(
+                a.relative_path.is_none(),
+                "relative_path must be None for oversized"
+            );
+            Ok(())
+        });
+
+        // 1 byte over the 10 MB hard cap.
+        let bytes = vec![0u8; (ATTACHMENT_MAX_BYTES as usize) + 1];
+        let mail_id = Uuid::new_v4();
+        let result = persist_attachment(&storage, &dao, mail_id, "big.bin", "image/png", &bytes)
+            .await
+            .unwrap();
+        assert!(result.oversized, "returned entity must report oversized=true");
+        assert!(
+            result.relative_path.is_none(),
+            "returned entity must have None relative_path"
+        );
+    }
+
+    /// Test C — save-then-DB rollback: when the DB create fails, storage.delete
+    /// is invoked to remove the orphaned file (T-07).
+    #[tokio::test]
+    async fn test_persist_attachment_rollback_on_db_fail() {
+        let mut storage = MockDocumentStorage::new();
+        storage
+            .expect_save()
+            .times(1)
+            .returning(|_, _| Ok::<(), StorageError>(()));
+        storage
+            .expect_delete()
+            .times(1)
+            .returning(|_| Ok::<(), StorageError>(()));
+
+        let mut dao = MockInboundMailAttachmentDao::new();
+        dao.expect_create().times(1).returning(|_| {
+            Err(MailDaoError::DatabaseError(Arc::from(
+                "simulated DB failure",
+            )))
+        });
+
+        let bytes = vec![1u8; 1024]; // 1 KB, well under the cap
+        let mail_id = Uuid::new_v4();
+        let result =
+            persist_attachment(&storage, &dao, mail_id, "doc.pdf", "application/pdf", &bytes).await;
+        assert!(matches!(result, Err(MailServiceError::DataAccess(_))));
+        // mockall verifies expect_save().times(1) and expect_delete().times(1)
+        // on Drop — they document the save-then-DB-then-rollback flow.
     }
 }

@@ -578,6 +578,7 @@ type MailTemplateServiceType =
 type StaticDocumentDaoType = genossi_mail::dao_sqlite::StaticDocumentDaoSqlite;
 type MailJobStaticAttachmentDaoType = genossi_mail::dao_sqlite::MailJobStaticAttachmentDaoSqlite;
 type InboundMailDaoType = genossi_mail::dao_sqlite::InboundMailDaoSqlite;
+type InboundMailAttachmentDaoType = genossi_mail::dao_sqlite::InboundMailAttachmentDaoSqlite;
 type InboxImapClientType = genossi_mail::inbox_imap::AsyncImapClient;
 type InboxServiceType = genossi_mail::inbox::InboxServiceImpl<
     ConfigService,
@@ -585,6 +586,8 @@ type InboxServiceType = genossi_mail::inbox::InboxServiceImpl<
     InboxImapClientType,
     MailJobDao,
     MailRecipientDao,
+    InboundMailAttachmentDaoType,
+    DocumentStorage,
 >;
 type MailServiceType = genossi_mail::service::MailServiceImpl<
     ConfigService,
@@ -664,6 +667,10 @@ pub struct RestStateImpl {
     worker_inbox_config_service: Arc<ConfigService>,
     worker_inbox_dao: Arc<InboundMailDaoType>,
     worker_inbox_imap_client: Arc<InboxImapClientType>,
+    // Phase 19: inbox worker also needs the attachment DAO + storage to
+    // persist attachments after a successful mail-create.
+    worker_inbox_attachment_dao: Arc<InboundMailAttachmentDaoType>,
+    worker_inbox_storage: Arc<DocumentStorage>,
     // Worker dependencies (kept for spawning the background worker)
     worker_config_service: Arc<ConfigService>,
     worker_job_dao: Arc<MailJobDao>,
@@ -1082,17 +1089,25 @@ impl RestStateImpl {
         let inbox_config_service = Arc::new(ConfigService::new(inbox_config_dao));
         let inbox_job_dao = Arc::new(MailJobDao::new(pool.clone()));
         let inbox_recipient_dao = Arc::new(MailRecipientDao::new(pool.clone()));
+        // Phase 19: attachment DAO + storage are now part of InboxService.
+        let inbox_attachment_dao = Arc::new(InboundMailAttachmentDaoType::new(pool.clone()));
         let inbox_service = Arc::new(genossi_mail::inbox::InboxServiceImpl::new(
             inbox_config_service.clone(),
             inbox_dao.clone(),
             inbox_imap_client.clone(),
             inbox_job_dao,
             inbox_recipient_dao,
+            inbox_attachment_dao.clone(),
+            document_storage.clone(),
         ));
         let worker_inbox_config_dao = ConfigDao::new(pool.clone());
         let worker_inbox_config_service = Arc::new(ConfigService::new(worker_inbox_config_dao));
         let worker_inbox_dao = Arc::new(InboundMailDaoType::new(pool.clone()));
         let worker_inbox_imap_client = Arc::new(InboxImapClientType::new());
+        // Phase 19: worker also needs its own attachment DAO + storage handle.
+        let worker_inbox_attachment_dao =
+            Arc::new(InboundMailAttachmentDaoType::new(pool.clone()));
+        let worker_inbox_storage = document_storage.clone();
 
         // Create separate instances for the worker (worker needs its own DAOs)
         let worker_job_dao = Arc::new(MailJobDao::new(pool.clone()));
@@ -1169,6 +1184,8 @@ impl RestStateImpl {
             worker_inbox_config_service,
             worker_inbox_dao,
             worker_inbox_imap_client,
+            worker_inbox_attachment_dao,
+            worker_inbox_storage,
             worker_config_service,
             worker_job_dao,
             worker_recipient_dao,
@@ -1345,8 +1362,17 @@ impl RestStateImpl {
         let config_service = self.worker_inbox_config_service.clone();
         let dao = self.worker_inbox_dao.clone();
         let imap_client = self.worker_inbox_imap_client.clone();
+        let attachment_dao = self.worker_inbox_attachment_dao.clone();
+        let storage = self.worker_inbox_storage.clone();
         tokio::spawn(async move {
-            genossi_mail::inbox::start_inbox_worker(config_service, dao, imap_client).await;
+            genossi_mail::inbox::start_inbox_worker(
+                config_service,
+                dao,
+                imap_client,
+                attachment_dao,
+                storage,
+            )
+            .await;
         });
     }
 

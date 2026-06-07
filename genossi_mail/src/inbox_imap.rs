@@ -146,6 +146,44 @@ impl InboxImapClient for AsyncImapClient {
         Ok(out)
     }
 
+    async fn fetch_one_by_uid(
+        &self,
+        config: &ImapConfig,
+        expected_uid_validity: i64,
+        uid: i64,
+    ) -> Result<Option<FetchedMessage>, MailServiceError> {
+        let (mut session, mailbox) = open_examine_session(config).await?;
+        let actual = mailbox.uid_validity.unwrap_or(0) as i64;
+        if actual != expected_uid_validity {
+            let _ = session.logout().await;
+            return Err(err(format!(
+                "UIDVALIDITY drift: expected {}, got {}",
+                expected_uid_validity, actual
+            )));
+        }
+
+        let stream = session
+            .uid_fetch(format!("{}", uid), "(UID BODY.PEEK[])")
+            .await
+            .map_err(|e| err(format!("IMAP uid_fetch: {}", e)))?;
+
+        let messages: Vec<_> = stream.collect().await;
+        let mut found = None;
+        for item in messages {
+            let fetch = item.map_err(|e| err(format!("IMAP fetch item: {}", e)))?;
+            let Some(u) = fetch.uid else { continue };
+            if u as i64 != uid {
+                continue;
+            }
+            let raw = fetch.body().map(|b| b.to_vec()).unwrap_or_default();
+            found = Some(FetchedMessage { uid: u as i64, raw });
+            break;
+        }
+
+        let _ = session.logout().await;
+        Ok(found)
+    }
+
     async fn mark_seen(&self, config: &ImapConfig, uid: i64) -> Result<(), MailServiceError> {
         let mut session = open_select_session(config).await?;
         let stream = session
