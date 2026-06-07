@@ -44,9 +44,12 @@
   }
 }
 
+// Quick 260607-mw9: Querformat — bei 7 Spalten (Nr/Name/Kontoinhaber/IBAN/
+// Anteile/Betrag/Verwendungszweck) wird A4 hoch sonst zu eng.
 #show: letter.with(
   title: meta.title,
   date: meta.date,
+  landscape: true,
 )
 
 #text(size: 11pt)[
