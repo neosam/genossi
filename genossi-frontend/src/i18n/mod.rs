@@ -92,6 +92,8 @@ pub enum Key {
     CurrentBalance,
     ExitDate,
     BankAccount,
+    // Quick 260607-mw9: Kontoinhaber-Label für das neue Form-Feld.
+    AccountHolder,
     Salutation,
     Title,
     CreateMember,

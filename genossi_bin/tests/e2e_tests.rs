@@ -63,6 +63,7 @@ fn sample_member() -> MemberTO {
         migrated: false,
         exit_date: None,
         bank_account: Some("DE89370400440532013000".to_string()),
+        account_holder: None,
         status: genossi_rest_types::MemberStatusTO::Normal,
         created: None,
         deleted: None,
@@ -9805,6 +9806,10 @@ async fn test_attendance_members_response_has_no_pii_fields() {
         "email",
         "iban",
         "bank_account",
+        // Quick 260607-mw9: account_holder is a PII field on MemberTO; the
+        // ATTN-01 snapshot DTO must not surface it (whitelist check above
+        // already rejects unknown fields, this is belt-and-braces).
+        "account_holder",
         "street",
         "house_number",
         "postal_code",

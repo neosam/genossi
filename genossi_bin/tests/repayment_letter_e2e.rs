@@ -131,6 +131,7 @@ fn sample_member_with_iban(member_number: i64, iban: Option<&str>) -> MemberTO {
         migrated: false,
         exit_date: None,
         bank_account: iban.map(str::to_string),
+        account_holder: None,
         status: genossi_rest_types::MemberStatusTO::Normal,
         created: None,
         deleted: None,

@@ -80,6 +80,7 @@ fn sample_member(member_number: i64, first_name: &str) -> MemberTO {
         migrated: false,
         exit_date: None,
         bank_account: Some("DE89370400440532013000".to_string()),
+        account_holder: None,
         status: MemberStatusTO::Normal,
         created: None,
         deleted: None,

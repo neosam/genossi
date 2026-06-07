@@ -221,6 +221,11 @@ pub struct MemberTO {
     )]
     pub exit_date: Option<time::Date>,
     pub bank_account: Option<String>,
+    // Quick 260607-mw9: optional Kontoinhaber (Account Holder).
+    // Frontend-Spiegel zum gleichen Feld in genossi_rest_types. Optional;
+    // wenn None werden im Brief-PDF Mitgliedsname als Fallback verwendet.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub account_holder: Option<String>,
     #[serde(default)]
     pub status: MemberStatusTO,
     #[serde(
@@ -665,6 +670,7 @@ mod tests {
             migrated: false,
             exit_date,
             bank_account: None,
+            account_holder: None,
             status: MemberStatusTO::Normal,
             created: None,
             deleted: None,
@@ -905,6 +911,7 @@ mod phase_18_dtos_tests {
             migrated: false,
             exit_date: None,
             bank_account: None,
+            account_holder: None,
             status: MemberStatusTO::Normal,
             created: None,
             deleted: None,

@@ -83,6 +83,10 @@ pub fn to_member_to(slim: &MemberSlimTO) -> MemberTO {
         migrated: false,
         exit_date: None,
         bank_account: None,
+        // Quick 260607-mw9: MemberSlim → MemberTO adapter. SlimTO darf
+        // account_holder NICHT enthalten (PII-Guard), Adapter setzt es daher
+        // explizit auf None.
+        account_holder: None,
         status: MemberStatusTO::Normal,
         created: None,
         deleted: None,

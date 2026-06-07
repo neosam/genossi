@@ -209,6 +209,13 @@ pub struct MemberTO {
     #[schema(example = "2025-06-30")]
     pub exit_date: Option<time::Date>,
     pub bank_account: Option<String>,
+    // Quick 260607-mw9: optional Kontoinhaber (Account Holder).
+    // Wird im Auszahlungs-Anschreiben als Recipient-Adressblock verwendet,
+    // wenn das Bankkonto auf einen anderen Namen läuft. None = Fallback auf
+    // first_name + last_name. PII-Hinweis: Bewusst NICHT in MemberSlimTO.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[schema(example = "Erika Mustermann")]
+    pub account_holder: Option<String>,
     #[serde(default)]
     pub status: MemberStatusTO,
     #[serde(
@@ -253,6 +260,7 @@ impl From<&genossi_service::member::Member> for MemberTO {
             migrated: m.migrated,
             exit_date: m.exit_date,
             bank_account: m.bank_account.as_deref().map(String::from),
+            account_holder: m.account_holder.as_deref().map(String::from),
             status: MemberStatusTO::from(&m.status),
             created: Some(m.created),
             deleted: m.deleted,
@@ -323,6 +331,7 @@ impl From<&MemberTO> for genossi_service::member::Member {
             migrated: to.migrated,
             exit_date: to.exit_date,
             bank_account: to.bank_account.as_deref().map(Arc::from),
+            account_holder: to.account_holder.as_deref().map(Arc::from),
             status: MemberStatus::from(&to.status),
             created: to.created.unwrap_or_else(|| {
                 let now = time::OffsetDateTime::now_utc();
@@ -2565,6 +2574,7 @@ mod member_slim_to_tests {
             migrated: false,
             exit_date: None,
             bank_account: Some(Arc::from("DE89370400440532013000")),
+            account_holder: Some(Arc::from("Erika Mustermann")),
             status: MemberStatus::Normal,
             created: {
                 let now = time::OffsetDateTime::now_utc();
@@ -2600,6 +2610,12 @@ mod member_slim_to_tests {
         assert!(
             !obj.contains_key("bank_account"),
             "bank_account leaked into MemberSlimTO"
+        );
+        // Quick 260607-mw9: account_holder darf NIE in MemberSlimTO landen
+        // (PII-Whitelist intakt — Helfer sehen nur Mitgliedsnummer/Name/Titel).
+        assert!(
+            !obj.contains_key("account_holder"),
+            "account_holder leaked into MemberSlimTO"
         );
         assert!(!obj.contains_key("iban"), "iban leaked into MemberSlimTO");
         assert!(
@@ -2662,5 +2678,47 @@ mod member_slim_to_tests {
         assert!(obj.contains_key("member_number"));
         assert!(obj.contains_key("first_name"));
         assert!(obj.contains_key("last_name"));
+    }
+
+    /// Quick 260607-mw9: MemberTO serializes account_holder when Some.
+    #[test]
+    fn test_member_to_serializes_account_holder_when_some() {
+        let mut m = sample_service_member();
+        m.account_holder = Some(Arc::from("Erika Mustermann"));
+        let to = MemberTO::from(&m);
+        assert_eq!(to.account_holder.as_deref(), Some("Erika Mustermann"));
+        let json = serde_json::to_value(&to).expect("serialize MemberTO");
+        let obj = json.as_object().expect("MemberTO serializes to object");
+        assert_eq!(
+            obj.get("account_holder").and_then(|v| v.as_str()),
+            Some("Erika Mustermann")
+        );
+    }
+
+    /// Quick 260607-mw9: MemberTO omits account_holder when None
+    /// (skip_serializing_if), so JSON wire output stays compact.
+    #[test]
+    fn test_member_to_omits_account_holder_when_none() {
+        let mut m = sample_service_member();
+        m.account_holder = None;
+        let to = MemberTO::from(&m);
+        assert_eq!(to.account_holder, None);
+        let json = serde_json::to_value(&to).expect("serialize MemberTO");
+        let obj = json.as_object().expect("MemberTO serializes to object");
+        assert!(
+            !obj.contains_key("account_holder"),
+            "MemberTO with account_holder=None must skip the field in JSON"
+        );
+    }
+
+    /// Quick 260607-mw9: roundtrip Member → MemberTO → Member preserves
+    /// account_holder value.
+    #[test]
+    fn test_member_to_account_holder_roundtrip() {
+        let mut m = sample_service_member();
+        m.account_holder = Some(Arc::from("Firma XY GmbH"));
+        let to = MemberTO::from(&m);
+        let back = genossi_service::member::Member::from(&to);
+        assert_eq!(back.account_holder.as_deref(), Some("Firma XY GmbH"));
     }
 }

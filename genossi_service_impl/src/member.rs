@@ -248,6 +248,9 @@ impl<Deps: MemberServiceDeps> MemberService for MemberServiceImpl<Deps> {
             exit_date: item.exit_date,
             bank_account: item.bank_account.clone(),
             status: item.status.clone(),
+            // Quick 260607-mw9: account_holder vom Eingabe-Item übernehmen,
+            // damit Create-Endpoint den Wert akzeptiert.
+            account_holder: item.account_holder.clone(),
             created,
             deleted: None,
             version: self.uuid_service.new_v4().await,

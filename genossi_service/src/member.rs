@@ -32,6 +32,11 @@ pub struct Member {
     pub exit_date: Option<time::Date>,
     pub bank_account: Option<Arc<str>>,
     pub status: MemberStatus,
+    /// Quick 260607-mw9: optionaler Kontoinhaber. Wird im Auszahlungs-Anschreiben
+    /// als Recipient-Adressblock verwendet, wenn das Bankkonto auf einen
+    /// anderen Namen läuft (Ehepartner, Firma). None = Fallback auf
+    /// first_name + last_name. Spiegelt das gleiche Feld auf MemberEntity.
+    pub account_holder: Option<Arc<str>>,
     pub created: time::PrimitiveDateTime,
     pub deleted: Option<time::PrimitiveDateTime>,
     pub version: Uuid,
@@ -62,6 +67,7 @@ impl From<&MemberEntity> for Member {
             exit_date: entity.exit_date,
             bank_account: entity.bank_account.clone(),
             status: entity.status.clone(),
+            account_holder: entity.account_holder.clone(),
             created: entity.created,
             deleted: entity.deleted,
             version: entity.version,
@@ -94,6 +100,7 @@ impl From<&Member> for MemberEntity {
             exit_date: member.exit_date,
             bank_account: member.bank_account.clone(),
             status: member.status.clone(),
+            account_holder: member.account_holder.clone(),
             created: member.created,
             deleted: member.deleted,
             version: member.version,
@@ -185,6 +192,7 @@ mod tests {
             exit_date: None,
             bank_account: None,
             status: MemberStatus::Normal,
+            account_holder: None,
             created: datetime,
             deleted: None,
             version: Uuid::new_v4(),
@@ -217,5 +225,28 @@ mod tests {
         let back = Member::from(&entity);
         assert_eq!(back.salutation, None);
         assert_eq!(back.title, None);
+    }
+
+    /// Quick 260607-mw9: round-trip preserves account_holder between
+    /// Member (service-layer) and MemberEntity (DAO-layer) in both directions.
+    #[test]
+    fn test_member_to_entity_preserves_account_holder() {
+        let mut member = make_member();
+        member.account_holder = Some(Arc::from("Erika Mustermann"));
+        let entity = MemberEntity::from(&member);
+        assert_eq!(entity.account_holder.as_deref(), Some("Erika Mustermann"));
+        let back = Member::from(&entity);
+        assert_eq!(back.account_holder.as_deref(), Some("Erika Mustermann"));
+    }
+
+    /// Quick 260607-mw9: None remains None through both round-trip directions.
+    #[test]
+    fn test_member_to_entity_none_account_holder_roundtrip() {
+        let mut member = make_member();
+        member.account_holder = None;
+        let entity = MemberEntity::from(&member);
+        assert_eq!(entity.account_holder, None);
+        let back = Member::from(&entity);
+        assert_eq!(back.account_holder, None);
     }
 }

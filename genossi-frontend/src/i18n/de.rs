@@ -47,6 +47,7 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::CurrentBalance => "Guthaben (Cent)".into(),
         Key::ExitDate => "Austrittsdatum".into(),
         Key::BankAccount => "Bankverbindung (IBAN)".into(),
+        Key::AccountHolder => "Kontoinhaber".into(),
         Key::Salutation => "Anrede".into(),
         Key::Title => "Titel".into(),
         Key::CreateMember => "Neues Mitglied".into(),

@@ -72,6 +72,7 @@ fn sample_member(member_number: i64, first_name: &str) -> MemberTO {
         migrated: false,
         exit_date: None,
         bank_account: Some("DE89370400440532013000".to_string()),
+        account_holder: None,
         status: genossi_rest_types::MemberStatusTO::Normal,
         created: None,
         deleted: None,
@@ -240,6 +241,14 @@ async fn test_transfer_recipients_filters_self_and_cancelled() {
     assert!(
         !body.contains("\"bank_account\""),
         "MemberSlimTO leaked bank_account field: {}",
+        body
+    );
+    // Quick 260607-mw9: account_holder is a PII field on MemberTO but must
+    // NEVER appear in MemberSlimTO output (defense-in-depth alongside the
+    // unit test in genossi_rest_types).
+    assert!(
+        !body.contains("\"account_holder\""),
+        "MemberSlimTO leaked account_holder field: {}",
         body
     );
     assert!(
