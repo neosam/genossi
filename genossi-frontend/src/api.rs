@@ -2828,3 +2828,73 @@ mod tests {
         );
     }
 }
+
+// ─── Phase 18 ─── URL-Builder-Tests ─────────────────────────────────
+//
+// Reine String-Builder-Tests fuer die Membership-Adjust-Endpoint-URLs.
+// Verifizieren die `format!(...)`-Templates der 5 neuen api.rs-Funktionen
+// (`cancel_membership`, `increase_shares`, `partial_repayment`,
+// `transfer_shares`, `get_transfer_recipients`) ohne Netzwerk-Aufruf.
+//
+// Zweck: Pfad-Typo-Detection (T-18-05-01). Schlaegt CI ab bei einem
+// versehentlichen Drift wie `cancle` statt `cancel`.
+#[cfg(test)]
+mod phase_18_api_url_tests {
+    use uuid::Uuid;
+
+    const BASE: &str = "http://test.local";
+    const ID: u128 = 0x0000_0000_0000_0000_0000_0000_0000_0001;
+
+    #[test]
+    fn cancel_membership_url_template() {
+        let member_id = Uuid::from_u128(ID);
+        let url = format!("{}/api/members/{member_id}/cancel", BASE);
+        assert_eq!(
+            url,
+            "http://test.local/api/members/00000000-0000-0000-0000-000000000001/cancel"
+        );
+    }
+
+    #[test]
+    fn increase_shares_url_template() {
+        let member_id = Uuid::from_u128(ID);
+        let url = format!("{}/api/members/{member_id}/increase-shares", BASE);
+        assert_eq!(
+            url,
+            "http://test.local/api/members/00000000-0000-0000-0000-000000000001/increase-shares"
+        );
+    }
+
+    #[test]
+    fn partial_repayment_url_template() {
+        let member_id = Uuid::from_u128(ID);
+        let url = format!("{}/api/members/{member_id}/partial-repayment", BASE);
+        assert_eq!(
+            url,
+            "http://test.local/api/members/00000000-0000-0000-0000-000000000001/partial-repayment"
+        );
+    }
+
+    #[test]
+    fn transfer_shares_url_template() {
+        let from_id = Uuid::from_u128(ID);
+        let url = format!("{}/api/members/{from_id}/transfer-shares", BASE);
+        assert_eq!(
+            url,
+            "http://test.local/api/members/00000000-0000-0000-0000-000000000001/transfer-shares"
+        );
+    }
+
+    #[test]
+    fn get_transfer_recipients_url_template() {
+        let exclude_self = Uuid::from_u128(ID);
+        let url = format!(
+            "{}/api/members/transfer-recipients?exclude_self={exclude_self}",
+            BASE
+        );
+        assert_eq!(
+            url,
+            "http://test.local/api/members/transfer-recipients?exclude_self=00000000-0000-0000-0000-000000000001"
+        );
+    }
+}
