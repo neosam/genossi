@@ -185,7 +185,7 @@ impl Default for MemberStatusTO {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MemberTO {
     pub id: Option<Uuid>,
     pub member_number: i64,
