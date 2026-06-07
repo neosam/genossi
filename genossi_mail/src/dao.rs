@@ -104,6 +104,38 @@ pub trait MailRecipientAttachmentDao: Send + Sync + 'static {
     ) -> Result<Arc<[MailRecipientAttachment]>, MailDaoError>;
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// Inbound mail attachments (Phase 19 — Backend für Inbox-Attachment-Anzeige)
+// ────────────────────────────────────────────────────────────────────────────
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InboundMailAttachment {
+    pub id: Uuid,
+    pub inbound_mail_id: Uuid,
+    pub created: time::PrimitiveDateTime,
+    pub file_name: Arc<str>,
+    pub mime_type: Arc<str>,
+    pub size_bytes: i64,
+    pub relative_path: Option<Arc<str>>, // NULL when oversized=true (D-02)
+    pub oversized: bool,                 // D-02 hard 10 MB cap marker
+}
+
+#[automock]
+#[async_trait]
+pub trait InboundMailAttachmentDao: Send + Sync + 'static {
+    async fn create(&self, attachment: &InboundMailAttachment) -> Result<(), MailDaoError>;
+    async fn find_by_inbound_mail_id(
+        &self,
+        inbound_mail_id: Uuid,
+    ) -> Result<Arc<[InboundMailAttachment]>, MailDaoError>;
+    async fn find_by_id_and_mail(
+        &self,
+        mail_id: Uuid,
+        attachment_id: Uuid,
+    ) -> Result<Option<InboundMailAttachment>, MailDaoError>;
+    async fn count_for_mail(&self, mail_id: Uuid) -> Result<i64, MailDaoError>;
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StaticDocument {
     pub id: Uuid,
