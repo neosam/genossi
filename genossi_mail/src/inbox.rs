@@ -780,6 +780,165 @@ where
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// Phase 19 Plan 04 — Attachment backfill (one-shot)
+// ────────────────────────────────────────────────────────────────────────────
+
+/// One-shot backfill pass for attachments on legacy inbound mails (mails
+/// stored before Phase 19 introduced the attachment pipeline).
+///
+/// Iterates all active inbound mails, selects those with `has_attachments=true`
+/// AND no existing attachment rows (`count_for_mail == 0`), then refetches each
+/// candidate from IMAP via `fetch_one_by_uid` (UIDVALIDITY-checked, T-06) and
+/// runs the same `persist_attachment` pipeline used by the poll worker.
+///
+/// Behavior:
+/// * **Best-effort (D-05/D-06):** Mails that can no longer be fetched from
+///   IMAP (Err) or no longer exist on the server (Ok(None)) are silently
+///   skipped — `tracing::warn!` + continue. They will permanently show the
+///   "attachment received before Phase 19" hint in the frontend.
+/// * **Idempotent on restart:** The `count_for_mail == 0` filter naturally
+///   excludes mails that were already backfilled in a previous pass, so
+///   re-running on every server start is safe (no double persist).
+/// * **One-shot:** No `loop {}` body — exits after walking the candidate
+///   list once. Intended to be `tokio::spawn`ed at server start.
+/// * **Same 10 MB cap as poll worker** via the shared `persist_attachment`
+///   helper (D-02).
+///
+/// Logging contract:
+/// * Start: `inbox_attachment_backfill: starting ({N} candidates)`
+/// * End:   `inbox_attachment_backfill: done ({Y} persisted, {Z} skipped)`
+pub async fn run_attachment_backfill<C, D, A, St, I>(
+    config_service: Arc<C>,
+    mail_dao: Arc<D>,
+    attachment_dao: Arc<A>,
+    storage: Arc<St>,
+    imap_client: Arc<I>,
+) where
+    C: ConfigService + Send + Sync + 'static,
+    D: InboundMailDao + Send + Sync + 'static,
+    A: InboundMailAttachmentDao + Send + Sync + 'static,
+    St: DocumentStorage + Send + Sync + 'static,
+    I: InboxImapClient + Send + Sync + 'static,
+{
+    // 1. Load IMAP config — same code path as start_inbox_worker.
+    //    ConfigMissing (no IMAP configured) is a no-op startup case.
+    let imap_cfg = match load_imap_config(config_service.as_ref()).await {
+        Ok(cfg) => cfg,
+        Err(MailServiceError::ConfigMissing(k)) => {
+            tracing::debug!(
+                "inbox_attachment_backfill: IMAP not configured ({}), skipping",
+                k
+            );
+            return;
+        }
+        Err(e) => {
+            tracing::warn!("inbox_attachment_backfill: config load failed: {:?}", e);
+            return;
+        }
+    };
+
+    // 2. Gather candidates: has_attachments=true AND count_for_mail == 0.
+    //    Uses list_active() (in-memory filter on has_attachments). No new DAO
+    //    method needed — backfill is a one-shot pass on a small dataset.
+    let all = match mail_dao.list_active().await {
+        Ok(rows) => rows,
+        Err(e) => {
+            tracing::warn!("inbox_attachment_backfill: mail dao query failed: {:?}", e);
+            return;
+        }
+    };
+
+    let mut candidates: Vec<InboundMail> = Vec::new();
+    for mail in all.iter().filter(|m| m.has_attachments) {
+        match attachment_dao.count_for_mail(mail.id).await {
+            Ok(0) => candidates.push(mail.clone()),
+            Ok(_) => {} // Already backfilled — skip silently for idempotency.
+            Err(e) => {
+                tracing::warn!(
+                    "inbox_attachment_backfill: count_for_mail({}) failed: {:?}",
+                    mail.id,
+                    e
+                );
+            }
+        }
+    }
+
+    tracing::info!(
+        "inbox_attachment_backfill: starting ({} candidates)",
+        candidates.len()
+    );
+
+    let mut persisted: u64 = 0;
+    let mut skipped: u64 = 0;
+    for mail in candidates.iter() {
+        let fetched = match imap_client
+            .fetch_one_by_uid(&imap_cfg, mail.uid_validity, mail.imap_uid)
+            .await
+        {
+            Ok(Some(f)) => f,
+            Ok(None) => {
+                tracing::warn!(
+                    "inbox_attachment_backfill: skip mail={} uid={} (validity={}): no message",
+                    mail.id,
+                    mail.imap_uid,
+                    mail.uid_validity
+                );
+                skipped += 1;
+                continue;
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "inbox_attachment_backfill: skip mail={} uid={} (validity={}): {:?}",
+                    mail.id,
+                    mail.imap_uid,
+                    mail.uid_validity,
+                    e
+                );
+                skipped += 1;
+                continue;
+            }
+        };
+        let parsed = parse_raw_mail(&fetched.raw);
+        let mut any_ok = false;
+        for att in parsed.attachments.iter() {
+            match persist_attachment(
+                storage.as_ref(),
+                attachment_dao.as_ref(),
+                mail.id,
+                &att.file_name,
+                &att.mime_type,
+                &att.bytes,
+            )
+            .await
+            {
+                Ok(_) => {
+                    any_ok = true;
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "inbox_attachment_backfill: persist failed mail={} file={}: {:?}",
+                        mail.id,
+                        att.file_name,
+                        e
+                    );
+                }
+            }
+        }
+        if any_ok {
+            persisted += 1;
+        } else {
+            skipped += 1;
+        }
+    }
+
+    tracing::info!(
+        "inbox_attachment_backfill: done ({} persisted, {} skipped)",
+        persisted,
+        skipped
+    );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // Tests
 // ────────────────────────────────────────────────────────────────────────────
 
