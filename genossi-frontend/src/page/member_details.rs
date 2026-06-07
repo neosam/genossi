@@ -6,13 +6,17 @@ use rest_types::{
 use uuid::Uuid;
 
 use crate::api::{self, FileTreeEntry};
-use crate::component::{CommunicationTimeline, ErrorAlert, MemberSearch, Modal, TopBar};
+use crate::auth::RequirePrivilege;
+use crate::component::{
+    show_success_toast, CommunicationTimeline, ErrorAlert, MemberSearch, MembershipAdjustModal,
+    Modal, SuccessToastContainer, ToastContainer, TopBar,
+};
 use crate::i18n::use_i18n;
 use crate::i18n::Key;
 use crate::router::Route;
 use crate::service::auth::AUTH;
 use crate::service::config::CONFIG;
-use crate::service::member::SELECTED_MEMBER_IDS;
+use crate::service::member::{refresh_members, SELECTED_MEMBER_IDS};
 
 fn action_type_label(i18n: &crate::i18n::I18n, at: &ActionTypeTO) -> String {
     match at {
@@ -157,6 +161,34 @@ pub fn MemberDetails(id: String) -> Element {
 
     // Communication timeline state
     let mut communications = use_signal(|| Vec::<CommunicationEntryTO>::new());
+
+    // Phase 18 — Mitgliedschaft-anpassen Modal-State (UI-01).
+    let mut show_adjust_modal = use_signal(|| false);
+    // Phase 18 — Toast-Buckets: error (rot) + success (gruen).
+    // Separate Signals pro Plan-02-D-18-08 (Zero-Blast-Radius-Pattern).
+    // L-6 Mitigation: member_details.rs hatte bisher KEINEN ToastContainer.
+    let mut toast_messages = use_signal(|| Vec::<(u64, String)>::new());
+    let mut success_toast_messages = use_signal(|| Vec::<(u64, String)>::new());
+    let mut toast_counter = use_signal(|| 0u64);
+
+    // Phase 18 — heutiges Datum fuer Datepicker-Bounds (Single-Source-of-Truth fuer diese Page).
+    // HINWEIS: member_details.rs:82-90 und :138-148 berechnen today bereits separat INNERHALB
+    // von use_signal()-Closures (fuer join_date und action_date). Diese werden bewusst NICHT
+    // veraendert (L-7 Cross-File-Refactor-Risiko). Die hier eingefuehrte `today`-Variable wird
+    // ausschliesslich an MembershipAdjustModal weitergegeben. Future-Cleanup-Ticket fuer
+    // Konsolidierung der drei today-Calls ist optional.
+    let today: time::Date = {
+        let d = js_sys::Date::new_0();
+        let year = d.get_full_year() as i32;
+        let month_idx = d.get_month() as u8 + 1;
+        let day = d.get_date() as u8;
+        match time::Month::try_from(month_idx) {
+            Ok(month) => time::Date::from_calendar_date(year, month, day).unwrap_or_else(|_| {
+                time::Date::from_calendar_date(2025, time::Month::January, 1).unwrap()
+            }),
+            Err(_) => time::Date::from_calendar_date(2025, time::Month::January, 1).unwrap(),
+        }
+    };
 
     // Load existing member + actions
     use_effect(move || {
@@ -391,6 +423,19 @@ pub fn MemberDetails(id: String) -> Element {
                                             {i18n.t(Key::NoEmailAddressHint)}
                                         }
                                     }
+                                }
+                            }
+                        }
+                        // Phase 18 — Admin-only Button "Mitgliedschaft anpassen" (UI-01).
+                        // Erscheint nur bei existierenden Mitgliedern (nicht bei `new`).
+                        if !is_new {
+                            RequirePrivilege {
+                                privilege: "admin",
+                                button {
+                                    r#type: "button",
+                                    class: "px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm font-medium min-h-[44px]",
+                                    onclick: move |_| show_adjust_modal.set(true),
+                                    "{i18n.t(Key::MembershipAdjustButtonLabel)}"
                                 }
                             }
                         }
@@ -1433,6 +1478,51 @@ pub fn MemberDetails(id: String) -> Element {
                 }
             }
         }
+
+        // Phase 18 — Mitgliedschaft-Adjust Modal (conditional, only when toggled on).
+        // Member-Snapshot via Clone (D-18 Live-Signal-Drilling vermeiden).
+        if *show_adjust_modal.read() {
+            {
+                let member_snapshot = member.read().clone();
+                let success_msg = i18n.t(Key::MembershipAdjustSuccess).to_string();
+                rsx! {
+                    Modal {
+                        MembershipAdjustModal {
+                            member: member_snapshot,
+                            today: today,
+                            on_close: move |_| show_adjust_modal.set(false),
+                            on_success: move |_| {
+                                show_adjust_modal.set(false);
+                                let msg = success_msg.clone();
+                                let member_id_opt = member.read().id;
+                                spawn(async move {
+                                    refresh_members().await;
+                                    if let Some(id) = member_id_opt {
+                                        let config = CONFIG.read().clone();
+                                        if let Ok(data) = api::get_member(&config, id).await {
+                                            *member.write() = data;
+                                        }
+                                        if let Ok(data) = api::get_member_actions(&config, id).await {
+                                            *actions.write() = data;
+                                        }
+                                    }
+                                });
+                                show_success_toast(
+                                    &mut success_toast_messages,
+                                    &mut toast_counter,
+                                    msg,
+                                );
+                            },
+                        }
+                    }
+                }
+            }
+        }
+
+        // Phase 18 — Toast containers (Error + Success, separate buckets per Plan 02 D-18-08).
+        // L-6 Mitigation: bisher hatte member_details.rs keine Toast-Mounts.
+        ToastContainer { messages: toast_messages }
+        SuccessToastContainer { messages: success_toast_messages }
     }
 }
 
