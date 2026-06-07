@@ -44,9 +44,9 @@ Requirements für v1.2-Release. Jedes mappt auf genau eine Roadmap-Phase.
 
 ### UI
 
-- [ ] **UI-01**: Single-Button „Mitgliedschaft anpassen" auf Member-Detail-Page (nicht in Mitgliederliste — Audit-Bewusstsein durch extra Klick)
+- [x] **UI-01**: Single-Button „Mitgliedschaft anpassen" auf Member-Detail-Page (nicht in Mitgliederliste — Audit-Bewusstsein durch extra Klick)
 - [x] **UI-02**: `MembershipAdjustModal` als shared Component in `genossi-frontend/src/component/`; eine Modal mit Operation-Sub-Choice und vier Sub-Views (Sub-Choice-Form wird in `/gsd-discuss-phase` fixiert)
-- [ ] **UI-03**: Datepicker mit GJ-Bounds — erlaubt nur Daten im aktuell offenen GJ und im nächsten GJ (für H2-Wirksamkeit erforderlich)
+- [x] **UI-03**: Datepicker mit GJ-Bounds — erlaubt nur Daten im aktuell offenen GJ und im nächsten GJ (für H2-Wirksamkeit erforderlich)
 - [x] **UI-04**: Vorschau-Section mit konkreter Zahlen-Anzeige vor Commit (z.B. „Member A: 5 → 3 Anteile · Member B: 2 → 4 Anteile" für Übertrag; analog für andere Operationen)
 
 ### Audit (AUDT)
@@ -122,9 +122,9 @@ Welche Phasen welche Requirements abdecken. Wird vom Roadmapper-Schritt befüllt
 | UPGD-02 | Phase 15 | Complete |
 | UPGD-03 | Phase 15 | Complete |
 | UPGD-04 | Phase 15 | Complete |
-| UI-01 | Phase 18 | Pending |
+| UI-01 | Phase 18 | Complete |
 | UI-02 | Phase 18 | Complete |
-| UI-03 | Phase 18 | Pending |
+| UI-03 | Phase 18 | Complete |
 | UI-04 | Phase 18 | Complete |
 | AUDT-01 | Phase 15 | Complete |
 | AUDT-02 | Phase 17 | Complete |
