@@ -172,4 +172,45 @@ mod tests {
         assert!(result.contains("filename=\"my file.pdf\""));
         assert!(result.contains("filename*=UTF-8''my%20file.pdf"));
     }
+
+    // ── Phase 19 Plan 03 Task 1: inline-disposition unit tests ─────────
+    // Mirror naming + assertions of the attachment-tests above. T-02 +
+    // T-05 (header injection) explicitly covered.
+
+    #[test]
+    fn test_inline_simple_filename() {
+        let result = content_disposition_inline("invoice.pdf");
+        assert!(result.contains("inline; filename=\"invoice.pdf\""));
+        assert!(result.contains("filename*=UTF-8''invoice.pdf"));
+    }
+
+    #[test]
+    fn test_inline_umlaut_filename() {
+        let result = content_disposition_inline("Rückzahlung.pdf");
+        // ASCII fallback replaces ü with _
+        assert!(result.contains("filename=\"R_ckzahlung.pdf\""));
+        // UTF-8 part encodes ü (U+00FC = C3 BC)
+        assert!(result.contains("filename*=UTF-8''R%C3%BCckzahlung.pdf"));
+    }
+
+    #[test]
+    fn test_inline_quote_in_filename() {
+        let result = content_disposition_inline("a\"b.pdf");
+        // ASCII fallback replaces " with _
+        assert!(result.contains("filename=\"a_b.pdf\""));
+        // UTF-8 part encodes "
+        assert!(result.contains("%22"));
+    }
+
+    #[test]
+    fn test_inline_newline_in_filename() {
+        let result = content_disposition_inline("a\r\nb.pdf");
+        // T-05 header-injection guard: CR/LF must NOT appear as literal chars
+        assert!(!result.contains('\r'));
+        assert!(!result.contains('\n'));
+        // ASCII fallback replaces \r\n with __
+        assert!(result.contains("filename=\"a__b.pdf\""));
+        // UTF-8 part percent-encodes \r\n
+        assert!(result.contains("%0D%0A"));
+    }
 }
