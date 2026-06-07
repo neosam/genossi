@@ -49,6 +49,20 @@ pub fn content_disposition_attachment(filename: &str) -> String {
     )
 }
 
+/// Build an RFC 6266 `Content-Disposition: inline` header value.
+/// Same filename-encoding rules as `content_disposition_attachment` —
+/// the only difference is the disposition kind. Both helpers must share
+/// `sanitize_ascii_filename` + `percent_encode_utf8` so the T-02 +
+/// T-05 (CR/LF header-injection) guarantees are identical.
+pub fn content_disposition_inline(filename: &str) -> String {
+    let ascii_fallback = sanitize_ascii_filename(filename);
+    let utf8_encoded = percent_encode_utf8(filename);
+    format!(
+        "inline; filename=\"{}\"; filename*=UTF-8''{}",
+        ascii_fallback, utf8_encoded
+    )
+}
+
 /// Replace non-ASCII, `"`, `\`, `\r`, `\n` with `_` for the ASCII fallback.
 fn sanitize_ascii_filename(s: &str) -> String {
     s.chars()
