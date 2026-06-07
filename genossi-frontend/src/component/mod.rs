@@ -139,3 +139,10 @@ pub use fiscal_year_date_input::{is_valid_fiscal_year_date, FiscalYearDateInput}
 // Phase 18 — Toast-Erweiterungen aus Plan 02 (toast.rs) re-exportieren.
 // `show_toast` + `ToastContainer` sind bereits oben in der Phase-4-Sektion re-exportiert.
 pub use toast::{show_success_toast, SuccessToastContainer, ToastVariant};
+
+// ─── Phase 18 ─── MembershipAdjustModal (Plan 06) ────
+pub mod membership_adjust_modal;
+pub use membership_adjust_modal::{
+    compute_effective_date_mirror, format_date_german, is_voll_uebertrag, to_member_to,
+    MembershipAdjustModal,
+};
