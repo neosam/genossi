@@ -165,6 +165,14 @@ pub(crate) fn filter_and_enrich_rows(
                 share_count: entry.share_count_to_pay_out,
                 amount_str,
                 purpose,
+                // Quick 260607-mw9: Kontoinhaber separat exportieren; leere
+                // Strings als None behandeln, damit das Template auf `name`
+                // zurückfällt.
+                account_holder: m
+                    .account_holder
+                    .as_ref()
+                    .map(|s| s.to_string())
+                    .filter(|s| !s.is_empty()),
             }
         })
         .collect()

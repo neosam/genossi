@@ -44,6 +44,10 @@ pub struct RepaymentExportRow {
     pub share_count: i32,
     pub amount_str: String,
     pub purpose: String,
+    /// Quick 260607-mw9: optionaler Kontoinhaber (kann vom Mitgliedsnamen
+    /// abweichen, z. B. Ehepartner/Firma). `None` → Template fällt auf `name`
+    /// zurück.
+    pub account_holder: Option<String>,
 }
 
 pub struct PackageCache {
@@ -993,6 +997,8 @@ fn build_inputs_repayment(phase: &RepaymentPhaseEntity, rows: &[RepaymentExportR
     let row_values: Vec<serde_json::Value> = rows
         .iter()
         .map(|r| {
+            // Quick 260607-mw9: account_holder als JSON-Null wenn None — Template
+            // fällt dann auf `name` zurück (Pattern wie bank_account im Letter).
             serde_json::json!({
                 "member_number": r.member_number,
                 "name": r.name,
@@ -1000,6 +1006,7 @@ fn build_inputs_repayment(phase: &RepaymentPhaseEntity, rows: &[RepaymentExportR
                 "share_count": r.share_count,
                 "amount_str": r.amount_str,
                 "purpose": r.purpose,
+                "account_holder": r.account_holder.as_deref().map(serde_json::Value::from).unwrap_or(serde_json::Value::Null),
             })
         })
         .collect();
@@ -1789,6 +1796,7 @@ Member number: #member.member_number
                 share_count: 1,
                 amount_str: "120,00".to_string(),
                 purpose: "Anteilsrückzahlung GJ 2026 1234 Hans Müller".to_string(),
+                account_holder: None,
             },
             RepaymentExportRow {
                 member_number: 5678,
@@ -1797,6 +1805,7 @@ Member number: #member.member_number
                 share_count: 2,
                 amount_str: "240,00".to_string(),
                 purpose: "Anteilsrückzahlung GJ 2026 5678 Erika Beispiel".to_string(),
+                account_holder: None,
             },
         ];
 
@@ -1820,6 +1829,64 @@ Member number: #member.member_number
         let bytes = res.unwrap();
         assert!(bytes.starts_with(b"%PDF-"));
         assert!(bytes.len() > 1000, "PDF too small ({} bytes)", bytes.len());
+    }
+
+    // Quick 260607-mw9: build_inputs_repayment serialisiert account_holder
+    // pro Row als JSON-Value (String wenn Some, Null wenn None).
+    #[test]
+    fn test_build_inputs_repayment_account_holder_some_serialised_as_string() {
+        let phase = test_repayment_phase();
+        let rows = vec![RepaymentExportRow {
+            member_number: 42,
+            name: "Hans Müller".to_string(),
+            iban: "DE89370400440532013000".to_string(),
+            share_count: 1,
+            amount_str: "120,00".to_string(),
+            purpose: "Anteilsrückzahlung GJ 2026 42 Hans Müller".to_string(),
+            account_holder: Some("Erika Mustermann".to_string()),
+        }];
+        let inputs = build_inputs_repayment(&phase, &rows);
+        let rows_value = inputs
+            .get(&Str::from("rows"))
+            .expect("rows key present");
+        let rows_json = match rows_value {
+            Value::Str(s) => s.to_string(),
+            other => panic!("rows is not a string: {:?}", other),
+        };
+        let parsed: serde_json::Value =
+            serde_json::from_str(&rows_json).expect("rows json deserialisable");
+        let arr = parsed.as_array().expect("rows is array");
+        assert_eq!(arr[0]["account_holder"], "Erika Mustermann");
+    }
+
+    #[test]
+    fn test_build_inputs_repayment_account_holder_none_serialised_as_null() {
+        let phase = test_repayment_phase();
+        let rows = vec![RepaymentExportRow {
+            member_number: 7,
+            name: "Lisa Beispiel".to_string(),
+            iban: String::new(),
+            share_count: 2,
+            amount_str: "240,00".to_string(),
+            purpose: "Anteilsrückzahlung GJ 2026 7 Lisa Beispiel".to_string(),
+            account_holder: None,
+        }];
+        let inputs = build_inputs_repayment(&phase, &rows);
+        let rows_value = inputs
+            .get(&Str::from("rows"))
+            .expect("rows key present");
+        let rows_json = match rows_value {
+            Value::Str(s) => s.to_string(),
+            other => panic!("rows is not a string: {:?}", other),
+        };
+        let parsed: serde_json::Value =
+            serde_json::from_str(&rows_json).expect("rows json deserialisable");
+        let arr = parsed.as_array().expect("rows is array");
+        assert!(
+            arr[0]["account_holder"].is_null(),
+            "expected null, got {:?}",
+            arr[0]["account_holder"]
+        );
     }
 
     #[test]
