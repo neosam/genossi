@@ -5,10 +5,11 @@ use time::PrimitiveDateTime;
 use uuid::Uuid;
 
 use crate::dao::{
-    CommunicationDao, CommunicationDirection, CommunicationEntry, InboundMail, InboundMailDao,
-    MailDaoError, MailJob, MailJobDao, MailJobStaticAttachment, MailJobStaticAttachmentDao,
-    MailRecipient, MailRecipientAttachment, MailRecipientAttachmentDao, MailRecipientDao,
-    MailTemplate, MailTemplateDao, StaticDocument, StaticDocumentDao,
+    CommunicationDao, CommunicationDirection, CommunicationEntry, InboundMail,
+    InboundMailAttachment, InboundMailAttachmentDao, InboundMailDao, MailDaoError, MailJob,
+    MailJobDao, MailJobStaticAttachment, MailJobStaticAttachmentDao, MailRecipient,
+    MailRecipientAttachment, MailRecipientAttachmentDao, MailRecipientDao, MailTemplate,
+    MailTemplateDao, StaticDocument, StaticDocumentDao,
 };
 
 fn parse_datetime(s: &str) -> Result<PrimitiveDateTime, time::error::Parse> {
@@ -431,6 +432,132 @@ impl MailRecipientAttachmentDao for MailRecipientAttachmentDaoSqlite {
             .map(MailRecipientAttachment::try_from)
             .collect::<Result<Vec<_>, _>>()
             .map(|v| v.into())
+    }
+}
+
+// InboundMailAttachment SQLite (Phase 19 — Backend für Inbox-Attachment-Anzeige)
+
+#[derive(Debug, sqlx::FromRow)]
+struct InboundMailAttachmentDb {
+    id: Vec<u8>,
+    inbound_mail_id: Vec<u8>,
+    created: String,
+    file_name: String,
+    mime_type: String,
+    size_bytes: i64,
+    relative_path: Option<String>,
+    oversized: i64,
+}
+
+impl TryFrom<&InboundMailAttachmentDb> for InboundMailAttachment {
+    type Error = MailDaoError;
+
+    fn try_from(db: &InboundMailAttachmentDb) -> Result<Self, Self::Error> {
+        Ok(InboundMailAttachment {
+            id: parse_uuid(&db.id)?,
+            inbound_mail_id: parse_uuid(&db.inbound_mail_id)?,
+            created: parse_datetime(&db.created)
+                .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?,
+            file_name: Arc::from(db.file_name.as_str()),
+            mime_type: Arc::from(db.mime_type.as_str()),
+            size_bytes: db.size_bytes,
+            relative_path: db.relative_path.as_deref().map(Arc::from),
+            oversized: db.oversized != 0,
+        })
+    }
+}
+
+pub struct InboundMailAttachmentDaoSqlite {
+    pool: Arc<SqlitePool>,
+}
+
+impl InboundMailAttachmentDaoSqlite {
+    pub fn new(pool: Arc<SqlitePool>) -> Self {
+        Self { pool }
+    }
+}
+
+#[async_trait]
+impl InboundMailAttachmentDao for InboundMailAttachmentDaoSqlite {
+    async fn create(&self, attachment: &InboundMailAttachment) -> Result<(), MailDaoError> {
+        let id = attachment.id.as_bytes().to_vec();
+        let inbound_mail_id = attachment.inbound_mail_id.as_bytes().to_vec();
+        let created = format_datetime(&attachment.created)?;
+        let oversized = if attachment.oversized { 1i64 } else { 0i64 };
+        let relative_path = attachment.relative_path.as_ref().map(|r| r.to_string());
+
+        sqlx::query(
+            "INSERT INTO inbound_mail_attachments (id, inbound_mail_id, created, file_name, mime_type, size_bytes, relative_path, oversized) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(id)
+        .bind(inbound_mail_id)
+        .bind(created)
+        .bind(attachment.file_name.as_ref())
+        .bind(attachment.mime_type.as_ref())
+        .bind(attachment.size_bytes)
+        .bind(relative_path)
+        .bind(oversized)
+        .execute(self.pool.as_ref())
+        .await
+        .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
+
+        Ok(())
+    }
+
+    async fn find_by_inbound_mail_id(
+        &self,
+        inbound_mail_id: Uuid,
+    ) -> Result<Arc<[InboundMailAttachment]>, MailDaoError> {
+        let inbound_mail_id_bytes = inbound_mail_id.as_bytes().to_vec();
+        let rows = sqlx::query_as::<_, InboundMailAttachmentDb>(
+            "SELECT id, inbound_mail_id, created, file_name, mime_type, size_bytes, relative_path, oversized \
+             FROM inbound_mail_attachments WHERE inbound_mail_id = ? ORDER BY created ASC",
+        )
+        .bind(inbound_mail_id_bytes)
+        .fetch_all(self.pool.as_ref())
+        .await
+        .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
+
+        rows.iter()
+            .map(InboundMailAttachment::try_from)
+            .collect::<Result<Vec<_>, _>>()
+            .map(|v| v.into())
+    }
+
+    async fn find_by_id_and_mail(
+        &self,
+        mail_id: Uuid,
+        attachment_id: Uuid,
+    ) -> Result<Option<InboundMailAttachment>, MailDaoError> {
+        let attachment_id_bytes = attachment_id.as_bytes().to_vec();
+        let mail_id_bytes = mail_id.as_bytes().to_vec();
+        let row = sqlx::query_as::<_, InboundMailAttachmentDb>(
+            "SELECT id, inbound_mail_id, created, file_name, mime_type, size_bytes, relative_path, oversized \
+             FROM inbound_mail_attachments WHERE id = ? AND inbound_mail_id = ?",
+        )
+        .bind(attachment_id_bytes)
+        .bind(mail_id_bytes)
+        .fetch_optional(self.pool.as_ref())
+        .await
+        .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
+
+        row.as_ref()
+            .map(InboundMailAttachment::try_from)
+            .transpose()
+    }
+
+    async fn count_for_mail(&self, mail_id: Uuid) -> Result<i64, MailDaoError> {
+        let mail_id_bytes = mail_id.as_bytes().to_vec();
+        let (count,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM inbound_mail_attachments WHERE inbound_mail_id = ?",
+        )
+        .bind(mail_id_bytes)
+        .fetch_one(self.pool.as_ref())
+        .await
+        .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
+
+        Ok(count)
     }
 }
 
@@ -1190,6 +1317,21 @@ mod tests {
         .execute(&pool)
         .await
         .expect("Failed to create inbound_mails table");
+        sqlx::query(
+            "CREATE TABLE inbound_mail_attachments (
+                id BLOB PRIMARY KEY NOT NULL,
+                inbound_mail_id BLOB NOT NULL REFERENCES inbound_mails(id),
+                created TEXT NOT NULL,
+                file_name TEXT NOT NULL,
+                mime_type TEXT NOT NULL,
+                size_bytes INTEGER NOT NULL,
+                relative_path TEXT,
+                oversized INTEGER NOT NULL DEFAULT 0
+            )",
+        )
+        .execute(&pool)
+        .await
+        .expect("Failed to create inbound_mail_attachments table");
         Arc::new(pool)
     }
 
@@ -1995,5 +2137,116 @@ mod tests {
         let loaded = dao.find_by_id(job.id).await.unwrap();
         assert_eq!(loaded.template_id, None);
         assert_eq!(loaded.repayment_phase_id, None);
+    }
+
+    // ── InboundMailAttachment tests (Phase 19) ──────────────────────────
+
+    async fn seed_inbound_mail(pool: &Arc<SqlitePool>, uid_validity: i64, imap_uid: i64) -> Uuid {
+        let dao = InboundMailDaoSqlite::new(pool.clone());
+        let mail = sample_inbound(uid_validity, imap_uid);
+        let id = mail.id;
+        dao.create(&mail).await.unwrap();
+        id
+    }
+
+    fn sample_attachment(
+        inbound_mail_id: Uuid,
+        file_name: &str,
+        relative_path: Option<&str>,
+        oversized: bool,
+    ) -> InboundMailAttachment {
+        InboundMailAttachment {
+            id: Uuid::new_v4(),
+            inbound_mail_id,
+            created: sample_datetime(),
+            file_name: Arc::from(file_name),
+            mime_type: Arc::from("application/pdf"),
+            size_bytes: 12345,
+            relative_path: relative_path.map(Arc::from),
+            oversized,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_inbound_mail_attachment_roundtrip() {
+        let pool = setup_db().await;
+        let parent_mail_id = seed_inbound_mail(&pool, 1, 10).await;
+        let dao = InboundMailAttachmentDaoSqlite::new(pool.clone());
+
+        // First insert: normal attachment with relative_path Some, oversized=false
+        let a = sample_attachment(
+            parent_mail_id,
+            "invoice.pdf",
+            Some("inbound_mail_attachments/mid/aid"),
+            false,
+        );
+        dao.create(&a).await.unwrap();
+
+        let list = dao.find_by_inbound_mail_id(parent_mail_id).await.unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].file_name.as_ref(), "invoice.pdf");
+        assert!(!list[0].oversized);
+        assert!(list[0].relative_path.is_some());
+        assert_eq!(
+            list[0].relative_path.as_ref().unwrap().as_ref(),
+            "inbound_mail_attachments/mid/aid"
+        );
+        assert_eq!(list[0].size_bytes, 12345);
+
+        // Second insert: oversized=true, relative_path=None (D-02 hard 10 MB cap)
+        let b = sample_attachment(parent_mail_id, "huge-video.mp4", None, true);
+        dao.create(&b).await.unwrap();
+
+        let list = dao.find_by_inbound_mail_id(parent_mail_id).await.unwrap();
+        assert_eq!(list.len(), 2);
+        let oversized_entry = list
+            .iter()
+            .find(|x| x.file_name.as_ref() == "huge-video.mp4")
+            .expect("must find oversized entry");
+        assert!(oversized_entry.relative_path.is_none());
+        assert!(oversized_entry.oversized);
+
+        // count_for_mail returns 2
+        assert_eq!(dao.count_for_mail(parent_mail_id).await.unwrap(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_find_by_id_and_mail_wrong_mail_returns_none() {
+        let pool = setup_db().await;
+        // Seed mail A with attachment A1
+        let mail_a_id = seed_inbound_mail(&pool, 1, 10).await;
+        // Seed mail B (no attachments)
+        let mail_b_id = seed_inbound_mail(&pool, 1, 11).await;
+        let dao = InboundMailAttachmentDaoSqlite::new(pool.clone());
+
+        let a1 = sample_attachment(
+            mail_a_id,
+            "doc.pdf",
+            Some("inbound_mail_attachments/A/a1"),
+            false,
+        );
+        let attachment_a1_id = a1.id;
+        dao.create(&a1).await.unwrap();
+
+        // Cross-mail enumeration: (mail_B_id, attachment_A1_id) must return None
+        // (T-03 IDOR cross-mail mitigation)
+        let res_wrong = dao
+            .find_by_id_and_mail(mail_b_id, attachment_a1_id)
+            .await
+            .unwrap();
+        assert!(
+            res_wrong.is_none(),
+            "T-03: cross-mail lookup must return None"
+        );
+
+        // Positive control: (mail_A_id, attachment_A1_id) returns Some
+        let res_ok = dao
+            .find_by_id_and_mail(mail_a_id, attachment_a1_id)
+            .await
+            .unwrap();
+        assert!(res_ok.is_some(), "positive control: correct pair returns Some");
+        let found = res_ok.unwrap();
+        assert_eq!(found.id, attachment_a1_id);
+        assert_eq!(found.inbound_mail_id, mail_a_id);
     }
 }
