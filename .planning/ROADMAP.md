@@ -84,17 +84,17 @@ Kein Inhalt definiert. Wahrscheinlich-Themen für die nächste Iteration aus dok
 | 16. Service+REST: Teil-Rückgabe + Auto-Anlegen     | v1.2      | 5/5            | Complete    | 2026-06-05 |
 | 17. Service+REST: Übertrag (Atomare 2-Action)      | v1.2      | 4/4            | Complete    | 2026-06-06 |
 | 18. Frontend Component-First (v1.2)                | v1.2      | 7/7            | Complete    | 2026-06-07 |
-| 19. E-Mail-Anhänge anzeigen                        | v1.3 (TBD)| 0/6            | Planned     | -          |
+| 19. E-Mail-Anhänge anzeigen                        | v1.3 (TBD)| 2/6 | In Progress|  |
 
 ### Phase 19: E-Mail-Anhänge anzeigen — Backend-Endpoint zum Abrufen von Anhängen aus eingehenden Mails (mail-parser nutzt async-imap bereits) plus Dioxus-Frontend-UI zum Anzeigen/Herunterladen der Attachments in der Mail-Ansicht.
 
 **Goal:** Eingehende E-Mail-Anhänge im Vorstands-Inbox persistent speichern (10-MB-Cap, Filesystem via DocumentStorage), per Vorstand-only-Endpoint ausliefern (Download + optional Inline-Preview), und im Dioxus-Frontend per Component-First-Liste mit Image-Thumbnail / PDF-Vorschau / Download-Action sichtbar machen — inkl. einmaligem Backfill-Worker für Bestandsmails.
 **Requirements**: TBD (v1.3 noch nicht definiert; Scope = CONTEXT.md D-01..D-14 + UI-SPEC)
 **Depends on:** Phase 18
-**Plans:** 6 plans
+**Plans:** 2/6 plans executed
 
 Plans:
-- [ ] 19-01-PLAN.md — DAO + Migration (InboundMailAttachment-Entity, Trait, SQLite-Impl, Migration `20260608000000`)
+- [x] 19-01-PLAN.md — DAO + Migration (InboundMailAttachment-Entity, Trait, SQLite-Impl, Migration `20260608000000`)
 - [ ] 19-02-PLAN.md — Service + IMAP (parse_raw_mail-Erweiterung, persist_attachment mit 10-MB-Cap + Rollback, fetch_one_by_uid mit UIDVALIDITY-Check, Poll-Worker-Persistenz)
 - [ ] 19-03-PLAN.md — REST Endpoints (DetailTO-Extension, /api/inbox/{mail_id}/attachments/{attachment_id} mit ?disposition=inline, content_disposition_inline-Helper, 5 E2E-Tests)
 - [ ] 19-04-PLAN.md — Backfill Worker (run_attachment_backfill für Bestandsmails, einmaliger tokio::spawn, best-effort silent-skip)
