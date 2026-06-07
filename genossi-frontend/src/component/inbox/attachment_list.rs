@@ -38,11 +38,11 @@ pub fn InboxAttachmentList(
                 }
             } else {
                 ul { class: "flex flex-col gap-2",
-                    for att in attachments.iter().cloned() {
+                    for att in attachments.iter() {
                         InboxAttachmentListItem {
                             key: "{att.id}",
                             mail_id: mail_id.clone(),
-                            attachment: att,
+                            attachment: att.clone(),
                         }
                     }
                 }
