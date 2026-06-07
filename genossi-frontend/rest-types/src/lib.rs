@@ -562,6 +562,81 @@ pub struct UserPreferenceTO {
     pub version: Option<Uuid>,
 }
 
+// ─── Phase 18 ─── Membership-Adjust DTOs (Phase 15/16/17 Request/Response-Shapes) ────
+// Frontend-Kopie von genossi_rest_types/src/lib.rs OHNE utoipa::ToSchema + OHNE iso8601_date_required.
+// time::Date Default-Serde (Feature `serde-human-readable`) liefert `YYYY-MM-DD`
+// (matched Backend-iso8601_date_required-Format).
+// Landmine L-2 Mitigation.
+
+/// Phase 14 D-14-12 — DSGVO-konformer Slim-TO fuer Transfer-Recipients
+/// (whitelist 7 Felder, keine Email/PII).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MemberSlimTO {
+    pub id: Uuid,
+    pub member_number: i64,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub salutation: Option<SalutationTO>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub title: Option<String>,
+    pub first_name: String,
+    pub last_name: String,
+}
+
+/// Phase 15 D-15-11 — Cancel-Membership-Request-Body fuer `POST /api/members/{id}/cancel`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CancelMembershipRequestTO {
+    pub willensbekundung_date: time::Date,
+}
+
+/// Phase 15 D-15-15 — Increase-Shares-Request-Body fuer `POST /api/members/{id}/increase-shares`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct IncreaseSharesRequestTO {
+    pub willensbekundung_date: time::Date,
+    pub shares: i32,
+}
+
+/// Phase 15 D-15-11 / D-15-15 — gemeinsame Response-Shape fuer Cancel + Increase.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MembershipAdjustResponseTO {
+    pub action: MemberActionTO,
+    pub member: MemberTO,
+}
+
+/// Phase 16 D-16-16 — Partial-Repayment-Request-Body fuer `POST /api/members/{id}/partial-repayment`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PartialRepaymentRequestTO {
+    pub willensbekundung_date: time::Date,
+    pub shares: i32,
+}
+
+/// Phase 16 D-16-16 — Partial-Repayment-Response. `phase` ist `Some(...)` wenn Auto-Anlegen passierte.
+/// `entry` und `phase` als `serde_json::Value` (Zero-Coupling) — Frontend braucht nur
+/// `entry.id` und `phase.fiscal_year`/`phase.id`. Die vollstaendigen Repayment-TOs leben in
+/// `genossi-frontend/src/api.rs` (historisch dort, nicht in rest-types).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PartialRepaymentResponseTO {
+    pub entry: serde_json::Value,
+    pub member: MemberTO,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub phase: Option<serde_json::Value>,
+}
+
+/// Phase 17 C-17-CF-07 — Transfer-Shares-Request-Body fuer `POST /api/members/{from_id}/transfer-shares`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TransferSharesRequestTO {
+    pub to_member_id: Uuid,
+    pub shares: i32,
+    pub transfer_date: time::Date,
+}
+
+/// Phase 17 C-17-CF-07 — Transfer-Shares-Response. 2 actions bei Teil-Uebertrag, 3 bei Voll-Uebertrag.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TransferSharesResponseTO {
+    pub actions: Vec<MemberActionTO>,
+    pub from: MemberTO,
+    pub to: MemberTO,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
