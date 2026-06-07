@@ -1230,6 +1230,136 @@ mod tests {
         );
     }
 
+    /// Phase 19 Plan 04 — Backfill silently skips candidates when the IMAP
+    /// refetch returns Err or Ok(None). The critical assertions are mockall
+    /// `expect_*().times(0)` on `attachment_dao.create` and `storage.save`:
+    /// when refetch yields no message, the persist pipeline MUST NOT run.
+    /// This is the T-06 / D-06 mitigation: IMAP drift → silent skip, never
+    /// half-persisted state.
+    #[tokio::test]
+    async fn test_run_attachment_backfill_silent_skips_imap_error() {
+        // Two candidate mails — has_attachments=true, no existing rows.
+        let mut mail_a = sample_mail();
+        mail_a.has_attachments = true;
+        mail_a.uid_validity = 7;
+        mail_a.imap_uid = 100;
+        let mut mail_b = sample_mail();
+        mail_b.has_attachments = true;
+        mail_b.uid_validity = 7;
+        mail_b.imap_uid = 200;
+        let mail_a_id = mail_a.id;
+        let mail_b_id = mail_b.id;
+
+        // Config stub: returns enough keys for load_imap_config to succeed.
+        let config_service = mock_config(vec![
+            cfg_entry("imap_host", "imap.example.com", "string"),
+            cfg_entry("imap_user", "me", "string"),
+            cfg_entry("imap_pass", "secret", "secret"),
+        ]);
+
+        // mail_dao.list_active returns both candidates.
+        let mut mail_dao = MockInboundMailDao::new();
+        let mails_for_stub: Arc<[InboundMail]> = vec![mail_a.clone(), mail_b.clone()].into();
+        mail_dao
+            .expect_list_active()
+            .times(1)
+            .returning(move || Ok(mails_for_stub.clone()));
+
+        // attachment_dao.count_for_mail returns Ok(0) for both → both selected.
+        // CRITICAL: attachment_dao.create is NEVER called (mockall verifies on Drop).
+        let mut attachment_dao = MockInboundMailAttachmentDao::new();
+        attachment_dao
+            .expect_count_for_mail()
+            .times(2)
+            .returning(|_| Ok(0));
+        attachment_dao.expect_create().times(0);
+
+        // storage.save is NEVER called.
+        let mut storage = MockDocumentStorage::new();
+        storage.expect_save().times(0);
+
+        // imap_client.fetch_one_by_uid: first → Err, second → Ok(None).
+        // Both responses cause silent-skip; neither triggers persist.
+        let mut imap_client = MockInboxImapClient::new();
+        imap_client
+            .expect_uid_validity()
+            .times(0); // backfill does NOT call uid_validity — only fetch_one_by_uid per candidate
+        let mut call_count = 0u32;
+        imap_client
+            .expect_fetch_one_by_uid()
+            .times(2)
+            .returning(move |_, _, _| {
+                call_count += 1;
+                if call_count == 1 {
+                    Err(MailServiceError::DataAccess(Arc::from(
+                        "simulated IMAP failure",
+                    )))
+                } else {
+                    Ok(None)
+                }
+            });
+
+        // Run to completion — must not panic, must not persist anything.
+        run_attachment_backfill(
+            Arc::new(config_service),
+            Arc::new(mail_dao),
+            Arc::new(attachment_dao),
+            Arc::new(storage),
+            Arc::new(imap_client),
+        )
+        .await;
+
+        // Sanity: both mail IDs are non-nil (defensive — verifies the test
+        // setup didn't degenerate to a single mail).
+        assert_ne!(mail_a_id, mail_b_id);
+    }
+
+    /// Test C — when an attachment is already persisted (count_for_mail > 0)
+    /// the candidate is NOT refetched. Verifies the idempotency-on-restart
+    /// guard (no double persist when backfill runs twice).
+    #[tokio::test]
+    async fn test_run_attachment_backfill_skips_already_backfilled() {
+        let mut mail = sample_mail();
+        mail.has_attachments = true;
+
+        let config_service = mock_config(vec![
+            cfg_entry("imap_host", "imap.example.com", "string"),
+            cfg_entry("imap_user", "me", "string"),
+            cfg_entry("imap_pass", "secret", "secret"),
+        ]);
+
+        let mut mail_dao = MockInboundMailDao::new();
+        let mails_for_stub: Arc<[InboundMail]> = vec![mail.clone()].into();
+        mail_dao
+            .expect_list_active()
+            .times(1)
+            .returning(move || Ok(mails_for_stub.clone()));
+
+        // count_for_mail returns 2 → already backfilled.
+        let mut attachment_dao = MockInboundMailAttachmentDao::new();
+        attachment_dao
+            .expect_count_for_mail()
+            .times(1)
+            .returning(|_| Ok(2));
+        attachment_dao.expect_create().times(0);
+
+        let mut storage = MockDocumentStorage::new();
+        storage.expect_save().times(0);
+
+        // CRITICAL: imap_client.fetch_one_by_uid MUST NOT be called.
+        let mut imap_client = MockInboxImapClient::new();
+        imap_client.expect_fetch_one_by_uid().times(0);
+
+        run_attachment_backfill(
+            Arc::new(config_service),
+            Arc::new(mail_dao),
+            Arc::new(attachment_dao),
+            Arc::new(storage),
+            Arc::new(imap_client),
+        )
+        .await;
+    }
+
     /// Test C — save-then-DB rollback: when the DB create fails, storage.delete
     /// is invoked to remove the orphaned file (T-07).
     #[tokio::test]
