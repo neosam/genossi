@@ -5,7 +5,7 @@ milestone_name: null
 status: milestone_complete
 stopped_at: Phase 19 UI-SPEC approved
 last_updated: "2026-06-07T14:30:00.000Z"
-last_activity: 2026-06-07 -- Quick 260607-mw9 (Kontoinhaber-Feld am Member) abgeschlossen, Human-Verify Checkpoint offen
+last_activity: 2026-06-07 -- Quick 260607-vij (Reply-Form vorbefuellt Originalmail als Quote-Block) abgeschlossen
 progress:
   total_phases: 1
   completed_phases: 1
@@ -32,7 +32,7 @@ See: `.planning/PROJECT.md` (updated 2026-06-07 after v1.2 close)
 Phase: 19
 Plan: Not started
 Status: Milestone complete
-Last activity: 2026-06-07 — Quick 260607-s0s (Reply-Anhänge wie Compose, shared MailAttachmentPicker) abgeschlossen
+Last activity: 2026-06-07 — Quick 260607-vij (Reply-Form vorbefüllt Originalmail als Quote-Block) abgeschlossen
 
 ## Deferred Items
 
@@ -316,6 +316,7 @@ Keine.
 | 260603-n3m | Mail-Test-Endpoints (`preview_mail` + `send_test_mail_with_template`): Dummy-Repayment-Kontext jetzt auch bei FEHLENDER `repayment_phase_id` gemergt, wenn das Template Repayment-Vars referenziert (Detection-Helper `template_uses_repayment_vars`); behebt Strict-Mode-Fehler `undefined variable` aus 260603-m48-Frontend-Aktivierung; `used_dummy_repayment: true` triggert weiter den amber Banner; Sentinel-Werte 99,99/99/99,99/2099 unverändert; Worker-Pfad und Letter-Service unangetastet; 9 neue Tests | 2026-06-03 | baba99e | [260603-n3m-mail-test-endpoints-dummy-repayment-cont](./quick/260603-n3m-mail-test-endpoints-dummy-repayment-cont/) |
 | 260607-mw9 | Optionales `account_holder`-Feld am Member: DB-Migration + DAO/Service/REST + Frontend-Input + Typst-Template-Fallback im Auszahlungs-Anschreiben (Recipient-Block → `account_holder` wenn gesetzt, sonst Mitgliedsname). Audit-Hashchain: neues Feld AM ENDE von `audit_fields()` angehängt (21 → 22). 3 Template-Pfade byte-identisch synchron gehalten. `MemberSlimTO` bleibt PII-frei. Hotfix dceecb8 für 2 übersehene Frontend-Test-Konstruktoren. | 2026-06-07 | dceecb8 | [260607-mw9-kontoinhaber-feld-am-member](./quick/260607-mw9-kontoinhaber-feld-am-member/) |
 | 260607-s0s | Inbox-Reply-Anhänge wie Compose: `InboxService::reply` erweitert um `Vec<AttachmentInput>` + `Vec<Uuid>` static_doc_ids; persistiert `MailRecipientAttachment`-Rows + `MailJobStaticAttachment`-Joins identisch zu `MailService::create_job`. REST-Handler `reply_inbox` bleibt JSON (`#[serde(default)]` für Backward-Compat); Ownership-Check (Some(doc.member_id) != mail.assigned_member_id → 400). Frontend: Picker-UI aus `mail_page.rs:478-559` in **shared** `MailAttachmentPicker` extrahiert (component/mail_compose/), genutzt von Compose UND Reply. Reply-API: JSON mit `attachment_ids`+`static_document_ids`, kein FormData/multipart. 3 neue Backend-Tests. Vorgänger 260607-r96 (lokales File-Upload) wurde verworfen — User-Wunsch war "das selbe wie Compose". | 2026-06-07 | 307d61e0 | [260607-s0s-reply-anh-nge-wie-compose](./quick/260607-s0s-reply-anh-nge-wie-compose/) |
+| 260607-vij | Reply-Form vorbefüllt Originalmail als Quote-Block (Outlook-Style): drei neue Props `original_body`/`original_from`/`original_date` an `InboxReplyForm`; sofort-synchrones Pre-Fill mit `> `-prefixiertem Body und deutschem `Am {date} schrieb {from}:`-Header; Signatur-Footer bleibt zwischen Eingabezone und Quote; Template-Auswahl zerstört Quote nicht mehr. Helper `build_original_quote` + `compose_initial_body` als pure functions mit 8 Unit-Tests. Frontend-only, kein Backend-Change, kein HTML-Body-Pfad. | 2026-06-07 | 0eb340a | [260607-vij-reply-form-originalmail-unten-als-quote-](./quick/260607-vij-reply-form-originalmail-unten-als-quote-/) |
 
 ## Deferred Items
 

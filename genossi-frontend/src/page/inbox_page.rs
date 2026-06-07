@@ -458,12 +458,18 @@ fn InboxPageInner(initial_id: Option<String>) -> Element {
                                         let mail_id = d.id.clone();
                                         let from_addr = d.from_address.clone();
                                         let member_id = d.assigned_member_id.clone();
+                                        let original_body = d.body_text.clone();
+                                        let original_from = d.from_address.clone();
+                                        let original_date = i18n.format_datetime(&d.received_at);
                                         rsx! {
                                             InboxReplyForm {
                                                 mail_id: mail_id,
                                                 from_address: from_addr,
                                                 initial_subject: reply_subject,
                                                 assigned_member_id: member_id,
+                                                original_body: original_body,
+                                                original_from: original_from,
+                                                original_date: original_date,
                                                 on_sent: move |_| {
                                                     info.set(Some("Antwort gesendet".to_string()));
                                                     show_reply.set(false);
