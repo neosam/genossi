@@ -15,7 +15,7 @@
 | 15 | Service+REST: Kündigung + Aufstockung | 4/4 | Complete    | 2026-06-04 |
 | 16 | Service+REST: Teil-Rückgabe + Auto-Anlegen-Phase | 5/5 | Complete    | 2026-06-05 |
 | 17 | Service+REST: Übertrag | 4/4 | Complete    | 2026-06-06 |
-| 18 | Frontend Component-First | 5/7 | In Progress|  |
+| 18 | Frontend Component-First | 6/7 | In Progress|  |
 
 **Total:** 31 REQs in 5 Phasen, alle abgedeckt (Coverage: 100%).
 
@@ -133,13 +133,13 @@
    - Aufstockung: „Member: X → X+n Anteile"
 4. Button „Mitgliedschaft anpassen" auf Member-Detail-Page (`genossi-frontend/src/page/member_details.rs`), Admin-only via `RequirePrivilege`; i18n DE/EN mit mindestens 20 neuen Keys; ManualUAT-Sektion mit Browser-Test-Anleitung
 
-**Plans:** 5/7 plans executed
+**Plans:** 6/7 plans executed
 - [x] 18-01-PLAN.md — Frontend rest-types DTOs ergaenzen (Phase-15/16/17 Request/Response-Shapes, MemberSlimTO) [Wave 1]
 - [x] 18-02-PLAN.md — toast.rs erweitern um ToastVariant + show_success_toast + SuccessToastContainer (gruene Success-Toasts) [Wave 1]
 - [x] 18-03-PLAN.md — MemberSearch Component um members_override-Prop fuer TransferSubView entkoppeln [Wave 1]
 - [x] 18-04-PLAN.md — FiscalYearDateInput-Component + 46 i18n-Keys (DE+EN) + DE/EN-Symmetrie-Test + component/mod.rs Re-Exports [Wave 1]
 - [x] 18-05-PLAN.md — 5 API-Client-Funktionen + 5 URL-Builder-Tests [Wave 1]
-- [ ] 18-06-PLAN.md — MembershipAdjustModal mit ModalStep-Enum + 4 Sub-Views + Pure-Helpers + Re-Export [Wave 2]
+- [x] 18-06-PLAN.md — MembershipAdjustModal mit ModalStep-Enum + 4 Sub-Views + Pure-Helpers + Re-Export [Wave 2]
 - [ ] 18-07-PLAN.md — Member-Detail-Page Button + Modal-Mount + ToastContainer-Mount + zentrale today-Variable + ManualUAT [Wave 3]
 
 ---

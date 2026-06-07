@@ -4,14 +4,14 @@ milestone: v1.2
 milestone_name: Mitgliedschaft-Anpassungen während des Geschäftsjahres
 status: executing
 stopped_at: Phase 18 UI-SPEC approved
-last_updated: "2026-06-07T05:38:30.826Z"
-last_activity: 2026-06-07 -- Phase 18 execution started
+last_updated: "2026-06-07T06:11:27.952Z"
+last_activity: 2026-06-07
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 24
-  completed_plans: 17
-  percent: 71
+  completed_plans: 23
+  percent: 96
 ---
 
 # State: Genossi — v1.1 Anteile-Rückzahlungsphase
@@ -30,9 +30,9 @@ See: `.planning/PROJECT.md` (updated 2026-06-02 after v1.1 close)
 ## Current Position
 
 Phase: 18 (frontend-component-first) — EXECUTING
-Plan: 1 of 7
-Status: Executing Phase 18
-Last activity: 2026-06-07 -- Phase 18 execution started
+Plan: 7 of 7
+Status: Ready to execute Plan 07 (page integration)
+Last activity: 2026-06-07
 
 ## v1.2 Roadmap (Phases 14–18)
 
@@ -132,6 +132,7 @@ v1.0 Phasen (alle abgeschlossen, archiviert in .planning/milestones/v1.0-phases/
 | Phase 15 P03 | 4min | 1 tasks | 1 files |
 | Phase 15 P04 | 13min | 2 tasks | 5 files |
 | Phase 16 P05 | 22min | 4 tasks | 2 files |
+| Phase 18 P06 | 5 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -242,6 +243,8 @@ v1.0 Phasen (alle abgeschlossen, archiviert in .planning/milestones/v1.0-phases/
 | Sync nur bei Refresh, kein Live-Push | Doppel-Abhaken durch Idempotenz abgefangen, kein SSE/WebSocket nötig | Phase 3+4 |
 | Anwesenheit ohne Audit-Hashchain | Verband fordert nur Anzahl, nicht den Anhakel-Vorgang | Phase 3 |
 | Helfer-View auch für Vorstand zugänglich (ohne QR) | Vorstand will im Notfall mithelfen, kein UI-Duplikat | Phase 3+4 |
+| Plan 18-06: `MembershipAdjustModal` als Single-File-Component (1078 LOC) mit `ModalStep`-Enum + 4 Sub-Views (Cancel/PartialRepayment/Transfer/Upgrade); Sub-Views als private `fn render_*_sub_view(i18n: I18n, ...)` per `I18n: Clone`-Pattern (verifiziert `i18n/mod.rs:908`) — keine Inline-Match-Arm-Komplexität. Pure-Helpers (compute_effective_date_mirror, is_voll_uebertrag, to_member_to, format_date_german) + 12 Unit-Tests. SC-2 Default-today() via `use_signal(\|\| Some(today))`. | Phase 18, Plan 06 |
+| Plan 18-06: `MemberTO.current_shares` ist `i32` (nicht `i64` wie Plan-Snippet andeutete) — verifiziert `rest-types/src/lib.rs:210`. Vermeidet `as i32`-Casts in den 4 Sub-Views. Pattern-Anker für künftige MemberTO-Konsumenten. | Phase 18, Plan 06 |
 
 ### Open TODOs
 
@@ -427,7 +430,7 @@ Details siehe `.planning/milestones/v1.0-MILESTONE-AUDIT.md` und `.planning/MILE
 **Last action (2026-05-29, Phase 07 Plan 02):** Plan `07-02-PLAN.md` ausgeführt — `RepaymentPhaseDaoImpl` (SQLite-Impl des Plan-01-Traits) angelegt mit `RepaymentPhaseDb`-Row, `TryFrom` mit guarded i32-Cast (T-07-02-05), `dump_all`/`create`/`update` inkl. Pre-Exists-Check + Optimistic-Locking via `rows_affected == 0 → ConflictError("Version mismatch")`. ORDER BY ist `fiscal_year DESC, created DESC` (Phase-7-spezifisch). `parse_datetime` via `use crate::assembly::parse_datetime` reused (kein Duplikat). 4 grüne Tokio-Integrationstests gegen in-memory SQLite. Modul-Decl in `genossi_dao_impl_sqlite/src/lib.rs` alphabetisch eingefügt. Commit `6f6bf0f` (feat: 367 LOC added).
 
 **Stopped At:** Phase 18 UI-SPEC approved
-**Resume File:** .planning/phases/18-frontend-component-first/18-UI-SPEC.md
+**Resume File:** None
 
 **Last action (2026-06-01, Phase 11 Plan 06):** Plan `11-06-PLAN.md` ausgeführt — 8 E2E-Tests + 1 Helper-Funktion in `genossi_bin/tests/e2e_tests.rs` (+554 LOC) gegen real-running Server mit In-Memory-SQLite hinzugefügt: (1) `test_export_repayment_pdf_open_happy_path` mit Umlaut-Member `Hans Müller` (REVISION-Fix W6 D-05-E2E-Beweis), (2) `test_export_repayment_pdf_closed_phase_returns_200` (EXPO-01 + D-10), (3) `test_export_repayment_unknown_format_returns_400` mit 4 Negative-Formaten csv/xlsx/json/html (D-12 + Pitfall #3), (4) `test_export_repayment_preparation_phase_returns_409` (D-10 Status-Gate), (5) `test_export_repayment_unknown_phase_id_returns_404`, (6) `test_export_repayment_does_not_break_audit_chain` (EXPO-05 + D-11 + REVISION-Fix W7), (7) `test_export_repayment_include_filter_smoke_all_three_variants` Smoke-Test für open/all/paid mit Filename-Assertion (REVISION-Fix W1/W4), (8) `test_export_repayment_empty_iban_renders_empty_column` (D-06 mit Helper). REVISION-Fix W4 (Filename-Schema-Assertion in 5 PDF-Tests), REVISION-Fix W6 (Umlaut-Hans-Müller), REVISION-Fix W7 (Audit-Chain auf valid:true reduziert), REVISION-Fix B2 (KEIN E2E-403-Test — mock_auth-Middleware injiziert immer admin; Pitfall #2 ist durch Plan 11.03 Service-Layer-Mock vollständig abgedeckt). Alle 8 Tests grün on first run (Regression-Lock-In-Pattern aus Plan 08.10); 292 E2E-Tests pass insgesamt (vorher 284, +8, 0 Regression). Plan-11.03-Grep-Gate (`no_audit_macros_used`) und Pitfall-#2-Mock-Test bleiben grün. Eine Deviation (Rule 3): rustfmt-Drift in Plan-Snippets via Nix-Store-rustfmt automatisch korrigiert (Memory-Lektion "Nix-Toolchain nicht sofort aufgeben"). 2 Task-Commits: `67f6957` (test Task 1: 6 Tests + Helper), `33f7e16` (test Task 2: 2 weitere Tests). Phase 11 komplett (6/6 plans). Nächster Schritt: `/gsd-verify-phase 11` oder direkt `/gsd-discuss-phase 12` für das Frontend.
 

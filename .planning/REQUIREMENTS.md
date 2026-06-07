@@ -14,7 +14,7 @@ Requirements für v1.2-Release. Jedes mappt auf genau eine Roadmap-Phase.
 - [x] **CANC-03**: System erzeugt eine `MemberAction::Austritt` mit `date = Willensbekundungs-Datum`, `effective_date = berechneter H1/H2-Stichtag`, `shares_change = 0` (Anteile bleiben bis zur Auszahlung unverändert)
 - [x] **CANC-04**: `Member.exit_date` wird via existing `recalc_dates`-Hook automatisch aus der Austritts-Action gesetzt (keine direkte Mutation außerhalb von `recalc_dates`)
 - [x] **CANC-05**: System erzeugt KEINE `MemberAction::Verkauf` und KEIN `RepaymentEntry` direkt; `current_shares` bleibt unverändert — v1.1's PaidOut-Cascade übernimmt Anteils-Reduktion und Verkauf-Action beim späteren Ausbezahlt-Toggle (Auto-Befüllung in `open_repayment_phase` picked den Member über `exit_date in fiscal_year` auf)
-- [ ] **CANC-06**: Vorschau-Confirm-Dialog zeigt Willensbekundungs-Datum, berechneten Stichtag, prognostizierte Ziel-Auszahlungsphase (fiscal_year) und Wirkungs-Timeline vor dem finalen Commit
+- [x] **CANC-06**: Vorschau-Confirm-Dialog zeigt Willensbekundungs-Datum, berechneten Stichtag, prognostizierte Ziel-Auszahlungsphase (fiscal_year) und Wirkungs-Timeline vor dem finalen Commit
 
 ### Teil-Rückgabe (PART) — Anteile zurück an die Genossenschaft, Mitgliedschaft bleibt
 
@@ -45,9 +45,9 @@ Requirements für v1.2-Release. Jedes mappt auf genau eine Roadmap-Phase.
 ### UI
 
 - [ ] **UI-01**: Single-Button „Mitgliedschaft anpassen" auf Member-Detail-Page (nicht in Mitgliederliste — Audit-Bewusstsein durch extra Klick)
-- [ ] **UI-02**: `MembershipAdjustModal` als shared Component in `genossi-frontend/src/component/`; eine Modal mit Operation-Sub-Choice und vier Sub-Views (Sub-Choice-Form wird in `/gsd-discuss-phase` fixiert)
+- [x] **UI-02**: `MembershipAdjustModal` als shared Component in `genossi-frontend/src/component/`; eine Modal mit Operation-Sub-Choice und vier Sub-Views (Sub-Choice-Form wird in `/gsd-discuss-phase` fixiert)
 - [ ] **UI-03**: Datepicker mit GJ-Bounds — erlaubt nur Daten im aktuell offenen GJ und im nächsten GJ (für H2-Wirksamkeit erforderlich)
-- [ ] **UI-04**: Vorschau-Section mit konkreter Zahlen-Anzeige vor Commit (z.B. „Member A: 5 → 3 Anteile · Member B: 2 → 4 Anteile" für Übertrag; analog für andere Operationen)
+- [x] **UI-04**: Vorschau-Section mit konkreter Zahlen-Anzeige vor Commit (z.B. „Member A: 5 → 3 Anteile · Member B: 2 → 4 Anteile" für Übertrag; analog für andere Operationen)
 
 ### Audit (AUDT)
 
@@ -104,7 +104,7 @@ Welche Phasen welche Requirements abdecken. Wird vom Roadmapper-Schritt befüllt
 | CANC-03 | Phase 15 | Complete |
 | CANC-04 | Phase 15 | Complete |
 | CANC-05 | Phase 15 | Complete |
-| CANC-06 | Phase 18 | Pending |
+| CANC-06 | Phase 18 | Complete |
 | PART-01 | Phase 16 | Pending |
 | PART-02 | Phase 16 | Pending |
 | PART-03 | Phase 16 | Pending |
@@ -123,9 +123,9 @@ Welche Phasen welche Requirements abdecken. Wird vom Roadmapper-Schritt befüllt
 | UPGD-03 | Phase 15 | Complete |
 | UPGD-04 | Phase 15 | Complete |
 | UI-01 | Phase 18 | Pending |
-| UI-02 | Phase 18 | Pending |
+| UI-02 | Phase 18 | Complete |
 | UI-03 | Phase 18 | Pending |
-| UI-04 | Phase 18 | Pending |
+| UI-04 | Phase 18 | Complete |
 | AUDT-01 | Phase 15 | Complete |
 | AUDT-02 | Phase 17 | Complete |
 | PERM-01 | Phase 15 | Complete |
