@@ -84,14 +84,14 @@ Kein Inhalt definiert. Wahrscheinlich-Themen für die nächste Iteration aus dok
 | 16. Service+REST: Teil-Rückgabe + Auto-Anlegen     | v1.2      | 5/5            | Complete    | 2026-06-05 |
 | 17. Service+REST: Übertrag (Atomare 2-Action)      | v1.2      | 4/4            | Complete    | 2026-06-06 |
 | 18. Frontend Component-First (v1.2)                | v1.2      | 7/7            | Complete    | 2026-06-07 |
-| 19. E-Mail-Anhänge anzeigen                        | v1.3 (TBD)| 5/6 | In Progress|  |
+| 19. E-Mail-Anhänge anzeigen                        | v1.3 (TBD)| 6/6 | Awaiting human-verify (Task 2 of 19-06)|  |
 
 ### Phase 19: E-Mail-Anhänge anzeigen — Backend-Endpoint zum Abrufen von Anhängen aus eingehenden Mails (mail-parser nutzt async-imap bereits) plus Dioxus-Frontend-UI zum Anzeigen/Herunterladen der Attachments in der Mail-Ansicht.
 
 **Goal:** Eingehende E-Mail-Anhänge im Vorstands-Inbox persistent speichern (10-MB-Cap, Filesystem via DocumentStorage), per Vorstand-only-Endpoint ausliefern (Download + optional Inline-Preview), und im Dioxus-Frontend per Component-First-Liste mit Image-Thumbnail / PDF-Vorschau / Download-Action sichtbar machen — inkl. einmaligem Backfill-Worker für Bestandsmails.
 **Requirements**: TBD (v1.3 noch nicht definiert; Scope = CONTEXT.md D-01..D-14 + UI-SPEC)
 **Depends on:** Phase 18
-**Plans:** 5/6 plans executed
+**Plans:** 6/6 plans executed (Plan 19-06 Task 1 committed; Task 2 manual smoke test pending Vorstand sign-off)
 
 Plans:
 - [x] 19-01-PLAN.md — DAO + Migration (InboundMailAttachment-Entity, Trait, SQLite-Impl, Migration `20260608000000`)
@@ -99,8 +99,8 @@ Plans:
 - [ ] 19-03-PLAN.md — REST Endpoints (DetailTO-Extension, /api/inbox/{mail_id}/attachments/{attachment_id} mit ?disposition=inline, content_disposition_inline-Helper, 5 E2E-Tests)
 - [x] 19-04-PLAN.md — Backfill Worker (run_attachment_backfill für Bestandsmails, einmaliger tokio::spawn, best-effort silent-skip)
 - [x] 19-05-PLAN.md — Frontend Components (InboxAttachmentList + InboxAttachmentListItem, format_size Util, 7 i18n-Keys in De+En)
-- [ ] 19-06-PLAN.md — Frontend Page Wiring (MVP-Hinweis löschen, ein Component-Aufruf in inbox_page.rs + manueller Sicht-Check)
+- [x] 19-06-PLAN.md — Frontend Page Wiring (MVP-Hinweis gelöscht, InboxAttachmentList eingebunden, WASM-Build grün; Vorstand-Sichtprüfung Task 2 pending)
 
 ---
 
-_Last updated: 2026-06-07 after Phase 19 planning._
+_Last updated: 2026-06-07 after Plan 19-06 Task 1 wiring (checkpoint:human-verify pending)._
