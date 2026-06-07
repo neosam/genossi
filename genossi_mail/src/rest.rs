@@ -1283,6 +1283,7 @@ mod tests {
             exit_date: None,
             bank_account: None,
             status: MemberStatus::Normal,
+            account_holder: None,
             created: datetime,
             deleted: None,
             version: uuid::Uuid::new_v4(),

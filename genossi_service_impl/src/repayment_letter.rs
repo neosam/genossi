@@ -1379,6 +1379,7 @@ mod tests {
             exit_date: None,
             bank_account: Some(Arc::from("DE89370400440532013000")),
             status: MemberStatus::Normal,
+            account_holder: None,
             created: datetime!(2026 - 01 - 01 00:00:00),
             deleted: None,
             version: Uuid::new_v4(),

@@ -337,6 +337,10 @@ impl<Deps: ApplicationServiceDeps> ApplicationService for ApplicationServiceImpl
             exit_date: None,
             bank_account: None,
             status: genossi_dao::member::MemberStatus::Normal,
+            // Quick 260607-mw9: account_holder column. Application-Konversion hat
+            // keinen Kontoinhaber-Wert — Vorstand kann ihn manuell auf der
+            // Member-Detail-Seite ergänzen.
+            account_holder: None,
             created,
             deleted: None,
             version: self.uuid_service.new_v4().await,

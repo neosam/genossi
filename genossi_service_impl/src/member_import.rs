@@ -410,6 +410,10 @@ impl<Deps: MemberImportServiceDeps> MemberImportService for MemberImportServiceI
                         exit_date: parsed.exit_date,
                         bank_account: parsed.bank_account.clone(),
                         status: genossi_dao::member::MemberStatus::Normal,
+                        // Quick 260607-mw9: account_holder column. Member-Excel-Import hat
+                        // keine Kontoinhaber-Spalte (Verbandsformat hat kein Pendant),
+                        // daher None — kann später manuell via UI gesetzt werden.
+                        account_holder: None,
                         created: time::PrimitiveDateTime::new(now.date(), now.time()),
                         deleted: None,
                         version: self.uuid_service.new_v4().await,

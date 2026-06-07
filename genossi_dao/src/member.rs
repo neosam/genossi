@@ -89,6 +89,11 @@ pub struct MemberEntity {
     pub exit_date: Option<time::Date>,
     pub bank_account: Option<Arc<str>>,
     pub status: MemberStatus,
+    // Quick 260607-mw9: optionaler Kontoinhaber (abweichend vom Mitgliedsnamen).
+    // Wird im Auszahlungs-Anschreiben als Recipient-Adressblock verwendet,
+    // wenn das Bankkonto auf einen anderen Namen läuft (z.B. Ehepartner, Firma).
+    // None = Fallback auf first_name + last_name. APPENDED AT END für Hashchain-Stabilität.
+    pub account_holder: Option<Arc<str>>,
     pub created: time::PrimitiveDateTime,
     pub deleted: Option<time::PrimitiveDateTime>,
     pub version: Uuid,
@@ -241,6 +246,12 @@ impl crate::auditable::Auditable for MemberEntity {
                 self.bank_account.as_ref().map(|s| s.to_string()),
             ),
             ("status", Some(self.status.as_str().to_string())),
+            // Quick 260607-mw9: account_holder APPENDED AT END (FROZEN-order
+            // Hashchain-Stabilität; vorhandene Audit-Log-Hashes bleiben gültig).
+            (
+                "account_holder",
+                self.account_holder.as_ref().map(|s| s.to_string()),
+            ),
         ]
     }
 }
@@ -284,6 +295,7 @@ mod tests {
             exit_date,
             bank_account: None,
             status: MemberStatus::Normal,
+            account_holder: None,
             created: datetime,
             deleted,
             version: Uuid::new_v4(),
@@ -540,13 +552,32 @@ mod tests {
         use crate::auditable::Auditable;
         let entity = make_entity(1, None);
         let fields = entity.audit_fields();
-        assert_eq!(fields.len(), 21);
+        // Quick 260607-mw9: 21 -> 22 (account_holder added at end).
+        assert_eq!(fields.len(), 22);
         // Verify excluded fields are not present
         let field_names: Vec<&str> = fields.iter().map(|(name, _)| *name).collect();
         assert!(!field_names.contains(&"id"));
         assert!(!field_names.contains(&"version"));
         assert!(!field_names.contains(&"created"));
         assert!(!field_names.contains(&"deleted"));
+        // Quick 260607-mw9: new account_holder field is present.
+        assert!(field_names.contains(&"account_holder"));
+    }
+
+    /// Quick 260607-mw9: verifies that `account_holder` is the FINAL entry
+    /// in `audit_fields()`. Critical for hashchain stability — reordering
+    /// existing fields would invalidate every prior audit_log row's hash.
+    /// Phase-7-Lektion: new fields MUST be appended at the end.
+    #[test]
+    fn test_auditable_account_holder_appended_at_end() {
+        use crate::auditable::Auditable;
+        let entity = make_entity(1, None);
+        let fields = entity.audit_fields();
+        assert_eq!(
+            fields.last().map(|(name, _)| *name),
+            Some("account_holder"),
+            "account_holder MUST be the last entry in audit_fields() for hashchain stability"
+        );
     }
 
     #[test]

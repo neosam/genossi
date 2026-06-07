@@ -351,6 +351,7 @@ mod tests {
             exit_date: None,
             bank_account: Some(Arc::from("DE89370400440532013000")),
             status: genossi_dao::member::MemberStatus::Normal,
+            account_holder: None,
             created: datetime,
             deleted: None,
             version: Uuid::new_v4(),

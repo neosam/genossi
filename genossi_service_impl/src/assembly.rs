@@ -839,6 +839,7 @@ mod tests {
             exit_date,
             bank_account: None,
             status,
+            account_holder: None,
             created: time::PrimitiveDateTime::new(join, time::Time::MIDNIGHT),
             deleted: None,
             version: Uuid::new_v4(),

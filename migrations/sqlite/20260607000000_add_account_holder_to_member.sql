@@ -1,0 +1,12 @@
+-- Quick 260607-mw9: optional account_holder am Member.
+-- Wird im Auszahlungs-Anschreiben als Recipient-Adressblock verwendet,
+-- wenn das Bankkonto auf einen anderen Namen läuft (Ehepartner, Firma).
+-- NULL = Fallback auf member.first_name + member.last_name.
+--
+-- Auditable::audit_fields() wird in genossi_dao/src/member.rs erweitert
+-- und account_holder APPENDED AT END (FROZEN-order Hashchain-Stabilität,
+-- Phase-7-Lektion / Pattern 20260601000100_extend_member_document_mail.sql).
+--
+-- No down-migration: SQLite < 3.35 supports DROP COLUMN nur unzuverlässig;
+-- Projekt ist forward-only.
+ALTER TABLE member ADD COLUMN account_holder TEXT NULL;

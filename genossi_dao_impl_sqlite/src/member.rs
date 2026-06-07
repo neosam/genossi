@@ -60,6 +60,9 @@ struct MemberDb {
     exit_date: Option<String>,
     bank_account: Option<String>,
     status: Option<String>,
+    // Quick 260607-mw9: account_holder column (nullable TEXT).
+    // Positional sqlx::FromRow — must match SELECT column order below.
+    account_holder: Option<String>,
     created: String,
     deleted: Option<String>,
     version: Vec<u8>,
@@ -101,6 +104,8 @@ impl TryFrom<&MemberDb> for MemberEntity {
                 .map(MemberStatus::from_str)
                 .transpose()?
                 .unwrap_or_default(),
+            // Quick 260607-mw9: account_holder column.
+            account_holder: db.account_holder.as_deref().map(Arc::from),
             created: parse_datetime(&db.created)?,
             deleted: db.deleted.as_ref().map(|d| parse_datetime(d)).transpose()?,
             version: Uuid::from_slice(&db.version)?,
@@ -126,7 +131,7 @@ impl MemberDao for MemberDaoImpl {
         let rows = sqlx::query_as::<_, MemberDb>(
             "SELECT id, member_number, first_name, last_name, salutation, title, email, company, comment, \
              street, house_number, postal_code, city, join_date, shares_at_joining, \
-             current_shares, current_balance, action_count, migrated, exit_date, bank_account, status, created, deleted, version \
+             current_shares, current_balance, action_count, migrated, exit_date, bank_account, status, account_holder, created, deleted, version \
              FROM member ORDER BY member_number",
         )
         .fetch_all(tx.tx.lock().await.as_mut())
@@ -168,12 +173,14 @@ impl MemberDao for MemberDaoImpl {
         let exit_date = entity.exit_date.as_ref().map(format_date);
         let bank_account = entity.bank_account.as_deref().map(String::from);
         let status = entity.status.as_str().to_string();
+        // Quick 260607-mw9: account_holder ist Option<Arc<str>> wie bank_account.
+        let account_holder = entity.account_holder.as_deref().map(String::from);
 
         sqlx::query(
             "INSERT INTO member (id, member_number, first_name, last_name, salutation, title, email, company, comment, \
              street, house_number, postal_code, city, join_date, shares_at_joining, \
-             current_shares, current_balance, action_count, migrated, exit_date, bank_account, status, created, version) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             current_shares, current_balance, action_count, migrated, exit_date, bank_account, status, account_holder, created, version) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(id)
         .bind(entity.member_number)
@@ -197,6 +204,7 @@ impl MemberDao for MemberDaoImpl {
         .bind(exit_date)
         .bind(bank_account)
         .bind(status)
+        .bind(account_holder)
         .bind(created)
         .bind(version)
         .execute(tx.tx.lock().await.as_mut())
@@ -230,6 +238,8 @@ impl MemberDao for MemberDaoImpl {
         let exit_date = entity.exit_date.as_ref().map(format_date);
         let bank_account = entity.bank_account.as_deref().map(String::from);
         let status = entity.status.as_str().to_string();
+        // Quick 260607-mw9: account_holder ist Option<Arc<str>> wie bank_account.
+        let account_holder = entity.account_holder.as_deref().map(String::from);
 
         let deleted = match entity.deleted {
             Some(dt) => {
@@ -259,7 +269,7 @@ impl MemberDao for MemberDaoImpl {
             "UPDATE member SET member_number = ?, first_name = ?, last_name = ?, salutation = ?, title = ?, email = ?, \
              company = ?, comment = ?, street = ?, house_number = ?, postal_code = ?, city = ?, \
              join_date = ?, shares_at_joining = ?, current_shares = ?, current_balance = ?, \
-             action_count = ?, migrated = ?, exit_date = ?, bank_account = ?, status = ?, deleted = ?, version = ? \
+             action_count = ?, migrated = ?, exit_date = ?, bank_account = ?, status = ?, account_holder = ?, deleted = ?, version = ? \
              WHERE id = ? AND version = ? AND deleted IS NULL",
         )
         .bind(entity.member_number)
@@ -283,6 +293,7 @@ impl MemberDao for MemberDaoImpl {
         .bind(exit_date)
         .bind(bank_account)
         .bind(status)
+        .bind(account_holder)
         .bind(deleted)
         .bind(new_version)
         .bind(id)

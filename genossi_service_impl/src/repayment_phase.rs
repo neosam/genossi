@@ -1118,6 +1118,7 @@ mod tests {
             exit_date,
             bank_account: None,
             status: MemberStatus::Normal,
+            account_holder: None,
             created: datetime,
             deleted: None,
             version: Uuid::new_v4(),
