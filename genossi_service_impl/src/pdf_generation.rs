@@ -776,6 +776,18 @@ impl PdfGenerator {
                 .map(|v| serde_json::Value::String(v.to_string()))
                 .unwrap_or(serde_json::Value::Null),
         );
+        // Quick 260607-mw9: account_holder im member-JSON, damit das
+        // Typst-Template über `m.at("account_holder", default: none)`
+        // den Wert auslesen und im Recipient-Adressblock anzeigen kann.
+        // None → JSON null (Template macht `!= none`-Check); Some → String.
+        member_map.insert(
+            "account_holder".to_string(),
+            member
+                .account_holder
+                .as_ref()
+                .map(|v| serde_json::Value::String(v.to_string()))
+                .unwrap_or(serde_json::Value::Null),
+        );
 
         // Format dates
         let format = time::format_description::parse("[day].[month].[year]").expect("valid format");
@@ -1041,6 +1053,9 @@ fn build_inputs_repayment_letter(
         "city": member.city.as_ref().map(|s| s.as_ref()),
         "bank_account": member.bank_account.as_ref().map(|s| s.as_ref()),
         "masked_bank_account": masked_bank_account,
+        // Quick 260607-mw9: account_holder fuer Single-Letter — None -> JSON null
+        // (Template macht `m.at("account_holder", default: none) != none`-Check).
+        "account_holder": member.account_holder.as_ref().map(|s| s.as_ref()),
     });
     let member_str = serde_json::to_string(&member_json).expect("member json serialisable");
     inputs.insert(
@@ -1138,6 +1153,8 @@ fn build_inputs_repayment_letters_bundle(
                     "city": member.city.as_ref().map(|s| s.as_ref()),
                     "bank_account": member.bank_account.as_ref().map(|s| s.as_ref()),
                     "masked_bank_account": masked_bank_account,
+                    // Quick 260607-mw9: account_holder in first-recipient compat.
+                    "account_holder": member.account_holder.as_ref().map(|s| s.as_ref()),
                 }),
                 serde_json::json!({
                     "share_count": ctx.share_count,
@@ -1162,6 +1179,8 @@ fn build_inputs_repayment_letters_bundle(
                     "city": null,
                     "bank_account": null,
                     "masked_bank_account": null,
+                    // Quick 260607-mw9: account_holder in empty-bundle compat.
+                    "account_holder": null,
                 }),
                 serde_json::json!({
                     "share_count": 0,
@@ -1209,6 +1228,8 @@ fn build_inputs_repayment_letters_bundle(
                     "city": member.city.as_ref().map(|s| s.as_ref()),
                     "bank_account": member.bank_account.as_ref().map(|s| s.as_ref()),
                     "masked_bank_account": masked_bank_account,
+                    // Quick 260607-mw9: account_holder pro Bundle-Recipient.
+                    "account_holder": member.account_holder.as_ref().map(|s| s.as_ref()),
                 },
                 "repayment": {
                     "share_count": ctx.share_count,
@@ -1450,6 +1471,41 @@ mod tests {
 
         // today should also be present
         assert!(inputs.get(&Str::from("today")).is_ok());
+    }
+
+    /// Quick 260607-mw9: PdfGenerator::build_inputs (generic, non-repayment)
+    /// also emits account_holder so generic Typst templates can use it.
+    #[test]
+    fn test_build_inputs_includes_account_holder_when_some() {
+        let generator = PdfGenerator::new();
+        let mut member = test_member();
+        member.account_holder = Some(Arc::from("Erika Mustermann"));
+        let inputs = generator.build_inputs(&member);
+        let member_str = match inputs.get(&Str::from("member")).unwrap() {
+            Value::Str(s) => s.to_string(),
+            _ => panic!("Expected string"),
+        };
+        let parsed: serde_json::Value = serde_json::from_str(&member_str).unwrap();
+        assert_eq!(parsed["account_holder"], "Erika Mustermann");
+    }
+
+    /// Quick 260607-mw9: PdfGenerator::build_inputs emits JSON null for
+    /// account_holder=None so Typst can use `m.account_holder != none`.
+    #[test]
+    fn test_build_inputs_account_holder_null_when_none() {
+        let generator = PdfGenerator::new();
+        let member = test_member(); // account_holder: None
+        let inputs = generator.build_inputs(&member);
+        let member_str = match inputs.get(&Str::from("member")).unwrap() {
+            Value::Str(s) => s.to_string(),
+            _ => panic!("Expected string"),
+        };
+        let parsed: serde_json::Value = serde_json::from_str(&member_str).unwrap();
+        assert!(
+            parsed.get("account_holder").is_some(),
+            "account_holder key must exist even when None"
+        );
+        assert!(parsed["account_holder"].is_null());
     }
 
     #[test]
@@ -2031,6 +2087,76 @@ foo
         assert_eq!(member_json["title"], serde_json::Value::Null);
     }
 
+    /// Quick 260607-mw9: account_holder appears in member-JSON when Some,
+    /// so the Typst template can read it and adjust the recipient block.
+    #[test]
+    fn test_build_inputs_repayment_letter_includes_account_holder_when_some() {
+        let phase = test_repayment_phase();
+        let mut member = sample_member_with_iban();
+        member.account_holder = Some(Arc::from("Erika Mustermann"));
+        let ctx = sample_ctx(3, "360,00", 2025);
+        let dict = build_inputs_repayment_letter(&phase, &member, &ctx);
+        let member_json: serde_json::Value =
+            serde_json::from_str(extract_str_input(&dict, "member").as_str()).unwrap();
+        assert_eq!(member_json["account_holder"], "Erika Mustermann");
+    }
+
+    /// Quick 260607-mw9: account_holder = None serializes as JSON null
+    /// (mirrors the bank_account null-handling pattern; Typst checks
+    /// `!= none` and falls back to name-for(m)).
+    #[test]
+    fn test_build_inputs_repayment_letter_account_holder_null_when_none() {
+        let phase = test_repayment_phase();
+        let member = sample_member_without_iban(); // account_holder: None per spread
+        let ctx = sample_ctx(3, "360,00", 2025);
+        let dict = build_inputs_repayment_letter(&phase, &member, &ctx);
+        let member_json: serde_json::Value =
+            serde_json::from_str(extract_str_input(&dict, "member").as_str()).unwrap();
+        assert_eq!(member_json["account_holder"], serde_json::Value::Null);
+    }
+
+    /// Quick 260607-mw9: bundle path mirrors single-letter; account_holder
+    /// is present per recipient AND in the first-recipient compat top-level.
+    #[test]
+    fn test_build_inputs_bundle_includes_account_holder_per_recipient() {
+        let phase = test_repayment_phase();
+        let mut m1 = sample_member_with_iban();
+        m1.account_holder = Some(Arc::from("Erika Mustermann"));
+        let m2 = sample_member_without_iban(); // account_holder None
+        let recipients = vec![
+            (m1, sample_ctx(3, "360,00", 2025)),
+            (m2, sample_ctx(2, "240,00", 2025)),
+        ];
+        let dict = build_inputs_repayment_letters_bundle(&phase, &recipients);
+
+        let recipients_json: serde_json::Value =
+            serde_json::from_str(extract_str_input(&dict, "recipients").as_str()).unwrap();
+        let r0 = &recipients_json.as_array().unwrap()[0];
+        let r1 = &recipients_json.as_array().unwrap()[1];
+        assert_eq!(r0["member"]["account_holder"], "Erika Mustermann");
+        assert_eq!(r1["member"]["account_holder"], serde_json::Value::Null);
+
+        // First-recipient compat (top-level `member`) must also expose account_holder
+        // so that `#import` of the single-letter template does not crash.
+        let compat_member: serde_json::Value =
+            serde_json::from_str(extract_str_input(&dict, "member").as_str()).unwrap();
+        assert_eq!(compat_member["account_holder"], "Erika Mustermann");
+    }
+
+    /// Quick 260607-mw9: empty-bundle compat path explicitly emits
+    /// account_holder = null (defense-in-depth; should never trigger in
+    /// production because the service validates non-empty entry_ids).
+    #[test]
+    fn test_build_inputs_bundle_empty_compat_has_account_holder_null() {
+        let phase = test_repayment_phase();
+        let recipients: Vec<(MemberEntity, RepaymentContext)> = vec![];
+        let dict = build_inputs_repayment_letters_bundle(&phase, &recipients);
+        let compat_member: serde_json::Value =
+            serde_json::from_str(extract_str_input(&dict, "member").as_str()).unwrap();
+        assert!(compat_member.get("account_holder").is_some());
+        assert_eq!(compat_member["account_holder"], serde_json::Value::Null);
+    }
+
     #[test]
     fn test_build_inputs_repayment_letter_repayment_keys() {
         let phase = test_repayment_phase();
@@ -2272,6 +2398,64 @@ foo
         assert!(
             res.is_ok(),
             "NULL-IBAN render must not fail: {:?}",
+            res.err()
+        );
+        let bytes = res.unwrap();
+        assert!(bytes.starts_with(b"%PDF-"));
+    }
+
+    /// Quick 260607-mw9: Member with account_holder=Some renders without
+    /// crash through the real Typst template (account-holder-for helper).
+    /// Visual verification of the recipient block happens in human-checkpoint
+    /// Task 4; this test just guards against a Typst compile-error regression.
+    #[test]
+    fn test_render_repayment_letter_with_account_holder_renders_ok() {
+        let template_base = provision_letter_templates();
+        let generator = PdfGenerator::new();
+        let phase = test_repayment_phase();
+        let mut member = sample_member_with_iban();
+        member.account_holder = Some(Arc::from("Erika Mustermann"));
+        let ctx = sample_ctx(3, "360,00", phase.fiscal_year);
+
+        let res = generator.render_repayment_letter(
+            "auszahlungs_anschreiben.typ",
+            template_base.path(),
+            &phase,
+            &member,
+            &ctx,
+        );
+        assert!(
+            res.is_ok(),
+            "render with account_holder must not fail: {:?}",
+            res.err()
+        );
+        let bytes = res.unwrap();
+        assert!(bytes.starts_with(b"%PDF-"));
+        assert!(bytes.len() > 1000, "PDF too small ({} bytes)", bytes.len());
+    }
+
+    /// Quick 260607-mw9: Member with account_holder=None falls back to the
+    /// member name in the recipient block via `name-for(m)` — must render
+    /// without crash AND mirror the bank_account=None smoke test.
+    #[test]
+    fn test_render_repayment_letter_account_holder_none_falls_back_to_member_name() {
+        let template_base = provision_letter_templates();
+        let generator = PdfGenerator::new();
+        let phase = test_repayment_phase();
+        let member = sample_member_with_iban(); // account_holder None per default
+        assert!(member.account_holder.is_none(), "test precondition");
+        let ctx = sample_ctx(3, "360,00", phase.fiscal_year);
+
+        let res = generator.render_repayment_letter(
+            "auszahlungs_anschreiben.typ",
+            template_base.path(),
+            &phase,
+            &member,
+            &ctx,
+        );
+        assert!(
+            res.is_ok(),
+            "fallback render must not fail: {:?}",
             res.err()
         );
         let bytes = res.unwrap();

@@ -35,6 +35,20 @@
     [#m.first_name #m.last_name]
   }
 
+// ─── Helper: Kontoinhaber-Name (Fallback auf Mitgliedsname) ──────────────────
+// Quick 260607-mw9: Wenn account_holder gesetzt UND nicht leer, im Recipient-
+// Adressblock zeigen — der Brief muss dann an den Kontoinhaber adressiert sein,
+// damit das Bankhaus die Überweisung korrekt zuordnet.
+// Anrede ("Lieber Hans,") bleibt bewusst auf member.first/last_name —
+// der Brief richtet sich textlich ans Mitglied, der Adress-Header an den
+// Kontoinhaber. `m.at("account_holder", default: none)` ist defensive,
+// damit ältere JSON-Payloads ohne das Feld nicht crashen.
+#let account-holder-for(m) = if m.at("account_holder", default: none) != none and m.account_holder != "" {
+    [#m.account_holder]
+  } else {
+    name-for(m)
+  }
+
 // ─── render-letter: EXPORTED FUNCTION — Single-Source-of-Truth Brief-Body ────
 // Wird sowohl direkt im Single-Mode unten aufgerufen als auch von
 // auszahlungs_anschreiben_bundle.typ via `#import "auszahlungs_anschreiben.typ": render-letter`.
@@ -58,7 +72,9 @@
       ],
     ),
     recipient: [
-      #name \
+      // Quick 260607-mw9: Recipient = account_holder (wenn gesetzt) sonst Mitgliedsname.
+      // Anrede unten im Brief bleibt auf `name` (= name-for(m), Mitgliedsname).
+      #account-holder-for(m) \
       #m.street #m.house_number \
       #m.postal_code #m.city
     ],
@@ -95,7 +111,7 @@
   // ─── D-13-06 Baustein 3: IBAN-Switch (Pitfall #5) ───────────────────────────
   if m.bank_account != none [
     Wir überweisen den Betrag in Höhe von #r.payout_amount € auf deine
-    hinterlegte IBAN: *#m.masked_bank_account*.
+    hinterlegte IBAN: *#m.bank_account*.
   ] else [
     *Wir haben keine IBAN von dir hinterlegt* — bitte teile sie uns unter
     #link("mailto:mv@nebenan-unverpackt.de")[mv\@nebenan-unverpackt.de] mit,
