@@ -3,7 +3,9 @@ use rest_types::MemberTO;
 
 use crate::api::{self, InboundMailDetailTO, InboundMailTO};
 use crate::auth::RequirePrivilege;
-use crate::component::inbox::{InboxMailListItem, InboxReplyForm, InboxStatusBadge};
+use crate::component::inbox::{
+    InboxAttachmentList, InboxMailListItem, InboxReplyForm, InboxStatusBadge,
+};
 use crate::component::{ErrorAlert, TopBar};
 use crate::i18n::use_i18n;
 use crate::page::AccessDeniedPage;
@@ -328,11 +330,6 @@ fn InboxPageInner(initial_id: Option<String>) -> Element {
                             div { class: "text-xs",
                                 InboxStatusBadge { replied: d.replied, done: d.done, archived: d.archived }
                             }
-                            if d.has_attachments {
-                                div { class: "text-xs text-amber-700",
-                                    "📎 Diese Mail enthält Anhänge (nicht anzeigbar im MVP)"
-                                }
-                            }
                             if d.has_html_body && d.body_text.is_empty() {
                                 div { class: "text-xs text-gray-500 italic",
                                     "Nur HTML-Inhalt vorhanden — im MVP nicht gerendert."
@@ -344,6 +341,12 @@ fn InboxPageInner(initial_id: Option<String>) -> Element {
                         div { class: "flex-1 overflow-y-auto flex flex-col gap-2 mt-2",
                             pre { class: "bg-gray-50 p-2 border rounded text-sm whitespace-pre-wrap",
                                 "{d.body_text}"
+                            }
+
+                            InboxAttachmentList {
+                                mail_id: d.id.clone(),
+                                attachments: d.attachments.clone(),
+                                has_legacy_attachments: d.attachments.is_empty() && d.has_attachments,
                             }
 
                             // Assignment section
