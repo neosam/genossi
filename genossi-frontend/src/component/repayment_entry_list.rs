@@ -568,6 +568,7 @@ mod tests {
             migrated: false,
             exit_date: None,
             bank_account: None,
+            account_holder: None,
             status: MemberStatusTO::Normal,
             created: None,
             deleted: None,
