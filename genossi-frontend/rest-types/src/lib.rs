@@ -665,6 +665,7 @@ mod tests {
             migrated: false,
             exit_date,
             bank_account: None,
+            status: MemberStatusTO::Normal,
             created: None,
             deleted: None,
             version: None,
@@ -874,4 +875,194 @@ pub struct TimestampCreateResponseTO {
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timestamp: Option<TimestampResponseTO>,
+}
+
+#[cfg(test)]
+mod phase_18_dtos_tests {
+    use super::*;
+    use time::{Date, Month};
+
+    fn sample_member() -> MemberTO {
+        MemberTO {
+            id: Some(Uuid::from_u128(1)),
+            member_number: 42,
+            first_name: "Hans".into(),
+            last_name: "Mueller".into(),
+            salutation: None,
+            title: None,
+            email: None,
+            company: None,
+            comment: None,
+            street: None,
+            house_number: None,
+            postal_code: None,
+            city: None,
+            join_date: Date::from_calendar_date(2025, Month::January, 1).unwrap(),
+            shares_at_joining: 1,
+            current_shares: 5,
+            current_balance: 0,
+            action_count: 0,
+            migrated: false,
+            exit_date: None,
+            bank_account: None,
+            status: MemberStatusTO::Normal,
+            created: None,
+            deleted: None,
+            version: None,
+        }
+    }
+
+    fn sample_action() -> MemberActionTO {
+        MemberActionTO {
+            id: Some(Uuid::from_u128(2)),
+            member_id: Uuid::from_u128(1),
+            action_type: ActionTypeTO::Austritt,
+            date: Date::from_calendar_date(2026, Month::June, 15).unwrap(),
+            shares_change: 0,
+            transfer_member_id: None,
+            effective_date: Some(
+                Date::from_calendar_date(2026, Month::December, 31).unwrap(),
+            ),
+            comment: None,
+            created: None,
+            deleted: None,
+            version: None,
+        }
+    }
+
+    #[test]
+    fn member_slim_to_roundtrip() {
+        let slim = MemberSlimTO {
+            id: Uuid::from_u128(1),
+            member_number: 42,
+            salutation: Some(SalutationTO::Herr),
+            title: Some("Dr.".into()),
+            first_name: "Hans".into(),
+            last_name: "Mueller".into(),
+        };
+        let json = serde_json::to_string(&slim).unwrap();
+        let back: MemberSlimTO = serde_json::from_str(&json).unwrap();
+        assert_eq!(slim, back);
+    }
+
+    #[test]
+    fn member_slim_to_skips_none_fields() {
+        let slim = MemberSlimTO {
+            id: Uuid::from_u128(1),
+            member_number: 7,
+            salutation: None,
+            title: None,
+            first_name: "Anna".into(),
+            last_name: "Weber".into(),
+        };
+        let json = serde_json::to_string(&slim).unwrap();
+        assert!(
+            !json.contains("\"salutation\""),
+            "salutation should be skipped: {json}"
+        );
+        assert!(
+            !json.contains("\"title\""),
+            "title should be skipped: {json}"
+        );
+    }
+
+    #[test]
+    fn cancel_request_serializes_iso_date() {
+        let req = CancelMembershipRequestTO {
+            willensbekundung_date: Date::from_calendar_date(2026, Month::June, 15)
+                .unwrap(),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(
+            json.contains("\"willensbekundung_date\":\"2026-06-15\""),
+            "got: {json}"
+        );
+    }
+
+    #[test]
+    fn increase_request_roundtrip_with_shares() {
+        let req = IncreaseSharesRequestTO {
+            willensbekundung_date: Date::from_calendar_date(2026, Month::March, 1)
+                .unwrap(),
+            shares: 5,
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"shares\":5"));
+        let back: IncreaseSharesRequestTO = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.shares, 5);
+    }
+
+    #[test]
+    fn transfer_request_full_roundtrip() {
+        let req = TransferSharesRequestTO {
+            to_member_id: Uuid::from_u128(2),
+            shares: 3,
+            transfer_date: Date::from_calendar_date(2026, Month::July, 1).unwrap(),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        let back: TransferSharesRequestTO = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.shares, 3);
+        assert_eq!(back.to_member_id, Uuid::from_u128(2));
+        assert!(json.contains("\"transfer_date\":\"2026-07-01\""));
+    }
+
+    #[test]
+    fn membership_adjust_response_roundtrip_nested() {
+        let resp = MembershipAdjustResponseTO {
+            action: sample_action(),
+            member: sample_member(),
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        let back: MembershipAdjustResponseTO = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.member.member_number, 42);
+        assert_eq!(back.action.action_type, ActionTypeTO::Austritt);
+    }
+
+    #[test]
+    fn partial_repayment_response_phase_some_serializes_phase() {
+        let resp = PartialRepaymentResponseTO {
+            entry: serde_json::json!({
+                "id": "00000000-0000-0000-0000-000000000003",
+                "fiscal_year": 2026,
+            }),
+            member: sample_member(),
+            phase: Some(serde_json::json!({
+                "id": "00000000-0000-0000-0000-000000000004",
+                "fiscal_year": 2026,
+            })),
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(
+            json.contains("\"phase\""),
+            "phase should be present when Some: {json}"
+        );
+    }
+
+    #[test]
+    fn partial_repayment_response_phase_none_skips_phase() {
+        let resp = PartialRepaymentResponseTO {
+            entry: serde_json::json!({
+                "id": "00000000-0000-0000-0000-000000000003",
+            }),
+            member: sample_member(),
+            phase: None,
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(
+            !json.contains("\"phase\""),
+            "phase should be skipped when None: {json}"
+        );
+    }
+
+    #[test]
+    fn transfer_response_two_actions_roundtrip() {
+        let resp = TransferSharesResponseTO {
+            actions: vec![sample_action(), sample_action()],
+            from: sample_member(),
+            to: sample_member(),
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        let back: TransferSharesResponseTO = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.actions.len(), 2);
+    }
 }
