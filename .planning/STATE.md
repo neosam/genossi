@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: null
 milestone_name: null
-status: awaiting_human_verify
-stopped_at: Phase 19 Plan 19-06 Task 1 complete; Task 2 checkpoint:human-verify pending Vorstand smoke test
-last_updated: "2026-06-07T11:28:00.000Z"
-last_activity: 2026-06-07
+status: executing
+stopped_at: Phase 19 UI-SPEC approved
+last_updated: "2026-06-07T13:18:38.456Z"
+last_activity: 2026-06-07 -- Phase 19 planning complete
 progress:
   total_phases: 1
   completed_phases: 0
-  total_plans: 6
+  total_plans: 7
   completed_plans: 6
-  percent: 100
+  percent: 86
 ---
 
 # State: Genossi — Between Milestones (v1.2 shipped, v1.3 not yet defined)
@@ -31,8 +31,8 @@ See: `.planning/PROJECT.md` (updated 2026-06-07 after v1.2 close)
 
 Phase: 19 (e-mail-anh-nge-anzeigen-backend-endpoint-zum-abrufen-von-anh) — EXECUTING
 Plan: 6 of 6 (Task 1 complete, Task 2 awaiting human-verify)
-Status: Awaiting Vorstand smoke test (Plan 19-06 Task 2 checkpoint:human-verify)
-Last activity: 2026-06-07 (Plan 19-06 Task 1 committed as `26bc5e2`)
+Status: Ready to execute
+Last activity: 2026-06-07 -- Phase 19 planning complete
 
 ## Deferred Items
 
