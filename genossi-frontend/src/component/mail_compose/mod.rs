@@ -1,3 +1,4 @@
+pub mod attachment_picker;
 pub mod body_editor;
 pub mod subject_input;
 pub mod template_preview;
@@ -5,6 +6,7 @@ pub mod template_selector;
 pub mod template_tester;
 pub mod template_var_buttons;
 
+pub use attachment_picker::MailAttachmentPicker;
 pub use body_editor::MailBodyEditor;
 pub use subject_input::MailSubjectInput;
 pub use template_preview::TemplatePreview;

@@ -1461,11 +1461,17 @@ pub async fn reply_inbox_mail(
     id: &str,
     subject: &str,
     body: &str,
+    attachment_ids: &[Uuid],
+    static_document_ids: &[String],
 ) -> Result<(), AppError> {
     let url = format!("{}/api/inbox/{}/reply", config.backend, id);
+    let attachment_id_strs: Vec<String> =
+        attachment_ids.iter().map(|u| u.to_string()).collect();
     let payload = serde_json::json!({
         "subject": subject,
         "body": body,
+        "attachment_ids": attachment_id_strs,
+        "static_document_ids": static_document_ids,
     });
     let response = reqwest::Client::new()
         .post(url)

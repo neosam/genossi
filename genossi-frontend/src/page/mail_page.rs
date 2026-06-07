@@ -5,7 +5,8 @@ use uuid::Uuid;
 use crate::api::{self, BulkRecipient, MailJobDetailTO, MailJobTO};
 use crate::auth::RequirePrivilege;
 use crate::component::mail_compose::{
-    MailBodyEditor, MailSubjectInput, TemplatePreview, TemplateSelector, TemplateVarButtons,
+    MailAttachmentPicker, MailBodyEditor, MailSubjectInput, TemplatePreview, TemplateSelector,
+    TemplateVarButtons,
 };
 use crate::component::member_search::filter_members;
 use crate::component::{
@@ -475,85 +476,23 @@ pub fn MailPage() -> Element {
                                 }
                             }
 
-                            // Attachment selector — visible only for single recipient
-                            if selected_member_ids.read().len() == 1 {
-                                div {
-                                    label { class: "block text-sm font-medium text-gray-700 mb-1",
-                                        "Anhänge"
-                                    }
-                                    if available_documents.read().is_empty() {
-                                        p { class: "text-sm text-gray-400 italic",
-                                            "Keine Dokumente vorhanden"
-                                        }
-                                    } else {
-                                        div { class: "border rounded-md p-2 max-h-40 overflow-y-auto space-y-1",
-                                            for doc in available_documents.read().iter() {
-                                                {
-                                                    let doc_id = doc.id;
-                                                    let doc_type = doc.document_type.clone();
-                                                    let file_name = doc.file_name.clone();
-                                                    let is_checked = doc_id.map(|id| selected_attachment_ids.read().contains(&id)).unwrap_or(false);
-                                                    rsx! {
-                                                        label { class: "flex items-center gap-2 px-2 py-1 hover:bg-gray-50 rounded cursor-pointer text-sm",
-                                                            input {
-                                                                r#type: "checkbox",
-                                                                checked: is_checked,
-                                                                onchange: move |_| {
-                                                                    if let Some(id) = doc_id {
-                                                                        let mut ids = selected_attachment_ids.write();
-                                                                        if ids.contains(&id) {
-                                                                            ids.retain(|i| *i != id);
-                                                                        } else {
-                                                                            ids.push(id);
-                                                                        }
-                                                                    }
-                                                                },
-                                                            }
-                                                            span { class: "text-gray-600", "{doc_type}" }
-                                                            span { class: "text-gray-800 font-medium", "{file_name}" }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Static document multiselect (applies to every recipient in this bulk send)
-                            if !available_static_documents.read().is_empty() {
-                                div { class: "mt-4 p-3 border border-gray-200 rounded bg-gray-50",
-                                    div { class: "text-sm font-medium text-gray-700 mb-2", "Statische Dokumente anhängen (alle Empfänger erhalten diese)" }
-                                    div { class: "flex flex-col space-y-1 max-h-40 overflow-y-auto",
-                                        for sd in available_static_documents.read().iter() {
-                                            {
-                                                let sd_id = sd.id.clone();
-                                                let sd_name = sd.name.clone();
-                                                let sd_filename = sd.filename.clone();
-                                                let is_checked = selected_static_document_ids.read().contains(&sd_id);
-                                                let sd_id_for_change = sd_id.clone();
-                                                rsx! {
-                                                    label { class: "flex items-center space-x-2 text-sm",
-                                                        input {
-                                                            r#type: "checkbox",
-                                                            checked: is_checked,
-                                                            onchange: move |evt| {
-                                                                let id = sd_id_for_change.clone();
-                                                                let mut ids = selected_static_document_ids.write();
-                                                                if evt.checked() {
-                                                                    if !ids.contains(&id) {
-                                                                        ids.push(id);
-                                                                    }
-                                                                } else {
-                                                                    ids.retain(|x| x != &id);
-                                                                }
-                                                            },
-                                                        }
-                                                        span { "{sd_name} ({sd_filename})" }
-                                                    }
-                                                }
-                                            }
-                                        }
+                            // Quick 260607-s0s: Picker-RSX wandert in die shared
+                            // MailAttachmentPicker-Component (Component-First).
+                            // Verhalten 1:1 zum vorherigen Inline-Block:
+                            // Member-Doc-Block nur bei genau einem Empfänger,
+                            // Static-Doc-Block immer wenn welche vorhanden.
+                            {
+                                let single_recipient_id: Option<Uuid> = {
+                                    let ids = selected_member_ids.read();
+                                    if ids.len() == 1 { Some(ids[0]) } else { None }
+                                };
+                                rsx! {
+                                    MailAttachmentPicker {
+                                        member_id: single_recipient_id,
+                                        available_documents,
+                                        available_static_documents,
+                                        selected_member_doc_ids: selected_attachment_ids,
+                                        selected_static_doc_ids: selected_static_document_ids,
                                     }
                                 }
                             }
