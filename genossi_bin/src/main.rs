@@ -54,6 +54,9 @@ async fn main() {
     rest_state.start_inbox_worker();
     tracing::info!("Inbox worker started");
 
+    rest_state.start_attachment_backfill_worker();
+    tracing::info!("Attachment backfill worker spawned");
+
     rest_state.start_backup_worker();
     tracing::info!("Backup worker started");
 

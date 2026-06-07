@@ -1376,6 +1376,30 @@ impl RestStateImpl {
         });
     }
 
+    /// Phase 19 Plan 04: One-shot attachment backfill worker. Spawned at
+    /// server start to retro-fit attachment rows for inbound mails received
+    /// before Phase 19 introduced the attachment pipeline. Best-effort
+    /// (D-05/D-06): mails whose IMAP UID can no longer be fetched are
+    /// silently skipped. Idempotent on restart via the count_for_mail == 0
+    /// filter inside `run_attachment_backfill`.
+    pub fn start_attachment_backfill_worker(&self) {
+        let config_service = self.worker_inbox_config_service.clone();
+        let mail_dao = self.worker_inbox_dao.clone();
+        let attachment_dao = self.worker_inbox_attachment_dao.clone();
+        let storage = self.worker_inbox_storage.clone();
+        let imap_client = self.worker_inbox_imap_client.clone();
+        tokio::spawn(async move {
+            genossi_mail::inbox::run_attachment_backfill(
+                config_service,
+                mail_dao,
+                attachment_dao,
+                storage,
+                imap_client,
+            )
+            .await;
+        });
+    }
+
     pub fn start_backup_worker(&self) {
         let config_service = self.backup_config_service.clone();
         let backup_dao = self.backup_dao.clone();
