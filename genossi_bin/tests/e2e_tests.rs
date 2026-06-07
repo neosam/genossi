@@ -4808,6 +4808,265 @@ async fn test_inbox_detail_not_found() {
     assert_eq!(r.status(), StatusCode::NOT_FOUND);
 }
 
+// ── Phase 19 Plan 03: inbox attachment E2E ─────────────────────────────────
+//
+// `seed_inbound_mail_attachment` mirrors `seed_inbound_mail` for the
+// attachments table. It also writes the actual file bytes to the storage
+// path that `RestStateImpl::new` defaults to (`./documents/`,
+// `FilesystemDocumentStorage::from_env` falls back to that path when
+// `DOCUMENT_STORAGE_PATH` is unset — same path as all other document-
+// using e2e tests). For oversized=true rows, `relative_path` is NULL
+// in the DB AND no file is written; the handler returns 410 GONE.
+
+async fn seed_inbound_mail_attachment(
+    pool: &sqlx::SqlitePool,
+    mail_id: uuid::Uuid,
+    file_name: &str,
+    mime: &str,
+    bytes: &[u8],
+    oversized: bool,
+) -> uuid::Uuid {
+    let att_id = uuid::Uuid::new_v4();
+    let now = time::OffsetDateTime::now_utc();
+    let now_str = now
+        .format(&time::format_description::well_known::Iso8601::DEFAULT)
+        .unwrap();
+    let (rel_path_db, rel_path_for_disk): (Option<String>, Option<String>) = if oversized {
+        (None, None)
+    } else {
+        let p = format!("inbound_mail_attachments/{}/{}", mail_id, att_id);
+        (Some(p.clone()), Some(p))
+    };
+    sqlx::query(
+        "INSERT INTO inbound_mail_attachments (id, inbound_mail_id, created, file_name, mime_type, size_bytes, relative_path, oversized) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(att_id.as_bytes().to_vec())
+    .bind(mail_id.as_bytes().to_vec())
+    .bind(&now_str)
+    .bind(file_name)
+    .bind(mime)
+    .bind(bytes.len() as i64)
+    .bind(rel_path_db.as_deref())
+    .bind(if oversized { 1i64 } else { 0i64 })
+    .execute(pool)
+    .await
+    .unwrap();
+    // Write actual file bytes if not oversized. Path is relative to the
+    // DocumentStorage base (default `./documents`) — matches what
+    // FilesystemDocumentStorage::from_env() opens in setup_with_pool.
+    if let Some(rel) = rel_path_for_disk {
+        let base = std::env::var("DOCUMENT_STORAGE_PATH").unwrap_or_else(|_| "./documents".into());
+        let full = std::path::PathBuf::from(base).join(&rel);
+        if let Some(parent) = full.parent() {
+            tokio::fs::create_dir_all(parent).await.unwrap();
+        }
+        tokio::fs::write(&full, bytes).await.unwrap();
+    }
+    att_id
+}
+
+#[tokio::test]
+async fn test_get_inbox_detail_includes_attachments() {
+    let (server, pool) = setup_with_pool().await;
+    let mail_id = seed_inbound_mail(&pool, 21, "att@example.com", "Mit Anhang").await;
+    let _a1 = seed_inbound_mail_attachment(
+        &pool,
+        mail_id,
+        "rechnung.pdf",
+        "application/pdf",
+        b"normal-bytes",
+        false,
+    )
+    .await;
+    let _a2 = seed_inbound_mail_attachment(
+        &pool,
+        mail_id,
+        "riesig.zip",
+        "application/zip",
+        b"", // oversized — no bytes persisted
+        true,
+    )
+    .await;
+
+    let client = reqwest::Client::new();
+    let response = client
+        .get(server.url(&format!("/api/inbox/{}", mail_id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: serde_json::Value = response.json().await.unwrap();
+    let atts = body["attachments"].as_array().expect("attachments array");
+    assert_eq!(atts.len(), 2, "two attachments expected");
+    // Ordering is not guaranteed; find each by file_name.
+    let normal = atts
+        .iter()
+        .find(|a| a["file_name"] == "rechnung.pdf")
+        .expect("rechnung.pdf");
+    assert_eq!(normal["mime_type"], "application/pdf");
+    assert_eq!(normal["oversized"], false);
+    let oversized = atts
+        .iter()
+        .find(|a| a["file_name"] == "riesig.zip")
+        .expect("riesig.zip");
+    assert_eq!(oversized["oversized"], true);
+}
+
+#[tokio::test]
+async fn test_download_attachment_default_disposition_is_attachment() {
+    let (server, pool) = setup_with_pool().await;
+    let mail_id = seed_inbound_mail(&pool, 22, "dl@example.com", "DL").await;
+    let att_id = seed_inbound_mail_attachment(
+        &pool,
+        mail_id,
+        "hello.txt",
+        "text/plain",
+        b"hello world",
+        false,
+    )
+    .await;
+    let client = reqwest::Client::new();
+    let response = client
+        .get(server.url(&format!(
+            "/api/inbox/{}/attachments/{}",
+            mail_id, att_id
+        )))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers().get("content-type").unwrap(),
+        "text/plain"
+    );
+    let cd = response
+        .headers()
+        .get("content-disposition")
+        .unwrap()
+        .to_str()
+        .unwrap();
+    assert!(
+        cd.starts_with("attachment;"),
+        "expected attachment disposition, got {}",
+        cd
+    );
+    let body = response.bytes().await.unwrap();
+    assert_eq!(&body[..], b"hello world");
+}
+
+#[tokio::test]
+async fn test_download_attachment_inline_query_switches_disposition() {
+    let (server, pool) = setup_with_pool().await;
+    let mail_id = seed_inbound_mail(&pool, 23, "dl@example.com", "DL-inline").await;
+    let att_id = seed_inbound_mail_attachment(
+        &pool,
+        mail_id,
+        "hello.txt",
+        "text/plain",
+        b"hello world",
+        false,
+    )
+    .await;
+    let client = reqwest::Client::new();
+    let response = client
+        .get(server.url(&format!(
+            "/api/inbox/{}/attachments/{}?disposition=inline",
+            mail_id, att_id
+        )))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let cd = response
+        .headers()
+        .get("content-disposition")
+        .unwrap()
+        .to_str()
+        .unwrap();
+    assert!(
+        cd.starts_with("inline;"),
+        "expected inline disposition, got {}",
+        cd
+    );
+    let body = response.bytes().await.unwrap();
+    assert_eq!(&body[..], b"hello world");
+}
+
+#[tokio::test]
+async fn test_download_attachment_cross_mail_returns_404() {
+    // T-03 IDOR mitigation: requesting (mail_B, attachment_A1) must 404
+    // even if attachment_A1 exists for mail_A.
+    let (server, pool) = setup_with_pool().await;
+    let mail_a = seed_inbound_mail(&pool, 24, "a@example.com", "A").await;
+    let mail_b = seed_inbound_mail(&pool, 25, "b@example.com", "B").await;
+    let a1 = seed_inbound_mail_attachment(
+        &pool,
+        mail_a,
+        "secret.pdf",
+        "application/pdf",
+        b"top-secret",
+        false,
+    )
+    .await;
+    let client = reqwest::Client::new();
+
+    // Cross-mail request — must 404.
+    let cross = client
+        .get(server.url(&format!(
+            "/api/inbox/{}/attachments/{}",
+            mail_b, a1
+        )))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        cross.status(),
+        StatusCode::NOT_FOUND,
+        "cross-mail IDOR must 404"
+    );
+
+    // Positive control — correct (mail_A, attachment_A1) must 200.
+    let ok = client
+        .get(server.url(&format!(
+            "/api/inbox/{}/attachments/{}",
+            mail_a, a1
+        )))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(ok.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_download_attachment_oversized_returns_410() {
+    let (server, pool) = setup_with_pool().await;
+    let mail_id = seed_inbound_mail(&pool, 26, "big@example.com", "Riesig").await;
+    let att_id = seed_inbound_mail_attachment(
+        &pool,
+        mail_id,
+        "big.zip",
+        "application/zip",
+        b"",
+        true, // oversized
+    )
+    .await;
+    let client = reqwest::Client::new();
+    let response = client
+        .get(server.url(&format!(
+            "/api/inbox/{}/attachments/{}",
+            mail_id, att_id
+        )))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::GONE,
+        "oversized attachment must return 410 GONE"
+    );
+}
+
 // ============================================================
 // Mail Footer E2E Tests
 // ============================================================

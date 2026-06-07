@@ -1,7 +1,8 @@
 //! REST layer for the member inbox. Mirrors the layout of `rest.rs` for the
 //! outbound side: a `InboxRestState` trait plus a `router()` function.
 
-use axum::extract::{Path, State};
+use axum::body::Body;
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -11,9 +12,10 @@ use std::sync::Arc;
 use utoipa::{OpenApi, ToSchema};
 use uuid::Uuid;
 
-use crate::dao::InboundMail;
+use crate::dao::{InboundMail, InboundMailAttachment};
 use crate::inbox::InboxService;
 use crate::service::MailServiceError;
+use genossi_service::document_storage::{DocumentStorage, StorageError};
 
 // ────────────────────────────────────────────────────────────────────────────
 // Transport objects
@@ -34,6 +36,18 @@ pub struct InboundMailTO {
     pub assigned_member_name: Option<String>,
 }
 
+/// Phase 19 D-07: Attachment metadata embedded in detail responses + returned
+/// by download-handler error responses. `oversized=true` rows have empty
+/// bytes on disk; clients render them as "rejected at receive" markers.
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct InboundMailAttachmentTO {
+    pub id: String,
+    pub file_name: String,
+    pub mime_type: String,
+    pub size_bytes: i64,
+    pub oversized: bool,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct InboundMailDetailTO {
     pub id: String,
@@ -48,6 +62,8 @@ pub struct InboundMailDetailTO {
     pub archived: bool,
     pub assigned_member_id: Option<String>,
     pub assigned_member_name: Option<String>,
+    /// Phase 19 D-07: populated by `InboxService::list_attachments`.
+    pub attachments: Vec<InboundMailAttachmentTO>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
@@ -88,7 +104,21 @@ fn to_list_to(mail: &InboundMail, assigned_name: Option<String>) -> InboundMailT
     }
 }
 
-fn to_detail_to(mail: &InboundMail, assigned_name: Option<String>) -> InboundMailDetailTO {
+fn to_attachment_to(a: &InboundMailAttachment) -> InboundMailAttachmentTO {
+    InboundMailAttachmentTO {
+        id: a.id.to_string(),
+        file_name: a.file_name.to_string(),
+        mime_type: a.mime_type.to_string(),
+        size_bytes: a.size_bytes,
+        oversized: a.oversized,
+    }
+}
+
+fn to_detail_to(
+    mail: &InboundMail,
+    assigned_name: Option<String>,
+    attachments: Vec<InboundMailAttachmentTO>,
+) -> InboundMailDetailTO {
     InboundMailDetailTO {
         id: mail.id.to_string(),
         from_address: mail.from_address.to_string(),
@@ -102,6 +132,7 @@ fn to_detail_to(mail: &InboundMail, assigned_name: Option<String>) -> InboundMai
         archived: mail.archived,
         assigned_member_id: mail.assigned_member_id.map(|id| id.to_string()),
         assigned_member_name: assigned_name,
+        attachments,
     }
 }
 
@@ -117,6 +148,25 @@ pub trait InboxRestState: Clone + Send + Sync + 'static {
         &self,
         member_id: Uuid,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<String>> + Send + '_>>;
+
+    /// Phase 19 D-08: storage handle used by the attachment download
+    /// endpoint to load attachment bytes. Returned via trait method so
+    /// `genossi_mail` does not depend on the concrete storage impl.
+    /// Named `inbox_document_storage` (not `document_storage`) to avoid
+    /// a method-resolution clash with `RestStateDef::document_storage`
+    /// — both traits are implemented on the same `RestStateImpl` and
+    /// rustc rejects same-named accessors as ambiguous.
+    fn inbox_document_storage(&self) -> Arc<dyn DocumentStorage>;
+
+    /// Phase 19 (T-02): build a `Content-Disposition` header value. These
+    /// two accessors exist so the download-handler in `genossi_mail` can
+    /// build the header WITHOUT importing `genossi_rest` (which would
+    /// create a circular crate dependency — `genossi_rest` already
+    /// depends on `genossi_mail`). `genossi_bin` (the only crate that
+    /// imports both) implements them by delegating to
+    /// `genossi_rest::http_util::content_disposition_*`.
+    fn content_disposition_attachment(&self, filename: &str) -> String;
+    fn content_disposition_inline(&self, filename: &str) -> String;
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -187,11 +237,18 @@ async fn get_inbox<S: InboxRestState>(State(state): State<S>, Path(id): Path<Str
         Ok(m) => m,
         Err(e) => return map_error(e),
     };
+    // Phase 19 D-07: embed attachment metadata in detail responses.
+    let attachments = match svc.list_attachments(uuid).await {
+        Ok(a) => a,
+        Err(e) => return map_error(e),
+    };
+    let attachment_tos: Vec<InboundMailAttachmentTO> =
+        attachments.iter().map(to_attachment_to).collect();
     let name = match mail.assigned_member_id {
         Some(id) => state.resolve_member_name(id).await,
         None => None,
     };
-    Json(to_detail_to(&mail, name)).into_response()
+    Json(to_detail_to(&mail, name, attachment_tos)).into_response()
 }
 
 #[utoipa::path(
@@ -373,6 +430,100 @@ async fn list_folders<S: InboxRestState>(State(state): State<S>) -> Response {
     }
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// Phase 19: Attachment download endpoint
+// ────────────────────────────────────────────────────────────────────────────
+
+/// Query parameter for the attachment download endpoint.
+/// `disposition=inline` switches the `Content-Disposition` to `inline; …`;
+/// anything else (or missing) defaults to `attachment; …` (D-08).
+#[derive(Deserialize)]
+pub struct DispositionQuery {
+    pub disposition: Option<String>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/{mail_id}/attachments/{attachment_id}",
+    tag = "inbox",
+    params(
+        ("mail_id" = String, Path, description = "Inbound mail id"),
+        ("attachment_id" = String, Path, description = "Attachment id"),
+        ("disposition" = Option<String>, Query, description = "inline | attachment (default attachment)"),
+    ),
+    responses(
+        (status = 200, description = "Binary attachment bytes"),
+        (status = 401, description = "Unauthenticated"),
+        (status = 404, description = "Not found (mail/attachment/file)"),
+        (status = 410, description = "Attachment was rejected as oversized at receive"),
+    ),
+)]
+async fn download_attachment<S: InboxRestState>(
+    State(state): State<S>,
+    Path((mail_id, attachment_id)): Path<(String, String)>,
+    Query(q): Query<DispositionQuery>,
+) -> Response {
+    let mail_uuid = match Uuid::parse_str(&mail_id) {
+        Ok(u) => u,
+        Err(_) => return (StatusCode::BAD_REQUEST, "invalid mail_id").into_response(),
+    };
+    let att_uuid = match Uuid::parse_str(&attachment_id) {
+        Ok(u) => u,
+        Err(_) => return (StatusCode::BAD_REQUEST, "invalid attachment_id").into_response(),
+    };
+    // T-03 IDOR mitigation: service.find_attachment delegates to DAO
+    // `find_by_id_and_mail` which requires both keys to match.
+    let att = match state
+        .inbox_service()
+        .find_attachment(mail_uuid, att_uuid)
+        .await
+    {
+        Ok(Some(a)) => a,
+        Ok(None) => return (StatusCode::NOT_FOUND, "attachment not found").into_response(),
+        Err(e) => return map_error(e),
+    };
+    // D-02 + UI-Feedback: oversized rows have no file on disk. 410 GONE is
+    // semantically distinct from 404 (the row exists, the bytes were
+    // rejected at receive).
+    if att.oversized || att.relative_path.is_none() {
+        return (
+            StatusCode::GONE,
+            "attachment was rejected for size at receive",
+        )
+            .into_response();
+    }
+    let rel_path = att
+        .relative_path
+        .as_ref()
+        .expect("relative_path is Some — checked above")
+        .to_string();
+    let bytes = match state.inbox_document_storage().load(&rel_path).await {
+        Ok(b) => b,
+        Err(StorageError::NotFound) => {
+            return (StatusCode::NOT_FOUND, "file not found").into_response()
+        }
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("storage: {}", e),
+            )
+                .into_response()
+        }
+    };
+    // T-02: Content-Disposition filename goes through http_util helpers
+    // (RFC 6266 + CR/LF strip + UTF-8 percent-encoding) via trait accessors.
+    let header = match q.disposition.as_deref() {
+        Some("inline") => state.content_disposition_inline(&att.file_name),
+        _ => state.content_disposition_attachment(&att.file_name),
+    };
+    Response::builder()
+        .status(StatusCode::OK)
+        .header("Content-Type", att.mime_type.as_ref())
+        .header("Content-Disposition", header)
+        .body(Body::from(bytes))
+        .unwrap()
+}
+
 pub fn generate_route<S: InboxRestState>() -> Router<S> {
     Router::new()
         .route("/", get(list_inbox::<S>))
@@ -384,6 +535,13 @@ pub fn generate_route<S: InboxRestState>() -> Router<S> {
         .route("/{id}/archive", post(archive_inbox::<S>))
         .route("/{id}/done", post(done_inbox::<S>))
         .route("/{id}/reply", post(reply_inbox::<S>))
+        // Phase 19: attachment download endpoint (Vorstand-only via the
+        // existing /api/inbox/* auth middleware that already protects
+        // GET /api/inbox/{id} — no new permission code, D-09 + T-04).
+        .route(
+            "/{mail_id}/attachments/{attachment_id}",
+            get(download_attachment::<S>),
+        )
 }
 
 #[derive(OpenApi)]
@@ -398,8 +556,9 @@ pub fn generate_route<S: InboxRestState>() -> Router<S> {
         archive_inbox,
         done_inbox,
         reply_inbox,
+        download_attachment,
     ),
-    components(schemas(InboundMailTO, InboundMailDetailTO, AssignMemberRequest, ReplyRequest, ReplyResponseTO)),
+    components(schemas(InboundMailTO, InboundMailDetailTO, InboundMailAttachmentTO, AssignMemberRequest, ReplyRequest, ReplyResponseTO)),
     tags((name = "inbox", description = "Member inbox (incoming mails)"))
 )]
 pub struct InboxApiDoc;

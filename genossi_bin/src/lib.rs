@@ -1482,6 +1482,27 @@ impl genossi_mail::inbox_rest::InboxRestState for RestStateImpl {
             Some(format!("{} {}", m.first_name, m.last_name))
         })
     }
+    // Phase 19 D-08: expose the existing FilesystemDocumentStorage to the
+    // attachment download handler in `genossi_mail`. Single Arc shared
+    // with member_document/static_document services (same per-process
+    // instance — D-04 path-traversal protection lives in the storage impl).
+    // Named `inbox_document_storage` (not `document_storage`) to avoid
+    // a method-resolution clash with `RestStateDef::document_storage`.
+    fn inbox_document_storage(
+        &self,
+    ) -> Arc<dyn genossi_service::document_storage::DocumentStorage> {
+        self.document_storage.clone()
+    }
+    // Phase 19 (T-02): delegate Content-Disposition header building to the
+    // canonical helpers in `genossi_rest::http_util`. `genossi_mail` can
+    // not import `genossi_rest` directly (would create a circular crate
+    // dep), so we trampoline through the trait.
+    fn content_disposition_attachment(&self, filename: &str) -> String {
+        genossi_rest::http_util::content_disposition_attachment(filename)
+    }
+    fn content_disposition_inline(&self, filename: &str) -> String {
+        genossi_rest::http_util::content_disposition_inline(filename)
+    }
 }
 
 impl genossi_mail::rest_templates::MailTemplateRestState for RestStateImpl {
