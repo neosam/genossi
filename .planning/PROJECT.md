@@ -2,7 +2,7 @@
 
 ## What This Is
 
-Mitgliederverwaltungs-Software für Genossenschaften, produktiv im Einsatz. Ersetzt manuelle Excel-Listen durch eine REST-API mit Dioxus-WASM-Frontend, sodass Vorstände Mitgliederdaten verbandskonform pflegen, Anträge bearbeiten, Dokumente erzeugen und Audit-Spuren hinterlegen können. Mit v1.0 (GV-Anwesenheits-Erfassung, shipped 2026-05-29) ist papierlose Anwesenheits-Erfassung auf der Generalversammlung produktiv erprobt; mit v1.1 (Anteile-Rückzahlungsphase, shipped 2026-06-02) ersetzt Genossi die manuelle Excel-Liste für Auszahlungen — vom RepaymentPhase-Lifecycle über atomare Auszahlungs-Buchung bis zu Massenmail- und Bulk-PDF-Brief-Versand.
+Mitgliederverwaltungs-Software für Genossenschaften, produktiv im Einsatz. Ersetzt manuelle Excel-Listen durch eine REST-API mit Dioxus-WASM-Frontend, sodass Vorstände Mitgliederdaten verbandskonform pflegen, Anträge bearbeiten, Dokumente erzeugen und Audit-Spuren hinterlegen können. Mit v1.0 (GV-Anwesenheits-Erfassung, shipped 2026-05-29) ist papierlose Anwesenheits-Erfassung auf der Generalversammlung produktiv erprobt; mit v1.1 (Anteile-Rückzahlungsphase, shipped 2026-06-02) ersetzt Genossi die manuelle Excel-Liste für Auszahlungen — vom RepaymentPhase-Lifecycle über atomare Auszahlungs-Buchung bis zu Massenmail- und Bulk-PDF-Brief-Versand. Mit v1.2 (Mitgliedschaft-Anpassungen während des Geschäftsjahres, shipped 2026-06-07) deckt Genossi den vollen Mitgliedschafts-Lifecycle ab — Vorstand triggert Kündigung, Teil-Rückgabe, Übertrag und Aufstockung direkt am Mitglied (Single-Button auf Member-Detail), während v1.1's PaidOut-Cascade weiterhin die `current_shares`-Reduktion und `Verkauf`-Action übernimmt (kein Doppelbuchen).
 
 ## Core Value
 
@@ -14,47 +14,16 @@ Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachv
 
 - ✅ **v1.0 GV-Anwesenheits-Erfassung** (2026-05-29) — Helfer-QR-Tokens, Anwesenheits-Erfassung, Teilnehmerlisten-Export PDF/CSV/XLSX
 - ✅ **v1.1 Anteile-Rückzahlungsphase** (2026-06-02) — RepaymentPhase-Lifecycle, atomare Auszahlungs-Buchung, Massenmail mit Auszahlungs-Variablen, PDF-Export für Banking, Bulk-Briefe für Nicht-Email-Mitglieder
+- ✅ **v1.2 Mitgliedschaft-Anpassungen während des Geschäftsjahres** (2026-06-07) — `MembershipAdjustModal` als shared Component (1078 LOC, 4 Sub-Views Kündigung/Teil-Rückgabe/Übertrag/Aufstockung mit Live-Preview-Confirmation), `compute_effective_date` Pure-Function für H1/H2-Stichtag, atomare Single-Tx-Cascades für alle 4 Operationen, 5 neue REST-Endpoints unter `/api/members/{id}/{cancel|increase-shares|partial-repayment|transfer-shares}` + `/api/members/transfer-recipients`. Vorstand-UAT signed-off; Audit-Status `tech_debt` (alle 31 REQs satisfied, dokumentierte Carry-forward-Posten zu CR-02 Permission-Ordering + Phase-18-UX-Polish).
 
-## Current Milestone: v1.2 Mitgliedschaft-Anpassungen während des Geschäftsjahres
+## Next Milestone: v1.3 (not yet defined)
 
-**Goal:** Vorstand kann am Mitglied direkt Kündigung, Teil-Rückgabe, Übertrag oder Aufstockung auslösen. v1.2 erzeugt nur die Intent-Datensätze; die Anteils-Reduktion und `MemberAction::Verkauf` bleibt Aufgabe der v1.1-PaidOut-Cascade (kein Doppelbuchen).
+Start via `/gsd-new-milestone`. Kandidaten-Themen aus v1.2-Tech-Debt-Posten (siehe `milestones/v1.2-MILESTONE-AUDIT.md`):
 
-**Target features (4 Operationen):**
-
-| Operation | v1.2 erzeugt | v1.1 macht später |
-|-----------|--------------|-------------------|
-| **Kündigung** (Voll-Rückgabe) | `MemberAction::Austritt` (existing Variante) mit `effective_date = berechneter H1/H2-Stichtag`, `shares_change = 0`; `Member.exit_date` via `recalc_dates`-Hook; KEINE `MemberAction::Verkauf`, KEIN `RepaymentEntry` direkt, KEINE `current_shares`-Reduktion | Auto-Befüllung beim Phase-Open picked exit_date-Member; PaidOut-Toggle erzeugt `MemberAction::Verkauf` + reduziert `current_shares` |
-| **Teil-Rückgabe** an Genossenschaft | `RepaymentEntry` in Ziel-Phase (H1/H2-GJ) mit `share_count_to_pay_out = n`; KEINE MemberAction, KEINE `current_shares`-Reduktion, `exit_date` bleibt leer | PaidOut-Toggle erzeugt `MemberAction::Verkauf(n)` + reduziert `current_shares` um n |
-| **Übertragen** an aktives Mitglied (Teil/voll) | 2 verlinkte MemberActions (`UebertragungAbgabe`/`UebertragungEmpfang` — existing Varianten, NICHT `Verkauf`); `current_shares`-Anpassung sofort (A: −n, B: +n); bei Voll-Übertrag zusätzlich `MemberAction::Austritt` für A (Konsistenz mit Kündigungs-Pattern → `exit_date` via `recalc_dates`); KEIN RepaymentEntry | nicht involviert (kein Geldfluss aus Genossenschaft) |
-| **Aufstocken** | `MemberAction::Aufstockung` (existing Variante) + `current_shares`-Erhöhung um n sofort | nicht involviert |
-
-**Key Context für v1.2:**
-
-- **Permissions:** Nur Vorstand (admin-only, wie RepaymentPhase/MemberAction in v1.1)
-- **Workflow:** One-Click mit Vorschau-Confirm-Dialog (sofort wirksam nach Bestätigung)
-- **UI:** Single-Button „Mitgliedschaft anpassen" auf Member-Detail (nicht in Liste — Audit-relevanz erzwingt Bewusstsein)
-- **Datum:** Datepicker default `today()`, nur offenes GJ + nächstes GJ erlaubt (für H2-Wirksamkeit); Datum = Willensbekundung des Mitglieds
-- **H1/H2-Regel:** gilt genau dann, wenn die Genossenschaft Geld auszahlen muss (Kündigung + Teil-Rückgabe)
-- **Auto-Anlegen Ziel-Phase:** offene Frage für `/gsd-discuss-phase` — v1.1's `create_repayment_entry` verlangt `Phase.status == Open` (D-11.1), Teil-Rückgabe im H2 mit Wirksamkeit folgendes GJ braucht eine Lösung
-- **Action-Types:** alle benötigten Varianten existieren bereits (`Austritt`, `UebertragungAbgabe`, `UebertragungEmpfang`, `Aufstockung`, `Verkauf`); keine Enum-Erweiterung nötig
-- **Konsistenz-Story:** sowohl Kündigung als auch Voll-Übertrag erzeugen `MemberAction::Austritt` mit `effective_date`; `Member.exit_date` wird durch existing `recalc_dates` automatisch propagiert — kein direkter `exit_date`-Set außerhalb der Audit-Story
-
-**Verbundene Seeds (für v1.2 aufgegriffen):**
-
-- `membership-adjust-during-fiscal-year.md` (Haupt-Seed, planted 2026-06-04)
-- Design-Doc-Referenz: `.planning/notes/membership-adjust-design.md`
-
-**Next:** v1.2 abgeschlossen — alle 5 Phasen geliefert. Bereit für Milestone-Archive (`/gsd-complete-milestone`).
-
-**Phase 18 abgeschlossen (2026-06-07):** Frontend Component-First — `MembershipAdjustModal` als shared Component (1078 LOC, 4 Sub-Views Kündigung/Teil-Rückgabe/Übertrag/Aufstockung mit Live-Preview-Confirmation), `FiscalYearDateInput` mit GJ-Bounds, `ToastVariant{Success,Error}` + `show_success_toast` + `SuccessToastContainer`, `MemberSearch` mit `members_override`-Prop, 8 neue Frontend-DTOs (Cancel/Increase/PartialRepayment/Transfer + Responses), 5 API-Client-Funktionen, 46+ i18n-Keys DE/EN. Integration auf Member-Detail-Page via Admin-only Button (`RequirePrivilege "admin"`), Modal-Mount, zentrale `today`-Variable, beide Toast-Container. 247 Frontend-Tests bestanden, Vorstand-UAT signed-off. 7 Pläne in 3 Wellen, UI-01..04 + CANC-06 satisfied.
-
-**Phase 17 abgeschlossen (2026-06-06):** Service+REST Übertragung — `MembershipAdjustService::transfer_shares(from_id, to_id, shares, transfer_date, context)` als 15-Schritt-Single-Tx-Cascade mit Pre-write-Detection des Voll-Übertrags (D-17-01). Pure-Function `validate_transfer_inputs` mit 7 Edge-Case-Tests (n>0, n≤current_shares, from≠to, Akkumulation). 5 `audited_*!`-Aufrufe (UebertragungAbgabe, UebertragungEmpfang, from-update, to-update, optional Austritt bei Voll-Übertrag) mit gemeinsamem `TRANSFER_PROCESS = "member-adjust.transfer"`. `recalc_dates(from)` läuft exakt einmal nach Voll-Übertrag (D-17-02). REST-Endpoint `POST /api/members/{from_id}/transfer-shares` (Sub-Route VOR `/{id}`-Catch-All), DTOs `TransferSharesRequestTO`/`ResponseTO` mit ISO8601-Datum + Response-Shape `{ actions, from, to }`. 10 Mock-basierte Service-Tests + 8 E2E-Tests (alle 8 REQ-IDs + 2 D-17-06-Race-Patterns) + 2 Race-Tests (same- und cross-direction). 4 Pläne, 12 Commits, TRSF-01..05, TRSF-07, AUDT-02, PERM-03 satisfied. Pre-existing Mail-Preview-Test (test_mail_preview_repayment_no_entries_does_not_default_to_one) als pre-existing failing markiert — keine Phase-17-Regression (auch auf `da1b41c` fail).
-
-**Phase 16 abgeschlossen (2026-06-05):** Service+REST Teil-Rückgabe + Auto-Anlegen-Phase — `MembershipAdjustService::partial_repayment(member_id, shares, willensbekundung_date, context)` erzeugt atomar einen `RepaymentEntry` in der via `compute_effective_date` berechneten Ziel-Phase. Auto-Create-Branch legt die Phase bei Bedarf in Status `Open` mit `share_value` aus Vorgänger oder `DEFAULT_SHARE_VALUE_CENT=10000` an (D-16-01 Variante B). Sum-Check via `find_by_member_and_phase` verhindert Überzahlung; Auto-Fill-Skip-Pattern in `open_repayment_phase` mitigiert Doppelbuchung (PITFALLS-Kat-1). Closed-Phase-Status-Guard (Plan 16-05 Gap-Closure für CR-01) blockt Schreibversuche in geschlossenen Phasen mit HTTP 409 vor jedem audited_create. REST-Endpoint `POST /api/members/{id}/partial-repayment` (Sub-Route vor `/{id}` Catch-All), 11 Service-Unit-Tests + 18 E2E-Tests bestanden, Audit-Chain bleibt valid. 5 Pläne (inkl. 16-05 Gap-Closure), PART-01..06 satisfied.
-
-**Phase 15 abgeschlossen (2026-06-04):** Service+REST Kündigung + Aufstockung — `MembershipAdjustService`-Trait mit `cancel_membership` + `increase_shares`, Pure-Function `validate_willensbekundung_date`, `recalc_dates`-Free-Function-Refactor, atomare Doppel-Write-Tx via `audited_create!` + `audited_update!` mit Prozess-Strings `member-adjust.cancel`/`member-adjust.upgrade`, ADMIN_PRIVILEGE-Funnel, 2 REST-Endpoints (`POST /api/members/{id}/cancel`, `POST /api/members/{id}/increase-shares`), Response-Shape `{ action, member }` (skip Follow-up-GET), 11 E2E-Tests inkl. Audit-Chain-Verify. 4 Pläne, 12 Commits, CANC-01/03/04/05 + UPGD-01/02/03/04 + PERM-01/02 + AUDT-01 satisfied. v1.2-Audit-Pattern für Phase 16+17 etabliert.
-
-**Phase 14 abgeschlossen (2026-06-04):** DAO/Domain Foundation — `compute_effective_date` Pure-Function (H1/H2-Stichtag, 6 Tests), `RepaymentEntryDao::find_by_member_and_phase` (Default-Impl + SQLite-Override, 3 Tests), `MemberService::list_transfer_recipients` (Admin-Gate, 3 Tests), REST-Endpoint `GET /api/members/transfer-recipients` mit `MemberSlimTO` (PII-Guard, 4 Unit + 1 E2E Test). CANC-02 und TRSF-06 erfüllt.
+- Projektweite Cleanup-Phase für **CR-02 (Permission-Check-Ordering)** — `current_user_id()` läuft VOR `check_permission()` in allen 4 v1.2-MembershipAdjustService-Methoden UND in allen 5 v1.1-RepaymentPhaseService-Methoden. Extrahierbar in einen `gen_auth_admin!`-Helper, der die Reihenfolge erzwingt.
+- **Phase-18 UX-Polish** — CR-01 (`date_signal`-leak across Sub-Choice-Wechsel) + CR-02 (`Signal::set` im Render-Pfad refactoren in onclick-Handler). Submit-`is_valid`-Check verhindert Datenfehler heute, aber UX bleibt inkonsistent.
+- **Mail-Subsystem-Triage** — pre-existing failure `test_mail_preview_repayment_no_entries_does_not_default_to_one` (`genossi_bin/tests/e2e_tests.rs:13964`) seit Quick-c19.
+- 16 deferred v1.1-Quick-Tasks reviewen + ggf. closen (siehe STATE.md Deferred Items).
 
 ## Requirements
 
@@ -112,15 +81,19 @@ Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachv
 - ⚠ **UI-06 partial:** Massenmail-Aktion im Tabellen-Header — Code-Pfade grep-verifiziert, Service-Layer-403 unit-getestet, 3 HUMAN-UAT-Items pending Non-Admin-OIDC-Session (siehe Known Gaps)
 - ✓ **(additiv) Bulk-PDF-Anschreiben für Nicht-Email-Mitglieder** — Multi-select auf RepaymentPhase-Detail → `POST /api/repayment-phase/{id}/letters/generate` → pro Member ein auditiertes `MemberDocument` + Bundle-PDF mit `#pagebreak()` als Direct-Download — v1.1 Phase 13 (BRIEF-01)
 
+**v1.2 Mitgliedschaft-Anpassungen während des Geschäftsjahres (shipped 2026-06-07):**
+
+- ✓ Kündigung (Voll-Rückgabe) erzeugt `MemberAction::Austritt` mit H1/H2-Stichtag via `compute_effective_date`-Pure-Function; `Member.exit_date` via `recalc_dates`-Hook; KEIN `Verkauf`/`RepaymentEntry` direkt — v1.2 Phase 14+15 (CANC-01..06)
+- ✓ Teil-Rückgabe erzeugt `RepaymentEntry` in Ziel-Phase (H1/H2-GJ) mit Auto-Anlegen-Phase (Variante B: Status=Open, `DEFAULT_SHARE_VALUE_CENT=10000`-Fallback), Sum-Check, Auto-Fill-Skip-Pattern, Closed-Phase-Status-Guard (HTTP 409) — v1.2 Phase 16 (PART-01..06)
+- ✓ Anteils-Übertragung erzeugt 2 verlinkte MemberActions (`UebertragungAbgabe`/`UebertragungEmpfang`) + aktualisiert `current_shares` atomar in 15-Schritt-Single-Tx-Cascade; Voll-Übertrag triggert zusätzlich `MemberAction::Austritt` mit `transfer_date` als `effective_date`; alle 5 audited_*!-Calls teilen `TRANSFER_PROCESS` — v1.2 Phase 14+17 (TRSF-01..07, AUDT-02, PERM-03)
+- ✓ Aufstockung erzeugt `MemberAction::Aufstockung` + aktualisiert `current_shares` atomar via `audited_create!` + `audited_update!`; Block für gekündigte Mitglieder via HTTP 400 — v1.2 Phase 15 (UPGD-01..04)
+- ✓ Single-Button „Mitgliedschaft anpassen" + 4-Sub-View-Modal + Live-Preview-Confirm-Section auf Member-Detail-Frontend (Vorstand-only via `RequirePrivilege "admin"`); `FiscalYearDateInput` mit GJ-Bounds; `MembershipAdjustModal` als shared Component (1078 LOC); Vorstand-UAT signed-off — v1.2 Phase 18 (UI-01..04)
+
 ### Active
 
-<!-- v1.2 Mitgliedschaft-Anpassungen — wird in `.planning/REQUIREMENTS.md` voll detailliert (REQ-IDs ADJU-*/REPA-*/TRSF-*/UPGD-*/UI-*). -->
+<!-- v1.3 noch nicht definiert. Wird mit `/gsd-new-milestone` initialisiert (questioning → research → requirements → roadmap). -->
 
-- [x] Kündigung (Voll-Rückgabe) erzeugt exit_date mit H1/H2-Stichtagsregel — v1.2 Phase 15 (CANC-01, CANC-03, CANC-04, CANC-05)
-- [ ] Teil-Rückgabe erzeugt RepaymentEntry in Ziel-Phase ohne MemberAction-Vorgriff
-- [x] Anteils-Übertragung erzeugt 2 verlinkte MemberActions (`UebertragungAbgabe`/`UebertragungEmpfang`) + aktualisiert current_shares atomar; Voll-Übertrag triggert zusätzlich `MemberAction::Austritt` — v1.2 Phase 17 (TRSF-01, TRSF-02, TRSF-03, TRSF-04, TRSF-05, TRSF-07, AUDT-02, PERM-03)
-- [x] Aufstockung erzeugt MemberAction (`Aufstockung`-Variante) + aktualisiert current_shares atomar via `audited_update!` — v1.2 Phase 15 (UPGD-01, UPGD-02, UPGD-03, UPGD-04)
-- [ ] Single-Button „Mitgliedschaft anpassen" + Vorschau-Confirm-Dialog auf Member-Detail-Frontend (Vorstand-only)
+(None — nächster Milestone v1.3 noch nicht definiert. Kandidaten siehe „Next Milestone" oben.)
 
 ### Out of Scope
 
@@ -148,16 +121,17 @@ Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachv
 
 ## Context
 
-**Produktiver Stand (Stand 2026-06-02):**
+**Produktiver Stand (Stand 2026-06-07):**
 - Echte Generalversammlung im Mai 2026 mit Genossi durchgeführt (v1.0 produktiv erprobt)
 - v1.1 shipped 2026-06-02 — Anteils-Rückzahlungs-Pipeline live; erste produktive RepaymentPhase noch nicht durchgeführt (kommt in der Q1/Q2-2026-GJ-Abrechnung)
-- Production-Deployment via `deploy-binaries.sh` auf `shifty.nebenan-unverpackt.de`
+- v1.2 shipped 2026-06-07 — Mitgliedschaft-Anpassungen während des Geschäftsjahres (4 Operationen Vorstand-getriggert, Audit-pflichtig, Vorstand-UAT signed-off); produktiver Einsatz steht noch bevor (kommt mit der nächsten realen Mitgliedschafts-Anpassung)
+- Production-Deployment via `deploy-binaries.sh` auf `shifty.nebenan-unverpackt.de`; Release-Tags `v1.0.0`, `v1.0.1`, `v1.1.0`, `v1.2.0`, `v1.2.1` durch `/release-version`-Skript erzeugt
 - Hotfixes aus v1.0-Live-Betrieb: `8e92cfd` (live-counter), `e245013` (button type), `ed754fc` (sort by member_number), `3cdfbb6` (token-codes magic-link), `c6f41fd` (form→div Reload-Bug), `bb1be0b` (✓→ja/nein im PDF)
-- Hotfix-Pattern für v1.1: Dioxus-Button-Reload-Bug (`r#type: "button"` statt form-onsubmit) konsequent in allen RepaymentPhase-Pages befolgt
+- Hotfix-Pattern für v1.1: Dioxus-Button-Reload-Bug (`r#type: "button"` statt form-onsubmit) konsequent in allen RepaymentPhase-Pages befolgt; v1.2 setzt das Pattern fort
 
 **Technische Umgebung:**
 - Rust 2021 Workspace mit getrennten Crates für DAO/Service/REST/Binary plus Dioxus-WASM-Frontend
-- ~150k LOC Rust (workspace, ohne vendored deps) + v1.1 fügte ~10k LOC für RepaymentPhase/Entry/Letter hinzu
+- ~338k LOC Rust (workspace, ohne vendored deps); v1.1 fügte ~10k LOC für RepaymentPhase/Entry/Letter hinzu, v1.2 ~3-4k LOC für MembershipAdjustService + Modal (24 Plans, 127 commits in 4 Tagen)
 - SQLite via SQLx, Migrations in `migrations/sqlite/`, BLOB-UUIDs, ISO8601-Timestamps
 - Axum 0.8 + Utoipa-OpenAPI, Tokio 1.35
 - Auth: axum-oidc gegen Nextcloud, tower-sessions, tower-cookies
@@ -165,6 +139,14 @@ Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachv
 - Mail: lettre (SMTP), async-imap, minijinja-strict mit `{% if X is defined %}`-Pattern
 - PDF: Typst 0.14 + typst-pdf, fresh-install Default-Template-Provisioning
 - Nix-Toolchain via `flake.nix`
+
+**Bekannte Tech-Debt-Posten aus v1.2 (siehe `.planning/milestones/v1.2-MILESTONE-AUDIT.md`):**
+
+- Phase 16+v1.1 projektweit — **CR-02 (Permission-Check-Ordering) BLOCKER carry-forward:** `current_user_id()` läuft VOR `check_permission()` in allen 4 v1.2-MembershipAdjustService-Methoden UND in allen 5 v1.1-RepaymentPhaseService-Methoden. Side-Channel-Risiko + `"SYSTEM"`-Audit-Fallback bei `Ok(None)`. Explicitly out-of-scope für v1.2; extrahierbar in `gen_auth_admin!`-Helper für v1.3.
+- Phase 16 — WR-01..05: Inkonsistente Check-Reihenfolge (Date-Validation NACH Member-Load → SELECT-Spam), PII-Leak in 409-Conflict-Message (`exit_date={:?}`), `unwrap()` auf `Response::builder()`, pre-Read Member ohne re-read post-commit, `REPAYMENT_PHASE_CREATE_PROCESS`-String-Duplikat zu v1.1 (forensisch nicht unterscheidbar)
+- Phase 18 — **CR-01 + CR-02 UX-Critical:** `date_signal` überlebt Sub-Choice-Wechsel im MembershipAdjustModal (User kann altes Datum unbemerkt übertragen; Submit-`is_valid` blockt aber); `Signal::set` im Render-Pfad von `render_sub_choice` (Re-Render-Loop-Risiko + User-Datenverlust beim Zurück-Navigieren). Side-Effects gehören in onclick.
+- Phase 18 — Smell: Wire-Asymmetrie `PartialRepaymentResponseTO.entry/.phase` als `serde_json::Value` im Frontend vs. typisiert im Backend. Wire-kompatibel, Modal verwirft Body.
+- Phase 18 — Warnings: Alle Submit-Buttons `bg-red-600` (visuell destruktiv für Aufstockung); 4 Operations-spezifische Success-Keys + 2 AutoCreate-Hint-Keys unused (generische statt kontextspezifische Toasts); `format_date_input`/`parse_date_input` doppelt in `fiscal_year_date_input.rs` und `member_details.rs`.
 
 **Bekannte Tech-Debt-Posten aus v1.1:**
 
@@ -175,6 +157,7 @@ Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachv
 - Phase 11 — `from_env()` defaults zu relativen Pfaden — unsafe unter parallelen Cargo-Tests (IN-04)
 - Phase 12 — 3 Auth-Gate-UAT-Items pending (Helper-OIDC-Session lokal nicht verfügbar)
 - Phase 13 — Bundle-Template Side-Effect via `#import`; `std::mem::forget(tempdir)` leakt `/tmp`-Dirs in Tests (IN-01)
+- 16 deferred v1.1-Quick-Tasks ohne SUMMARY (Mail/Template/RepaymentLetter-Themen) — siehe STATE.md Deferred Items, beim v1.2-close acknowledged
 
 **Bekannte Tech-Debt-Posten aus v1.0:**
 
@@ -182,7 +165,7 @@ Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachv
 - Phase 02 FK-Constraints ohne `PRAGMA foreign_keys=ON` im Production-Pool — Fix beim Pool-Setup
 - Phase 04 `dx build --release` Tooling-Debt (`wasm-bindgen-cli@0.2.104`) — Production deployt erfolgreich, Release-Build lokal nicht verifizierbar
 
-Details siehe `.planning/milestones/v1.0-MILESTONE-AUDIT.md` und `.planning/milestones/v1.1-MILESTONE-AUDIT.md`.
+Details siehe `.planning/milestones/v1.0-MILESTONE-AUDIT.md`, `v1.1-MILESTONE-AUDIT.md` und `v1.2-MILESTONE-AUDIT.md`.
 
 **Bestehende Muster (für nächste Milestones aufgreifbar):**
 - Entity-Struktur: `id` (UUID/BLOB), `created`, `deleted` (Option), `version` (UUID, optimistic locking)
@@ -236,6 +219,17 @@ Details siehe `.planning/milestones/v1.0-MILESTONE-AUDIT.md` und `.planning/mile
 | Pdf-only Export (kein CSV/XLSX) | Buchhaltung kann Online-Banking-Vorlage direkt aus PDF kopieren; CSV-Export für Buchhaltung in v2 verschoben | ✓ Good (v1.1) — Phase 11 D-12 |
 | Bulk-Brief-Service deduplicated Aggregation via `RepaymentContextResolver::aggregate` | Eliminiert N+1-DB-Read; Phase-10-Worker behält Inline-Aggregation per D-13-10 (nicht refactored, todo `phase-10-worker-refactor-resolver.md` low-prio) | ✓ Good (v1.1) — Phase 13 D-13-04 |
 | Direct-Download Bundle-PDF + persisted MemberDocuments parallel | Vorstand bekommt sofort druckbares Bundle, Audit-Trail behält pro-Member-Dokumente; Selection-Preservation (D-13-09) erlaubt direkt "Als angeschrieben markieren" anschließend | ✓ Good (v1.1) — Phase 13 |
+| `compute_effective_date` als Pure-Function in `membership_adjust.rs` statt im DateTime-Service | Testbar ohne Clock-Mocking, 2-Branch-Berechnung benötigt kein Trait-Boilerplate | ✓ Good (v1.2) — Phase 14, 6 edge-case tests grün, Phase 15+16 wiederverwenden |
+| `MembershipAdjustService` als single trait mit 4 Methoden statt 4 separate Services | Eine Dependency-Liste, gemeinsamer Audit-Pattern, gemeinsame ADMIN_PRIVILEGE-Funnel | ✓ Good (v1.2) — Phase 15→16→17 incremental extension, kein DI-Explosion |
+| `recalc_dates` zu `pub(crate)` Free-Function refactor | Cross-Service-Reuse (cancel + transfer_shares Voll-Übertrag) ohne Trait-Bound-Hell | ✓ Good (v1.2) — Phase 15 |
+| v1.2 erzeugt NUR Intent-Datensätze; v1.1 PaidOut-Cascade bleibt Single-Source-of-Truth für `current_shares`-Reduktion + `MemberAction::Verkauf` | Verhindert Doppelbuchung; klare Verantwortlichkeits-Trennung zwischen "Intent" und "Geldfluss" | ✓ Good (v1.2) — Auto-Fill-Skip-Pattern fängt Edge-Case (v1.2-Entry vor /open) |
+| Auto-Anlegen-Phase Variante B (Status=Open, share_value aus Vorgänger oder DEFAULT=10000) | A=Preparation hätte zusätzlichen /open-Schritt verlangt; B liefert direkt nutzbare Phase | ✓ Good (v1.2) — Phase 16, funktional korrekt aber forensisch nicht von v1.1-Phase-Create unterscheidbar (WR-05) |
+| Closed-Phase-Status-Guard via Plan 16-05 Gap-Closure | CR-01 in 16-REVIEW fand fehlenden Guard; HTTP 409 vor jedem audited_create | ✓ Good (v1.2) — Re-Verifikation flipped von gaps_found auf passed |
+| `transfer_shares` als 15-Schritt-Single-Tx-Cascade in einer Service-Methode mit shared `tx.clone()` | Atomarität, gemeinsamer Process-String für 5 audited_*!-Calls, Audit-Pair-Verlinkung verifizierbar | ✓ Good (v1.2) — Phase 17, Race-Tests grün, AUDT-02 satisfied |
+| Voll-Übertrag-Detection pre-write statt via recalc_dates-Trigger | Klare Sequenz: detect → audited_create Austritt → audited_update → recalc_dates exakt einmal nach Cascade (D-17-02) | ✓ Good (v1.2) — Phase 17 |
+| `MembershipAdjustModal` als single-file 1078-LOC-Component mit ModalStep-Enum statt 4 separate Modals | Sub-Choice-UX braucht gemeinsame State-Machine; 4 separate Modals wären Code-Duplikat | ⚠ Revisit (v1.2) — Vorstand-UAT bestätigt UX, aber 2 CR-Findings (date_signal-leak, Signal::set in Render) sind UX-Polish |
+| `MemberSlimTO` mit 6-Feld-PII-Guard für `/transfer-recipients` statt MemberTO-Re-Use | DSGVO: Vorstand-Such-Endpoint exposed nur identifizierende Felder, keine IBAN/Email/Adresse | ✓ Good (v1.2) — Phase 14, Pattern aus v1.0 `feedback_component_first.md` fortgesetzt |
+| Sub-Route-Ordering Pitfall: alle 5 v1.2-Sub-Routes BEFORE `/{id}` catch-all | Axum match by declaration order; ohne Ordering würde `/transfer-recipients` als UUID geparst → 400 | ✓ Good (v1.2) — Phase 14, explizite E2E-Asserts |
 
 ## Evolution
 
@@ -311,4 +305,4 @@ bestehende admin-only Listing-Route `GET /api/assembly/{id}/helper-tokens`).
 
 ---
 
-*Last updated: 2026-06-07 — Phase 18 (Frontend Component-First) abgeschlossen: MembershipAdjustModal als shared Component mit 4 Sub-Views, FiscalYearDateInput, Toast-Success-Variant, MemberSearch-Override-Prop, 247 Frontend-Tests, Vorstand-UAT signed-off. Milestone v1.2 komplett (5 Phasen, 23 Pläne).*
+*Last updated: 2026-06-07 after v1.2 milestone — Mitgliedschaft-Anpassungen während des Geschäftsjahres shipped. 5 Phasen, 24 Pläne, 127 commits in 4 Tagen. Audit-Status `tech_debt` (31/31 REQs satisfied, dokumentierte Carry-forward-Posten: CR-02 Permission-Ordering projektweit, Phase-18 CR-01/CR-02 UX-Polish, Wire-Asymmetrie PartialRepaymentResponseTO). Vorstand-UAT signed-off durch Browser-Walk-Through aller 6 Szenarien. Next: v1.3 noch nicht definiert — Start via `/gsd-new-milestone`.*

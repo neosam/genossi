@@ -116,6 +116,82 @@ Vollständige Anteile-Rückzahlungs-Pipeline als Excel-Ersatz: RepaymentPhase-Ag
 
 ---
 
+## Milestone: v1.2 — Mitgliedschaft-Anpassungen während des Geschäftsjahres
+
+**Shipped:** 2026-06-07
+**Phases:** 5 | **Plans:** 24 | **Timeline:** 2026-06-04 → 2026-06-07 (4 Tage, 127 commits)
+**Audit-Status:** `tech_debt` (31/31 REQs satisfied, kein BLOCKER für Phase-Goal)
+
+### What Was Built
+
+- **DAO/Domain Foundation (Phase 14):** `compute_effective_date` Pure-Function für H1/H2-Stichtag-Berechnung (6 Edge-Case-Tests), `RepaymentEntryDao::find_by_member_and_phase` als Foundation für Phase-16-Sum-Check + Auto-Fill-Skip-Pattern, `MemberSlimTO` mit 6-Feld-PII-Guard und sub-route-ordered `/api/members/transfer-recipients`-Endpoint
+- **Cancel + Increase (Phase 15):** `MembershipAdjustService`-Trait + Service-Impl mit ADMIN_PRIVILEGE-Funnel, `cancel_membership` (audited_create Austritt + recalc_dates), `increase_shares` (audited_create Aufstockung + audited_update Member.current_shares atomar); 9 aktive E2E + 2 #[ignore] (mock_auth always-admin); v1.2-Audit-Pattern für Phase 16+17 etabliert
+- **Partial Repayment + Auto-Anlegen-Phase (Phase 16):** `partial_repayment` mit 14-Schritt-Pipeline inkl. Closed-Phase-Status-Guard (HTTP 409 vor jedem audited_create), Sum-Check via `find_by_member_and_phase`, Auto-Create-Branch (Variante B: Status=Open, `DEFAULT_SHARE_VALUE_CENT=10000`-Fallback). Plan 16-05 als Gap-Closure für CR-01 nachträglich; 18 E2E-Tests + 11 Service-Unit-Tests; Auto-Fill-Skip-Pattern in `open_repayment_phase`
+- **Transfer Atomic Cascade (Phase 17):** `transfer_shares` als 15-Schritt-Single-Tx mit Pre-Write-Detection des Voll-Übertrags; 5 audited_*!-Calls teilen `TRANSFER_PROCESS="member-adjust.transfer"`; Voll-Übertrag-Branch erzeugt zusätzlich `MemberAction::Austritt` mit `effective_date=transfer_date`; 8 E2E + 7 Pure-Function-Tests + 10 Mock-Service-Tests + 2 Race-Pattern (Same-Direction + Cross-Direction)
+- **Frontend MembershipAdjustModal (Phase 18):** Single-file Dioxus modal (1078 LOC) mit `ModalStep`-Enum + 4 Sub-Views Cancel/PartialRepayment/Transfer/Upgrade; Live-Preview-Section pro Sub-View; `FiscalYearDateInput` mit GJ-Bounds; `ToastVariant{Success,Error}` + `show_success_toast` + `SuccessToastContainer` (additive Erweiterung, Zero Blast Radius); `MemberSearch.members_override`-Prop für Transfer-Empfänger-Decoupling; 8 neue DTOs + 5 API-Funcs + 46+ i18n-Keys DE/EN; Vorstand-UAT-Sign-Off durch Browser-Walk-Through aller 6 Szenarien am 2026-06-07
+- **Audit-Integrität:** Audit-Hashchain bleibt valid über alle 4 v1.2-Operationen; AUDT-02 (TRANSFER_PROCESS shared by all 5 audited_*!-writes) explizit E2E-asserted via `assert_transfer_audit_trail`-Helper + `/api/audit/verify`
+
+### What Worked
+
+- **Cross-Phase-Foundation-Reuse:** Phase 14 (compute_effective_date + DAO-Methode) als pure Foundation hat sich bezahlt — Phasen 15+16 konnten parallel ohne Friction implementieren, kein „warte auf Foundation"-Block
+- **Service-Trait incremental extension Phase 15→16→17:** Eine `MembershipAdjustService`-Trait mit 4 Methoden statt 4 separate Services — eine Dependency-Liste, gemeinsamer Audit-Pattern, kein DI-Explosion. `gen_service_impl!`-Macro skaliert sauber
+- **`recalc_dates` Free-Function-Refactor:** Cross-Service-Reuse (cancel + transfer_shares Voll-Übertrag) ohne Trait-Bound-Hell; `pub(crate) async fn recalc_dates<Md, Mad, Tx>` als idiomatisches Rust-Pattern
+- **Closed-Phase-Status-Guard Re-Verification-Pattern (Plan 16-05):** Gap-Closure als eigener Plan mit 3 Commits (Service-Guard + Unit-Test + E2E-Test); Re-Verification flipped Status von `gaps_found` auf `passed`. Beweis: GSD-Workflow tolleriert nachträgliche Gap-Closure ohne Phase-Re-Open
+- **Pre-Write-Detection für Voll-Übertrag (D-17-01):** Statt via recalc_dates-Trigger zu detecten, wird die Voll-Übertrag-Logik vor dem audited_create durchgeführt — klare Sequenz, `recalc_dates(from)` läuft genau einmal nach der Cascade
+- **Single-File-Modal mit ModalStep-Enum:** `MembershipAdjustModal` als 1078-LOC-Component mit State-Machine statt 4 separate Modals — Sub-Choice-UX braucht gemeinsame State, separates wäre Code-Duplikat
+- **Frontend Wave-Parallelisierung:** Phase 18 in 3 Wellen — Wave 1 mit 5 parallelen Foundation-Plans (DTOs, Toast-Extension, FiscalYearDateInput, MemberSearch-Override, API-Funcs), Wave 2 Modal-Composition, Wave 3 Page-Integration. Backend-First-Logik analog
+- **Component-First konsequent:** Memory `feedback_component_first.md` hat sich bezahlt — keine inline-RSX, keine Phase-18-Page-spezifischen Komponenten; alle wiederverwendbaren Bausteine in `genossi-frontend/src/component/`
+- **Vorstand-UAT-Sign-Off als Mensch-Verifikations-Anchor:** `18-MANUAL-UAT.md` mit 6 Szenarien als persistentes Artefakt — Browser-WASM-Verhalten programmatisch nicht prüfbar, Manual-UAT füllt diese Lücke
+
+### What Was Inefficient
+
+- **REQUIREMENTS.md-Checkbox-Drift wiederholt:** 7/31 REQs in der Live-Datei waren `[ ]` und Traceability="Pending", obwohl die Phase-VERIFICATION sie als SATISFIED markierte. Gleicher Drift wie in v1.0 (13/22 unchecked) und v1.1 — der `gsd-execute-phase`-Schritt synchronisiert die Checkboxes nicht zurück. **Recurring lesson** seit v1.0; sollte endlich automatisiert werden (Hook beim Summary-Write).
+- **CR-02 Permission-Check-Ordering als blinder Fleck:** Wurde in v1.1 nicht entdeckt (bestehender Pattern in `repayment_phase.rs`), Phase 15+16 hat das Pattern für v1.2 1:1 kopiert. Erst beim Plan-16-04 Code-Review aufgefallen, dann explicitly out-of-scope geparkt. Lehre: Code-Review sollte projektweit identische Anti-Patterns als „pre-existing carry-forward" erkennen, nicht nur in der aktuell betrachteten Phase
+- **ROADMAP.md-Hygiene drift:** Phase 16 listete „5/5 plans complete" aber nur 16-01..04 in der Plans-Liste — Plan 16-05 (Gap-Closure) wurde im Service committet, aber die Roadmap-Übersicht nicht aktualisiert. Plus Top-Tabelle mit verrutschten Spalten. Beim Archive aufgefangen, aber zeigt: Roadmap-Updates per Plan-Completion sollten automatisiert sein
+- **STATE.md-Zähler kaputt:** `completed_phases: 6 / total_phases: 5 / percent: 120` — entstand vermutlich durch `gsd-execute-phase`, der bei Gap-Closure-Plans (Plan 16-05) den completed_phases-Counter weiter bumpt statt unter total_phases zu bleiben. Vom Workflow im update_state-Step überschrieben
+- **Phase 18 CR-01 + CR-02 als UX-Critical aber non-blocking Findings:** Zwei substanzielle UX-Findings (date_signal-leak, Signal::set in Render-Pfad) wurden im Code-Review als „critical" markiert, aber als nicht-blockierend eingestuft weil Submit-`is_valid` die Konsequenz blockt. Vorstand-UAT lief trotzdem grün durch. Frage: Hätten wir vor Plan-18-07 ein Refactor einschieben sollen oder ist „UX-Polish als v1.3-Cleanup" akzeptabel? Pro v1.3-Cleanup: kein Bug, kein Datenverlust. Contra: erkannte Findings sollten gefixt werden, sonst Tech-Debt-Akkumulation
+- **Wire-Asymmetrie `serde_json::Value` im Frontend:** Bewusst-doku'd-Entscheidung („Zero-Coupling") wurde nicht in Frage gestellt. Tatsächlich verwirft das Modal den Response-Body sowieso (`Ok(_resp) => …`), also kein Runtime-Defekt. Aber zukünftiges `entry.id`-Read braucht Value::get()-Workarounds — späte Coupling-Schuld
+- **`REPAYMENT_PHASE_CREATE_PROCESS`-String-Duplikat zu v1.1:** WR-05 dokumentiert, dass v1.2-Auto-Create-Phase und v1.1-Phase-Create den gleichen Audit-Process-String nutzen — forensische Queries können sie nicht unterscheiden. War keine bewusste Entscheidung, sondern Copy-Paste aus v1.1. Lehre: Audit-Process-Strings sollten in REVIEW als Cross-Cutting-Concern explizit überprüft werden
+
+### Patterns Established
+
+- **Pure-Function vor DAO-Trait für Berechnungs-Logik:** `compute_effective_date` als pure function in `membership_adjust.rs` statt in DateTime-Service — testbar ohne Clock-Mocking, 2-Branch-Berechnung benötigt kein Trait-Boilerplate. Pattern: wenn die Berechnung deterministisch ist und keine I/O macht, ist ein pub(crate) fn schlanker als ein Trait
+- **Service-Trait incremental extension Pattern:** Eine Trait mit N Methoden, die incremental über N Phasen extended wird — D-15-13 explizit angewendet (Phase 15: trait+2 Methoden, Phase 16: +1 Methode, Phase 17: +1 Methode). Pro: Eine Dependency-Liste, gemeinsamer Audit-Pattern. Contra: Trait wächst, irgendwann splitten
+- **15-Schritt-Single-Tx-Cascade als Service-Methode:** `transfer_shares` als deklarative 15-Schritt-Sequenz mit shared `tx.clone()` — Pattern bewährt sich für komplexe atomic operations. Cf. v1.1 Phase-9 `mark_paid_out` 12-Schritt-Cascade
+- **Pre-Write-Detection-Pattern (D-17-01):** Statt Voll-Übertrag via recalc_dates-Trigger zu detecten, vor dem audited_create durchführen → klarere Sequenz, recalc_dates läuft exakt einmal nach der Cascade
+- **Closed-Phase-Status-Guard vor audited_create (PITFALLS-Kat-Lifecycle):** Wenn Service auf existierende Entity reagiert (Phase im fiscal_year), MUSS Status-Guard VOR jedem audited_create stehen — kein Orphan-Audit-Eintrag durch rejected Request. Pattern: Status-Check zwischen Phase-Lookup und Match-Branch
+- **Pre-Write-Voll-Detection + recalc_dates(once) Pattern für Aggregat-Cascades:** Generisches Pattern für Operations, die optional zusätzliche Action triggern (Voll-Übertrag erzeugt Austritt zusätzlich zur Übertragung): erst die Konsequenz detecten, dann alle audited_*! in passende Reihenfolge sequenzieren, danach recalc_dates exakt einmal
+- **Sub-Route-Ordering Pitfall mitigierende Inline-Doc-Comments:** `member.rs` Sub-Route-Block hat explizite Doc-Comments „Sub-routes BEFORE `/{id}` catch-all" als Defense gegen zukünftige Drift — Pattern aus Phase 14
+- **`MemberSlimTO` mit 6-Feld-PII-Guard:** DSGVO-Pattern aus v1.0 `AttendanceMemberTO` fortgesetzt — neue identifizierende DTOs werden mit minimaler Feld-Anzahl + explizitem Doc-Comment-Verbot der From<&MemberTO>-Konversion definiert
+- **Race-Pattern E2E-Tests mit NIE-`[200, 200]`-Klausel:** Cross-Direction-Race + Same-Direction-Race jeweils mit `tokio::join!` + 1ms-Sleep + Konsistenz-Assertions; akzeptiert sortiert `[200, 409|500]`, NIE `[200, 200]`. Pattern aus v1.1 Phase-9-PaidOut-Race fortgesetzt
+- **Modal-Wave-Parallelisierung im Frontend:** Wave 1 (5 parallele Foundation-Plans für DTOs, Components, API-Funcs) → Wave 2 (1 Modal-Composition-Plan, der alles aus Wave 1 wired) → Wave 3 (1 Page-Integration-Plan). Pro: maximale Parallelität. Contra: Wave 2 muss wirklich alle Wave-1-Outputs konsumieren — keine späteren API-Funcs
+- **Manual-UAT als persistentes Artefakt:** `18-MANUAL-UAT.md` mit 6 Szenarien + Sign-Off-Frontmatter als Brücke zwischen automatisierten Tests und Vorstand-Browser-Verifikation; Pattern für Frontend-Phasen, wo WASM-Verhalten programmatisch nicht prüfbar ist
+
+### Key Lessons
+
+1. **REQUIREMENTS.md-Checkbox-Drift ist jetzt 3× verifiziert (v1.0, v1.1, v1.2).** Trotz expliziter Lesson nach v1.0 ist v1.2 wieder mit 7/31 Drift-Items geschlossen worden. Mensch-im-Loop-Reminder reicht nicht — der `gsd-execute-phase` braucht einen Sync-Hook beim Summary-Write, der REQ-IDs aus dem `requirements-completed`-Frontmatter automatisch in der REQUIREMENTS.md-Traceability-Table als Complete + Checkbox `[x]` markiert. Empfehlung: in v1.3-Cleanup-Phase implementieren.
+
+2. **Pre-existing Anti-Patterns vererben sich projektweit ohne Code-Review-Cross-Cutting-Check.** CR-02 (Permission-Check-Ordering) existierte schon in v1.1's `repayment_phase.rs`, v1.2 hat es 1:1 in 4 neue Methoden kopiert. Code-Review-Agent sollte beim Audit nicht nur die diff-Files prüfen, sondern bekannte Anti-Patterns projektweit suchen und als „pre-existing carry-forward" flaggen. Cleanup-Phase für v1.3 sollte projektweit refactoren (extrahierbar in `gen_auth_admin!`-Helper).
+
+3. **„UX-Polish als Tech-Debt akzeptieren" ist ein Akt der Reife, kein Versagen.** Phase 18 CR-01 + CR-02 wurden bewusst nicht gefixt (Submit-`is_valid` blockt Datenfehler, kein Korrektheits-Bug), und der Vorstand-UAT lief trotzdem grün. Lehre: nicht jedes Code-Review-Finding muss vor Milestone-Close gefixt werden — wenn die Konsequenz durch andere Verteidigungslinien (hier: Frontend-Validation) abgefangen ist, ist „in nächste Phase carry-forward" eine legitime Workflow-Option. Aber: tatsächlich tracken, nicht vergessen.
+
+4. **Pure-Function-Foundation als eigene Phase rentiert sich.** Phase 14 (`compute_effective_date` + DAO-Methode + REST-Endpoint) war 4 Plans, aber Phasen 15+16 konnten danach parallel ohne Friction laufen. Hätten wir die Pure-Function in Phase 15 eingebaut, wäre Phase 16 von Phase 15 blockiert gewesen. Backend-First gilt nicht nur zwischen Backend/Frontend, sondern auch innerhalb des Backends: Domain-Logik vor Service-Use.
+
+5. **Audit-Process-Strings als Cross-Cutting-Concern explicit prüfen.** WR-05 (`REPAYMENT_PHASE_CREATE_PROCESS`-Duplikat zu v1.1) ist kein funktionaler Bug, aber forensische Queries leiden. Code-Review sollte für jeden neuen `audited_*!`-Call den Process-String aktiv prüfen: ist er unique? Falls nicht, ist das absichtlich? Constants statt String-Literals helfen, aber das alleine reicht nicht — Cross-Crate-Audit muss explizit sein.
+
+6. **Re-Verification nach Gap-Closure ist ein etabliertes Pattern (jetzt 2× angewendet).** Plan 16-05 als nachträglicher Plan im laufenden Milestone, der CR-01 aus dem 16-REVIEW schließt — VERIFICATION flipped von `gaps_found` auf `passed`. Beweis: GSD-Workflow toleriert nachträgliche Gap-Closure ohne Phase-Re-Open. Wichtig: das Re-Verification-Frontmatter (`previous_status`, `gaps_closed`, `new_truths_added`) als first-class-Datenstruktur halten — das ist der Forensik-Anker.
+
+7. **127 Commits in 4 Tagen ist eine andere Velocity-Klasse als v1.1's 651 in 62 Tagen.** Pattern-Replikation + bereits etablierte Audit-/Service-/Frontend-Patterns aus v1.1 haben die Phase-Setup-Zeit dramatisch reduziert. Cross-Milestone-Lesson: je mehr stabile Patterns existieren, desto schneller können Folge-Milestones liefern. Aber: Tech-Debt-Akkumulation passiert auch schneller (CR-02 in 4 Tagen 4× kopiert).
+
+### Cost Observations
+
+- **Model mix:** ~ähnliche Verteilung wie v1.1 (überwiegend Opus für Discuss/Plan/Verify, Sonnet für Execute) — Annahme, exakte Telemetrie nicht erfasst
+- **Sessions:** Aus der Commit-Verteilung über 4 Tage geschätzt ~8-12 Sessions (Phase-Boundaries als natürliche Session-Splits)
+- **Notable:** Phase 18 als komplexester Frontend-Block mit 7 Plans wurde in einem Tag durch-implementiert (Wave-Parallelisierung), aber Vorstand-UAT-Sign-Off als separater Mensch-Loop am Ende des Tages. Wave-Pattern erlaubt höhere Velocity ohne Quality-Loss
+- **Re-Run-Pattern:** Plan 16-05 als nachträglicher Gap-Closure-Plan war 3 Commits + 1 Stunden-Slot — kostengünstig im Vergleich zu Phase-Re-Open. Empfohlene Default-Strategie für post-VERIFICATION-Gap-Findings
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -124,6 +200,7 @@ Vollständige Anteile-Rückzahlungs-Pipeline als Excel-Ersatz: RepaymentPhase-Ag
 |-----------|--------|-------|---------------|------------|
 | v1.0 | 5 + 1 SKIPPED | 34 | Phase 5 (Pre-Generalprobe → echte GV) | Erstmaliger Einsatz von GSD im Projekt; Phase 5 SKIP statt formellen Operations-Plan |
 | v1.1 | 7 | 56 | Phase 13 ADDED (Brief-Bulk additiv nach Phase 12) | Pattern-Replikation als dominantes Velocity-Pattern; additive Folge-Phase als legitime Workflow-Option |
+| v1.2 | 5 | 24 | Plan 16-05 ADDED (Closed-Phase-Status-Guard Gap-Closure) | Re-Verification-Pattern (gaps_found → passed via nachträglichen Plan); Wave-Parallelisierung im Frontend (Phase 18 in 3 Wellen) |
 
 ### Cumulative Quality
 
@@ -131,14 +208,28 @@ Vollständige Anteile-Rückzahlungs-Pipeline als Excel-Ersatz: RepaymentPhase-Ag
 |-----------|------------------|-----------|---------|
 | v1.0 | ~927 (Backend 819 + Frontend 108) | 239 (E2E) | Race-Test deterministisch über 5 Runs grün; PII-Guard via Whitelist+Blacklist-E2E-Test |
 | v1.1 | ~600 Workspace-Lib | 292 (E2E, +53 ggü. v1.0-Close) | Audit-Hashchain bleibt valid über alle Phase-9-Cascades; Atomic-Tx + Re-Read-Defense in jeder Lifecycle-Methode |
+| v1.2 | ~67 neue Tests (Workspace+E2E) | + ~28 E2E (membership_adjust_e2e + transfer_recipients_e2e) | Audit-Hashchain bleibt valid über 4 neue Operations; Race-Tests (Same+Cross-Direction) deterministisch; Cross-Phase-Integration 6/6 OK; E2E-Flows 4/4 working |
+
+### Velocity (Timeline)
+
+| Milestone | Days | Commits | Commits/Day |
+|-----------|------|---------|-------------|
+| v1.0 | ~15 | (nicht erfasst) | — |
+| v1.1 | 62 | 651 | ~10.5 |
+| v1.2 | 4 | 127 | ~32 |
+
+v1.2-Velocity-Sprung erklärt sich durch: (1) etablierte Audit-/Service-/Frontend-Patterns aus v1.0+v1.1 als Foundation, (2) Pattern-Replikation statt Erfindung (Service-Trait-Pattern, Audit-Macros, Component-First-Patterns existierten alle), (3) Wave-Parallelisierung im Frontend, (4) klar geschnittenes Goal mit nur 4 Operations.
 
 ### Top Lessons (Verified Across Milestones)
 
 1. **(v1.0)** Produktive Verifikation schlägt formelle Generalprobe, wenn das Feature ohnehin live einsetzbar ist. SKIPPED-Phasen sind eine legitime Workflow-Option, wenn ihre Voraussetzung durch die Realität bereits erfüllt ist.
 2. **(v1.1)** Pattern-Replikation gegenüber Pattern-Erfindung: wo ein etabliertes Aggregat-Pattern existiert, ist systematisches 1:1-Mirror schneller als Re-Design. Domain-Substitutionen sind reine Mapping-Arbeit.
-3. **(v1.0+v1.1)** Audit-Hashchain als E2E-Korrektheits-Beweis funktioniert über atomare Cascades hinweg. Multi-Endpoint-Field-Assertion ist Pflicht-Pattern für Cross-Entity-Operationen.
-4. **(v1.1)** Additive Folge-Phasen nach Milestone-Goal (z.B. Phase 13 Brief-Bulk) sind legitim, wenn sie auf konkreten Live-Bedarf reagieren und klar geschnittenes Goal haben. Nicht jeder Bug ist eine Quick-Task, nicht jede Erweiterung muss in den nächsten Milestone warten.
+3. **(v1.0+v1.1+v1.2)** Audit-Hashchain als E2E-Korrektheits-Beweis funktioniert über atomare Cascades hinweg. Multi-Endpoint-Field-Assertion ist Pflicht-Pattern für Cross-Entity-Operationen. v1.2 erweitert: shared `*_PROCESS`-String für verlinkte Action-Pairs (TRANSFER_PROCESS für UebertragungAbgabe + Empfang) macht das Audit-Aggregat forensisch nachvollziehbar.
+4. **(v1.1+v1.2)** Additive Phasen nach VERIFICATION sind legitim, wenn sie auf konkretes Gap-Finding reagieren und klar geschnittenes Goal haben. v1.1: Phase 13 Brief-Bulk (Live-Bedarf). v1.2: Plan 16-05 Closed-Phase-Guard (Code-Review-Finding). Re-Verification-Pattern flipped Status von `gaps_found` auf `passed`.
+5. **(v1.0+v1.1+v1.2) RECURRING:** REQUIREMENTS.md-Checkbox-Drift bei Milestone-Close ist 3× verifiziert. Trotz expliziter Lesson nach v1.0 ist v1.2 wieder mit 7/31 Drift-Items geschlossen worden. Mensch-im-Loop-Reminder reicht nicht — der `gsd-execute-phase` braucht einen Sync-Hook beim Summary-Write. Empfehlung: in v1.3-Cleanup implementieren.
+6. **(v1.2)** Pre-existing Anti-Patterns vererben sich projektweit ohne Cross-Cutting-Code-Review-Check. CR-02 (Permission-Check-Ordering) existierte schon in v1.1, v1.2 hat es 1:1 in 4 neue Methoden kopiert. Code-Review sollte beim Audit projektweit nach bekannten Anti-Patterns suchen, nicht nur in der aktuell betrachteten Phase.
+7. **(v1.2)** „UX-Polish als Tech-Debt akzeptieren" ist legitim, wenn die Konsequenz durch andere Verteidigungslinien abgefangen ist. Phase 18 CR-01/CR-02 (date_signal-leak, Signal::set in Render) wurden bewusst nicht gefixt, weil Submit-`is_valid` Datenfehler blockt. Wichtig: tatsächlich tracken, nicht vergessen.
 
 ---
 
-*Last updated: 2026-05-29 after v1.0 milestone close*
+*Last updated: 2026-06-07 after v1.2 milestone close*

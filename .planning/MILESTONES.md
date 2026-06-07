@@ -1,5 +1,60 @@
 # Milestones
 
+## v1.2 Mitgliedschaft-Anpassungen während des Geschäftsjahres (Shipped: 2026-06-07)
+
+**Phases completed:** 5 phases (14-18), 24 plans
+**Timeline:** 2026-06-04 → 2026-06-07 (4 Tage, 127 commits)
+**Requirements:** 31/31 v1.2 satisfied (alle erfüllt — 7 Doku-Drift-Items in REQUIREMENTS.md beim Archivieren korrigiert)
+**Tests:** ~67 neue Tests (Phase 14: 17, 15: 19, 16: ~25, 17: ~25, 18: ~21 inkl. 9 DTO-Roundtrip + 12 Modal-Pure-Helper); Audit-Hashchain bleibt valid
+**Audit-Status:** `tech_debt` (siehe `milestones/v1.2-MILESTONE-AUDIT.md`)
+**Release-Tag:** v1.2.0 (vorab durch `/release-version` erzeugt; kein Milestone-Re-Tag)
+
+**Delivered:** Vorstand kann ab v1.2 die vier Operationen Kündigung, Teil-Rückgabe, Übertragung und Aufstockung direkt am Mitglied auslösen — Single-Button „Mitgliedschaft anpassen" auf der Member-Detail-Page (admin-only) mit `MembershipAdjustModal` als shared Component, 4 Sub-Views, Live-Preview-Confirmation, FiscalYearDateInput mit GJ-Bounds, und vollständigem Audit-Trail via gemeinsamem Process-String pro Operation. v1.2 erzeugt nur Intent-Datensätze (`MemberAction::Austritt/Aufstockung/UebertragungAbgabe/Empfang` + `RepaymentEntry`) — v1.1's PaidOut-Cascade bleibt Single-Source-of-Truth für `MemberAction::Verkauf`-Erzeugung und `current_shares`-Reduktion. Vorstand-UAT-Sign-Off durch Browser-Walk-Through aller 6 Szenarien am 2026-06-07.
+
+### Key Accomplishments (per Phase)
+
+**Phase 14 — DAO/Domain Foundation:** Pure-Function `compute_effective_date` (H1/H2-Stichtag-Berechnung mit 6 Edge-Case-Tests), `RepaymentEntryDao::find_by_member_and_phase` (Trait-Default-Impl + SQLite-SQL-Override) als Foundation für Phase-16-Sum-Check und Auto-Fill-Skip-Pattern, `MemberService::list_transfer_recipients` (admin-gated, exit_date+self-Filter) + REST-Endpoint `GET /api/members/transfer-recipients` mit 6-Feld-PII-guarded `MemberSlimTO` (DSGVO-Whitelist gegen IBAN/Email/Adresse-Leak, Sub-Route VOR `/{id}` catch-all gegen Axum-UUID-Parse-Pitfall).
+
+**Phase 15 — Service+REST: Kündigung + Aufstockung:** `MembershipAdjustService`-Trait + `cancel_membership` (atomare Single-Tx mit `audited_create!(MemberAction::Austritt, CANCEL_PROCESS)`, `effective_date` via Phase-14-Pure-Function, `exit_date` via refactored `recalc_dates`-Free-Function) + `increase_shares` (atomare Multi-Write: `audited_create!(Aufstockung) + audited_update!(Member.current_shares += n)`, Block für gekündigte Mitglieder via HTTP 400). Server-Layer-Datum-Validierung (`validate_willensbekundung_date` Pure-Function, GJ-Bounds aktuell+nächstes), ADMIN_PRIVILEGE-Permission-Funnel, 9 aktive + 2 dokumentierte `#[ignore]` E2E-Tests (mock_auth-Limitation), v1.2-Audit-Pattern für Phase 16+17 etabliert.
+
+**Phase 16 — Service+REST: Teil-Rückgabe + Auto-Anlegen-Phase:** `partial_repayment` mit 14-Schritt-Pipeline: Permission-Funnel → exit_date-Conflict (409) → Range-Validation → H1/H2-Stichtag → inlined Phase-Auto-Create (Variante B: Status=Open, `share_value` aus Vorgänger oder `DEFAULT_SHARE_VALUE_CENT=10000`) → Sum-Check via `find_by_member_and_phase` (PaidOut-exclusive) → `audited_create!(RepaymentEntry, PARTIAL_REPAYMENT_PROCESS)`. Auto-Fill-Skip-Pattern in `open_repayment_phase` (D-16-03/PITFALLS-Kat-1-Mitigation: Phase-Open skippt Member mit existierendem v1.2-Entry → keine Doppelbuchung). Plan 16-05 Gap-Closure ergänzte Closed-Phase-Status-Guard (HTTP 409 vor jedem audited_create) — Re-Verification flipped von `gaps_found` auf `passed`. 18 E2E-Tests + 11 Service-Unit-Tests.
+
+**Phase 17 — Service+REST: Übertrag (Atomare 2-Action-Cascade):** `transfer_shares` als 15-Schritt-Single-Tx-Cascade mit Pre-Write-Detection des Voll-Übertrags (D-17-01). 5 `audited_*!`-Aufrufe teilen `TRANSFER_PROCESS="member-adjust.transfer"`: 2× `audited_create!` (UebertragungAbgabe + Empfang), 2× `audited_update!` (from/to current_shares), 1× optional `audited_create!` (Austritt bei Voll-Übertrag mit `effective_date=transfer_date`, `transfer_member_id=to.id`). `recalc_dates(from)` läuft exakt einmal nach Voll-Übertrag (D-17-02). REST-Endpoint `POST /api/members/{from_id}/transfer-shares` (Sub-Route VOR `/{id}` Catch-All). Self-Transfer-Block (HTTP 400 via `validate_transfer_inputs`), Empfänger-aktiv-Guard (HTTP 409 via `ServiceError::Conflict`, ROADMAP-SC#4-Wortlaut sprach von 400 — Plan-Spec maßgeblich). 8 E2E-Tests + 7 Pure-Function-Tests + 10 Mock-Service-Tests inkl. Same-/Cross-Direction-Race-Patterns (sortiert `[200, 409|500]`, NIE `[200, 200]`).
+
+**Phase 18 — Frontend Component-First:** `MembershipAdjustModal` als shared Component in `genossi-frontend/src/component/membership_adjust_modal.rs` (1078 LOC, Single-File-Dioxus mit `ModalStep`-Enum + 4 Sub-Views Kündigung/Teil-Rückgabe/Übertrag/Aufstockung). Live-Preview-Section pro Sub-View zeigt konkrete Zahlen vor Commit (Stichtag, FY, Anteils-Delta, Voll-Übertrag-Warnung orange). `FiscalYearDateInput`-Component mit GJ-Bounds (default `today`, min/max aus aktuellem+nächstem GJ). `ToastVariant{Success,Error}` + `show_success_toast` + `SuccessToastContainer` (grüne Success-Toasts, Zero-Blast-Radius zu v1.0/v1.1). `MemberSearch.members_override`-Prop für Transfer-Empfänger-Decoupling. 8 neue Frontend-DTOs + 5 API-Client-Funktionen + 46+ i18n-Keys DE/EN mit Symmetrie-Test. Member-Detail-Page-Integration via Admin-only Button (`RequirePrivilege "admin"`), Modal-Mount, zentrale `today`-Variable, beide Toast-Container. 247 Frontend-Tests bestanden, Vorstand-UAT signed-off durch Simon Goller am 2026-06-07. 7 Pläne in 3 Wellen (Wave 1: 5 parallele Foundation-Plans → Wave 2: Modal-Composition → Wave 3: Page-Integration).
+
+### Known Gaps (None — alle 31 REQs satisfied)
+
+Keine — alle 31 REQ-IDs sind in den Phase-VERIFICATIONs als SATISFIED markiert. Beim Archivieren wurden 7 Doku-Drift-Items in REQUIREMENTS.md (CANC-02, PART-01..03, PART-05, PART-06, TRSF-06 — alle technisch erfüllt aber Checkbox + Traceability nicht synchronisiert) korrigiert in `milestones/v1.2-REQUIREMENTS.md`.
+
+### Tech-Debt (per Phase, dokumentiert in `v1.2-MILESTONE-AUDIT.md`)
+
+**Carry-forward BLOCKER (Phase 16 → projektweit):**
+
+- **CR-02 (Permission-Check-Ordering)** in allen 4 v1.2-MembershipAdjustService-Methoden + bestehend in allen 5 v1.1-RepaymentPhaseService-Methoden: `current_user_id()` läuft VOR `check_permission()` → Side-Channel-Risiko bei abgelaufenen Sessions + `"SYSTEM"`-Audit-Fallback bei `Ok(None)`. Explicitly out-of-scope für v1.2; projektweite Cleanup-Phase empfohlen (extrahierbar in `gen_auth_admin!`-Helper).
+
+**Critical UX-Findings (Phase 18, kein Korrektheits-Bug):**
+
+- **CR-01:** `date_signal` überlebt Sub-Choice-Wechsel in MembershipAdjustModal — User kann altes Datum unbemerkt in eine andere Sub-View übertragen. Submit-`is_valid`-Check verhindert Datenfehler.
+- **CR-02:** `Signal::set` im Render-Pfad von `render_sub_choice` — Re-Render-Loop-Risiko + User-Datenverlust beim Zurück-Navigieren. Side-Effects gehören in onclick-Handler.
+
+**Warnings:**
+
+- **Phase 16 WR-01..05:** Inkonsistente Check-Reihenfolge (Date-Validation nach Member-Load → SELECT-Spam bei Bad-Date), PII-Leak in 409-Conflict-Message (`exit_date={:?}`), `unwrap()` auf `Response::builder()` im REST-Layer, pre-Read Member ohne re-read post-commit, `REPAYMENT_PHASE_CREATE_PROCESS`-String-Duplikat zu v1.1 (forensisch nicht unterscheidbar).
+- **Phase 18:** Alle Submit-Buttons `bg-red-600` (auch konstruktive Operationen wie Aufstockung) — visuell destruktiv. Unused i18n-Keys: 4 Operations-spezifische Success-Keys + 2 AutoCreate-Hint-Keys (User sieht generische statt kontextspezifische Toasts). `format_date_input`/`parse_date_input` doppelt in `fiscal_year_date_input.rs` und `member_details.rs` — Extract-to-shared-module empfohlen.
+
+**Smell:**
+
+- Wire-Asymmetrie `PartialRepaymentResponseTO.entry/.phase` als `serde_json::Value` im Frontend vs. typisiert im Backend. Wire-kompatibel, Modal verwirft Body — zukünftiges `entry.id`-Read braucht `Value::get()`-Workarounds.
+
+**Pre-existing (NICHT v1.2-verursacht):**
+
+- `test_mail_preview_repayment_no_entries_does_not_default_to_one` (`genossi_bin/tests/e2e_tests.rs:13964`) — pre-existing seit Commit `1e48b2f` (Quick-c19 vor Phase 14). Triage in separater Mail-Subsystem-Iteration.
+- `cargo test --all-features` Compile-Error auf `transfer_recipients_e2e` (vermutlich oidc-Feature-Konflikt).
+- Disk Space Critical (`/home/neosam/programming` 929/950 GB). Workaround: shared `CARGO_TARGET_DIR`.
+
+**Known deferred items at close: 18** (16 v1.1-Quick-Tasks ohne SUMMARY + 2 low-prio Repayment-Letter-Todos — alle aus v1.1-Ära, nicht v1.2-relevant; siehe STATE.md Deferred Items)
+
 ## v1.1 Anteile-Rückzahlungsphase (Shipped: 2026-06-02)
 
 **Phases completed:** 7 phases (07-13), 56 plans, 91 tasks

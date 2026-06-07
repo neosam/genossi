@@ -1,171 +1,90 @@
-# Roadmap: Genossi v1.2 Mitgliedschaft-Anpassungen
+# Roadmap: Genossi
 
-**Created:** 2026-06-04
-**Milestone Goal:** Vorstand kann am Mitglied direkt Kündigung, Teil-Rückgabe, Übertrag oder Aufstockung auslösen; v1.2 erzeugt nur Intent-Datensätze; Anteils-Reduktion und Verkauf-Action bleibt v1.1-PaidOut-Cascade-Aufgabe.
+Mitgliederverwaltungs-Software für Genossenschaften. Aktiver Stand: drei ausgelieferte Milestones — v1.0 (GV-Anwesenheits-Erfassung), v1.1 (Anteile-Rückzahlungsphase), v1.2 (Mitgliedschaft-Anpassungen während des Geschäftsjahres). Nächstes Milestone steht noch zur Definition; Start via `/gsd-new-milestone`.
 
-**Phasen-Nummerierung:** Continued from v1.1 (Phase 13 → next = 14).
+## Milestones
 
-## Overview
+- ✅ **v1.0 GV-Anwesenheits-Erfassung** — Phases 1-6 (Phase 5 SKIPPED — echte GV bereits durchgeführt) (shipped 2026-05-29)
+- ✅ **v1.1 Anteile-Rückzahlungsphase** — Phases 7-13 (shipped 2026-06-02)
+- ✅ **v1.2 Mitgliedschaft-Anpassungen** — Phases 14-18 (shipped 2026-06-07)
+- 📋 **v1.3 (TBD)** — keine Phasen definiert; nächster Milestone wird mit `/gsd-new-milestone` gestartet
 
-5 Phasen, 31 Requirements, Backend-First → Frontend Build-Order.
+## Phases
 
-| # | Phase | Goal | REQs | Plans (est.) |
-|---|-------|------|------|--------------|
-| 14 | DAO/Domain Foundation | 4/4 | Complete    | 2026-06-04 |
-| 15 | Service+REST: Kündigung + Aufstockung | 4/4 | Complete    | 2026-06-04 |
-| 16 | Service+REST: Teil-Rückgabe + Auto-Anlegen-Phase | 5/5 | Complete    | 2026-06-05 |
-| 17 | Service+REST: Übertrag | 4/4 | Complete    | 2026-06-06 |
-| 18 | Frontend Component-First | 7/7 | Complete    | 2026-06-07 |
+<details>
+<summary>✅ v1.0 GV-Anwesenheits-Erfassung (Phases 1-6) — SHIPPED 2026-05-29</summary>
 
-**Total:** 31 REQs in 5 Phasen, alle abgedeckt (Coverage: 100%).
+- [x] Phase 1: Assembly-Aggregat + Audit-Hardening — completed
+- [x] Phase 2: Helfer-Token + Session + AuthContext::Helper — completed
+- [x] Phase 3: Attendance-Aggregat + Cascade-Invalidation — completed
+- [x] Phase 4: Frontend (Component-First) mit QR-Scanner und Manual-Code-Fallback — completed
+- [—] Phase 5: Pre-GV-Generalprobe — SKIPPED (echte GV bereits durchgeführt; Hotfixes lieferten echte Erkenntnisse zurück)
+- [x] Phase 6: Teilnehmerlisten-Export für Generalversammlungen (PDF/CSV/XLSX) — completed
 
----
+Archive: `.planning/milestones/v1.0-ROADMAP.md` · `v1.0-REQUIREMENTS.md` · `v1.0-MILESTONE-AUDIT.md`
 
-## Phase 14 — DAO/Domain Foundation
+</details>
 
-**Goal:** Pure-Function und DAO-Queries als Foundation für alle Service-Operationen. Keine Schreib-Operation in dieser Phase.
+<details>
+<summary>✅ v1.1 Anteile-Rückzahlungsphase (Phases 7-13, 56 plans) — SHIPPED 2026-06-02</summary>
 
-**Requirements (2):**
-- **CANC-02**: H1/H2-Stichtag-Berechnung (Pure-Function `compute_effective_date`)
-- **TRSF-06**: Empfänger-Search Endpoint `GET /api/members/transfer-recipients?exclude_self={uuid}` (DAO + Service + REST)
+- [x] Phase 7: RepaymentPhase Backend Foundation (Aggregat + Lifecycle + 5 Audit-Prozesse) — completed
+- [x] Phase 8: RepaymentEntry + Auto-Befüllung (10 plans) — completed
+- [x] Phase 9: Atomare Auszahlungs-Buchung (12-Schritt-Cascade) — completed
+- [x] Phase 10: Massenmail + Template-Variablen (`{{ payout_amount }}`, `{{ share_count }}`, `{{ fiscal_year }}`) — completed
+- [x] Phase 11: Export (PDF Auszahlungsliste mit 6-Spalten-Tabelle) — completed
+- [x] Phase 12: Frontend Component-First (15 plans, 3-Tab-Detail-Page, Shared-Components) — completed
+- [x] Phase 13: RepaymentLetter-Bulk-Anschreiben für Nicht-Email-Mitglieder — completed
 
-**Success Criteria:**
-1. `compute_effective_date(willensbekundung: Date) -> (fiscal_year: i32, effective_date: Date)` als Pure-Function in `genossi_service_impl` mit mindestens 6 Edge-Case-Unit-Tests (30.06., 01.07., 31.12., 01.01., Schaltjahr-Februar, Jahres-Anfang/-Ende)
-2. `RepaymentEntryDao::find_by_member_and_phase(member_id, phase_id, tx) -> Vec<RepaymentEntryEntity>` als neue DAO-Methode mit 2 Unit-Tests (leere Liste + mehrere Entries)
-3. `MemberService::list_transfer_recipients(exclude_member_id)` Service-Methode mit Filter `exit_date IS NULL AND id != exclude_member_id` und 3 Unit-Tests
-4. REST-Endpoint `GET /api/members/transfer-recipients` mit admin-Permission + 1 E2E-Test (Happy-Path mit 3 Members: 1 gekündigt → ausgefiltert, 1 self → ausgefiltert, 1 aktiv → enthalten)
+Archive: `.planning/milestones/v1.1-ROADMAP.md` · `v1.1-REQUIREMENTS.md` · `v1.1-MILESTONE-AUDIT.md`
 
-**Plans:** 4/4 plans complete
-- [x] 14-01-PLAN.md — Pure-Function compute_effective_date + EffectiveDate struct + 6 edge-case tests (CANC-02)
-- [x] 14-02-PLAN.md — RepaymentEntryDao::find_by_member_and_phase trait method + SQLite SQL-override + 3 tests (TRSF-06 foundation)
-- [x] 14-03-PLAN.md — MemberService::list_transfer_recipients service method + 3 mockall unit tests (TRSF-06 service)
-- [x] 14-04-PLAN.md — MemberSlimTO + REST handler + sub-route registration + E2E test (TRSF-06 REST+E2E)
+</details>
 
----
+<details>
+<summary>✅ v1.2 Mitgliedschaft-Anpassungen während des Geschäftsjahres (Phases 14-18, 24 plans) — SHIPPED 2026-06-07</summary>
 
-## Phase 15 — Service+REST: Kündigung + Aufstockung
+- [x] Phase 14: DAO/Domain Foundation (4 plans) — `compute_effective_date` Pure-Function + `RepaymentEntryDao::find_by_member_and_phase` + `/transfer-recipients`-Endpoint mit `MemberSlimTO` — completed 2026-06-04
+- [x] Phase 15: Service+REST: Kündigung + Aufstockung (4 plans) — `MembershipAdjustService`-Trait + `cancel_membership` + `increase_shares` + `recalc_dates`-Free-Function-Refactor + 11 E2E-Tests — completed 2026-06-04
+- [x] Phase 16: Service+REST: Teil-Rückgabe + Auto-Anlegen-Phase (5 plans, inkl. Gap-Closure 16-05) — `partial_repayment` mit 14-Schritt-Pipeline + Closed-Phase-Status-Guard + Auto-Fill-Skip-Pattern — completed 2026-06-05
+- [x] Phase 17: Service+REST: Übertrag (4 plans) — `transfer_shares` 15-Schritt-Single-Tx-Cascade + Voll-Übertrag-Austritts-Cascade + 8 E2E + 2 Race-Patterns — completed 2026-06-06
+- [x] Phase 18: Frontend Component-First (7 plans in 3 Wellen) — `MembershipAdjustModal` (1078 LOC) + 4 Sub-Views + `FiscalYearDateInput` + ToastVariant Success + Vorstand-UAT-Sign-Off — completed 2026-06-07
 
-**Goal:** Single-Action-Operationen (eine MemberAction pro Vorgang) implementieren. Foundation für Permission-Funnel und Datum-Validierung.
+Archive: `.planning/milestones/v1.2-ROADMAP.md` · `v1.2-REQUIREMENTS.md` · `v1.2-MILESTONE-AUDIT.md`
 
-**Requirements (11):**
-- **CANC-01, CANC-03, CANC-04, CANC-05**: Kündigung erzeugt `MemberAction::Austritt`; `recalc_dates` setzt `exit_date`; keine Verkauf-Action/RepaymentEntry direkt
-- **UPGD-01, UPGD-02, UPGD-03, UPGD-04**: Aufstockung erzeugt `MemberAction::Aufstockung` + erhöht `current_shares` atomar; blockt gekündigte Member
-- **PERM-01**: Admin-only via `ADMIN_PRIVILEGE` (etabliert in dieser Phase)
-- **PERM-02**: Server-Layer-Datum-Validierung (offenes GJ + nächstes GJ)
-- **AUDT-01**: Alle Operationen via `audited_create!`/`audited_update!`-Macros (Convention etabliert)
+</details>
 
-**Success Criteria:**
-1. `MembershipAdjustService::cancel_membership(member_id, willensbekundung_date, context)` erzeugt `MemberAction::Austritt` mit `effective_date = compute_effective_date(...).exit_date`, `shares_change = 0`; `recalc_dates`-Hook setzt `Member.exit_date` automatisch; 5 E2E-Tests (Happy-Path H1, Happy-Path H2, Permission-Denied 401, Already-Cancelled 409, Audit-Chain-Verify)
-2. `MembershipAdjustService::increase_shares(member_id, n, willensbekundung_date, context)` erzeugt `MemberAction::Aufstockung` (`shares_change = +n`, `transfer_member_id = None`) + erhöht `Member.current_shares` atomar in einer Tx; 4 E2E-Tests (Happy-Path, Cancelled-Member-Block 400, Permission-Denied, Audit-Chain-Verify)
-3. Server-Layer-Datum-Validierung lehnt Daten ausserhalb des offenen GJ + nächsten GJ ab (HTTP 400); 2 Edge-Case-Tests (Datum im vorletzten GJ, Datum im übernächsten GJ)
-4. `cargo test --test e2e_tests` und v1.1-Audit-Hashchain (`/api/audit/verify`) bleiben grün
+### 📋 v1.3 (Not started — define via `/gsd-new-milestone`)
 
-**Plans:** 4/4 plans complete
-- [x] 15-01-PLAN.md — MembershipAdjustService trait + validate_willensbekundung_date pure function + recalc_dates free-function refactor (PERM-02)
-- [x] 15-02-PLAN.md — cancel_membership impl + 4 service unit tests (CANC-01..05, PERM-01, AUDT-01)
-- [x] 15-03-PLAN.md — increase_shares impl + 4 service unit tests (UPGD-01..04, PERM-01, AUDT-01)
-- [x] 15-04-PLAN.md — REST endpoints + DI wiring + 11 E2E tests (full stack + audit-chain-verify)
+Kein Inhalt definiert. Wahrscheinlich-Themen für die nächste Iteration aus dokumentiertem Tech-Debt:
 
----
+- Projektweite Cleanup-Phase: CR-02 Permission-Check-Ordering refactor (alle 4 v1.2-MembershipAdjustService-Methoden + alle 5 v1.1-RepaymentPhaseService-Methoden) — extrahierbar in `gen_auth_admin!`-Helper
+- Phase-18-UX-Polish: CR-01 (`date_signal`-leak across Sub-Choice), CR-02 (`Signal::set` im Render-Pfad refactoren), unused i18n-Keys aktivieren oder entfernen
+- Mail-Subsystem-Triage: pre-existing failure `test_mail_preview_repayment_no_entries_does_not_default_to_one`
+- 16 deferred v1.1-Quick-Tasks reviewen + ggf. closen
 
-## Phase 16 — Service+REST: Teil-Rückgabe + Auto-Anlegen-Phase
+## Progress
 
-**Goal:** Multi-Datensatz-Operation (RepaymentEntry-Insert + ggf. RepaymentPhase-Auto-Create). Auto-Fill-Skip-Pattern als Doppelbuchungs-Prävention.
-
-**Requirements (6):**
-- **PART-01..06**: Teil-Rückgabe-Operation komplett
-
-**Success Criteria:**
-1. `MembershipAdjustService::partial_repayment(member_id, n, willensbekundung_date, context)` erzeugt `RepaymentEntry` in der via `compute_effective_date(...).fiscal_year` berechneten Ziel-Phase
-2. Service-Layer-Sum-Check: `sum(open_entries.share_count for (member_id, target_phase_id)) + n <= member.current_shares` validiert vor Insert (HTTP 400 bei Verletzung)
-3. Auto-Anlegen-Ziel-Phase: wenn für berechnetes `fiscal_year` keine Phase existiert, wird sie via gewählter Variante (B = Auto-Create in Status `Open`, D-16-01) angelegt mit `share_value` aus Vorgänger-Phase oder `DEFAULT_SHARE_VALUE_CENT = 10000` (D-16-05..07)
-4. Auto-Fill-Skip-Pattern in `open_repayment_phase` (Erweiterung der existing Logik in `genossi_service_impl/src/repayment_phase.rs:319–395`): wenn `find_by_member_and_phase(member, phase) -> non-empty`, überspringt Auto-Fill den Member (Pitfall-Kategorie-1-Mitigation)
-5. 8 E2E-Tests: Happy-Path H1, Happy-Path H2 mit Auto-Anlegen-Phase, Sum-Check-Block 400, Auto-Fill-Skip-Test (Phase-Open nach v1.2-Teilrückgabe erzeugt kein Duplikat), Voll-Rückgabe-Block 400 (Verweis auf cancel_membership), Cancelled-Member-Block 409 (D-16-10 — divergent von Phase 15), Audit-Chain-Verify, Auto-Create-Default-Share-Value
-
-**Plans:** 5/5 plans complete
-- [x] 16-01-PLAN.md — MembershipAdjustService trait extension (partial_repayment) + PartialRepaymentRequest/ResponseTO + DEFAULT_SHARE_VALUE_CENT + validate_partial_repayment_shares pure helper + 7 unit tests (PART-01, PART-06)
-- [x] 16-02-PLAN.md — partial_repayment service impl with inlined phase-auto-create + sum-check via existing find_by_member_and_phase + 10 mock-based unit tests (PART-01, PART-02, PART-03, PART-05, PART-06)
-- [x] 16-03-PLAN.md — Auto-fill skip-pattern insertion at repayment_phase.rs line 368 + 1 unit test (PART-04)
-- [x] 16-04-PLAN.md — REST endpoint + sub-route registration (BEFORE /{id}) + DI wiring in genossi_bin + 8 E2E tests (PART-01..06 full stack)
+| Phase                                              | Milestone | Plans Complete | Status      | Completed  |
+| -------------------------------------------------- | --------- | -------------- | ----------- | ---------- |
+| 1. Assembly-Aggregat                               | v1.0      | -              | Complete    | 2026-05    |
+| 2. Helfer-Token + Session                          | v1.0      | -              | Complete    | 2026-05    |
+| 3. Attendance-Aggregat                             | v1.0      | -              | Complete    | 2026-05    |
+| 4. Frontend Component-First                        | v1.0      | -              | Complete    | 2026-05    |
+| 5. Pre-GV-Generalprobe                             | v1.0      | -              | SKIPPED     | -          |
+| 6. Teilnehmerlisten-Export                         | v1.0      | -              | Complete    | 2026-05-29 |
+| 7. RepaymentPhase Foundation                       | v1.1      | -              | Complete    | 2026-04+   |
+| 8. RepaymentEntry + Auto-Befüllung                 | v1.1      | 10/10          | Complete    | 2026-05    |
+| 9. Atomare Auszahlungs-Buchung                     | v1.1      | -              | Complete    | 2026-05    |
+| 10. Massenmail + Template-Variablen                | v1.1      | -              | Complete    | 2026-05    |
+| 11. Export (PDF)                                   | v1.1      | -              | Complete    | 2026-05    |
+| 12. Frontend Component-First (v1.1)                | v1.1      | 15/15          | Complete    | 2026-05    |
+| 13. RepaymentLetter-Bulk-Anschreiben               | v1.1      | -              | Complete    | 2026-06-02 |
+| 14. DAO/Domain Foundation                          | v1.2      | 4/4            | Complete    | 2026-06-04 |
+| 15. Service+REST: Kündigung + Aufstockung          | v1.2      | 4/4            | Complete    | 2026-06-04 |
+| 16. Service+REST: Teil-Rückgabe + Auto-Anlegen     | v1.2      | 5/5            | Complete    | 2026-06-05 |
+| 17. Service+REST: Übertrag (Atomare 2-Action)      | v1.2      | 4/4            | Complete    | 2026-06-06 |
+| 18. Frontend Component-First (v1.2)                | v1.2      | 7/7            | Complete    | 2026-06-07 |
 
 ---
 
-## Phase 17 — Service+REST: Übertrag (Atomare 2-Action-Cascade)
-
-**Goal:** Komplexeste Operation. 2 verlinkte MemberActions in einer Tx, Voll-Übertrag mit zusätzlicher Austritts-Action.
-
-**Requirements (8):**
-- **TRSF-01..05, TRSF-07**: Übertrag-Logik (inkl. Voll-Übertrag-Austritt + Self-Transfer-Block)
-- **AUDT-02**: Gemeinsamer Process-String für Übertrag-Pair
-- **PERM-03**: Empfänger-aktives-Mitglied-Guard auf Service-Layer
-
-**Success Criteria:**
-1. `MembershipAdjustService::transfer_shares(from_id, to_id, n, transfer_date, context)` erzeugt 2 verlinkte MemberActions atomar in einer Tx mit Pattern aus v1.1 Phase-9-PaidOut-Cascade (`mark_paid_out`-Single-Tx, gemeinsamer Process-String)
-2. `process="member-adjust.transfer"` ist gemeinsam für beide Actions; `/api/audit/verify` + Process-Filter findet exakt 2 Einträge pro Übertrag
-3. Bei Voll-Übertrag (A.current_shares − n == 0): zusätzlich `MemberAction::Austritt` für A mit `effective_date = transfer_date` in derselben Tx; `recalc_dates`-Hook setzt `Member.exit_date`
-4. Self-Transfer-Block (HTTP 400 wenn `from_id == to_id`); Empfänger-aktiv-Guard (HTTP 400 wenn `to.exit_date IS NOT NULL`)
-5. 8 E2E-Tests: Teil-Übertrag Happy-Path, Voll-Übertrag mit exit_date-Cascade, Self-Transfer 400, Empfänger-gekündigt 400, Empfänger-soft-deleted 404, Audit-Pair-Verlinkung-Verify, SQLITE_BUSY-Race (akzeptiert `[200, 409|500]`), Multi-Endpoint-Audit-Verify
-
-**Plans:** 4/4 plans complete
-- [x] 17-01-PLAN.md — MembershipAdjustService trait extension (transfer_shares) + validate_transfer_inputs pure helper + TRANSFER_PROCESS constant + 7 edge-case unit tests (TRSF-07)
-- [x] 17-02-PLAN.md — transfer_shares 15-step single-tx cascade pipeline + pre-write Voll-Uebertrag detection + ~10 mock-based unit tests (TRSF-01..05, AUDT-02, PERM-03)
-- [x] 17-03-PLAN.md — TransferSharesRequestTO/ResponseTO + Axum handler with Utoipa annotations + sub-route registration BEFORE /{id} catch-all (TRSF-01, TRSF-07)
-- [x] 17-04-PLAN.md — 8 E2E tests covering all REQ-IDs incl. Same- + Cross-Direction race tests + audit doppel-assertion helper (TRSF-01..05, TRSF-07, AUDT-02, PERM-03)
-
----
-
-## Phase 18 — Frontend Component-First
-
-**Goal:** `MembershipAdjustModal` als shared Component; Integration auf Member-Detail-Page.
-
-**Requirements (4):**
-- **UI-01, UI-02, UI-03, UI-04, CANC-06**: Modal + Datepicker + Vorschau + Button
-
-> Hinweis: CANC-06 ist hier gemappt (Vorschau-Confirm-Dialog für Kündigung als Spezialfall von UI-04).
-
-**Success Criteria:**
-1. `MembershipAdjustModal` als shared Component in `genossi-frontend/src/component/membership_adjust_modal.rs` mit Sub-Choice-Form (Variante aus `/gsd-discuss-phase 18` — 4 flat vs. 3 mit Nesting vs. Kündigung-Quickpath) und vier Operation-Sub-Views (Kündigung, Teil-Rückgabe, Übertrag, Aufstockung)
-2. Datepicker-Component mit GJ-Bounds (default `today()`, erlaubt nur Daten im aktuell offenen GJ und im nächsten GJ); MemberSearch-Reuse aus v1.1 Phase 12 für Übertrag-Empfänger
-3. Vorschau-Section in jeder Sub-View zeigt konkrete Zahlen vor Commit:
-   - Kündigung: „Member: X Anteile → Stichtag: 31.12.YYYY → Auszahlung in Phase FYYYYY"
-   - Teil-Rückgabe: „Member: X → X-n Anteile (nach Auszahlung)"
-   - Übertrag: „Member A: X → X-n · Member B: Y → Y+n"
-   - Aufstockung: „Member: X → X+n Anteile"
-4. Button „Mitgliedschaft anpassen" auf Member-Detail-Page (`genossi-frontend/src/page/member_details.rs`), Admin-only via `RequirePrivilege`; i18n DE/EN mit mindestens 20 neuen Keys; ManualUAT-Sektion mit Browser-Test-Anleitung
-
-**Plans:** 7/7 plans complete
-- [x] 18-01-PLAN.md — Frontend rest-types DTOs ergaenzen (Phase-15/16/17 Request/Response-Shapes, MemberSlimTO) [Wave 1]
-- [x] 18-02-PLAN.md — toast.rs erweitern um ToastVariant + show_success_toast + SuccessToastContainer (gruene Success-Toasts) [Wave 1]
-- [x] 18-03-PLAN.md — MemberSearch Component um members_override-Prop fuer TransferSubView entkoppeln [Wave 1]
-- [x] 18-04-PLAN.md — FiscalYearDateInput-Component + 46 i18n-Keys (DE+EN) + DE/EN-Symmetrie-Test + component/mod.rs Re-Exports [Wave 1]
-- [x] 18-05-PLAN.md — 5 API-Client-Funktionen + 5 URL-Builder-Tests [Wave 1]
-- [x] 18-06-PLAN.md — MembershipAdjustModal mit ModalStep-Enum + 4 Sub-Views + Pure-Helpers + Re-Export [Wave 2]
-- [x] 18-07-PLAN.md — Member-Detail-Page Button + Modal-Mount + ToastContainer-Mount + zentrale today-Variable + ManualUAT [Wave 3]
-
----
-
-## Constraints (per Phase)
-
-- **Phase-14-19 alle:** v1.1-Audit-Hashchain bleibt valid (`/api/audit/verify`); cargo workspace builds clean; v1.1-Tests bleiben grün
-- **Phase 15+16+17:** alle Schreib-Operationen via `audited_*!`-Macros (Grep-Gate: 0 direkte DAO-`create`/`update`-Calls außerhalb der Macros in v1.2-Code)
-- **Phase 17 spezifisch:** Single-Tx-Pattern mit shared `tx.clone()`; gemeinsamer Process-String; Pre-Tx-Rollback-Test
-- **Phase 18:** Component-First — keine inline-RSX; alle Operationen-UI in `MembershipAdjustModal`
-
-## Discuss-Phase-Decisions (offen)
-
-Folgende Entscheidungen müssen pro Phase im `/gsd-discuss-phase` geklärt werden, bevor `/gsd-plan-phase`:
-
-- **Phase 15:** ActionType-Persistenz (TEXT vs. INTEGER) verifizieren; Datum-Bounds-Implementierung (Service vs. existing Validator)
-- **Phase 16:** Auto-Anlegen-Strategie Variante A vs. B vs. C aus PITFALLS-Kategorie-2; Sum-Check-Service vs. DAO-Query
-- **Phase 17:** Voll-Übertrag-Detection-Logik (sofortiger Service-Check vs. `recalc_dates`-Trigger); Race-Pattern-Test analog v1.1 Phase 9
-- **Phase 18:** Sub-Choice-Form aus FEATURES.md (4 flat vs. 3 mit Nesting vs. Kündigung-Quickpath); Component-Reuse mit Phase-12-Pattern
-
-## Cross-Reference
-
-- Master-Design-Doc: `.planning/notes/membership-adjust-design.md`
-- Requirements: `.planning/REQUIREMENTS.md` (31 REQs, 7 Kategorien)
-- Research: `.planning/research/SUMMARY.md`, `STACK.md`, `FEATURES.md`, `ARCHITECTURE.md`, `PITFALLS.md`
-
----
-*Roadmap created: 2026-06-04*
-*Numbering: continued from v1.1 (last phase: 13)*
+_Last updated: 2026-06-07 after v1.2 milestone close. Detailed phase records archived in `.planning/milestones/v{X.Y}-{ROADMAP,REQUIREMENTS,MILESTONE-AUDIT}.md`._

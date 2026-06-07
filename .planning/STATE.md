@@ -1,50 +1,82 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.2
-milestone_name: Mitgliedschaft-Anpassungen während des Geschäftsjahres
-status: milestone_complete
-stopped_at: Phase 18 UI-SPEC approved
-last_updated: "2026-06-07T06:23:02.147Z"
+milestone: null
+milestone_name: null
+status: between_milestones
+stopped_at: v1.2 archived
+last_updated: "2026-06-07T10:00:00.000Z"
 last_activity: 2026-06-07
 progress:
-  total_phases: 5
-  completed_phases: 6
-  total_plans: 24
-  completed_plans: 24
-  percent: 120
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
-# State: Genossi — v1.1 Anteile-Rückzahlungsphase
+# State: Genossi — Between Milestones (v1.2 shipped, v1.3 not yet defined)
 
 **Initialized:** 2026-05-02
-**Last Updated:** 2026-05-29 (v1.1 milestone planning)
+**Last Updated:** 2026-06-07 (v1.2 milestone close)
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-06-02 after v1.1 close)
+See: `.planning/PROJECT.md` (updated 2026-06-07 after v1.2 close)
 
 **Core Value:** Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachvollziehbar (Audit-Hashchain), mit weniger manueller Arbeit.
 
-**Current Focus:** Phase 18 — frontend-component-first
+**Current Focus:** Planning next milestone (v1.3 — Start via `/gsd-new-milestone`)
 
 ## Current Position
 
-Phase: 18
-Plan: Not started
-Status: Milestone complete
+Phase: none active
+Plan: none active
+Status: Between milestones (v1.2 shipped 2026-06-07, archived to `.planning/milestones/v1.2-*`)
 Last activity: 2026-06-07
 
-## v1.2 Roadmap (Phases 14–18)
+## Deferred Items
 
-```
-[ ] Phase 14: DAO/Domain Foundation (compute_effective_date + DAO-Queries)        0/0 plans
-[ ] Phase 15: Service+REST: Kündigung + Aufstockung                               0/0 plans
-[ ] Phase 16: Service+REST: Teil-Rückgabe + Auto-Anlegen-Phase                    0/0 plans
-[ ] Phase 17: Service+REST: Übertrag (Atomare 2-Action-Cascade)                   0/0 plans
-[ ] Phase 18: Frontend Component-First (MembershipAdjustModal)                    0/0 plans
+Items acknowledged and deferred at v1.2 milestone close on 2026-06-07:
 
-Overall: 0% complete (5 phases, 31 REQs)
-```
+| Category | Item | Status |
+|----------|------|--------|
+| quick_task | 260601-pfy-warnungen-und-clippy-findings-im-backend | missing |
+| quick_task | 260602-c19-fix-mail-preview-repayment-kontext-share | missing |
+| quick_task | 260602-q9l-repayment-dokumente-beim-neugenerieren-b | missing |
+| quick_task | 260602-r2i-anteilswert-in-templates-verf-gbar-mache | missing |
+| quick_task | 260602-sgp-bulk-download-aller-repaymentletter-doku | missing |
+| quick_task | 260602-uo2-hotfix-q9l-idempotent-regenerate-falsche | missing |
+| quick_task | 260603-b43-masked-iban-template-variable-for-email- | missing |
+| quick_task | 260603-cz6-bulk-mail-repaymentletter-automatisch-al | missing |
+| quick_task | 260603-e6p-frontend-checkbox-f-r-attach-repayment-l | missing |
+| quick_task | 260603-evf-ui-anzeige-no-repayment-letter-status-pr | missing |
+| quick_task | 260603-h0r-phase-10-mail-worker-auf-repaymentcontex | missing |
+| quick_task | 260603-hw7-konfigurierbares-environment-label-genos | missing |
+| quick_task | 260603-jtf-mail-templates-test-funktion-auf-der-tem | missing |
+| quick_task | 260603-kon-beim-testen-von-templates-fehlen-dummy-d | missing |
+| quick_task | 260603-m48-frontend-template-editor-repayment-varia | missing |
+| quick_task | 260603-n3m-mail-test-endpoints-dummy-repayment-cont | missing |
+| todo | backend-pre-flight-check-attach-repayment-letter.md | low |
+| todo | frontend-bulk-no-repayment-letter-action.md | low |
+
+Alle 18 Items sind v1.1-Ära (Mail/Template/RepaymentLetter-Themen) und nicht v1.2-relevant. Sollten in einer v1.3-Backlog-Sichtung reviewed werden.
+
+Nicht-deferred: 2 UAT-Gaps in der Audit-Heuristik (Phase 16 `resolved`, Phase 18 `passed`) waren False-Positives — beide haben `open_scenario_count: 0`.
+
+## Carry-Forward Tech-Debt (from v1.2-MILESTONE-AUDIT.md)
+
+- **CR-02 BLOCKER (Permission-Check-Ordering):** projektweit (4 v1.2-Methoden + 5 v1.1-Methoden in repayment_phase.rs). Extrahierbar in `gen_auth_admin!`-Helper.
+- **Phase 18 CR-01 + CR-02 UX-Critical:** `date_signal`-leak across Sub-Choice-Wechsel + `Signal::set` im Render-Pfad — UX-Polish, kein Korrektheits-Bug.
+- **Wire-Asymmetrie `PartialRepaymentResponseTO`:** Frontend `serde_json::Value`, Backend typisiert. Wire-kompatibel, Body wird verworfen.
+- Diverse Warnings/Info aus 14-REVIEW, 16-REVIEW, 18-REVIEW (siehe v1.2-MILESTONE-AUDIT.md tech_debt-Section).
+
+## Closure Snapshot (v1.2, 2026-06-07)
+
+- Audit: `tech_debt` (kein BLOCKER für Phase-Goal; 31/31 REQs satisfied; 7 Doku-Drift-Items beim Archive korrigiert; 18 deferred v1.1-Items acknowledged; 1 Carry-forward-Permission-BLOCKER projektweit, 2 Phase-18-UX-Critical-Findings)
+- Tests: ~67 neue Tests (Phase-summen); Audit-Hashchain bleibt valid; cargo build + test -p genossi_service_impl + test -p genossi_bin --test membership_adjust_e2e alle grün
+- Timeline: 2026-06-04 → 2026-06-07 (4 Tage, 127 commits)
+- Integration: 6/6 cross-phase wirings OK · 4/4 E2E flows working
+- Archive: `.planning/milestones/v1.2-{ROADMAP,REQUIREMENTS,MILESTONE-AUDIT}.md`
 
 ## Closure Snapshot (v1.1, 2026-06-02)
 
