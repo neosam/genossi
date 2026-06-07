@@ -588,6 +588,11 @@ type InboxServiceType = genossi_mail::inbox::InboxServiceImpl<
     MailRecipientDao,
     InboundMailAttachmentDaoType,
     DocumentStorage,
+    // Quick 260607-s0s: reply now persists per-recipient + job-level
+    // attachments; pull in the same DAO impls used by MailServiceType.
+    MailRecipientAttachmentDao,
+    MailJobStaticAttachmentDaoType,
+    StaticDocumentDaoType,
 >;
 type MailServiceType = genossi_mail::service::MailServiceImpl<
     ConfigService,
@@ -1076,7 +1081,7 @@ impl RestStateImpl {
 
         let static_document_dao_for_service = Arc::new(StaticDocumentDaoType::new(pool.clone()));
         let static_document_service = Arc::new(StaticDocumentServiceType::new(
-            static_document_dao_for_service,
+            static_document_dao_for_service.clone(),
             document_storage.clone(),
         ));
 
@@ -1091,6 +1096,14 @@ impl RestStateImpl {
         let inbox_recipient_dao = Arc::new(MailRecipientDao::new(pool.clone()));
         // Phase 19: attachment DAO + storage are now part of InboxService.
         let inbox_attachment_dao = Arc::new(InboundMailAttachmentDaoType::new(pool.clone()));
+        // Quick 260607-s0s: reply persists per-recipient and job-level
+        // attachments — wire the same DAO types used by MailServiceImpl.
+        // Pattern follows worker_attachment_dao / worker_static_attachment_dao
+        // wiring further down (separate Arc per service, same pool).
+        let inbox_recipient_attachment_dao =
+            Arc::new(MailRecipientAttachmentDao::new(pool.clone()));
+        let inbox_mail_job_static_attachment_dao =
+            Arc::new(MailJobStaticAttachmentDaoType::new(pool.clone()));
         let inbox_service = Arc::new(genossi_mail::inbox::InboxServiceImpl::new(
             inbox_config_service.clone(),
             inbox_dao.clone(),
@@ -1099,6 +1112,9 @@ impl RestStateImpl {
             inbox_recipient_dao,
             inbox_attachment_dao.clone(),
             document_storage.clone(),
+            inbox_recipient_attachment_dao,
+            inbox_mail_job_static_attachment_dao,
+            static_document_dao_for_service.clone(),
         ));
         let worker_inbox_config_dao = ConfigDao::new(pool.clone());
         let worker_inbox_config_service = Arc::new(ConfigService::new(worker_inbox_config_dao));
@@ -1526,6 +1542,44 @@ impl genossi_mail::inbox_rest::InboxRestState for RestStateImpl {
     }
     fn content_disposition_inline(&self, filename: &str) -> String {
         genossi_rest::http_util::content_disposition_inline(filename)
+    }
+    // Quick 260607-s0s: delegate to the same SQL query as the MailRestState
+    // impl (resolve_document below) — the reply handler needs it for the
+    // attachment-ownership check. Inline-duplication keeps the diff minimal;
+    // the helper lives entirely on RestStateImpl.
+    fn resolve_document(
+        &self,
+        document_id: UuidType,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Option<genossi_mail::rest::ResolvedDocument>>
+                + Send
+                + '_,
+        >,
+    > {
+        let pool = self.pool.clone();
+        Box::pin(async move {
+            let id_bytes = document_id.as_bytes().to_vec();
+            let row: Option<(Vec<u8>, String, String, String)> = sqlx::query_as(
+                "SELECT member_id, file_name, mime_type, relative_path \
+                 FROM member_document WHERE id = ? AND deleted IS NULL",
+            )
+            .bind(id_bytes)
+            .fetch_optional(pool.as_ref())
+            .await
+            .ok()?;
+
+            let (member_id_bytes, file_name, mime_type, relative_path) = row?;
+            let member_id = UuidType::from_slice(&member_id_bytes).ok()?;
+
+            Some(genossi_mail::rest::ResolvedDocument {
+                document_id,
+                member_id,
+                file_name,
+                mime_type,
+                relative_path,
+            })
+        })
     }
 }
 

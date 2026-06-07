@@ -9,9 +9,10 @@ use uuid::Uuid;
 
 use crate::dao::{
     InboundMail, InboundMailAttachment, InboundMailAttachmentDao, InboundMailDao, MailJob,
-    MailJobDao, MailRecipient, MailRecipientDao,
+    MailJobDao, MailJobStaticAttachment, MailJobStaticAttachmentDao, MailRecipient,
+    MailRecipientAttachment, MailRecipientAttachmentDao, MailRecipientDao, StaticDocumentDao,
 };
-use crate::service::MailServiceError;
+use crate::service::{AttachmentInput, MailServiceError};
 use genossi_config::service::ConfigService;
 use genossi_service::document_storage::DocumentStorage;
 
@@ -460,8 +461,14 @@ pub trait InboxService: Send + Sync + 'static {
     async fn archive(&self, id: Uuid) -> Result<InboundMail, MailServiceError>;
     async fn mark_done(&self, id: Uuid) -> Result<InboundMail, MailServiceError>;
     async fn list_folders(&self) -> Result<Vec<String>, MailServiceError>;
-    async fn reply(&self, id: Uuid, subject: &str, body: &str)
-        -> Result<MailJob, MailServiceError>;
+    async fn reply(
+        &self,
+        id: Uuid,
+        subject: &str,
+        body: &str,
+        attachment_inputs: Vec<AttachmentInput>,
+        static_document_ids: Vec<Uuid>,
+    ) -> Result<MailJob, MailServiceError>;
 
     /// Phase 19: return one attachment if it belongs to `mail_id`. The DAO
     /// guard (`find_by_id_and_mail`) enforces T-03 IDOR protection: a wrong
@@ -480,7 +487,7 @@ pub trait InboxService: Send + Sync + 'static {
     ) -> Result<Arc<[InboundMailAttachment]>, MailServiceError>;
 }
 
-pub struct InboxServiceImpl<C, D, I, J, R, A, St>
+pub struct InboxServiceImpl<C, D, I, J, R, A, St, RA, JSA, SD>
 where
     C: ConfigService,
     D: InboundMailDao,
@@ -489,17 +496,27 @@ where
     R: MailRecipientDao,
     A: InboundMailAttachmentDao,
     St: DocumentStorage + 'static,
+    RA: MailRecipientAttachmentDao,
+    JSA: MailJobStaticAttachmentDao,
+    SD: StaticDocumentDao,
 {
     pub config_service: Arc<C>,
     pub dao: Arc<D>,
     pub imap_client: Arc<I>,
     pub job_dao: Arc<J>,
     pub recipient_dao: Arc<R>,
+    // NOTE: `attachment_dao` here is the **InboundMailAttachmentDao** (Inbound!).
+    // The new outbound recipient/static attachment DAOs below have different names
+    // to avoid the obvious naming collision.
     pub attachment_dao: Arc<A>,
     pub storage: Arc<St>,
+    // Quick 260607-s0s: outbound reply attachments — analog MailServiceImpl::create_job.
+    pub recipient_attachment_dao: Arc<RA>,
+    pub mail_job_static_attachment_dao: Arc<JSA>,
+    pub static_document_dao: Arc<SD>,
 }
 
-impl<C, D, I, J, R, A, St> InboxServiceImpl<C, D, I, J, R, A, St>
+impl<C, D, I, J, R, A, St, RA, JSA, SD> InboxServiceImpl<C, D, I, J, R, A, St, RA, JSA, SD>
 where
     C: ConfigService,
     D: InboundMailDao,
@@ -508,7 +525,11 @@ where
     R: MailRecipientDao,
     A: InboundMailAttachmentDao,
     St: DocumentStorage + 'static,
+    RA: MailRecipientAttachmentDao,
+    JSA: MailJobStaticAttachmentDao,
+    SD: StaticDocumentDao,
 {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         config_service: Arc<C>,
         dao: Arc<D>,
@@ -517,6 +538,9 @@ where
         recipient_dao: Arc<R>,
         attachment_dao: Arc<A>,
         storage: Arc<St>,
+        recipient_attachment_dao: Arc<RA>,
+        mail_job_static_attachment_dao: Arc<JSA>,
+        static_document_dao: Arc<SD>,
     ) -> Self {
         Self {
             config_service,
@@ -526,6 +550,9 @@ where
             recipient_dao,
             attachment_dao,
             storage,
+            recipient_attachment_dao,
+            mail_job_static_attachment_dao,
+            static_document_dao,
         }
     }
 
@@ -538,7 +565,8 @@ where
 }
 
 #[async_trait]
-impl<C, D, I, J, R, A, St> InboxService for InboxServiceImpl<C, D, I, J, R, A, St>
+impl<C, D, I, J, R, A, St, RA, JSA, SD> InboxService
+    for InboxServiceImpl<C, D, I, J, R, A, St, RA, JSA, SD>
 where
     C: ConfigService,
     D: InboundMailDao,
@@ -547,6 +575,9 @@ where
     R: MailRecipientDao,
     A: InboundMailAttachmentDao,
     St: DocumentStorage + 'static,
+    RA: MailRecipientAttachmentDao,
+    JSA: MailJobStaticAttachmentDao,
+    SD: StaticDocumentDao,
 {
     async fn list(&self) -> Result<Arc<[InboundMail]>, MailServiceError> {
         Ok(self.dao.list_active().await?)
@@ -618,8 +649,23 @@ where
         id: Uuid,
         subject: &str,
         body: &str,
+        attachment_inputs: Vec<AttachmentInput>,
+        static_document_ids: Vec<Uuid>,
     ) -> Result<MailJob, MailServiceError> {
         let mut mail = self.load_mail(id).await?;
+
+        // Quick 260607-s0s: validate static document existence BEFORE creating the
+        // job/recipient rows — mirrors MailServiceImpl::create_job (service.rs:300-308)
+        // so we never half-persist a job.
+        if !static_document_ids.is_empty() {
+            let found = self
+                .static_document_dao
+                .find_many_by_ids(&static_document_ids)
+                .await?;
+            if found.len() != static_document_ids.len() {
+                return Err(MailServiceError::NotFound);
+            }
+        }
 
         let now = time::OffsetDateTime::now_utc();
         let now_primitive = time::PrimitiveDateTime::new(now.date(), now.time());
@@ -658,6 +704,29 @@ where
             message_id: None,
         };
         self.recipient_dao.create(&recipient).await?;
+
+        // Quick 260607-s0s: persist per-recipient MemberDocument attachments
+        // (mirrors MailServiceImpl::create_job service.rs:350-359).
+        for att in &attachment_inputs {
+            let attachment = MailRecipientAttachment {
+                recipient_id: recipient.id,
+                document_id: att.document_id,
+                file_name: Arc::from(att.file_name.as_str()),
+                mime_type: Arc::from(att.mime_type.as_str()),
+                relative_path: Arc::from(att.relative_path.as_str()),
+            };
+            self.recipient_attachment_dao.create(&attachment).await?;
+        }
+
+        // Quick 260607-s0s: persist job-level StaticDocument joins
+        // (mirrors MailServiceImpl::create_job service.rs:362-368).
+        for static_document_id in &static_document_ids {
+            let join = MailJobStaticAttachment {
+                mail_job_id: job.id,
+                static_document_id: *static_document_id,
+            };
+            self.mail_job_static_attachment_dao.create(&join).await?;
+        }
 
         mail.replied = true;
         mail.version = Uuid::new_v4();
@@ -984,7 +1053,8 @@ mod tests {
     use super::*;
     use crate::dao::{
         MailDaoError, MockInboundMailAttachmentDao, MockInboundMailDao, MockMailJobDao,
-        MockMailRecipientDao,
+        MockMailJobStaticAttachmentDao, MockMailRecipientAttachmentDao, MockMailRecipientDao,
+        MockStaticDocumentDao, StaticDocument,
     };
     use genossi_config::dao::ConfigEntry;
     use genossi_config::service::MockConfigService;
@@ -1151,6 +1221,9 @@ mod tests {
             Arc::new(MockMailRecipientDao::new()),
             Arc::new(MockInboundMailAttachmentDao::new()),
             Arc::new(MockDocumentStorage::new()),
+            Arc::new(MockMailRecipientAttachmentDao::new()),
+            Arc::new(MockMailJobStaticAttachmentDao::new()),
+            Arc::new(MockStaticDocumentDao::new()),
         );
         let updated = svc.assign_member(mail_id, member_id).await.unwrap();
         assert_eq!(updated.assigned_member_id, Some(member_id));
@@ -1180,6 +1253,9 @@ mod tests {
             Arc::new(MockMailRecipientDao::new()),
             Arc::new(MockInboundMailAttachmentDao::new()),
             Arc::new(MockDocumentStorage::new()),
+            Arc::new(MockMailRecipientAttachmentDao::new()),
+            Arc::new(MockMailJobStaticAttachmentDao::new()),
+            Arc::new(MockStaticDocumentDao::new()),
         );
         let updated = svc.mark_done(mail_id).await.unwrap();
         assert!(updated.done);
@@ -1210,6 +1286,9 @@ mod tests {
             Arc::new(MockMailRecipientDao::new()),
             Arc::new(MockInboundMailAttachmentDao::new()),
             Arc::new(MockDocumentStorage::new()),
+            Arc::new(MockMailRecipientAttachmentDao::new()),
+            Arc::new(MockMailJobStaticAttachmentDao::new()),
+            Arc::new(MockStaticDocumentDao::new()),
         );
         let res = svc.archive(mail_id).await;
         assert!(matches!(res, Err(MailServiceError::ConfigMissing(_))));
@@ -1332,8 +1411,14 @@ mod tests {
             Arc::new(recipient_dao),
             Arc::new(MockInboundMailAttachmentDao::new()),
             Arc::new(MockDocumentStorage::new()),
+            Arc::new(MockMailRecipientAttachmentDao::new()),
+            Arc::new(MockMailJobStaticAttachmentDao::new()),
+            Arc::new(MockStaticDocumentDao::new()),
         );
-        let job = svc.reply(mail_id, "Re: s", "My reply").await.unwrap();
+        let job = svc
+            .reply(mail_id, "Re: s", "My reply", vec![], vec![])
+            .await
+            .unwrap();
         assert_eq!(job.subject.as_ref(), "Re: s");
         assert_eq!(job.reply_to_inbound_mail_id, Some(mail_id));
     }
@@ -1353,9 +1438,243 @@ mod tests {
             Arc::new(MockMailRecipientDao::new()),
             Arc::new(MockInboundMailAttachmentDao::new()),
             Arc::new(MockDocumentStorage::new()),
+            Arc::new(MockMailRecipientAttachmentDao::new()),
+            Arc::new(MockMailJobStaticAttachmentDao::new()),
+            Arc::new(MockStaticDocumentDao::new()),
         );
-        let result = svc.reply(Uuid::new_v4(), "Re: x", "body").await;
+        let result = svc
+            .reply(Uuid::new_v4(), "Re: x", "body", vec![], vec![])
+            .await;
         assert!(matches!(result, Err(MailServiceError::NotFound)));
+    }
+
+    // ── Quick 260607-s0s: reply-with-attachments tests ─────────────────
+
+    fn sample_attachment_input() -> AttachmentInput {
+        AttachmentInput {
+            document_id: Uuid::new_v4(),
+            file_name: "doc.pdf".to_string(),
+            mime_type: "application/pdf".to_string(),
+            relative_path: "member_documents/x/y".to_string(),
+        }
+    }
+
+    /// Quick 260607-s0s: reply with 2 member-doc AttachmentInputs must create
+    /// exactly 2 MailRecipientAttachment rows, each carrying the freshly
+    /// created `recipient.id`. Verifies the persistence loop mirrors
+    /// MailServiceImpl::create_job (service.rs:350-359).
+    #[tokio::test]
+    async fn reply_creates_attachment_rows_for_member_doc_attachment_ids() {
+        let mail = sample_mail();
+        let mail_id = mail.id;
+
+        let mut dao = MockInboundMailDao::new();
+        let returned = mail.clone();
+        dao.expect_find_by_id()
+            .returning(move |_| Ok(Some(returned.clone())));
+        dao.expect_update().returning(|_| Ok(()));
+
+        let mut job_dao = MockMailJobDao::new();
+        job_dao.expect_create().times(1).returning(|_| Ok(()));
+
+        let mut recipient_dao = MockMailRecipientDao::new();
+        // Capture the recipient.id assigned by `reply` so we can assert each
+        // attachment row references that exact id.
+        let captured_recipient_id =
+            Arc::new(std::sync::Mutex::new(None::<Uuid>));
+        let captured_for_recipient = captured_recipient_id.clone();
+        recipient_dao
+            .expect_create()
+            .times(1)
+            .returning(move |r| {
+                *captured_for_recipient.lock().unwrap() = Some(r.id);
+                Ok(())
+            });
+
+        // CRITICAL: recipient_attachment_dao.create MUST be called exactly twice,
+        // once per AttachmentInput, with the recipient.id from above.
+        let mut recipient_attachment_dao = MockMailRecipientAttachmentDao::new();
+        let captured_for_attachment = captured_recipient_id.clone();
+        recipient_attachment_dao
+            .expect_create()
+            .times(2)
+            .returning(move |att| {
+                let expected = captured_for_attachment.lock().unwrap();
+                assert_eq!(
+                    Some(att.recipient_id),
+                    *expected,
+                    "attachment.recipient_id must match the newly-created recipient.id"
+                );
+                Ok(())
+            });
+
+        let cfg = MockConfigService::new();
+        let imap = MockInboxImapClient::new();
+        let svc = InboxServiceImpl::new(
+            Arc::new(cfg),
+            Arc::new(dao),
+            Arc::new(imap),
+            Arc::new(job_dao),
+            Arc::new(recipient_dao),
+            Arc::new(MockInboundMailAttachmentDao::new()),
+            Arc::new(MockDocumentStorage::new()),
+            Arc::new(recipient_attachment_dao),
+            Arc::new(MockMailJobStaticAttachmentDao::new()),
+            Arc::new(MockStaticDocumentDao::new()),
+        );
+
+        let attachments = vec![sample_attachment_input(), sample_attachment_input()];
+        let job = svc
+            .reply(mail_id, "Re: with att", "body", attachments, vec![])
+            .await
+            .unwrap();
+        assert_eq!(job.reply_to_inbound_mail_id, Some(mail_id));
+    }
+
+    /// Quick 260607-s0s: reply with 2 static_document_ids must create exactly
+    /// 2 MailJobStaticAttachment join rows, each carrying job.id. Verifies the
+    /// static-doc validation runs first (find_many_by_ids must return both)
+    /// and the persistence loop mirrors service.rs:362-368.
+    #[tokio::test]
+    async fn reply_creates_static_doc_joins_for_static_document_ids() {
+        let mail = sample_mail();
+        let mail_id = mail.id;
+
+        let mut dao = MockInboundMailDao::new();
+        let returned = mail.clone();
+        dao.expect_find_by_id()
+            .returning(move |_| Ok(Some(returned.clone())));
+        dao.expect_update().returning(|_| Ok(()));
+
+        let static_a = Uuid::new_v4();
+        let static_b = Uuid::new_v4();
+        let static_ids = vec![static_a, static_b];
+
+        let mut static_document_dao = MockStaticDocumentDao::new();
+        // Must be called exactly once (validation) and return the same count.
+        static_document_dao
+            .expect_find_many_by_ids()
+            .times(1)
+            .returning(|ids| {
+                let now = time::OffsetDateTime::now_utc();
+                let now_primitive = time::PrimitiveDateTime::new(now.date(), now.time());
+                let docs: Vec<StaticDocument> = ids
+                    .iter()
+                    .map(|id| StaticDocument {
+                        id: *id,
+                        created: now_primitive,
+                        deleted: None,
+                        version: Uuid::new_v4(),
+                        name: Arc::from("name"),
+                        filename: Arc::from("f.pdf"),
+                        content_type: Arc::from("application/pdf"),
+                        size_bytes: 1,
+                    })
+                    .collect();
+                Ok(docs.into())
+            });
+
+        let mut job_dao = MockMailJobDao::new();
+        // Capture job.id so the static-attachment-join expectation can assert it.
+        let captured_job_id = Arc::new(std::sync::Mutex::new(None::<Uuid>));
+        let captured_for_job = captured_job_id.clone();
+        job_dao.expect_create().times(1).returning(move |j| {
+            *captured_for_job.lock().unwrap() = Some(j.id);
+            Ok(())
+        });
+
+        let mut recipient_dao = MockMailRecipientDao::new();
+        recipient_dao.expect_create().times(1).returning(|_| Ok(()));
+
+        let mut mail_job_static_attachment_dao = MockMailJobStaticAttachmentDao::new();
+        let captured_for_join = captured_job_id.clone();
+        mail_job_static_attachment_dao
+            .expect_create()
+            .times(2)
+            .returning(move |join| {
+                let expected = captured_for_join.lock().unwrap();
+                assert_eq!(
+                    Some(join.mail_job_id),
+                    *expected,
+                    "join.mail_job_id must match the newly-created job.id"
+                );
+                Ok(())
+            });
+
+        let cfg = MockConfigService::new();
+        let imap = MockInboxImapClient::new();
+        let svc = InboxServiceImpl::new(
+            Arc::new(cfg),
+            Arc::new(dao),
+            Arc::new(imap),
+            Arc::new(job_dao),
+            Arc::new(recipient_dao),
+            Arc::new(MockInboundMailAttachmentDao::new()),
+            Arc::new(MockDocumentStorage::new()),
+            Arc::new(MockMailRecipientAttachmentDao::new()),
+            Arc::new(mail_job_static_attachment_dao),
+            Arc::new(static_document_dao),
+        );
+
+        let job = svc
+            .reply(mail_id, "Re: static", "body", vec![], static_ids)
+            .await
+            .unwrap();
+        assert_eq!(job.reply_to_inbound_mail_id, Some(mail_id));
+    }
+
+    /// Quick 260607-s0s: backwards-compat — reply with empty attachment vecs
+    /// behaves EXACTLY like before. None of the new DAOs are touched.
+    #[tokio::test]
+    async fn reply_with_no_attachments_preserves_existing_behavior() {
+        let mail = sample_mail();
+        let mail_id = mail.id;
+
+        let mut dao = MockInboundMailDao::new();
+        let returned = mail.clone();
+        dao.expect_find_by_id()
+            .returning(move |_| Ok(Some(returned.clone())));
+        dao.expect_update().returning(|m| {
+            assert!(m.replied);
+            Ok(())
+        });
+
+        let mut job_dao = MockMailJobDao::new();
+        job_dao.expect_create().times(1).returning(|_| Ok(()));
+
+        let mut recipient_dao = MockMailRecipientDao::new();
+        recipient_dao.expect_create().times(1).returning(|_| Ok(()));
+
+        // CRITICAL: none of the new DAOs are called for an empty-attachment reply.
+        let mut recipient_attachment_dao = MockMailRecipientAttachmentDao::new();
+        recipient_attachment_dao.expect_create().times(0);
+
+        let mut mail_job_static_attachment_dao = MockMailJobStaticAttachmentDao::new();
+        mail_job_static_attachment_dao.expect_create().times(0);
+
+        let mut static_document_dao = MockStaticDocumentDao::new();
+        static_document_dao.expect_find_many_by_ids().times(0);
+
+        let cfg = MockConfigService::new();
+        let imap = MockInboxImapClient::new();
+        let svc = InboxServiceImpl::new(
+            Arc::new(cfg),
+            Arc::new(dao),
+            Arc::new(imap),
+            Arc::new(job_dao),
+            Arc::new(recipient_dao),
+            Arc::new(MockInboundMailAttachmentDao::new()),
+            Arc::new(MockDocumentStorage::new()),
+            Arc::new(recipient_attachment_dao),
+            Arc::new(mail_job_static_attachment_dao),
+            Arc::new(static_document_dao),
+        );
+
+        let job = svc
+            .reply(mail_id, "Re: plain", "body", vec![], vec![])
+            .await
+            .unwrap();
+        assert_eq!(job.reply_to_inbound_mail_id, Some(mail_id));
     }
 
     // ── Phase 19: Attachment pipeline tests ────────────────────────────

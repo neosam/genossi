@@ -75,6 +75,15 @@ pub struct AssignMemberRequest {
 pub struct ReplyRequest {
     pub subject: String,
     pub body: String,
+    /// Quick 260607-s0s: optional MemberDocument IDs (UUIDs as strings) to be
+    /// attached to the reply, mirroring the Compose-flow picker. Defaults to
+    /// empty for backward compatibility with older frontends.
+    #[serde(default)]
+    pub attachment_ids: Vec<String>,
+    /// Quick 260607-s0s: optional StaticDocument IDs (UUIDs as strings) to be
+    /// attached job-level. Defaults to empty for backward compatibility.
+    #[serde(default)]
+    pub static_document_ids: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
@@ -167,6 +176,18 @@ pub trait InboxRestState: Clone + Send + Sync + 'static {
     /// `genossi_rest::http_util::content_disposition_*`.
     fn content_disposition_attachment(&self, filename: &str) -> String;
     fn content_disposition_inline(&self, filename: &str) -> String;
+
+    /// Quick 260607-s0s: resolve a MemberDocument by id so the reply handler
+    /// can validate ownership (attachment_id must belong to the inbox-mail's
+    /// assigned_member_id). Identical signature to
+    /// [`crate::rest::MailRestState::resolve_document`] — both implemented
+    /// on the same `RestStateImpl` in `genossi_bin`.
+    fn resolve_document(
+        &self,
+        document_id: Uuid,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Option<crate::rest::ResolvedDocument>> + Send + '_>,
+    >;
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -400,7 +421,86 @@ async fn reply_inbox<S: InboxRestState>(
         Ok(u) => u,
         Err(_) => return (StatusCode::BAD_REQUEST, "invalid id").into_response(),
     };
-    match svc.reply(mail_id, &req.subject, &req.body).await {
+
+    // Quick 260607-s0s: load the mail up front so we can validate ownership
+    // (attachment_id must belong to mail.assigned_member_id). Mirrors the
+    // Compose-flow validation in rest.rs:481-513.
+    let mail = match svc.get(mail_id).await {
+        Ok(m) => m,
+        Err(e) => return map_error(e),
+    };
+
+    // T-s0s-02: attaching MemberDocuments requires an assigned member —
+    // otherwise we cannot perform the ownership check.
+    if !req.attachment_ids.is_empty() && mail.assigned_member_id.is_none() {
+        return (
+            StatusCode::BAD_REQUEST,
+            "no member assigned to this mail — cannot attach member documents",
+        )
+            .into_response();
+    }
+
+    // T-s0s-01: resolve each attachment_id and verify the document belongs
+    // to the assigned member. Reject mismatches with 400 BadRequest.
+    let mut attachment_inputs: Vec<crate::service::AttachmentInput> = Vec::new();
+    for att_id_str in &req.attachment_ids {
+        let doc_id = match Uuid::parse_str(att_id_str) {
+            Ok(u) => u,
+            Err(_) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    format!("invalid attachment_id: {}", att_id_str),
+                )
+                    .into_response();
+            }
+        };
+        let doc = match state.resolve_document(doc_id).await {
+            Some(d) => d,
+            None => return (StatusCode::NOT_FOUND, "attachment not found").into_response(),
+        };
+        if Some(doc.member_id) != mail.assigned_member_id {
+            return (
+                StatusCode::BAD_REQUEST,
+                "Attachment does not belong to the recipient's member",
+            )
+                .into_response();
+        }
+        attachment_inputs.push(crate::service::AttachmentInput {
+            document_id: doc.document_id,
+            file_name: doc.file_name,
+            mime_type: doc.mime_type,
+            relative_path: doc.relative_path,
+        });
+    }
+
+    // T-s0s-03: parse static_document_ids — invalid UUIDs are a client error
+    // (400). Existence is enforced inside the service (mirrors
+    // MailServiceImpl::create_job static-doc validation).
+    let mut static_doc_uuids: Vec<Uuid> = Vec::new();
+    for sid in &req.static_document_ids {
+        let parsed = match Uuid::parse_str(sid) {
+            Ok(u) => u,
+            Err(_) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    format!("invalid static_document_id: {}", sid),
+                )
+                    .into_response();
+            }
+        };
+        static_doc_uuids.push(parsed);
+    }
+
+    match svc
+        .reply(
+            mail_id,
+            &req.subject,
+            &req.body,
+            attachment_inputs,
+            static_doc_uuids,
+        )
+        .await
+    {
         Ok(job) => (
             StatusCode::ACCEPTED,
             Json(ReplyResponseTO {
