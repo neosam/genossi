@@ -1,19 +1,26 @@
 ---
 phase: 19-e-mail-anhaenge-anzeigen
 verified: 2026-06-07T12:00:00Z
-status: gaps_found
-score: 13/14 must-haves verified
+re_verified: 2026-06-07T15:45:00Z
+status: passed
+score: 14/14 must-haves verified
 overrides_applied: 0
 gaps:
   - truth: "Worker materialisiert Attachment-Bytes erst dann, wenn die 10-MB-Cap geprüft ist (D-02 als Schutz vor Memory-DoS)"
-    status: failed
-    reason: "extract_attachments ruft part.contents().to_vec() unbedingt VOR jeder Größenprüfung auf — die Cap greift erst in persist_attachment, nachdem die kompletten Bytes im Heap allokiert sind. Eine bösartige Mail mit Multi-GB-Attachment kann den Worker-Prozess OOM-killen, bevor D-02 greifen kann. Vom Review-Report (CR-01) als BLOCKER markiert."
-    artifacts:
-      - path: "genossi_mail/src/inbox.rs"
-        issue: "Zeile 199 + 229: part.contents().to_vec() ohne vorherige raw_len-Prüfung. Erst in persist_attachment Zeile 257 wird bytes.len() gegen ATTACHMENT_MAX_BYTES verglichen."
-    missing:
-      - "Probe-Read in extract_attachments: let raw_len = part.contents().len(); → wenn raw_len > ATTACHMENT_MAX_BYTES, dann oversized-Marker ohne to_vec() (oder Vec::new()) returnen"
-      - "Optional zusätzlich: pre-parse-Guard in poll_once mit MAX_MAIL_SIZE-Limit (z.B. 50 MB), bevor parse_raw_mail aufgerufen wird"
+    status: resolved
+    resolved_by: "Plan 19-07 gap-closure (commits 146875ea fix + f848604e docs)"
+    resolved_at: 2026-06-07T15:45:00Z
+    original_reason: "extract_attachments ruft part.contents().to_vec() unbedingt VOR jeder Größenprüfung auf — die Cap greift erst in persist_attachment, nachdem die kompletten Bytes im Heap allokiert sind. Eine bösartige Mail mit Multi-GB-Attachment kann den Worker-Prozess OOM-killen, bevor D-02 greifen kann. Vom Review-Report (CR-01) als BLOCKER markiert."
+    fix_evidence:
+      - "Probe-Read als erster Schritt in extract_attachments (inbox.rs:209): `let raw_len = part.contents().len()`"
+      - "Beide to_vec()-Aufrufe (inbox.rs:220, 252) im else-Zweig von `if oversized { Vec::new() } else { ... }`"
+      - "ParsedAttachment.declared_size: u64 (inbox.rs:211) trägt die echte Größe auch bei oversized=true"
+      - "persist_attachment berechnet oversized + size_bytes aus declared_size statt bytes.len() (inbox.rs:291-292)"
+      - "Beide Caller (poll_once Z. 798 + run_attachment_backfill Z. 947) reichen att.declared_size durch"
+      - "Neuer Regressions-Test test_extract_attachments_oversized_skips_materialization (inbox.rs:1618) ist grün: multipart/mixed mit > 10 MB Body-Part → bytes.is_empty() == true UND declared_size > ATTACHMENT_MAX_BYTES"
+      - "176 Tests passed in cargo test -p genossi_mail --lib (175 vorher + 1 neu), 0 failed"
+      - "cargo check --workspace --exclude genossi-frontend: 0 errors"
+      - "cargo clippy -p genossi_mail --all-targets: 0 neue Findings auf inbox.rs"
 ---
 
 # Phase 19: E-Mail-Anhänge anzeigen Verification Report
@@ -32,7 +39,7 @@ gaps:
 |---|-------|--------|----------|
 | 1 | D-01: Universal-Attachment-Filter (kein MIME-Whitelist beim Persist) | ✓ VERIFIED | `extract_attachments` in `inbox.rs:192` iteriert ALLE `msg.attachments()` ohne MIME-Filter; fallbacks zu `application/octet-stream` |
 | 2 | D-02: 10-MB-Hard-Cap als Persistenz-Marker (oversized=true, relative_path=None) | ✓ VERIFIED | `ATTACHMENT_MAX_BYTES = 10*1024*1024` const + `persist_attachment` Zeile 257 prüft, setzt `oversized=true` + `relative_path=None`. Test `test_persist_attachment_oversized_skips_storage` mit `storage.expect_save().times(0)` grün |
-| 3 | D-02 Memory-DoS-Schutz: 10-MB-Cap greift VOR Heap-Allokation | ✗ FAILED | `extract_attachments` ruft `part.contents().to_vec()` unbedingt vor jedem Size-Check (Zeile 199, 229). REVIEW CR-01 als BLOCKER markiert. |
+| 3 | D-02 Memory-DoS-Schutz: 10-MB-Cap greift VOR Heap-Allokation | ✓ VERIFIED (re-verified 2026-06-07T15:45Z after 19-07 fix) | Probe-Read in `extract_attachments` Z. 209 (`let raw_len = part.contents().len()`); beide `to_vec()`-Aufrufe (Z. 220, 252) im else-Zweig von `if oversized { Vec::new() } else { ... }`; `ParsedAttachment.declared_size: u64` trägt echte Größe auch bei oversized; `persist_attachment` berechnet oversized + size_bytes aus `declared_size` (Z. 291-292); neuer Test `test_extract_attachments_oversized_skips_materialization` (Z. 1618) beweist `bytes.is_empty() == true` bei oversized — `to_vec()` wird damit NICHT auf die volle Payload aufgerufen. |
 | 4 | D-04: Storage-Pfad enthält nie Filename (inbound_mail_attachments/{mail_id}/{att_id}) | ✓ VERIFIED | `inbox.rs:262`: `format!("inbound_mail_attachments/{}/{}", inbound_mail_id, id)` — nur UUIDs, kein Filename |
 | 5 | D-06: UIDVALIDITY-Drift = silent skip im Backfill | ✓ VERIFIED | `fetch_one_by_uid` in `inbox_imap.rs` prüft UIDVALIDITY und gibt Err zurück; `run_attachment_backfill` (inbox.rs:889-899) loggt `tracing::warn!` + `skipped += 1` + `continue`. Test `test_run_attachment_backfill_silent_skips_imap_error` grün |
 | 6 | D-07: Read-only DAO (4 Methoden: create / find_by_inbound_mail_id / find_by_id_and_mail / count_for_mail) | ✓ VERIFIED | `dao.rs:125-137` definiert genau diese 4 Methoden. Kein update / delete / dump_all. T-03 IDOR-Schutz via `find_by_id_and_mail` mit Composite-WHERE |
@@ -45,7 +52,7 @@ gaps:
 | 13 | UI-SPEC: PDF-Vorschau-Button neben Download | ✓ VERIFIED | `attachment_list_item.rs:105-113`: `is_pdf`-Branch fügt `<a target="_blank" rel="noopener" href="{inline_url}">Vorschau</a>` neben dem Download-Button hinzu |
 | 14 | Backfill-Worker für Bestandsmails (einmalig, am Server-Start) | ✓ VERIFIED | `run_attachment_backfill` in `inbox.rs:810` als One-Shot (kein loop {}); `start_attachment_backfill_worker` in `genossi_bin/src/lib.rs:1385` mit tokio::spawn; aufgerufen in `main.rs:57` nach `start_inbox_worker()`. Idempotenz via `count_for_mail == 0`-Filter. Test `test_run_attachment_backfill_skips_already_backfilled` grün |
 
-**Score:** 13/14 truths verified (1 FAILED)
+**Score:** 14/14 truths verified (Truth #3 resolved 2026-06-07 by Plan 19-07 gap-closure)
 
 ### Required Artifacts
 
@@ -54,7 +61,7 @@ gaps:
 | `migrations/sqlite/20260608000000_create_inbound_mail_attachments_table.sql` | 8-Spalten-Tabelle + Index | ✓ VERIFIED | Migration vorhanden mit id BLOB PRIMARY KEY, FK auf inbound_mails, idempotent (`IF NOT EXISTS`) |
 | `genossi_mail/src/dao.rs` (InboundMailAttachment + Dao-Trait) | Entity + 4-method Trait | ✓ VERIFIED | Zeilen 111-137: Entity + Trait mit genau 4 read-only Methoden |
 | `genossi_mail/src/dao_sqlite.rs` (SQLite-Impl) | InboundMailAttachmentDaoSqlite | ✓ VERIFIED | Zeilen 438-547: `InboundMailAttachmentDb` FromRow + `TryFrom` + SQLite-Impl mit allen 4 Methoden. 2 Roundtrip/IDOR-Tests grün |
-| `genossi_mail/src/inbox.rs` (Worker-Pipeline) | parse_raw_mail + persist_attachment + Backfill | ⚠️ PARTIAL | Pipeline existiert + funktioniert. Aber: extract_attachments materialisiert Bytes vor Size-Check (CR-01) |
+| `genossi_mail/src/inbox.rs` (Worker-Pipeline) | parse_raw_mail + persist_attachment + Backfill | ✓ VERIFIED (re-verified after 19-07) | Pipeline existiert + funktioniert. Probe-Read greift jetzt VOR jedem `to_vec()` (D-02 Memory-DoS-Schutz auf Worker-Heap-Ebene erfüllt). |
 | `genossi_mail/src/inbox_imap.rs` (fetch_one_by_uid) | UIDVALIDITY-checked single-UID fetch | ✓ VERIFIED | `impl InboxImapClient for AsyncImapClient` Zeile 107 + `fetch_one_by_uid` Zeile 149 mit drift-check |
 | `genossi_mail/src/inbox_rest.rs` (DetailTO + Download-Endpoint) | embedded attachments + GET /attachments/{id} | ✓ VERIFIED | `InboundMailAttachmentTO` + `attachments` Feld auf DetailTO; `download_attachment` Handler mit Disposition-Switch + Route registriert |
 | `genossi_rest/src/http_util.rs` (content_disposition_inline) | Helper für inline-disposition | ✓ VERIFIED | Zeile 57: `pub fn content_disposition_inline(filename: &str) -> String` mit RFC 6266 UTF-8 + ASCII-Fallback |
@@ -117,7 +124,7 @@ Keine numerierten REQ-IDs für v1.3 vorhanden — Scope = CONTEXT D-01..D-14 + U
 
 | File | Line | Pattern | Severity | Impact |
 |------|------|---------|----------|--------|
-| `genossi_mail/src/inbox.rs` | 199, 229 | `part.contents().to_vec()` ohne vorherige Größenprüfung | 🛑 Blocker (CR-01 aus REVIEW) | Memory-Exhaustion-DoS: bösartige Mail mit Multi-GB-Attachment OOM-killt Worker-Prozess vor Persistenz-Cap-Check |
+| ~~`genossi_mail/src/inbox.rs`~~ | ~~199, 229~~ | ~~`part.contents().to_vec()` ohne vorherige Größenprüfung~~ | ~~🛑 Blocker (CR-01 aus REVIEW)~~ ✓ RESOLVED 2026-06-07 by 19-07 (Probe-Read-Pattern; commits 146875ea + f848604e) | ~~Memory-Exhaustion-DoS~~ Gemildert: Probe-Read greift jetzt VOR Heap-Allokation; T-19-07-01 mitigated. |
 | `genossi-frontend/src/component/inbox/attachment_list_item.rs` | 147-163 | `short_mime` hardcodet deutsche Strings ("Bild", "Datei") | ⚠️ Warning (WR-01) | i18n-Konsistenz-Verstoss; englischer Locale zeigt "12 KB · Bild" |
 | `genossi-frontend/src/page/inbox_page.rs` | 230-252, 425-449 | Filter-/Action-Buttons inline statt extrahierte Components | ⚠️ Warning (WR-02) | Component-First Disziplin verletzt — Phase 19 verbessert die Lage nicht; ist aber nicht in Phase 19 Scope (existierender Code) |
 | `genossi_mail/src/inbox.rs` | 765-772, 918-924 | `tracing::warn!` loggt Mail-UUID + sender-controlled `file_name` | ⚠️ Warning (WR-05) | Log-Spam-Vektor + potenzieller PII-Reach für Mitgliedsdaten in Filenames |
@@ -148,9 +155,43 @@ Manueller Browser-Smoke-Test wurde laut Auftrag bereits vom Vorstand approved (P
 - WR-05 PII-Logging in `tracing::warn!`-Lines
 - WR-06 fehlende Filename-Sanitization (Bidi-Override, Control-Chars)
 
-**Empfehlung:** CR-01 mit minimal-invasivem Fix (Probe-Read in `extract_attachments`) schließen, bevor Phase 19 als komplett deklariert wird. Die anderen Warnings sind Defense-in-Depth-Verbesserungen, die in einer Follow-up-Phase adressiert werden können.
+**Empfehlung:** ~~CR-01 mit minimal-invasivem Fix (Probe-Read in `extract_attachments`) schließen, bevor Phase 19 als komplett deklariert wird.~~ ✓ Geschehen: Plan 19-07 hat exakt den empfohlenen Probe-Read-Fix umgesetzt; Truth #3 ist nun verifiziert. Die anderen Warnings (WR-01/02/04/05/06, IN-01..IN-05) bleiben Defense-in-Depth-Verbesserungen für eine Follow-up-Phase.
 
 ---
 
-_Verified: 2026-06-07T12:00:00Z_
-_Verifier: Claude (gsd-verifier)_
+## Re-Verification 2026-06-07T15:45Z
+
+**Status-Übergang:** `gaps_found` → `passed` (14/14 must-haves)
+
+**Trigger:** Plan 19-07 gap-closure abgeschlossen (commits `146875ea fix(19-07): probe-read pattern in extract_attachments` + `f848604e docs(19-07): add SUMMARY`).
+
+**Re-verified Truth:** Truth #3 (D-02 Memory-DoS-Schutz auf Worker-Heap-Ebene)
+
+**Inline-Re-Verification durchgeführt** (gsd-verifier-Agent nicht installiert; `agents_installed: false` aus init.execute-phase). Evidence-Kette:
+
+| Evidence | Befund | Quelle |
+|----------|--------|--------|
+| Probe-Read als erster Schritt in extract_attachments-Loop | `let raw_len = part.contents().len()` an Z. 209 | `grep -n 'let raw_len = part.contents().len()' inbox.rs` → 1 hit |
+| Beide `to_vec()`-Aufrufe (Z. 220 + 252) sind im else-Zweig von `if oversized` | Z. 219 `} else {` → Z. 220 `to_vec()`; Z. 251 `} else {` → Z. 252 `to_vec()` | `grep -B1 'part.contents().to_vec()' inbox.rs` |
+| `ParsedAttachment.declared_size: u64` Field-Definition | Z. 168 (in struct) + Z. 211 (Berechnung via probe-read) | `grep -n 'declared_size = raw_len' inbox.rs` |
+| `persist_attachment` berechnet size + oversized aus declared_size statt bytes.len() | Z. 291 `let size = declared_size as i64;` + Z. 292 `let oversized = declared_size > ATTACHMENT_MAX_BYTES;` | `grep -nE 'let (size\|oversized).*declared_size' inbox.rs` |
+| Beide produktive Caller propagieren declared_size | poll_once Z. 798 + run_attachment_backfill Z. 947 | `grep -n 'att.declared_size,' inbox.rs` → 3 hits (2 prod + 1 test) |
+| Neuer Regressions-Test grün | `test_extract_attachments_oversized_skips_materialization` (Z. 1618) | `cargo test ... -- --nocapture` → 1 passed |
+| Bestehender Test bleibt grün (Regression check) | `test_persist_attachment_oversized_skips_storage` | `cargo test ... -- --nocapture` → 1 passed |
+| Rollback-Test bleibt grün | `test_persist_attachment_rollback_on_db_fail` | `cargo test ... -- --nocapture` → 1 passed |
+| Full lib-Test-Suite | 176 passed (175 vorher + 1 neu), 0 failed | `cargo test -p genossi_mail --lib` |
+| Workspace builds clean | 0 errors | `cargo check --workspace --exclude genossi-frontend` |
+| Clippy gate (inbox.rs only) | 0 neue Findings | `cargo clippy -p genossi_mail --all-targets` |
+
+**Mitigation:** T-19-07-01 (Memory-Exhaustion-DoS) ist gemildert. Eine bösartige Mail mit Multi-GB-Attachment löst jetzt **`Vec::new()`** statt `part.contents().to_vec()` aus — der Worker-Heap erfährt keine Multi-GB-Allokation mehr.
+
+**Open Follow-ups (NICHT BLOCKER, dokumentiert für nächste Phase):**
+- WR-01, WR-02, WR-04, WR-05, WR-06 (Recommend-Level aus 19-REVIEW.md)
+- IN-01..IN-05 (Info-Level)
+- Optional `MAX_MAIL_SIZE`-Pre-Parse-Guard in `poll_once` als Defense-in-Depth gegen `mail_parser`-internen Heap-Verbrauch — separater Follow-up bei konkretem Bedarf.
+
+---
+
+_Originally Verified: 2026-06-07T12:00:00Z_
+_Re-Verified: 2026-06-07T15:45:00Z (inline, Truth #3 only; agents_installed=false)_
+_Verifier: Claude (initial: gsd-verifier subagent; re-verification: orchestrator inline)_
