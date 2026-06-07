@@ -461,7 +461,10 @@ async fn download_attachment<S: InboxRestState>(
     };
 
     if att.oversized {
-        return (StatusCode::PAYLOAD_TOO_LARGE, "attachment was oversized at receive").into_response();
+        // GONE statt 413 — Metadaten-Row existiert, Bytes wurden beim Empfang verworfen;
+        // nichts kann mehr geliefert werden. 413 würde implizieren, dass eine kleinere
+        // Variante des Bodys angefordert werden könnte.
+        return (StatusCode::GONE, "attachment was oversized at receive").into_response();
     }
     let rel_path = match att.relative_path {
         Some(p) => p,
@@ -1038,27 +1041,31 @@ pub fn format_size(bytes: u64) -> String {
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Wie soll der Endpoint auf nicht-existierende Mail/Attachment-Kombinationen reagieren wenn mail_id und attachment_id beide gültige UUIDs sind, aber nicht zusammengehören?**
    - What we know: Der `find_by_id_and_mail`-Query gibt `Ok(None)` zurück → 404. Sinnvoll.
    - What's unclear: Ob hierfür zusätzliche Telemetrie/Alerting eingerichtet werden soll (potential malicious enumeration).
    - Recommendation: 404 ohne Telemetrie. Da nur Vorstand Zugriff hat (D-09), kein Vector für Enumeration-Angriffe.
+   - **RESOLVED:** Kein Alerting, kein Log, keine Metric. 404 ist die Endpoint-Antwort; die Surface ist Vorstand-only, daher kein Enumeration-Vektor. Telemetrie würde nur Noise erzeugen.
 
 2. **Soll der Backfill-Worker bei der ersten erfolgreichen Phase-19-Deploy-Welle aktiv sein, oder bei späteren Restarts automatisch No-Op?**
    - What we know: D-05 sagt "einmalig beim Start"; das Filter `count_attachments==0` ist self-managing.
    - What's unclear: Ob nach `N` aufeinanderfolgenden Restart-Zyklen ohne Backfill-Erfolg ein Log-Statement wie "all candidates exhausted (X permanent failures)" sinnvoll wäre.
    - Recommendation: Aus Scope. Initial-Implementierung loggt nur `starting (N candidates)` und am Ende `done (Y persisted, Z skipped)`. Späterer Refinement, falls produktiver Bedarf.
+   - **RESOLVED:** Out of scope für Phase 19. Initial-Implementierung loggt ausschließlich `inbox_attachment_backfill: starting (N candidates)` am Start und `done (Y persisted, Z skipped)` am Ende. Kein Retry-Counter, kein State-Table, kein "permanent failures"-Log. Refinement erst bei produktivem Bedarf.
 
 3. **Wo legen wir die `format_size` Util ab — in `util/format.rs` (neu) oder direkt im Component-File?**
    - What we know: UI-SPEC §Formatting & States empfiehlt `src/util/format.rs` oder "co-locate" im Component.
    - What's unclear: Ob es schon eine `util/`-Konvention im Frontend gibt.
    - Recommendation: Neuer `util/format.rs`. Erleichtert Wiederverwendung (z. B. zukünftig auch für outbound-Attachments und Static-Documents) und macht Unit-Tests leichter isolierbar.
+   - **RESOLVED:** Neuer Pfad `genossi-frontend/src/util/format.rs` mit `pub fn format_size(u64) -> String`. Neue `genossi-frontend/src/util/mod.rs` mit `pub mod format;`. Registrierung via `pub mod util;` in `genossi-frontend/src/main.rs` (oder `lib.rs`, je nachdem wo die Modul-Deklarationen liegen) in alphabetischer Position.
 
 4. **In welchem Reihenfolge sollten Frontend- und Backend-Tasks geplant werden?**
    - What we know: TO-Schema (D-07) ist der API-Kontrakt zwischen Backend und Frontend.
    - What's unclear: Ob Backend-Tasks Frontend-Tasks blockieren (klassischer Vertical-Slice) oder ob Mock-Daten genutzt werden.
    - Recommendation: Backend zuerst, Frontend zweitens. Dazwischen ein kurzer "API-Smoke"-Test mit curl, der das embedded `attachments`-Feld in DetailTO + den Download-Handler beide grün zeigt. Component-Tests können später kommen.
+   - **RESOLVED:** Backend-Wave 1-4 zuerst (DAO + Migration → Service + IMAP → REST-Endpoints → Backfill-Worker), dann Frontend-Wave 4-5 (Components → Page-Wiring). Der API-Smoke via curl im Übergang verifiziert das embedded `attachments`-Feld und den Download-Handler beide grün, bevor die Components gebaut werden.
 
 ---
 
