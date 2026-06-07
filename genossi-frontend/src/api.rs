@@ -3,6 +3,11 @@ use std::rc::Rc;
 
 use rest_types::{
     MemberActionTO, MemberDocumentTO, MemberTO, MigrationStatusTO, UserTO, ValidationResultTO,
+    // ─── Phase 18 ─── Membership-Adjust DTOs ─────────────────────────
+    MemberSlimTO,
+    CancelMembershipRequestTO, IncreaseSharesRequestTO, MembershipAdjustResponseTO,
+    PartialRepaymentRequestTO, PartialRepaymentResponseTO,
+    TransferSharesRequestTO, TransferSharesResponseTO,
 };
 use tracing::info;
 use uuid::Uuid;
@@ -2827,6 +2832,123 @@ mod tests {
             "missing field MUST default to false"
         );
     }
+}
+
+// ─── Phase 18 ─── Membership-Adjust API-Client-Funktionen ───────────
+//
+// Foundation fuer das `MembershipAdjustModal` (Plan 18-06): 5 neue
+// API-Funktionen, die die Phase-15/16/17/14-Backend-Endpoints aufrufen.
+// Alle 5 folgen dem bestehenden `update_member`/`create_member`-Pattern
+// (`format!`+`config.backend`+`reqwest::Client`+`check_response`) und
+// propagieren `AppError` (kein `unwrap` auf Network/JSON).
+
+/// Phase 18 / Phase 15 D-15-11 — POST /api/members/{id}/cancel
+///
+/// Cancels membership; returns the new MemberAction (Austritt) + updated
+/// Member. `willensbekundung_date` ist das vom Mitglied genannte Datum
+/// der Kuendigung; Backend leitet daraus den H1/H2-Stichtag ab.
+pub async fn cancel_membership(
+    config: &Config,
+    member_id: Uuid,
+    willensbekundung_date: time::Date,
+) -> Result<MembershipAdjustResponseTO, AppError> {
+    info!("Cancelling membership {member_id}");
+    let url = format!("{}/api/members/{member_id}/cancel", config.backend);
+    let body = CancelMembershipRequestTO {
+        willensbekundung_date,
+    };
+    let response = reqwest::Client::new().post(url).json(&body).send().await?;
+    let response = check_response(response).await?;
+    Ok(response.json().await?)
+}
+
+/// Phase 18 / Phase 15 D-15-15 — POST /api/members/{id}/increase-shares
+///
+/// Erhoeht `current_shares` sofort um `shares` und erzeugt eine
+/// `MemberAction::Aufstockung`. Returns das neue MemberAction + den
+/// aktualisierten Member.
+pub async fn increase_shares(
+    config: &Config,
+    member_id: Uuid,
+    shares: i32,
+    willensbekundung_date: time::Date,
+) -> Result<MembershipAdjustResponseTO, AppError> {
+    info!("Increasing shares for {member_id} by {shares}");
+    let url = format!("{}/api/members/{member_id}/increase-shares", config.backend);
+    let body = IncreaseSharesRequestTO {
+        willensbekundung_date,
+        shares,
+    };
+    let response = reqwest::Client::new().post(url).json(&body).send().await?;
+    let response = check_response(response).await?;
+    Ok(response.json().await?)
+}
+
+/// Phase 18 / Phase 16 D-16-16 — POST /api/members/{id}/partial-repayment
+///
+/// Erzeugt einen `RepaymentEntry` in der via `compute_effective_date`
+/// berechneten Ziel-Phase (Auto-Create-Branch falls noetig). Returns
+/// `entry` + `member`-Stand + optionale Auto-erstellte `phase` (Some
+/// wenn die Phase neu angelegt wurde).
+pub async fn partial_repayment(
+    config: &Config,
+    member_id: Uuid,
+    shares: i32,
+    willensbekundung_date: time::Date,
+) -> Result<PartialRepaymentResponseTO, AppError> {
+    info!("Partial repayment for {member_id}: {shares} shares");
+    let url = format!("{}/api/members/{member_id}/partial-repayment", config.backend);
+    let body = PartialRepaymentRequestTO {
+        willensbekundung_date,
+        shares,
+    };
+    let response = reqwest::Client::new().post(url).json(&body).send().await?;
+    let response = check_response(response).await?;
+    Ok(response.json().await?)
+}
+
+/// Phase 18 / Phase 17 C-17-CF-07 — POST /api/members/{from_id}/transfer-shares
+///
+/// Atomare 15-Schritt-Single-Tx-Cascade: erzeugt `UebertragungAbgabe` +
+/// `UebertragungEmpfang` (+ optionalen `Austritt` bei Voll-Uebertrag) und
+/// reduziert/erhoeht `current_shares` der beiden beteiligten Mitglieder
+/// sofort. Returns 2 actions bei Teil-Uebertrag, 3 bei Voll-Uebertrag.
+pub async fn transfer_shares(
+    config: &Config,
+    from_id: Uuid,
+    to_member_id: Uuid,
+    shares: i32,
+    transfer_date: time::Date,
+) -> Result<TransferSharesResponseTO, AppError> {
+    info!("Transferring {shares} shares from {from_id} to {to_member_id}");
+    let url = format!("{}/api/members/{from_id}/transfer-shares", config.backend);
+    let body = TransferSharesRequestTO {
+        to_member_id,
+        shares,
+        transfer_date,
+    };
+    let response = reqwest::Client::new().post(url).json(&body).send().await?;
+    let response = check_response(response).await?;
+    Ok(response.json().await?)
+}
+
+/// Phase 18 / Phase 14 D-14-12 — GET /api/members/transfer-recipients?exclude_self={uuid}
+///
+/// DSGVO-konformer Slim-Listen-Endpoint: liefert nur aktive Mitglieder
+/// (`exit_date IS NULL`) mit minimaler Whitelist (id, member_number,
+/// salutation, title, first_name, last_name — keine Email/PII). Das
+/// `from`-Mitglied wird vom Server via `exclude_self` ausgeschlossen.
+pub async fn get_transfer_recipients(
+    config: &Config,
+    exclude_self: Uuid,
+) -> Result<Vec<MemberSlimTO>, AppError> {
+    info!("Fetching transfer recipients (exclude_self={exclude_self})");
+    let url = format!(
+        "{}/api/members/transfer-recipients?exclude_self={exclude_self}",
+        config.backend
+    );
+    let response = check_response(reqwest::get(url).await?).await?;
+    Ok(response.json().await?)
 }
 
 // ─── Phase 18 ─── URL-Builder-Tests ─────────────────────────────────

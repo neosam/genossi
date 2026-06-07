@@ -43,12 +43,22 @@ pub fn MemberSearch(
     on_select: EventHandler<Option<Uuid>>,
     selected_id: Option<Uuid>,
     exclude_id: Option<Uuid>,
+    // Phase 18 L-5: optional override; None = use global MEMBERS (Phase 12 default).
+    #[props(default)]
+    members_override: Option<Vec<MemberTO>>,
 ) -> Element {
     let mut query = use_signal(|| String::new());
     let mut show_dropdown = use_signal(|| false);
 
-    let members_state = MEMBERS.read();
-    let members = &members_state.items;
+    // Phase 18 L-5: override-list takes precedence over global MEMBERS.
+    // We clone into an owned Vec to avoid lifetime issues across the match arms
+    // (MEMBERS.read() returns a guard that doesn't live long enough to outlive
+    // the match). MAX_RESULTS=10 keeps the clone cost trivial.
+    let members_owned: Vec<MemberTO> = match members_override.clone() {
+        Some(list) => list,
+        None => MEMBERS.read().items.clone(),
+    };
+    let members: &[MemberTO] = members_owned.as_slice();
 
     // Find selected member for display
     let selected_member: Option<&MemberTO> =
@@ -243,5 +253,27 @@ mod tests {
         for i in 1..results.len() {
             assert!(results[i - 1].member_number <= results[i].member_number);
         }
+    }
+
+    #[test]
+    fn test_filter_members_works_with_custom_list() {
+        // Verifies that filter_members (the pure helper) functions over a custom slice
+        // — Phase 18 TransferSubView feeds it a get_transfer_recipients result.
+        let recipients = vec![
+            make_member(Uuid::from_u128(10), 100, "Bob", "Recipient"),
+            make_member(Uuid::from_u128(11), 101, "Carol", "Recipient"),
+        ];
+        let results = filter_members(&recipients, "recipient", None);
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].member_number, 100);
+    }
+
+    #[test]
+    fn test_filter_members_empty_override_returns_nothing() {
+        // Phase 18 — if override is empty (e.g. get_transfer_recipients returned 0 active members),
+        // filter_members must return empty even for non-empty queries.
+        let empty: Vec<MemberTO> = vec![];
+        let results = filter_members(&empty, "anything", None);
+        assert!(results.is_empty());
     }
 }
