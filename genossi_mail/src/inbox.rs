@@ -159,7 +159,15 @@ pub trait InboxImapClient: Send + Sync + 'static {
 pub struct ParsedAttachment {
     pub file_name: String,
     pub mime_type: String,
+    /// Materialized bytes — empty Vec when the attachment exceeds
+    /// `ATTACHMENT_MAX_BYTES` (Probe-Read pattern, D-02 Memory-DoS guard).
     pub bytes: Vec<u8>,
+    /// Real attachment size as reported by `mail_parser`'s
+    /// `part.contents().len()`. Unlike `bytes.len()` this is always the
+    /// declared size — even when `bytes` is empty due to the oversized
+    /// guard. `persist_attachment` uses this to set `size_bytes` and to
+    /// decide whether `oversized=true`.
+    pub declared_size: u64,
 }
 
 /// Result of parsing a raw mail into fields ready for storage.
@@ -194,9 +202,23 @@ fn extract_attachments(msg: &mail_parser::Message) -> Vec<ParsedAttachment> {
 
     let mut out = Vec::new();
     for (idx, part) in msg.attachments().enumerate() {
+        // Probe-Read (D-02 / CR-01): NEVER materialize bytes above the
+        // cap. `part.contents()` returns &[u8] without allocation — only
+        // `to_vec()` copies into the heap. A malicious mail with a
+        // multi-GB attachment would OOM the worker otherwise.
+        let raw_len = part.contents().len();
+        let oversized = raw_len as u64 > ATTACHMENT_MAX_BYTES;
+        let declared_size = raw_len as u64;
+
         if part.is_message() {
-            // Forwarded-as-attachment .eml: store raw bytes verbatim.
-            let bytes = part.contents().to_vec();
+            // Forwarded-as-attachment .eml: store raw bytes verbatim
+            // (unless oversized — then keep the bytes empty and let
+            // `persist_attachment` record metadata only).
+            let bytes: Vec<u8> = if oversized {
+                Vec::new()
+            } else {
+                part.contents().to_vec()
+            };
             let name = part
                 .attachment_name()
                 .map(|s| s.to_string())
@@ -205,6 +227,7 @@ fn extract_attachments(msg: &mail_parser::Message) -> Vec<ParsedAttachment> {
                 file_name: name,
                 mime_type: "message/rfc822".to_string(),
                 bytes,
+                declared_size,
             });
             continue;
         }
@@ -223,10 +246,16 @@ fn extract_attachments(msg: &mail_parser::Message) -> Vec<ParsedAttachment> {
             .attachment_name()
             .map(|s| s.to_string())
             .unwrap_or_else(|| format!("attachment_{}.bin", idx));
+        let bytes: Vec<u8> = if oversized {
+            Vec::new()
+        } else {
+            part.contents().to_vec()
+        };
         out.push(ParsedAttachment {
             file_name: name,
             mime_type: mime,
-            bytes: part.contents().to_vec(),
+            bytes,
+            declared_size,
         });
     }
     out
@@ -251,10 +280,16 @@ async fn persist_attachment(
     file_name: &str,
     mime_type: &str,
     bytes: &[u8],
+    declared_size: u64,
 ) -> Result<InboundMailAttachment, MailServiceError> {
     let id = Uuid::new_v4();
-    let size = bytes.len() as i64;
-    let oversized = bytes.len() as u64 > ATTACHMENT_MAX_BYTES;
+    // CR-01: source of truth for size + oversized is `declared_size`
+    // (probe-read result), NOT `bytes.len()`. When the attachment is
+    // oversized the caller passes an empty `bytes` slice — using
+    // `bytes.len()` would lose the real size and break the oversized
+    // marker.
+    let size = declared_size as i64;
+    let oversized = declared_size > ATTACHMENT_MAX_BYTES;
 
     let relative_path = if oversized {
         None
@@ -760,6 +795,7 @@ where
                     &att.file_name,
                     &att.mime_type,
                     &att.bytes,
+                    att.declared_size,
                 )
                 .await
                 {
@@ -908,6 +944,7 @@ pub async fn run_attachment_backfill<C, D, A, St, I>(
                 &att.file_name,
                 &att.mime_type,
                 &att.bytes,
+                att.declared_size,
             )
             .await
             {
@@ -1355,6 +1392,12 @@ mod tests {
             "attachment bytes should be non-empty"
         );
         assert!(p.has_attachments);
+        assert!(p.attachments[0].declared_size > 0);
+        assert_eq!(
+            p.attachments[0].declared_size as usize,
+            p.attachments[0].bytes.len(),
+            "under the cap, declared_size must match bytes.len()"
+        );
     }
 
     /// Test B — oversized attachment skips DocumentStorage entirely and
@@ -1378,10 +1421,19 @@ mod tests {
 
         // 1 byte over the 10 MB hard cap.
         let bytes = vec![0u8; (ATTACHMENT_MAX_BYTES as usize) + 1];
+        let declared = bytes.len() as u64;
         let mail_id = Uuid::new_v4();
-        let result = persist_attachment(&storage, &dao, mail_id, "big.bin", "image/png", &bytes)
-            .await
-            .unwrap();
+        let result = persist_attachment(
+            &storage,
+            &dao,
+            mail_id,
+            "big.bin",
+            "image/png",
+            &bytes,
+            declared,
+        )
+        .await
+        .unwrap();
         assert!(result.oversized, "returned entity must report oversized=true");
         assert!(
             result.relative_path.is_none(),
@@ -1541,11 +1593,67 @@ mod tests {
         });
 
         let bytes = vec![1u8; 1024]; // 1 KB, well under the cap
+        let declared = bytes.len() as u64;
         let mail_id = Uuid::new_v4();
-        let result =
-            persist_attachment(&storage, &dao, mail_id, "doc.pdf", "application/pdf", &bytes).await;
+        let result = persist_attachment(
+            &storage,
+            &dao,
+            mail_id,
+            "doc.pdf",
+            "application/pdf",
+            &bytes,
+            declared,
+        )
+        .await;
         assert!(matches!(result, Err(MailServiceError::DataAccess(_))));
         // mockall verifies expect_save().times(1) and expect_delete().times(1)
         // on Drop — they document the save-then-DB-then-rollback flow.
+    }
+
+    /// Phase 19 gap-closure (CR-01): extract_attachments fuehrt einen
+    /// Probe-Read durch und allokiert die Bytes NICHT, wenn das Attachment
+    /// die 10-MB-Cap (ATTACHMENT_MAX_BYTES) ueberschreitet. Beweist D-02 als
+    /// Memory-DoS-Schutz VOR der Heap-Allokation.
+    #[test]
+    fn test_extract_attachments_oversized_skips_materialization() {
+        // Body-part mit > ATTACHMENT_MAX_BYTES roher Payload (kein Base64,
+        // damit decoded length == raw length und der probe-read greift).
+        let oversized_payload = vec![b'A'; (ATTACHMENT_MAX_BYTES as usize) + 1024];
+        let mut raw = Vec::new();
+        raw.extend_from_slice(
+            b"From: sender@example.com\r\n\
+              To: inbox@example.com\r\n\
+              Subject: Oversized Anhang\r\n\
+              MIME-Version: 1.0\r\n\
+              Content-Type: multipart/mixed; boundary=BOUNDARY\r\n\
+              \r\n\
+              --BOUNDARY\r\n\
+              Content-Type: text/plain\r\n\
+              \r\n\
+              Anhang folgt.\r\n\
+              --BOUNDARY\r\n\
+              Content-Type: application/octet-stream\r\n\
+              Content-Transfer-Encoding: 8bit\r\n\
+              Content-Disposition: attachment; filename=\"huge.bin\"\r\n\
+              \r\n",
+        );
+        raw.extend_from_slice(&oversized_payload);
+        raw.extend_from_slice(b"\r\n--BOUNDARY--\r\n");
+
+        let parsed = parse_raw_mail(&raw);
+        assert_eq!(parsed.attachments.len(), 1, "expected exactly one attachment");
+        let att = &parsed.attachments[0];
+        assert!(
+            att.declared_size > ATTACHMENT_MAX_BYTES,
+            "declared_size ({}) must exceed cap ({}) — probe-read must record the real size",
+            att.declared_size,
+            ATTACHMENT_MAX_BYTES
+        );
+        assert!(
+            att.bytes.is_empty(),
+            "oversized attachment MUST NOT materialize bytes (got {} bytes; expected 0). \
+             This proves part.contents().to_vec() was NOT called above the cap.",
+            att.bytes.len()
+        );
     }
 }
