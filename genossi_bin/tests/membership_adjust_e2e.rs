@@ -1444,6 +1444,106 @@ async fn test_transfer_shares_full_with_exit_date_cascade() {
     assert!(body["to"]["exit_date"].is_null(), "to bleibt aktiv");
 }
 
+/// Quick 260608-jb1 — Voll-Uebertrag erzeugt RepaymentEntry fuer entleerten Sender.
+///
+/// Setup: A.current_shares=3, B aktiv. RepaymentPhase fuer aktuelles fiscal_year
+/// (transfer_date=today_march_15 -> H1, fiscal_year = aktuelles Jahr) auf Open.
+/// Action: transfer A->B mit shares=3 (Voll-Uebertrag, A wird leer).
+/// Assertion: A.current_shares=0, A.exit_date=transfer_date, RepaymentEntry
+/// fuer A.id mit share_count_to_pay_out=3 (Wert VOR Decrement) und status=Open.
+/// B bleibt aktiv ohne exit_date.
+#[tokio::test]
+async fn test_transfer_shares_full_creates_repayment_entry() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let a = create_active_member(&client, &server, 1212, "FullTransRepayA").await;
+    let a = put_member_current_shares(&client, &server, &a, 3).await;
+    let b = create_active_member(&client, &server, 1213, "FullTransRepayB").await;
+
+    let a_id = a.id.expect("a.id");
+    let b_id = b.id.expect("b.id");
+
+    let transfer_date = today_march_15();
+    let target_fy = transfer_date.year();
+
+    // RepaymentPhase fuer aktuelles fiscal_year anlegen + auf Open transitionieren.
+    let phase = create_repayment_phase(&client, &server, target_fy, 10000).await;
+    let phase_id = phase["id"].as_str().expect("phase.id");
+    let r_open = client
+        .post(server.url(&format!("/api/repayment-phase/{}/open", phase_id)))
+        .send()
+        .await
+        .expect("open phase");
+    assert_eq!(
+        r_open.status(),
+        StatusCode::OK,
+        "open phase: {}",
+        r_open.text().await.unwrap_or_default()
+    );
+
+    // Voll-Uebertrag A -> B.
+    let resp = client
+        .post(server.url(&format!("/api/members/{}/transfer-shares", a_id)))
+        .json(&transfer_shares_body(&b_id, 3, &transfer_date.to_string()))
+        .send()
+        .await
+        .expect("POST transfer-shares full");
+    let status = resp.status();
+    let body_text = resp.text().await.unwrap_or_default();
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "Voll-Uebertrag muss 200 returnen; body: {}",
+        body_text
+    );
+
+    let body: Value = serde_json::from_str(&body_text).expect("decode");
+
+    // A wird leer + exit_date.
+    assert_eq!(
+        body["from"]["current_shares"].as_i64().expect("from.current_shares"),
+        0,
+        "A.current_shares = 0"
+    );
+    assert_eq!(
+        body["from"]["exit_date"].as_str().expect("from.exit_date"),
+        transfer_date.to_string().as_str(),
+        "A.exit_date = transfer_date"
+    );
+    // B bleibt aktiv.
+    assert!(body["to"]["exit_date"].is_null(), "B bleibt aktiv");
+
+    // RepaymentEntry fuer A muss in der Phase existieren mit share_count=3.
+    let r_list = client
+        .get(server.url(&format!("/api/repayment-entry?phase_id={}", phase_id)))
+        .send()
+        .await
+        .expect("list entries");
+    assert_eq!(r_list.status(), StatusCode::OK);
+    let entries: Vec<Value> = r_list.json().await.expect("decode entries");
+    let a_id_str = a_id.to_string();
+    let entries_for_a: Vec<&Value> = entries
+        .iter()
+        .filter(|e| e["member_id"].as_str() == Some(&a_id_str))
+        .collect();
+    assert_eq!(
+        entries_for_a.len(),
+        1,
+        "expected exactly 1 RepaymentEntry for A; got {} entries: {:?}",
+        entries_for_a.len(),
+        entries_for_a
+    );
+    assert_eq!(
+        entries_for_a[0]["share_count_to_pay_out"], 3,
+        "share_count_to_pay_out muss shares=3 (Wert VOR Decrement) sein, NICHT 0"
+    );
+    assert_eq!(
+        entries_for_a[0]["status"], "Open",
+        "neuer Entry muss Status Open haben"
+    );
+}
+
 /// Test 3 (TRSF-07 / D-17-08) — Self-Transfer 400.
 ///
 /// Setup: A.current_shares=5. POST mit body.to_member_id == a_id.
