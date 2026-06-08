@@ -1,12 +1,12 @@
 ---
 slug: kuendigung-repayment-missing
-status: root_cause_found
+status: resolved
 trigger: |
   <<DATA_START>>
   Bug: Bei Mitgliedschaft anpassen werden gekündigte Mitglieder nicht in die Repayment-Periode eingefügt.
   <<DATA_END>>
 created: 2026-06-08T07:33:11Z
-updated: 2026-06-08T07:33:11Z
+updated: 2026-06-08T12:17:06Z
 ---
 
 # Debug Session: kuendigung-repayment-missing
@@ -229,3 +229,30 @@ if updated_entity.current_shares > 0 {
 7. Symmetrischer Test für `transfer_shares` Voll-Übertrag.
 
 **Option B (nicht empfohlen):** Den Auto-Fill in `open_repayment_phase` auch beim Update auf bereits-Open-Phasen laufen lassen. Verändert eingespielte Semantik und Audit-Trail-Annahmen.
+
+## Resolution
+
+- timestamp: 2026-06-08T12:17:06Z
+  resolved_by: Quick 260608-jb1
+  commits:
+    - 0e81e066 (test RED — 4 e2e tests für cancel_membership)
+    - 66612231 (fix GREEN — cancel_membership creates RepaymentEntry)
+    - 5070af33 (test RED — 1 e2e test für transfer_shares full)
+    - e856ff4b (fix GREEN — transfer_shares full-transfer creates RepaymentEntry)
+  summary: |
+    Symmetrischer Fix in `cancel_membership` (genossi_service_impl/src/membership_adjust.rs Z. 83-260)
+    und `transfer_shares` Voll-Uebertrag-Branch (Z. 685-790). Beide Code-Pfade fuehren jetzt analog
+    `partial_repayment` Step 9+12 einen Phase-Resolve+Entry-Create-Block aus.
+
+    Neue Audit-Process-Strings:
+      - `member-adjust.cancel.repayment` fuer Cancel-erzeugte Entries
+      - `member-adjust.transfer-full.repayment` fuer Voll-Uebertrag-erzeugte Entries
+
+    Idempotenz ueber `find_by_member_and_phase().is_empty()`-Skip-Pattern (gleich wie
+    open_repayment_phase Auto-Fill Z. 389-395). Closed-Phase -> 409 Conflict.
+    5 neue E2E-Tests decken alle Pfade ab (Phase Open, Phase Auto-Create, Closed, Skip,
+    transfer-full).
+
+    Update am Step-5-Kommentar in `partial_repayment` (Z. 318-328): die alte "v1.1-PaidOut-Cascade"-
+    Erlaeuterung war irrefuehrend; tatsaechlich landen cancelled-Members jetzt direkt im Entry, nicht
+    ueber eine spaetere PaidOut-Cascade.

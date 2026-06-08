@@ -1659,12 +1659,50 @@ mod service_tests {
             .withf(|priv_, _| priv_ == "admin")
             .returning(|_, _| Ok(()));
 
-        let service = build_service(
+        // Quick 260608-jb1: cancel_membership ruft jetzt (wenn current_shares > 0)
+        // repayment_phase_dao.all() und repayment_entry_dao.{find_by_member_and_phase,
+        // create} auf. sample_member_entity setzt current_shares=1, also wird der
+        // Phase-Resolve+Entry-Create-Block ausgefuehrt. Wir liefern eine bestehende
+        // Open-Phase fuer das fiscal_year zurueck und einen leeren Entry-Vec, so
+        // dass GENAU EIN entry-Create laeuft (kein Phase-Auto-Create noetig).
+        let target_fy = today.year();
+        let existing_phase_for_fy = move || -> RepaymentPhaseEntity {
+            let now = time::OffsetDateTime::now_utc();
+            let now_pdt = time::PrimitiveDateTime::new(now.date(), now.time());
+            RepaymentPhaseEntity {
+                id: Uuid::new_v4(),
+                fiscal_year: target_fy,
+                share_value: DEFAULT_SHARE_VALUE_CENT,
+                status: RepaymentPhaseStatus::Open,
+                opened_at: Some(now_pdt),
+                closed_at: None,
+                created: now_pdt,
+                deleted: None,
+                version: Uuid::new_v4(),
+            }
+        };
+        let mut repayment_phase_dao = MockTestRepaymentPhaseDao::new();
+        repayment_phase_dao
+            .expect_all()
+            .returning(move |_| Ok(Arc::from(vec![existing_phase_for_fy()])));
+        let mut repayment_entry_dao = MockTestRepaymentEntryDao::new();
+        repayment_entry_dao
+            .expect_find_by_member_and_phase()
+            .returning(|_, _, _| Ok(Arc::from(Vec::<RepaymentEntryEntity>::new())));
+        repayment_entry_dao
+            .expect_create()
+            .withf(|_, process, _| process == "member-adjust.cancel.repayment")
+            .times(1)
+            .returning(|_, _, _| Ok(()));
+
+        let service = build_service_part(
             member_dao,
             member_action_dao,
             audit_log_dao,
             permission_service,
             setup_tx_dao(),
+            repayment_phase_dao,
+            repayment_entry_dao,
         );
 
         let result = service
@@ -1730,12 +1768,47 @@ mod service_tests {
             .expect_check_permission()
             .returning(|_, _| Ok(()));
 
-        let service = build_service(
+        // Quick 260608-jb1: cancel_membership ruft jetzt repayment_phase_dao.all() +
+        // repayment_entry_dao.{find_by_member_and_phase, create} auf (siehe H1-Test
+        // fuer Begruendung). H2 -> target fiscal_year = aktuelles Jahr + 1.
+        let target_fy = today.year() + 1;
+        let existing_phase_for_fy = move || -> RepaymentPhaseEntity {
+            let now = time::OffsetDateTime::now_utc();
+            let now_pdt = time::PrimitiveDateTime::new(now.date(), now.time());
+            RepaymentPhaseEntity {
+                id: Uuid::new_v4(),
+                fiscal_year: target_fy,
+                share_value: DEFAULT_SHARE_VALUE_CENT,
+                status: RepaymentPhaseStatus::Open,
+                opened_at: Some(now_pdt),
+                closed_at: None,
+                created: now_pdt,
+                deleted: None,
+                version: Uuid::new_v4(),
+            }
+        };
+        let mut repayment_phase_dao = MockTestRepaymentPhaseDao::new();
+        repayment_phase_dao
+            .expect_all()
+            .returning(move |_| Ok(Arc::from(vec![existing_phase_for_fy()])));
+        let mut repayment_entry_dao = MockTestRepaymentEntryDao::new();
+        repayment_entry_dao
+            .expect_find_by_member_and_phase()
+            .returning(|_, _, _| Ok(Arc::from(Vec::<RepaymentEntryEntity>::new())));
+        repayment_entry_dao
+            .expect_create()
+            .withf(|_, process, _| process == "member-adjust.cancel.repayment")
+            .times(1)
+            .returning(|_, _, _| Ok(()));
+
+        let service = build_service_part(
             member_dao,
             member_action_dao,
             audit_log_dao,
             permission_service,
             setup_tx_dao(),
+            repayment_phase_dao,
+            repayment_entry_dao,
         );
 
         let result = service
@@ -2893,14 +2966,48 @@ mod service_tests {
             .expect_find_by_member_id()
             .returning(|_, _| Ok(Arc::from(Vec::<MemberActionEntity>::new())));
 
+        // Quick 260608-jb1: transfer_shares Voll-Uebertrag erzeugt jetzt einen
+        // RepaymentEntry fuer den entleerten Sender. Wir liefern eine bestehende
+        // Open-Phase fuer das fiscal_year zurueck und einen leeren Entry-Vec, so
+        // dass genau EIN entry-Create laeuft.
+        let tt_fy = compute_effective_date(transfer_date).fiscal_year;
+        let existing_phase_for_fy = move || -> RepaymentPhaseEntity {
+            let now = time::OffsetDateTime::now_utc();
+            let now_pdt = time::PrimitiveDateTime::new(now.date(), now.time());
+            RepaymentPhaseEntity {
+                id: Uuid::new_v4(),
+                fiscal_year: tt_fy,
+                share_value: DEFAULT_SHARE_VALUE_CENT,
+                status: RepaymentPhaseStatus::Open,
+                opened_at: Some(now_pdt),
+                closed_at: None,
+                created: now_pdt,
+                deleted: None,
+                version: Uuid::new_v4(),
+            }
+        };
+        let mut repayment_phase_dao = MockTestRepaymentPhaseDao::new();
+        repayment_phase_dao
+            .expect_all()
+            .returning(move |_| Ok(Arc::from(vec![existing_phase_for_fy()])));
+        let mut repayment_entry_dao = MockTestRepaymentEntryDao::new();
+        repayment_entry_dao
+            .expect_find_by_member_and_phase()
+            .returning(|_, _, _| Ok(Arc::from(Vec::<RepaymentEntryEntity>::new())));
+        repayment_entry_dao
+            .expect_create()
+            .withf(|_, process, _| process == "member-adjust.transfer-full.repayment")
+            .times(1)
+            .returning(|_, _, _| Ok(()));
+
         let service = build_service_part(
             member_dao,
             member_action_dao,
             allow_audit_log_transfer(),
             allow_admin_perms_transfer(),
             setup_tx_dao(),
-            MockTestRepaymentPhaseDao::new(),
-            MockTestRepaymentEntryDao::new(),
+            repayment_phase_dao,
+            repayment_entry_dao,
         );
 
         let res = service
