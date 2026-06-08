@@ -51,7 +51,6 @@ const CANCEL_REPAYMENT_PROCESS: &str = "member-adjust.cancel.repayment";
 
 /// Quick 260608-jb1: Audit-Process-String fuer den RepaymentEntry-Create, der durch
 /// den Voll-Uebertrag-Branch in `transfer_shares` ausgeloest wird.
-#[allow(dead_code)] // wired up in Task 2 (transfer_shares Voll-Uebertrag-Branch)
 const TRANSFER_FULL_REPAYMENT_PROCESS: &str = "member-adjust.transfer-full.repayment";
 
 /// Audit-Process-String fuer den inline auto-erzeugten RepaymentPhase-Create
@@ -781,6 +780,92 @@ impl<Deps: MembershipAdjustServiceDeps> MembershipAdjustService for MembershipAd
             .find_by_id(to_entity.id, tx.clone())
             .await?
             .ok_or(ServiceError::EntityNotFound(to_entity.id))?;
+
+        // Quick 260608-jb1: Symmetrischer Fix — Voll-Uebertrag erzeugt RepaymentEntry
+        // fuer den entleerten Sender. Spiegelt cancel_membership-Logik aus Task 1
+        // dieses Quicks; gleiche Audit-Pattern (Status-Guard, Auto-Phase-Create,
+        // Skip-Pattern).
+        if will_become_zero {
+            // fiscal_year aus transfer_date ableiten (analog Schritt 13:
+            // austritt.effective_date = Some(transfer_date)). transfer_shares hat
+            // kein willensbekundung_date — der H1/H2-Stichtag passt nicht direkt;
+            // wir benutzen transfer_date als effektives Wirksamkeitsdatum.
+            let effective_for_repayment = compute_effective_date(transfer_date);
+
+            let all_phases = self.repayment_phase_dao.all(tx.clone()).await?;
+            let target_phase_existing = all_phases
+                .iter()
+                .find(|p| p.fiscal_year == effective_for_repayment.fiscal_year)
+                .cloned();
+
+            if let Some(ref existing) = target_phase_existing {
+                if existing.status == RepaymentPhaseStatus::Closed {
+                    return Err(ServiceError::Conflict(Arc::from(format!(
+                        "RepaymentPhase fiscal_year={} ist Closed — Voll-Uebertrag kann nicht eingetragen werden (D-11.1)",
+                        effective_for_repayment.fiscal_year
+                    ))));
+                }
+            }
+
+            let target_phase: RepaymentPhaseEntity = match target_phase_existing {
+                Some(p) => p,
+                None => {
+                    let share_value = all_phases
+                        .first()
+                        .map(|p| p.share_value)
+                        .unwrap_or(DEFAULT_SHARE_VALUE_CENT);
+                    let auto_phase = RepaymentPhaseEntity {
+                        id: self.uuid_service.new_v4().await,
+                        fiscal_year: effective_for_repayment.fiscal_year,
+                        share_value,
+                        status: RepaymentPhaseStatus::Open,
+                        opened_at: Some(created_pdt),
+                        closed_at: None,
+                        created: created_pdt,
+                        deleted: None,
+                        version: self.uuid_service.new_v4().await,
+                    };
+                    crate::audited_create!(
+                        self,
+                        self.repayment_phase_dao,
+                        &auto_phase,
+                        REPAYMENT_PHASE_CREATE_PROCESS,
+                        &user_id,
+                        tx
+                    );
+                    auto_phase
+                }
+            };
+
+            // Skip-Pattern: kein Duplikat zu evtl. existierenden Entries
+            // (z.B. aus einem vorherigen partial_repayment auf A).
+            let existing_entries = self
+                .repayment_entry_dao
+                .find_by_member_and_phase(from_entity.id, target_phase.id, tx.clone())
+                .await?;
+            if existing_entries.is_empty() {
+                let new_entry = RepaymentEntryEntity {
+                    id: self.uuid_service.new_v4().await,
+                    member_id: from_entity.id,
+                    phase_id: target_phase.id,
+                    // KRITISCH: shares (= from.current_shares VOR Decrement, garantiert
+                    // durch `will_become_zero`-Definition). NICHT from_final.current_shares!
+                    share_count_to_pay_out: shares,
+                    status: RepaymentEntryStatus::Open,
+                    created: created_pdt,
+                    deleted: None,
+                    version: self.uuid_service.new_v4().await,
+                };
+                crate::audited_create!(
+                    self,
+                    self.repayment_entry_dao,
+                    &new_entry,
+                    TRANSFER_FULL_REPAYMENT_PROCESS,
+                    &user_id,
+                    tx
+                );
+            }
+        }
 
         self.transaction_dao.commit(tx).await?;
 
