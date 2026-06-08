@@ -463,6 +463,331 @@ async fn test_cancel_membership_date_in_previous_year_rejected() {
 }
 
 // ============================================================================
+// Quick 260608-jb1: cancel_membership creates RepaymentEntry (bug-fix)
+// ============================================================================
+//
+// Symmetrischer Fix analog `partial_repayment` Step 9+12: gekuendigte Members
+// landen direkt in der offenen RepaymentPhase ihres fiscal_year. Vorher passierte
+// das nur via Auto-Fill in `open_repayment_phase` beim Preparation->Open-State-
+// Transition; bei bereits-Open-Phasen fielen Members durch.
+//
+// 4 Tests:
+// A) Phase ist Open -> Entry wird angelegt
+// B) Keine Phase vorhanden -> Auto-Create (Open) + Entry
+// C) Phase ist Closed -> 409 Conflict
+// D) Entry existiert bereits (z.B. aus partial_repayment) -> kein Duplikat
+
+/// Test A — Phase open, cancel -> RepaymentEntry angelegt.
+#[tokio::test]
+async fn test_cancel_membership_creates_repayment_entry_when_phase_open() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let m = create_active_member(&client, &server, 1300, "CancEntryOpen").await;
+    let m = put_member_current_shares(&client, &server, &m, 3).await;
+    let member_id = m.id.expect("id");
+
+    let h1_date = today_march_15();
+    let target_fy = h1_date.year();
+
+    // Phase fuer fiscal_year anlegen + auf Open transitionieren.
+    let phase = create_repayment_phase(&client, &server, target_fy, 10000).await;
+    let phase_id = phase["id"].as_str().expect("phase.id");
+    let r_open = client
+        .post(server.url(&format!("/api/repayment-phase/{}/open", phase_id)))
+        .send()
+        .await
+        .expect("open phase");
+    assert_eq!(
+        r_open.status(),
+        StatusCode::OK,
+        "open phase: {}",
+        r_open.text().await.unwrap_or_default()
+    );
+
+    // Cancel.
+    let resp = client
+        .post(server.url(&format!("/api/members/{}/cancel", member_id)))
+        .json(&cancel_body(&h1_date.to_string()))
+        .send()
+        .await
+        .expect("POST cancel");
+    let status = resp.status();
+    let body_text = resp.text().await.unwrap_or_default();
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "expected 200, got {}: {}",
+        status,
+        body_text
+    );
+
+    // GET /api/repayment-entry?phase_id=... liefert genau einen Entry fuer Member.
+    let r_list = client
+        .get(server.url(&format!("/api/repayment-entry?phase_id={}", phase_id)))
+        .send()
+        .await
+        .expect("list entries");
+    assert_eq!(r_list.status(), StatusCode::OK);
+    let entries: Vec<Value> = r_list.json().await.expect("decode entries");
+    let member_id_str = member_id.to_string();
+    let entries_for_member: Vec<&Value> = entries
+        .iter()
+        .filter(|e| e["member_id"].as_str() == Some(&member_id_str))
+        .collect();
+    assert_eq!(
+        entries_for_member.len(),
+        1,
+        "expected exactly 1 entry for cancelled member; got {} entries: {:?}",
+        entries_for_member.len(),
+        entries_for_member
+    );
+    assert_eq!(
+        entries_for_member[0]["share_count_to_pay_out"], 3,
+        "share_count_to_pay_out muss member.current_shares (3) sein"
+    );
+    assert_eq!(
+        entries_for_member[0]["status"], "Open",
+        "neuer Entry muss Status Open haben"
+    );
+}
+
+/// Test B — Keine Phase vorhanden, cancel mit H2-Datum -> Phase + Entry werden
+/// auto-angelegt; Phase ist Open mit DEFAULT_SHARE_VALUE_CENT (10000) und
+/// fiscal_year = aktuelles Jahr + 1.
+#[tokio::test]
+async fn test_cancel_membership_auto_creates_phase_when_none_exists() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let m = create_active_member(&client, &server, 1301, "CancAutoPhase").await;
+    let m = put_member_current_shares(&client, &server, &m, 2).await;
+    let member_id = m.id.expect("id");
+
+    // H2 -> fiscal_year = naechstes Jahr; keine Phase vor-erzeugt.
+    let h2_date = today_august_15();
+    let target_fy = h2_date.year() + 1;
+
+    let resp = client
+        .post(server.url(&format!("/api/members/{}/cancel", member_id)))
+        .json(&cancel_body(&h2_date.to_string()))
+        .send()
+        .await
+        .expect("POST cancel");
+    let status = resp.status();
+    let body_text = resp.text().await.unwrap_or_default();
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "expected 200, got {}: {}",
+        status,
+        body_text
+    );
+
+    // GET /api/repayment-phase -> die auto-angelegte Phase muss existieren.
+    let r_phases = client
+        .get(server.url("/api/repayment-phase"))
+        .send()
+        .await
+        .expect("list phases");
+    assert_eq!(r_phases.status(), StatusCode::OK);
+    let phases: Vec<Value> = r_phases.json().await.expect("decode phases");
+    let auto_phase = phases
+        .iter()
+        .find(|p| p["fiscal_year"].as_i64() == Some(target_fy as i64))
+        .unwrap_or_else(|| {
+            panic!(
+                "no phase for fiscal_year={} found; phases: {:?}",
+                target_fy, phases
+            )
+        });
+    assert_eq!(
+        auto_phase["status"], "Open",
+        "auto-created phase MUST be Open (analog partial_repayment Step 9)"
+    );
+    assert_eq!(
+        auto_phase["share_value"], 10000,
+        "DEFAULT_SHARE_VALUE_CENT fallback wenn keine Vorgaenger-Phase"
+    );
+    assert!(
+        !auto_phase["opened_at"].is_null(),
+        "auto-created phase muss opened_at gesetzt haben"
+    );
+
+    let phase_id = auto_phase["id"].as_str().expect("auto_phase.id");
+
+    // GET /api/repayment-entry?phase_id=... liefert genau einen Entry fuer Member.
+    let r_list = client
+        .get(server.url(&format!("/api/repayment-entry?phase_id={}", phase_id)))
+        .send()
+        .await
+        .expect("list entries");
+    assert_eq!(r_list.status(), StatusCode::OK);
+    let entries: Vec<Value> = r_list.json().await.expect("decode entries");
+    let member_id_str = member_id.to_string();
+    let entries_for_member: Vec<&Value> = entries
+        .iter()
+        .filter(|e| e["member_id"].as_str() == Some(&member_id_str))
+        .collect();
+    assert_eq!(
+        entries_for_member.len(),
+        1,
+        "expected exactly 1 entry for cancelled member"
+    );
+    assert_eq!(
+        entries_for_member[0]["share_count_to_pay_out"], 2,
+        "share_count_to_pay_out = member.current_shares"
+    );
+}
+
+/// Test C — Phase ist Closed -> cancel gibt 409 zurueck; Member.exit_date bleibt null;
+/// keine neue Austritt-Action.
+#[tokio::test]
+async fn test_cancel_membership_closed_phase_returns_409() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let m = create_active_member(&client, &server, 1302, "CancClosed").await;
+    // current_shares = 1 reicht; share-count ist fuer 409 unerheblich.
+    let member_id = m.id.expect("id");
+
+    let h1_date = today_march_15();
+    let target_fy = h1_date.year();
+
+    // Phase: Preparation -> Open -> Closed.
+    let phase = create_repayment_phase(&client, &server, target_fy, 10000).await;
+    let phase_id = phase["id"].as_str().expect("phase.id");
+    let r_open = client
+        .post(server.url(&format!("/api/repayment-phase/{}/open", phase_id)))
+        .send()
+        .await
+        .expect("open phase");
+    assert_eq!(r_open.status(), StatusCode::OK);
+    let r_close = client
+        .post(server.url(&format!("/api/repayment-phase/{}/close", phase_id)))
+        .send()
+        .await
+        .expect("close phase");
+    assert_eq!(
+        r_close.status(),
+        StatusCode::OK,
+        "close phase: {}",
+        r_close.text().await.unwrap_or_default()
+    );
+
+    // Cancel -> 409.
+    let resp = client
+        .post(server.url(&format!("/api/members/{}/cancel", member_id)))
+        .json(&cancel_body(&h1_date.to_string()))
+        .send()
+        .await
+        .expect("POST cancel");
+    let status = resp.status();
+    let body_text = resp.text().await.unwrap_or_default();
+    assert_eq!(
+        status,
+        StatusCode::CONFLICT,
+        "expected 409 for closed phase, got {}: {}",
+        status,
+        body_text
+    );
+    assert!(
+        body_text.contains("Closed") || body_text.contains("closed"),
+        "expected body to mention closed; got: {}",
+        body_text
+    );
+
+    // Tx muss rolled-back sein: Member.exit_date == null.
+    let r_member = client
+        .get(server.url(&format!("/api/members/{}", member_id)))
+        .send()
+        .await
+        .expect("GET member");
+    assert_eq!(r_member.status(), StatusCode::OK);
+    let member_json: Value = r_member.json().await.expect("decode member");
+    assert!(
+        member_json["exit_date"].is_null(),
+        "Tx rolled back -> exit_date muss null sein, got: {:?}",
+        member_json["exit_date"]
+    );
+}
+
+/// Test D — Idempotenz: Member hat bereits einen Entry in Phase (z.B. aus
+/// partial_repayment) -> cancel legt KEINEN zweiten Entry an; der existierende
+/// Wert wird NICHT ueberschrieben.
+#[tokio::test]
+async fn test_cancel_membership_skips_when_entry_exists() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let m = create_active_member(&client, &server, 1303, "CancSkip").await;
+    let m = put_member_current_shares(&client, &server, &m, 3).await;
+    let member_id = m.id.expect("id");
+
+    let h1_date = today_march_15();
+    let target_fy = h1_date.year();
+
+    // Phase auf Open (damit partial_repayment laeuft).
+    let phase = create_repayment_phase(&client, &server, target_fy, 10000).await;
+    let phase_id = phase["id"].as_str().expect("phase.id");
+    let r_open = client
+        .post(server.url(&format!("/api/repayment-phase/{}/open", phase_id)))
+        .send()
+        .await
+        .expect("open phase");
+    assert_eq!(r_open.status(), StatusCode::OK);
+
+    // Partial-repayment: legt Entry mit share_count=1 an.
+    let r_part = client
+        .post(server.url(&format!("/api/members/{}/partial-repayment", member_id)))
+        .json(&partial_repayment_body(&h1_date.to_string(), 1))
+        .send()
+        .await
+        .expect("partial-repayment");
+    assert_eq!(
+        r_part.status(),
+        StatusCode::OK,
+        "partial-repayment: {}",
+        r_part.text().await.unwrap_or_default()
+    );
+
+    // Cancel -> 200; kein Duplikat-Entry; existing Wert bleibt.
+    let r_cancel = client
+        .post(server.url(&format!("/api/members/{}/cancel", member_id)))
+        .json(&cancel_body(&h1_date.to_string()))
+        .send()
+        .await
+        .expect("cancel");
+    assert_eq!(
+        r_cancel.status(),
+        StatusCode::OK,
+        "cancel: {}",
+        r_cancel.text().await.unwrap_or_default()
+    );
+
+    // GET entries: genau ein Entry fuer Member, share_count_to_pay_out=1 (nicht 3).
+    let r_list = client
+        .get(server.url(&format!("/api/repayment-entry?phase_id={}", phase_id)))
+        .send()
+        .await
+        .expect("list entries");
+    assert_eq!(r_list.status(), StatusCode::OK);
+    let entries: Vec<Value> = r_list.json().await.expect("decode entries");
+    let member_id_str = member_id.to_string();
+    let entries_for_member: Vec<&Value> = entries
+        .iter()
+        .filter(|e| e["member_id"].as_str() == Some(&member_id_str))
+        .collect();
+    assert_eq!(
+        entries_for_member.len(),
+        1,
+        "Skip-Pattern: kein Duplikat-Entry erlaubt; got {} entries: {:?}",
+        entries_for_member.len(),
+        entries_for_member
+    );
+    assert_eq!(
+        entries_for_member[0]["share_count_to_pay_out"], 1,
+        "existing Wert bleibt (cancel ueberschreibt NICHT)"
+    );
+}
+
+// ============================================================================
 // Phase 16: partial_repayment E2E tests
 // ============================================================================
 //
