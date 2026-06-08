@@ -42,6 +42,18 @@ const PARTIAL_REPAYMENT_PROCESS: &str = "member-adjust.partial-repayment";
 /// Uebertrag-Vorgangs (2 oder 3 MemberAction-Creates + 2 Member-Updates).
 const TRANSFER_PROCESS: &str = "member-adjust.transfer";
 
+/// Quick 260608-jb1: Audit-Process-String fuer den RepaymentEntry-Create, der
+/// durch `cancel_membership` ausgeloest wird. Symmetrisch zu PARTIAL_REPAYMENT_PROCESS,
+/// aber forensisch unterscheidbar: Filter `WHERE process = 'member-adjust.cancel.repayment'`
+/// findet alle Entries, die durch eine Kuendigung (nicht durch Auto-Fill in
+/// open_repayment_phase oder durch partial_repayment) angelegt wurden.
+const CANCEL_REPAYMENT_PROCESS: &str = "member-adjust.cancel.repayment";
+
+/// Quick 260608-jb1: Audit-Process-String fuer den RepaymentEntry-Create, der durch
+/// den Voll-Uebertrag-Branch in `transfer_shares` ausgeloest wird.
+#[allow(dead_code)] // wired up in Task 2 (transfer_shares Voll-Uebertrag-Branch)
+const TRANSFER_FULL_REPAYMENT_PROCESS: &str = "member-adjust.transfer-full.repayment";
+
 /// Audit-Process-String fuer den inline auto-erzeugten RepaymentPhase-Create
 /// in `partial_repayment` (D-16-02 + Resolved Open Question #4).
 ///
@@ -163,6 +175,93 @@ impl<Deps: MembershipAdjustServiceDeps> MembershipAdjustService for MembershipAd
             .find_by_id(member_id, tx.clone())
             .await?
             .ok_or(ServiceError::EntityNotFound(member_id))?;
+
+        // Quick 260608-jb1: Symmetrischer Fix — gekuendigte Members brauchen einen
+        // RepaymentEntry in der Phase ihres fiscal_year. partial_repayment Step 9+12
+        // macht das identisch fuer aktive Teil-Rueckgaben; `open_repayment_phase`
+        // Auto-Fill greift NUR beim Preparation->Open-Transition, ist also nicht
+        // ausreichend, wenn die Phase bereits Open ist.
+        //
+        // Skip, wenn der Member 0 Anteile haelt (Edge-Case: bereits leerer Member,
+        // z.B. weil Voll-Uebertrag schon stattfand und dieser cancel_membership
+        // jetzt nur den exit_date setzt).
+        if updated_entity.current_shares > 0 {
+            let all_phases = self.repayment_phase_dao.all(tx.clone()).await?;
+            let target_phase_existing = all_phases
+                .iter()
+                .find(|p| p.fiscal_year == effective.fiscal_year)
+                .cloned();
+
+            // D-11.1-Status-Guard analog partial_repayment Step 9.
+            if let Some(ref existing) = target_phase_existing {
+                if existing.status == RepaymentPhaseStatus::Closed {
+                    return Err(ServiceError::Conflict(Arc::from(format!(
+                        "RepaymentPhase fiscal_year={} ist Closed — Kuendigung kann nicht eingetragen werden (D-11.1)",
+                        effective.fiscal_year
+                    ))));
+                }
+            }
+
+            let now_pdt = time::PrimitiveDateTime::new(now.date(), now.time());
+
+            let target_phase: RepaymentPhaseEntity = match target_phase_existing {
+                Some(p) => p,
+                None => {
+                    let share_value = all_phases
+                        .first()
+                        .map(|p| p.share_value)
+                        .unwrap_or(DEFAULT_SHARE_VALUE_CENT);
+                    let auto_phase = RepaymentPhaseEntity {
+                        id: self.uuid_service.new_v4().await,
+                        fiscal_year: effective.fiscal_year,
+                        share_value,
+                        status: RepaymentPhaseStatus::Open,
+                        opened_at: Some(now_pdt),
+                        closed_at: None,
+                        created: now_pdt,
+                        deleted: None,
+                        version: self.uuid_service.new_v4().await,
+                    };
+                    crate::audited_create!(
+                        self,
+                        self.repayment_phase_dao,
+                        &auto_phase,
+                        REPAYMENT_PHASE_CREATE_PROCESS,
+                        &user_id,
+                        tx
+                    );
+                    auto_phase
+                }
+            };
+
+            // Skip-Pattern (Idempotenz): wenn der Member bereits einen Entry in dieser
+            // Phase hat (z.B. aus einem frueheren partial_repayment), keinen zweiten
+            // anlegen. Gleiches Pattern wie open_repayment_phase Z. 389-395.
+            let existing_entries = self
+                .repayment_entry_dao
+                .find_by_member_and_phase(member_id, target_phase.id, tx.clone())
+                .await?;
+            if existing_entries.is_empty() {
+                let new_entry = RepaymentEntryEntity {
+                    id: self.uuid_service.new_v4().await,
+                    member_id,
+                    phase_id: target_phase.id,
+                    share_count_to_pay_out: updated_entity.current_shares,
+                    status: RepaymentEntryStatus::Open,
+                    created: now_pdt,
+                    deleted: None,
+                    version: self.uuid_service.new_v4().await,
+                };
+                crate::audited_create!(
+                    self,
+                    self.repayment_entry_dao,
+                    &new_entry,
+                    CANCEL_REPAYMENT_PROCESS,
+                    &user_id,
+                    tx
+                );
+            }
+        }
 
         self.transaction_dao.commit(tx).await?;
 
@@ -317,9 +416,11 @@ impl<Deps: MembershipAdjustServiceDeps> MembershipAdjustService for MembershipAd
 
         // Step 5: D-16-10 — Cancelled member -> HTTP 409 Conflict.
         // DIVERGENCE vom Phase 15 UPGD-04 (das gibt 400 ValidationError zurueck).
-        // PART hat explizit eigene Semantik: gekuendigte Members gehen via v1.1-PaidOut-
-        // Cascade in die naechste Auszahlungsphase — Conflict signalisiert "falscher
-        // Workflow", nicht "ungueltige Eingabe".
+        // partial_repayment ist nur fuer aktive Members; gekuendigte Members bekommen
+        // ihren RepaymentEntry direkt durch `cancel_membership` (oder durch den
+        // Voll-Uebertrag-Branch in `transfer_shares`), siehe Quick 260608-jb1.
+        // Auto-Fill in `open_repayment_phase` (Z. 319-423) bleibt als Fallback fuer
+        // Phasen erhalten, deren Open-Transition spaeter als die Kuendigung passiert.
         if member_entity.exit_date.is_some() {
             return Err(ServiceError::Conflict(Arc::from(format!(
                 "Cannot start partial repayment for cancelled member (exit_date={:?})",
