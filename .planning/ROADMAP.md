@@ -84,7 +84,7 @@ Kein Inhalt definiert. Wahrscheinlich-Themen für die nächste Iteration aus dok
 | 16. Service+REST: Teil-Rückgabe + Auto-Anlegen     | v1.2      | 5/5            | Complete    | 2026-06-05 |
 | 17. Service+REST: Übertrag (Atomare 2-Action)      | v1.2      | 4/4            | Complete    | 2026-06-06 |
 | 18. Frontend Component-First (v1.2)                | v1.2      | 7/7            | Complete    | 2026-06-07 |
-| 19. E-Mail-Anhänge anzeigen                        | v1.3 (TBD)| 7/7 | Complete    | 2026-06-07 |
+| 19. E-Mail-Anhänge anzeigen                        | v1.3 (TBD)| 7/7 | Complete    | 2026-06-09 |
 
 ### Phase 19: E-Mail-Anhänge anzeigen — Backend-Endpoint zum Abrufen von Anhängen aus eingehenden Mails (mail-parser nutzt async-imap bereits) plus Dioxus-Frontend-UI zum Anzeigen/Herunterladen der Attachments in der Mail-Ansicht.
 
@@ -100,6 +100,16 @@ Plans:
 - [x] 19-04-PLAN.md — Backfill Worker (run_attachment_backfill für Bestandsmails, einmaliger tokio::spawn, best-effort silent-skip)
 - [x] 19-05-PLAN.md — Frontend Components (InboxAttachmentList + InboxAttachmentListItem, format_size Util, 7 i18n-Keys in De+En)
 - [x] 19-06-PLAN.md — Frontend Page Wiring (MVP-Hinweis gelöscht, InboxAttachmentList eingebunden, WASM-Build grün; Vorstand-Sichtprüfung Task 2 pending)
+
+### Phase 20: In-App-Hilfe für Vorstände: durchsuchbare Feature-Referenz im Dioxus-Frontend mit Übersicht/Navigation und pro Feature einem erklärenden Eintrag (Component-First)
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 19
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 20 to break down)
 
 ---
 

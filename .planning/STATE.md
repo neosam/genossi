@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: null
 milestone_name: null
-status: milestone_complete
+status: ready_to_plan
 stopped_at: Phase 19 UI-SPEC approved
-last_updated: "2026-06-07T14:30:00.000Z"
-last_activity: 2026-06-07 -- Quick 260607-vij (Reply-Form vorbefuellt Originalmail als Quote-Block) abgeschlossen
+last_updated: "2026-06-09T04:30:45.151Z"
+last_activity: "2026-06-08 — Quick 260608-jb1 (Bug-Fix: gekündigte Mitglieder werden in Repayment-Periode eingefügt) abgeschlossen"
 progress:
-  total_phases: 1
-  completed_phases: 1
+  total_phases: 2
+  completed_phases: 2
   total_plans: 7
-  completed_plans: 6
+  completed_plans: 7
   percent: 100
 ---
 
@@ -29,10 +29,10 @@ See: `.planning/PROJECT.md` (updated 2026-06-07 after v1.2 close)
 
 ## Current Position
 
-Phase: 19
+Phase: 20
 Plan: Not started
-Status: Milestone complete
-Last activity: 2026-06-08 — Quick 260608-jb1 (Bug-Fix: gekündigte Mitglieder werden in Repayment-Periode eingefügt) abgeschlossen
+Status: Ready to plan
+Last activity: 2026-06-09
 
 ## Deferred Items
 
@@ -180,6 +180,7 @@ v1.0 Phasen (alle abgeschlossen, archiviert in .planning/milestones/v1.0-phases/
 - Phase 5 SKIPPED 2026-05-17: Echte GV bereits erfolgreich durchgeführt — Pre-Generalprobe damit obsolet. Erkenntnisse aus dem realen Einsatz flossen als Hotfixes ins Frontend zurück (live-counter `8e92cfd`, gv-pages button type `e245013`, sort by member_number `ed754fc`, token-codes magic-link `3cdfbb6`). Tooling-Debt (`wasm-bindgen-cli@0.2.104`, Tailwind-Purge am Release-Artefakt) wird bei Bedarf separat ausserhalb GSD abgearbeitet.
 - Phase 13 added: RepaymentLetter-Bulk-Anschreiben für Nicht-Email-Mitglieder
 - Phase 19 added: E-Mail-Anhänge anzeigen (Backend + Dioxus-UI)
+- Phase 20 added: In-App-Hilfe für Vorstände (durchsuchbare Feature-Referenz, Component-First)
 
 ### Key Decisions (carry-over aus PROJECT.md)
 
