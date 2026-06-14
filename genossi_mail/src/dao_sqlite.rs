@@ -213,6 +213,8 @@ struct MailRecipientDb {
     error: Option<String>,
     sent_at: Option<String>,
     message_id: Option<String>,
+    rendered_subject: Option<String>,
+    rendered_body: Option<String>,
 }
 
 impl TryFrom<&MailRecipientDb> for MailRecipient {
@@ -232,6 +234,8 @@ impl TryFrom<&MailRecipientDb> for MailRecipient {
             error: db.error.as_deref().map(Arc::from),
             sent_at: parse_optional_datetime(&db.sent_at)?,
             message_id: db.message_id.as_deref().map(Arc::from),
+            rendered_subject: db.rendered_subject.as_deref().map(Arc::from),
+            rendered_body: db.rendered_body.as_deref().map(Arc::from),
         })
     }
 }
@@ -256,8 +260,8 @@ impl MailRecipientDao for MailRecipientDaoSqlite {
         let member_id = recipient.member_id.map(|m| m.as_bytes().to_vec());
 
         sqlx::query(
-            "INSERT INTO mail_recipients (id, created, deleted, version, mail_job_id, to_address, member_id, status, error, sent_at, message_id) \
-             VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, NULL)",
+            "INSERT INTO mail_recipients (id, created, deleted, version, mail_job_id, to_address, member_id, status, error, sent_at, message_id, rendered_subject, rendered_body) \
+             VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)",
         )
         .bind(id)
         .bind(created)
@@ -278,7 +282,7 @@ impl MailRecipientDao for MailRecipientDaoSqlite {
     async fn find_by_job_id(&self, job_id: Uuid) -> Result<Arc<[MailRecipient]>, MailDaoError> {
         let job_id_bytes = job_id.as_bytes().to_vec();
         let rows = sqlx::query_as::<_, MailRecipientDb>(
-            "SELECT id, created, deleted, version, mail_job_id, to_address, member_id, status, error, sent_at, message_id \
+            "SELECT id, created, deleted, version, mail_job_id, to_address, member_id, status, error, sent_at, message_id, rendered_subject, rendered_body \
              FROM mail_recipients WHERE mail_job_id = ? ORDER BY created ASC",
         )
         .bind(job_id_bytes)
@@ -294,7 +298,7 @@ impl MailRecipientDao for MailRecipientDaoSqlite {
 
     async fn next_pending(&self) -> Result<Option<MailRecipient>, MailDaoError> {
         let row = sqlx::query_as::<_, MailRecipientDb>(
-            "SELECT r.id, r.created, r.deleted, r.version, r.mail_job_id, r.to_address, r.member_id, r.status, r.error, r.sent_at, r.message_id \
+            "SELECT r.id, r.created, r.deleted, r.version, r.mail_job_id, r.to_address, r.member_id, r.status, r.error, r.sent_at, r.message_id, r.rendered_subject, r.rendered_body \
              FROM mail_recipients r \
              INNER JOIN mail_jobs j ON r.mail_job_id = j.id \
              WHERE r.status = 'pending' AND j.status = 'running' \
@@ -321,12 +325,14 @@ impl MailRecipientDao for MailRecipientDaoSqlite {
             .transpose()?;
 
         sqlx::query(
-            "UPDATE mail_recipients SET status = ?, error = ?, sent_at = ?, message_id = ?, version = ? WHERE id = ?",
+            "UPDATE mail_recipients SET status = ?, error = ?, sent_at = ?, message_id = ?, rendered_subject = ?, rendered_body = ?, version = ? WHERE id = ?",
         )
         .bind(recipient.status.as_ref())
         .bind(recipient.error.as_deref())
         .bind(sent_at)
         .bind(recipient.message_id.as_deref())
+        .bind(recipient.rendered_subject.as_deref())
+        .bind(recipient.rendered_body.as_deref())
         .bind(version)
         .bind(id)
         .execute(self.pool.as_ref())
@@ -1247,7 +1253,9 @@ mod tests {
                 status TEXT NOT NULL,
                 error TEXT,
                 sent_at TEXT,
-                message_id TEXT
+                message_id TEXT,
+                rendered_subject TEXT,
+                rendered_body TEXT
             )",
         )
         .execute(&pool)
@@ -1374,6 +1382,8 @@ mod tests {
             error: None,
             sent_at: None,
             message_id: None,
+            rendered_subject: None,
+            rendered_body: None,
         }
     }
 
@@ -1619,6 +1629,62 @@ mod tests {
         let found = recipient_dao.find_by_job_id(job.id).await.unwrap();
         assert_eq!(found[0].status.as_ref(), "sent");
         assert_eq!(found[0].message_id.as_deref(), Some("abc.123@example.com"));
+    }
+
+    // Quick 260614-9zf: per-recipient rendered subject/body roundtrip.
+    #[tokio::test]
+    async fn test_recipient_update_persists_rendered_subject_body() {
+        let pool = setup_db().await;
+        let job_dao = MailJobDaoSqlite::new(pool.clone());
+        let recipient_dao = MailRecipientDaoSqlite::new(pool);
+
+        let job = sample_job();
+        job_dao.create(&job).await.unwrap();
+
+        let r = sample_recipient(job.id);
+        recipient_dao.create(&r).await.unwrap();
+
+        // Fresh recipient has no rendered content (NULL columns).
+        let found = recipient_dao.find_by_job_id(job.id).await.unwrap();
+        assert!(found[0].rendered_subject.is_none());
+        assert!(found[0].rendered_body.is_none());
+
+        // Worker persists the rendered subject + body (plus the normal sent state).
+        let mut updated = r.clone();
+        updated.status = Arc::from("sent");
+        updated.sent_at = Some(sample_datetime());
+        updated.message_id = Some(Arc::from("xyz.789@example.com"));
+        updated.rendered_subject = Some(Arc::from("Hallo Max"));
+        updated.rendered_body = Some(Arc::from("Text für Max"));
+        updated.version = Uuid::new_v4();
+        recipient_dao.update(&updated).await.unwrap();
+
+        let found = recipient_dao.find_by_job_id(job.id).await.unwrap();
+        // Rendered fields persisted verbatim.
+        assert_eq!(found[0].rendered_subject.as_deref(), Some("Hallo Max"));
+        assert_eq!(found[0].rendered_body.as_deref(), Some("Text für Max"));
+        // Existing fields preserved alongside the rendered content.
+        assert_eq!(found[0].status.as_ref(), "sent");
+        assert!(found[0].sent_at.is_some());
+        assert_eq!(found[0].message_id.as_deref(), Some("xyz.789@example.com"));
+    }
+
+    // Quick 260614-9zf: next_pending maps the new columns (no panic, None for pending).
+    #[tokio::test]
+    async fn test_recipient_next_pending_maps_rendered_fields_as_none() {
+        let pool = setup_db().await;
+        let job_dao = MailJobDaoSqlite::new(pool.clone());
+        let recipient_dao = MailRecipientDaoSqlite::new(pool);
+
+        let job = sample_job();
+        job_dao.create(&job).await.unwrap();
+
+        let r = sample_recipient(job.id);
+        recipient_dao.create(&r).await.unwrap();
+
+        let next = recipient_dao.next_pending().await.unwrap().unwrap();
+        assert!(next.rendered_subject.is_none());
+        assert!(next.rendered_body.is_none());
     }
 
     #[tokio::test]

@@ -344,6 +344,8 @@ impl<
                 error: None,
                 sent_at: None,
                 message_id: None,
+                rendered_subject: None,
+                rendered_body: None,
             };
             self.recipient_dao.create(&recipient).await?;
 
@@ -732,6 +734,8 @@ mod tests {
             error: Some(Arc::from("Connection refused")),
             sent_at: None,
             message_id: None,
+            rendered_subject: None,
+            rendered_body: None,
         };
         let sent_recipient = MailRecipient {
             id: Uuid::new_v4(),
@@ -745,6 +749,8 @@ mod tests {
             error: None,
             sent_at: Some(now),
             message_id: Some(Arc::from("abc@example.com")),
+            rendered_subject: None,
+            rendered_body: None,
         };
         let recipients: Arc<[MailRecipient]> = vec![failed_recipient, sent_recipient].into();
         let recipients_clone = recipients.clone();

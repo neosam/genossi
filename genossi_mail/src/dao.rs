@@ -61,6 +61,10 @@ pub struct MailRecipient {
     pub error: Option<Arc<str>>,
     pub sent_at: Option<time::PrimitiveDateTime>,
     pub message_id: Option<Arc<str>>,
+    // Quick 260614-9zf: per-recipient rendered subject/body, persisted by the worker
+    // after the template render. None for legacy rows and not-yet-rendered recipients.
+    pub rendered_subject: Option<Arc<str>>,
+    pub rendered_body: Option<Arc<str>>,
 }
 
 #[automock]

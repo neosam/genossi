@@ -702,6 +702,8 @@ where
             error: None,
             sent_at: None,
             message_id: None,
+            rendered_subject: None,
+            rendered_body: None,
         };
         self.recipient_dao.create(&recipient).await?;
 

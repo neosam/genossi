@@ -614,6 +614,13 @@ pub async fn start_mail_worker<C, J, R, A, SA, D, M, IB, MD, AL, MT, RE, RP, TX,
 
         let mut updated_recipient = next.clone();
         updated_recipient.version = uuid::Uuid::new_v4();
+        // Quick 260614-9zf: persist the per-recipient rendered subject + body so the
+        // Vorstand can later see exactly what this recipient received. Set for BOTH the
+        // success and the send-failure path (the render happened before the send attempt).
+        // Render-/member-resolution failures use mark_recipient_failed + continue *before*
+        // this point, so their rendered_* correctly stay None.
+        updated_recipient.rendered_subject = Some(Arc::from(rendered_subject.as_str()));
+        updated_recipient.rendered_body = Some(Arc::from(rendered_body.as_str()));
 
         // Capture send-result summary for the post-send audited MemberDocument
         // create (Phase 10 D-10). We move out of send_result in the match below,
