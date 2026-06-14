@@ -120,6 +120,11 @@ pub struct MailRecipientTO {
     pub rendered_subject: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rendered_body: Option<String>,
+    // Quick 260614-b1t: true when rendered_subject/body were reconstructed by the
+    // startup backfill (not the byte-accurate original send). Always serialized
+    // (DB NOT NULL DEFAULT 0 guarantees a value); #[serde(default)] for input robustness.
+    #[serde(default)]
+    pub rendered_reconstructed: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub attachments: Vec<MailAttachmentTO>,
 }
@@ -292,6 +297,7 @@ impl From<&MailRecipient> for MailRecipientTO {
             sent_at: r.sent_at.as_ref().map(format_datetime),
             rendered_subject: r.rendered_subject.as_deref().map(String::from),
             rendered_body: r.rendered_body.as_deref().map(String::from),
+            rendered_reconstructed: r.rendered_reconstructed,
             attachments: vec![],
         }
     }
