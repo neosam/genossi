@@ -181,6 +181,7 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::MailTo => "To".into(),
         Key::MailSubject => "Subject".into(),
         Key::MailBody => "Message".into(),
+        Key::MailRenderedContent => "Sent content".into(),
         Key::MailSend => "Send".into(),
         Key::MailSending => "Sending...".into(),
         Key::MailSent => "Sent".into(),

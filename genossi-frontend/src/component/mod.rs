@@ -125,6 +125,10 @@ pub use repayment_letter_download_button::RepaymentLetterDownloadButton;
 pub mod mail_recipient_status_badge;
 pub use mail_recipient_status_badge::{is_no_repayment_letter_failure, MailRecipientStatusBadge};
 
+// ─── Quick 260614-9zf ─── MailRecipientRenderedContent ──────────────
+pub mod mail_recipient_rendered_content;
+pub use mail_recipient_rendered_content::MailRecipientRenderedContent;
+
 // ─── Quick 260603-evf ─── NoRepaymentLetterAction ───────────────────
 pub mod no_repayment_letter_action;
 pub use no_repayment_letter_action::{

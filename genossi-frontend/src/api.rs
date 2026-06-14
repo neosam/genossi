@@ -844,6 +844,12 @@ pub struct MailRecipientTO {
     pub status: String,
     pub error: Option<String>,
     pub sent_at: Option<String>,
+    // Quick 260614-9zf: actually-rendered subject/body this recipient received.
+    // `default` so legacy/None responses without these fields still deserialize.
+    #[serde(default)]
+    pub rendered_subject: Option<String>,
+    #[serde(default)]
+    pub rendered_body: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -2489,6 +2495,41 @@ pub async fn mark_repayment_entry_paid_out(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Quick 260614-9zf: legacy/None responses without the rendered fields must
+    // still deserialize (serde default), and full responses must carry them.
+    #[test]
+    fn test_mail_recipient_to_deserializes_without_rendered_fields() {
+        let json = r#"{
+            "id": "r1",
+            "to_address": "a@example.com",
+            "member_id": null,
+            "status": "pending",
+            "error": null,
+            "sent_at": null
+        }"#;
+        let r: MailRecipientTO = serde_json::from_str(json).unwrap();
+        assert_eq!(r.status, "pending");
+        assert!(r.rendered_subject.is_none());
+        assert!(r.rendered_body.is_none());
+    }
+
+    #[test]
+    fn test_mail_recipient_to_deserializes_with_rendered_fields() {
+        let json = r#"{
+            "id": "r2",
+            "to_address": "b@example.com",
+            "member_id": null,
+            "status": "sent",
+            "error": null,
+            "sent_at": "2026-06-14T10:00:00Z",
+            "rendered_subject": "Hallo Max",
+            "rendered_body": "Text für Max"
+        }"#;
+        let r: MailRecipientTO = serde_json::from_str(json).unwrap();
+        assert_eq!(r.rendered_subject.as_deref(), Some("Hallo Max"));
+        assert_eq!(r.rendered_body.as_deref(), Some("Text für Max"));
+    }
 
     #[test]
     fn test_status_to_message_known_codes() {

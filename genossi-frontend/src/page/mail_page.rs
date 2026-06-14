@@ -10,8 +10,8 @@ use crate::component::mail_compose::{
 };
 use crate::component::member_search::filter_members;
 use crate::component::{
-    is_no_repayment_letter_failure, show_toast, ErrorAlert, MailRecipientStatusBadge,
-    NoRepaymentLetterAction, ToastContainer, TopBar,
+    is_no_repayment_letter_failure, show_toast, ErrorAlert, MailRecipientRenderedContent,
+    MailRecipientStatusBadge, NoRepaymentLetterAction, ToastContainer, TopBar,
 };
 use crate::i18n::{use_i18n, Key};
 use crate::member_utils::{is_active, today};
@@ -749,6 +749,17 @@ pub fn MailPage() -> Element {
                                                                                                 }
                                                                                             }
                                                                                         }
+                                                                                        // Quick 260614-9zf: per-recipient rendered
+                                                                                        // subject/body (Component-First; renders
+                                                                                        // nothing when both are None).
+                                                                                        tr {
+                                                                                            td { colspan: 4, class: "px-2",
+                                                                                                MailRecipientRenderedContent {
+                                                                                                    rendered_subject: r.rendered_subject.clone(),
+                                                                                                    rendered_body: r.rendered_body.clone(),
+                                                                                                }
+                                                                                            }
+                                                                                        }
                                                                                     }
                                                                                 }
                                                                             }
@@ -914,6 +925,17 @@ pub fn MailJobDetail(id: String) -> Element {
                                                                 },
                                                             }
                                                         }
+                                                    }
+                                                }
+                                            }
+                                            // Quick 260614-9zf: per-recipient rendered
+                                            // subject/body (Component-First; renders
+                                            // nothing when both are None).
+                                            tr {
+                                                td { colspan: 4, class: "px-3",
+                                                    MailRecipientRenderedContent {
+                                                        rendered_subject: r.rendered_subject.clone(),
+                                                        rendered_body: r.rendered_body.clone(),
                                                     }
                                                 }
                                             }

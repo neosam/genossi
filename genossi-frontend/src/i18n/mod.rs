@@ -236,6 +236,8 @@ pub enum Key {
     MailTo,
     MailSubject,
     MailBody,
+    // Quick 260614-9zf: heading for the per-recipient rendered subject/body block.
+    MailRenderedContent,
     MailSend,
     MailSending,
     MailSent,
