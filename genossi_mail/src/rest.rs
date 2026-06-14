@@ -115,6 +115,11 @@ pub struct MailRecipientTO {
     pub error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sent_at: Option<String>,
+    // Quick 260614-9zf: the actually-rendered subject/body this recipient received.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rendered_subject: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rendered_body: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub attachments: Vec<MailAttachmentTO>,
 }
@@ -285,6 +290,8 @@ impl From<&MailRecipient> for MailRecipientTO {
             status: r.status.to_string(),
             error: r.error.as_deref().map(String::from),
             sent_at: r.sent_at.as_ref().map(format_datetime),
+            rendered_subject: r.rendered_subject.as_deref().map(String::from),
+            rendered_body: r.rendered_body.as_deref().map(String::from),
             attachments: vec![],
         }
     }
