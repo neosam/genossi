@@ -757,6 +757,7 @@ pub fn MailPage() -> Element {
                                                                                                 MailRecipientRenderedContent {
                                                                                                     rendered_subject: r.rendered_subject.clone(),
                                                                                                     rendered_body: r.rendered_body.clone(),
+                                                                                                    rendered_reconstructed: r.rendered_reconstructed,
                                                                                                 }
                                                                                             }
                                                                                         }
@@ -936,6 +937,7 @@ pub fn MailJobDetail(id: String) -> Element {
                                                     MailRecipientRenderedContent {
                                                         rendered_subject: r.rendered_subject.clone(),
                                                         rendered_body: r.rendered_body.clone(),
+                                                        rendered_reconstructed: r.rendered_reconstructed,
                                                     }
                                                 }
                                             }

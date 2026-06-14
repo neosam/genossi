@@ -238,6 +238,8 @@ pub enum Key {
     MailBody,
     // Quick 260614-9zf: heading for the per-recipient rendered subject/body block.
     MailRenderedContent,
+    // Quick 260614-b1t: badge shown when rendered content was reconstructed by the backfill.
+    MailRenderedReconstructed,
     MailSend,
     MailSending,
     MailSent,

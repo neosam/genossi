@@ -16,6 +16,9 @@ use crate::i18n::{use_i18n, Key};
 pub fn MailRecipientRenderedContent(
     rendered_subject: Option<String>,
     rendered_body: Option<String>,
+    // Quick 260614-b1t: true when the content was reconstructed by the startup
+    // backfill (not the byte-accurate original send). Shows a visible amber badge.
+    rendered_reconstructed: bool,
 ) -> Element {
     // Nothing rendered → no block at all (keeps not-sent rows clean).
     if rendered_subject.is_none() && rendered_body.is_none() {
@@ -24,12 +27,21 @@ pub fn MailRecipientRenderedContent(
 
     let i18n = use_i18n();
     let heading = i18n.t(Key::MailRenderedContent);
+    let reconstructed_label = i18n.t(Key::MailRenderedReconstructed);
     let subject_label = i18n.t(Key::MailSubject);
     let body_label = i18n.t(Key::MailBody);
 
     rsx! {
         div { class: "mt-1 rounded border border-gray-200 bg-gray-50 p-2 text-xs text-gray-700",
-            div { class: "mb-1 font-medium text-gray-500", "{heading}" }
+            div { class: "mb-1 font-medium text-gray-500",
+                "{heading}"
+                if rendered_reconstructed {
+                    span {
+                        class: "ml-2 inline-flex items-center rounded bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800",
+                        "{reconstructed_label}"
+                    }
+                }
+            }
             if let Some(subject) = rendered_subject {
                 div { class: "mb-1",
                     span { class: "font-medium", "{subject_label}: " }

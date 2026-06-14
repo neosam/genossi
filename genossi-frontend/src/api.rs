@@ -850,6 +850,10 @@ pub struct MailRecipientTO {
     pub rendered_subject: Option<String>,
     #[serde(default)]
     pub rendered_body: Option<String>,
+    // Quick 260614-b1t: true when rendered_* were reconstructed by the startup
+    // backfill. `default` (false) for backward-compat with responses that omit it.
+    #[serde(default)]
+    pub rendered_reconstructed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

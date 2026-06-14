@@ -182,6 +182,7 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::MailSubject => "Betreff".into(),
         Key::MailBody => "Nachricht".into(),
         Key::MailRenderedContent => "Gesendeter Inhalt".into(),
+        Key::MailRenderedReconstructed => "Nachträglich rekonstruiert".into(),
         Key::MailSend => "Senden".into(),
         Key::MailSending => "Wird gesendet...".into(),
         Key::MailSent => "Gesendet".into(),
