@@ -80,6 +80,11 @@ pub fn TopBar() -> Element {
             label: i18n.t(Key::Mail).to_string(),
             route: Route::MailPage {},
         });
+        // ── Quick 260614-ckn ── Mail-Job-Liste auf eigener Seite ──
+        kommunikation_items.push(NavItem {
+            label: i18n.t(Key::MailHistory).to_string(),
+            route: Route::MailJobsPage {},
+        });
         kommunikation_items.push(NavItem {
             label: i18n.t(Key::MailTemplates).to_string(),
             route: Route::MailTemplatesPage {},

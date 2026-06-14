@@ -12,6 +12,7 @@ pub use crate::page::HelperAttendance;
 pub use crate::page::HelperLogin;
 pub use crate::page::Home;
 pub use crate::page::InboxPage;
+pub use crate::page::MailJobsPage;
 pub use crate::page::MailPage;
 pub use crate::page::MailTemplatesPage;
 pub use crate::page::MemberDetails;
@@ -62,6 +63,9 @@ pub enum Route {
     MailPage {},
     #[route("/mail/templates")]
     MailTemplatesPage {},
+    // ─── Quick 260614-ckn ─── Job-Liste ausgelagert (vor :id-Variante) ──
+    #[route("/mail/jobs")]
+    MailJobsPage {},
     #[route("/mail/jobs/:id")]
     MailJobDetail { id: String },
     #[route("/inbox")]
