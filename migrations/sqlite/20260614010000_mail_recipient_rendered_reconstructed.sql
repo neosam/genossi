@@ -1,0 +1,16 @@
+-- Quick 260614-b1t: Mark per-recipient rendered subject/body as reconstructed.
+-- Builds on 20260614000000 (nullable rendered_subject/rendered_body persisted by
+-- the worker). This task adds a one-shot startup backfill that retroactively
+-- renders legacy rows whose rendered_* are still NULL.
+--
+-- rendered_reconstructed distinguishes:
+--   false (0) — set live by the worker at the actual send moment (byte-accurate),
+--   true  (1) — set by the backfill, reconstructed afterwards (NOT the original
+--               byte-for-byte render from the send moment; member/template data
+--               may have drifted since).
+--
+-- NOT NULL DEFAULT 0: every existing row implicitly becomes "not reconstructed"
+-- until the backfill explicitly flips it to 1 when it fills the rendered content.
+-- No down-migration: SQLite < 3.35 cannot drop columns (same convention as
+-- 20260614000000_mail_recipient_rendered_subject_body.sql).
+ALTER TABLE mail_recipients ADD COLUMN rendered_reconstructed INTEGER NOT NULL DEFAULT 0;

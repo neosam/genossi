@@ -65,6 +65,11 @@ pub struct MailRecipient {
     // after the template render. None for legacy rows and not-yet-rendered recipients.
     pub rendered_subject: Option<Arc<str>>,
     pub rendered_body: Option<Arc<str>>,
+    // Quick 260614-b1t: true when the rendered_subject/rendered_body were filled
+    // retroactively by the startup backfill (reconstruction, not the byte-accurate
+    // original from the send moment). false for live worker renders and not-yet-rendered
+    // rows. NOT NULL DEFAULT 0 in the DB (legacy rows read back as false).
+    pub rendered_reconstructed: bool,
 }
 
 #[automock]
@@ -87,6 +92,13 @@ pub trait MailRecipientDao: Send + Sync + 'static {
         &self,
         job_id: Uuid,
     ) -> Result<Arc<[Uuid]>, MailDaoError>;
+    /// Quick 260614-b1t: all recipients whose rendered subject AND body are still
+    /// NULL (and not soft-deleted). Used by the startup backfill to retroactively
+    /// render legacy rows. Includes status='failed' rows — they were rendered at
+    /// send time too, just not persisted before 9zf.
+    async fn find_recipients_without_rendered(
+        &self,
+    ) -> Result<Arc<[MailRecipient]>, MailDaoError>;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

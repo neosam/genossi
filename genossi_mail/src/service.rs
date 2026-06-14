@@ -346,6 +346,7 @@ impl<
                 message_id: None,
                 rendered_subject: None,
                 rendered_body: None,
+                rendered_reconstructed: false,
             };
             self.recipient_dao.create(&recipient).await?;
 
@@ -736,6 +737,7 @@ mod tests {
             message_id: None,
             rendered_subject: None,
             rendered_body: None,
+            rendered_reconstructed: false,
         };
         let sent_recipient = MailRecipient {
             id: Uuid::new_v4(),
@@ -751,6 +753,7 @@ mod tests {
             message_id: Some(Arc::from("abc@example.com")),
             rendered_subject: None,
             rendered_body: None,
+            rendered_reconstructed: false,
         };
         let recipients: Arc<[MailRecipient]> = vec![failed_recipient, sent_recipient].into();
         let recipients_clone = recipients.clone();

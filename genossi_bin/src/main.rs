@@ -57,6 +57,9 @@ async fn main() {
     rest_state.start_attachment_backfill_worker();
     tracing::info!("Attachment backfill worker spawned");
 
+    rest_state.start_rendered_backfill_worker();
+    tracing::info!("Rendered backfill worker spawned");
+
     rest_state.start_backup_worker();
     tracing::info!("Backup worker started");
 

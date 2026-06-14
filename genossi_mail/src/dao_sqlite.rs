@@ -215,6 +215,7 @@ struct MailRecipientDb {
     message_id: Option<String>,
     rendered_subject: Option<String>,
     rendered_body: Option<String>,
+    rendered_reconstructed: i64,
 }
 
 impl TryFrom<&MailRecipientDb> for MailRecipient {
@@ -236,6 +237,7 @@ impl TryFrom<&MailRecipientDb> for MailRecipient {
             message_id: db.message_id.as_deref().map(Arc::from),
             rendered_subject: db.rendered_subject.as_deref().map(Arc::from),
             rendered_body: db.rendered_body.as_deref().map(Arc::from),
+            rendered_reconstructed: db.rendered_reconstructed != 0,
         })
     }
 }
@@ -260,8 +262,8 @@ impl MailRecipientDao for MailRecipientDaoSqlite {
         let member_id = recipient.member_id.map(|m| m.as_bytes().to_vec());
 
         sqlx::query(
-            "INSERT INTO mail_recipients (id, created, deleted, version, mail_job_id, to_address, member_id, status, error, sent_at, message_id, rendered_subject, rendered_body) \
-             VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)",
+            "INSERT INTO mail_recipients (id, created, deleted, version, mail_job_id, to_address, member_id, status, error, sent_at, message_id, rendered_subject, rendered_body, rendered_reconstructed) \
+             VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?)",
         )
         .bind(id)
         .bind(created)
@@ -272,6 +274,7 @@ impl MailRecipientDao for MailRecipientDaoSqlite {
         .bind(recipient.status.as_ref())
         .bind(recipient.error.as_deref())
         .bind(Option::<String>::None) // sent_at is NULL on creation
+        .bind(if recipient.rendered_reconstructed { 1i64 } else { 0i64 })
         .execute(self.pool.as_ref())
         .await
         .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
@@ -282,7 +285,7 @@ impl MailRecipientDao for MailRecipientDaoSqlite {
     async fn find_by_job_id(&self, job_id: Uuid) -> Result<Arc<[MailRecipient]>, MailDaoError> {
         let job_id_bytes = job_id.as_bytes().to_vec();
         let rows = sqlx::query_as::<_, MailRecipientDb>(
-            "SELECT id, created, deleted, version, mail_job_id, to_address, member_id, status, error, sent_at, message_id, rendered_subject, rendered_body \
+            "SELECT id, created, deleted, version, mail_job_id, to_address, member_id, status, error, sent_at, message_id, rendered_subject, rendered_body, rendered_reconstructed \
              FROM mail_recipients WHERE mail_job_id = ? ORDER BY created ASC",
         )
         .bind(job_id_bytes)
@@ -298,7 +301,7 @@ impl MailRecipientDao for MailRecipientDaoSqlite {
 
     async fn next_pending(&self) -> Result<Option<MailRecipient>, MailDaoError> {
         let row = sqlx::query_as::<_, MailRecipientDb>(
-            "SELECT r.id, r.created, r.deleted, r.version, r.mail_job_id, r.to_address, r.member_id, r.status, r.error, r.sent_at, r.message_id, r.rendered_subject, r.rendered_body \
+            "SELECT r.id, r.created, r.deleted, r.version, r.mail_job_id, r.to_address, r.member_id, r.status, r.error, r.sent_at, r.message_id, r.rendered_subject, r.rendered_body, r.rendered_reconstructed \
              FROM mail_recipients r \
              INNER JOIN mail_jobs j ON r.mail_job_id = j.id \
              WHERE r.status = 'pending' AND j.status = 'running' \
@@ -325,7 +328,7 @@ impl MailRecipientDao for MailRecipientDaoSqlite {
             .transpose()?;
 
         sqlx::query(
-            "UPDATE mail_recipients SET status = ?, error = ?, sent_at = ?, message_id = ?, rendered_subject = ?, rendered_body = ?, version = ? WHERE id = ?",
+            "UPDATE mail_recipients SET status = ?, error = ?, sent_at = ?, message_id = ?, rendered_subject = ?, rendered_body = ?, rendered_reconstructed = ?, version = ? WHERE id = ?",
         )
         .bind(recipient.status.as_ref())
         .bind(recipient.error.as_deref())
@@ -333,6 +336,7 @@ impl MailRecipientDao for MailRecipientDaoSqlite {
         .bind(recipient.message_id.as_deref())
         .bind(recipient.rendered_subject.as_deref())
         .bind(recipient.rendered_body.as_deref())
+        .bind(if recipient.rendered_reconstructed { 1i64 } else { 0i64 })
         .bind(version)
         .bind(id)
         .execute(self.pool.as_ref())
@@ -358,6 +362,25 @@ impl MailRecipientDao for MailRecipientDaoSqlite {
 
         rows.iter()
             .map(|(bytes,)| parse_uuid(bytes))
+            .collect::<Result<Vec<_>, _>>()
+            .map(|v| v.into())
+    }
+
+    async fn find_recipients_without_rendered(
+        &self,
+    ) -> Result<Arc<[MailRecipient]>, MailDaoError> {
+        let rows = sqlx::query_as::<_, MailRecipientDb>(
+            "SELECT id, created, deleted, version, mail_job_id, to_address, member_id, status, error, sent_at, message_id, rendered_subject, rendered_body, rendered_reconstructed \
+             FROM mail_recipients \
+             WHERE rendered_subject IS NULL AND rendered_body IS NULL AND deleted IS NULL \
+             ORDER BY created ASC",
+        )
+        .fetch_all(self.pool.as_ref())
+        .await
+        .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
+
+        rows.iter()
+            .map(MailRecipient::try_from)
             .collect::<Result<Vec<_>, _>>()
             .map(|v| v.into())
     }
@@ -1255,7 +1278,8 @@ mod tests {
                 sent_at TEXT,
                 message_id TEXT,
                 rendered_subject TEXT,
-                rendered_body TEXT
+                rendered_body TEXT,
+                rendered_reconstructed INTEGER NOT NULL DEFAULT 0
             )",
         )
         .execute(&pool)
@@ -1384,6 +1408,7 @@ mod tests {
             message_id: None,
             rendered_subject: None,
             rendered_body: None,
+            rendered_reconstructed: false,
         }
     }
 
@@ -1667,6 +1692,97 @@ mod tests {
         assert_eq!(found[0].status.as_ref(), "sent");
         assert!(found[0].sent_at.is_some());
         assert_eq!(found[0].message_id.as_deref(), Some("xyz.789@example.com"));
+    }
+
+    // Quick 260614-b1t: rendered_reconstructed flag roundtrips through create + update.
+    #[tokio::test]
+    async fn test_recipient_roundtrip_rendered_reconstructed_flag() {
+        let pool = setup_db().await;
+        let job_dao = MailJobDaoSqlite::new(pool.clone());
+        let recipient_dao = MailRecipientDaoSqlite::new(pool);
+
+        let job = sample_job();
+        job_dao.create(&job).await.unwrap();
+
+        // create with rendered_reconstructed=false (sample_recipient default).
+        let r = sample_recipient(job.id);
+        recipient_dao.create(&r).await.unwrap();
+        let found = recipient_dao.find_by_job_id(job.id).await.unwrap();
+        assert!(
+            !found[0].rendered_reconstructed,
+            "freshly created recipient must read back rendered_reconstructed=false"
+        );
+
+        // update flips it to true (backfill path).
+        let mut updated = r.clone();
+        updated.rendered_subject = Some(Arc::from("Reconstructed Subject"));
+        updated.rendered_body = Some(Arc::from("Reconstructed Body"));
+        updated.rendered_reconstructed = true;
+        updated.version = Uuid::new_v4();
+        recipient_dao.update(&updated).await.unwrap();
+
+        let found = recipient_dao.find_by_job_id(job.id).await.unwrap();
+        assert!(
+            found[0].rendered_reconstructed,
+            "after backfill update, rendered_reconstructed must be true"
+        );
+
+        // update can flip it back to false (live worker overwrite).
+        let mut updated2 = found[0].clone();
+        updated2.rendered_reconstructed = false;
+        updated2.version = Uuid::new_v4();
+        recipient_dao.update(&updated2).await.unwrap();
+        let found = recipient_dao.find_by_job_id(job.id).await.unwrap();
+        assert!(!found[0].rendered_reconstructed);
+    }
+
+    // Quick 260614-b1t: find_recipients_without_rendered only returns NULL-rendered rows.
+    #[tokio::test]
+    async fn test_find_recipients_without_rendered_filters_filled_rows() {
+        let pool = setup_db().await;
+        let job_dao = MailJobDaoSqlite::new(pool.clone());
+        let recipient_dao = MailRecipientDaoSqlite::new(pool.clone());
+
+        let job = sample_job();
+        job_dao.create(&job).await.unwrap();
+
+        // Row 1: NULL rendered_* (legacy / not yet rendered) — must be returned.
+        let null_row = sample_recipient(job.id);
+        recipient_dao.create(&null_row).await.unwrap();
+
+        // Row 2: already filled rendered_* — must NOT be returned.
+        let mut filled_row = sample_recipient(job.id);
+        recipient_dao.create(&filled_row).await.unwrap();
+        filled_row.rendered_subject = Some(Arc::from("Filled"));
+        filled_row.rendered_body = Some(Arc::from("Filled body"));
+        filled_row.version = Uuid::new_v4();
+        recipient_dao.update(&filled_row).await.unwrap();
+
+        let without = recipient_dao
+            .find_recipients_without_rendered()
+            .await
+            .unwrap();
+        assert_eq!(without.len(), 1, "only the NULL-rendered row should be returned");
+        assert_eq!(without[0].id, null_row.id);
+
+        // Soft-deleted NULL rows are also excluded.
+        let deleted_row = sample_recipient(job.id);
+        recipient_dao.create(&deleted_row).await.unwrap();
+        // simulate soft-delete via raw SQL (DAO has no delete method).
+        sqlx::query("UPDATE mail_recipients SET deleted = '2026-04-03T10:00:00' WHERE id = ?")
+            .bind(deleted_row.id.as_bytes().to_vec())
+            .execute(pool.as_ref())
+            .await
+            .ok();
+        let without = recipient_dao
+            .find_recipients_without_rendered()
+            .await
+            .unwrap();
+        assert_eq!(
+            without.len(),
+            1,
+            "soft-deleted NULL row must be excluded; still only the original NULL row"
+        );
     }
 
     // Quick 260614-9zf: next_pending maps the new columns (no panic, None for pending).

@@ -5,9 +5,7 @@ use crate::dao::{
     MailRecipientAttachmentDao, MailRecipientDao,
 };
 use crate::service::{build_transport, load_smtp_config, MailServiceError};
-use crate::template::{
-    member_to_template_context, merge_repayment_context, render_template, MemberResolver,
-};
+use crate::template::MemberResolver;
 use genossi_config::service::ConfigService;
 use genossi_service::document_storage::DocumentStorage;
 use genossi_service::member_document::DocumentType;
@@ -16,7 +14,6 @@ use genossi_service::member_document::DocumentType;
 // D-13-10). Replaces the inline filter+sum+German-format block that used to
 // live in start_mail_worker().
 use genossi_service::repayment_context::RepaymentContextResolver;
-use genossi_service::ServiceError;
 
 const DEFAULT_SEND_INTERVAL_SECONDS: u64 = 36;
 const IDLE_POLL_SECONDS: u64 = 5;
@@ -375,205 +372,35 @@ pub async fn start_mail_worker<C, J, R, A, SA, D, M, IB, MD, AL, MT, RE, RP, TX,
             }
         }
 
-        // Render template subject/body if recipient has a member_id
-        let (rendered_subject, rendered_body) = if let Some(member_id) = next.member_id {
-            match member_resolver.find_member_by_id(member_id).await {
-                Ok(Some(member)) => {
-                    let mut ctx = member_to_template_context(&member);
-
-                    // Phase 10 D-04: merge per-recipient repayment context (only if
-                    // job is repayment-linked). D-06 filter: deleted IS NULL AND
-                    // status IN (Open, Contacted). D-05: only merge when at least
-                    // one relevant entry exists; otherwise the strict-env render
-                    // will fail on referenced `payout_amount`/`share_count`/
-                    // `fiscal_year` variables and the recipient is marked failed.
-                    if let Some(phase_id) = job.repayment_phase_id {
-                        let agg_tx = match transaction_dao.transaction().await {
-                            Ok(t) => t,
-                            Err(e) => {
-                                mark_recipient_failed(
-                                    recipient_dao.as_ref(),
-                                    job_dao.as_ref(),
-                                    &next,
-                                    &mut job,
-                                    &format!(
-                                        "Worker: cannot open tx for repayment context: {:?}",
-                                        e
-                                    ),
-                                )
-                                .await;
-                                let interval = get_send_interval(config_service.as_ref()).await;
-                                tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
-                                continue;
-                            }
-                        };
-
-                        let phase_opt = match repayment_phase_dao
-                            .find_by_id(phase_id, agg_tx.clone())
-                            .await
-                        {
-                            Ok(p) => p,
-                            Err(e) => {
-                                mark_recipient_failed(
-                                    recipient_dao.as_ref(),
-                                    job_dao.as_ref(),
-                                    &next,
-                                    &mut job,
-                                    &format!("Worker: repayment_phase lookup failed: {:?}", e),
-                                )
-                                .await;
-                                let interval = get_send_interval(config_service.as_ref()).await;
-                                tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
-                                continue;
-                            }
-                        };
-
-                        if let Some(phase) = phase_opt {
-                            let entries = match repayment_entry_dao
-                                .find_by_phase_id(phase_id, agg_tx.clone())
-                                .await
-                            {
-                                Ok(es) => es,
-                                Err(e) => {
-                                    mark_recipient_failed(
-                                        recipient_dao.as_ref(),
-                                        job_dao.as_ref(),
-                                        &next,
-                                        &mut job,
-                                        &format!("Worker: repayment_entry lookup failed: {:?}", e),
-                                    )
-                                    .await;
-                                    let interval = get_send_interval(config_service.as_ref()).await;
-                                    tokio::time::sleep(std::time::Duration::from_secs(interval))
-                                        .await;
-                                    continue;
-                                }
-                            };
-
-                            // Quick 260603-h0r: Phase 10 D-04 / D-06 aggregation delegated
-                            // to RepaymentContextResolver (Phase 13 D-13-04 / D-13-10 — Single
-                            // Source of Truth shared with RepaymentLetterServiceImpl). The
-                            // resolver returns share_count + German-locale payout_amount +
-                            // fiscal_year; share_value_str is the phase-wide Anteilswert and
-                            // is derived from phase.share_value locally because the resolver's
-                            // RepaymentContext does not carry it (Quick 260602-r2i kept the
-                            // share_value variable in the merged template context; resolver
-                            // was scoped to per-recipient aggregation only).
-                            let share_value_str = format!(
-                                "{},{:02}",
-                                phase.share_value / 100,
-                                phase.share_value % 100,
-                            );
-                            match repayment_context_resolver.aggregate(&phase, &entries, member.id)
-                            {
-                                Ok(rc) => {
-                                    // D-05: at least one relevant entry -> merge full context.
-                                    ctx = merge_repayment_context(
-                                        ctx,
-                                        &rc.payout_amount,
-                                        rc.share_count,
-                                        &share_value_str,
-                                        rc.fiscal_year,
-                                    );
-                                }
-                                Err(ServiceError::EntityNotFound(_)) => {
-                                    // D-05 edge-case: no Open/Contacted entries for this member.
-                                    // Skip merge — strict-env template render will fail on any
-                                    // referenced payout_amount/share_count/fiscal_year var
-                                    // without `{% if X is defined %}`-guard, which triggers
-                                    // mark_recipient_failed downstream. This preserves the
-                                    // pre-refactor behavior byte-for-byte (the old inline
-                                    // `if !relevant.is_empty()` block was a no-op when empty).
-                                }
-                                Err(e) => {
-                                    mark_recipient_failed(
-                                        recipient_dao.as_ref(),
-                                        job_dao.as_ref(),
-                                        &next,
-                                        &mut job,
-                                        &format!(
-                                            "Worker: repayment_context aggregate failed: {:?}",
-                                            e
-                                        ),
-                                    )
-                                    .await;
-                                    let interval = get_send_interval(config_service.as_ref()).await;
-                                    tokio::time::sleep(std::time::Duration::from_secs(interval))
-                                        .await;
-                                    continue;
-                                }
-                            }
-                        }
-
-                        // Release the read tx — best-effort, errors ignored as the tx
-                        // was read-only.
-                        let _ = transaction_dao.commit(agg_tx).await;
-                    }
-
-                    let subject = match render_template(&job.subject, &ctx) {
-                        Ok(s) => s,
-                        Err(e) => {
-                            mark_recipient_failed(
-                                recipient_dao.as_ref(),
-                                job_dao.as_ref(),
-                                &next,
-                                &mut job,
-                                &format!("Template render error (subject): {}", e.message),
-                            )
-                            .await;
-                            let interval = get_send_interval(config_service.as_ref()).await;
-                            tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
-                            continue;
-                        }
-                    };
-                    let body = match render_template(&job.body, &ctx) {
-                        Ok(s) => s,
-                        Err(e) => {
-                            mark_recipient_failed(
-                                recipient_dao.as_ref(),
-                                job_dao.as_ref(),
-                                &next,
-                                &mut job,
-                                &format!("Template render error (body): {}", e.message),
-                            )
-                            .await;
-                            let interval = get_send_interval(config_service.as_ref()).await;
-                            tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
-                            continue;
-                        }
-                    };
-                    (subject, body)
-                }
-                Ok(None) => {
-                    mark_recipient_failed(
-                        recipient_dao.as_ref(),
-                        job_dao.as_ref(),
-                        &next,
-                        &mut job,
-                        &format!("Member {} not found for template rendering", member_id),
-                    )
-                    .await;
-                    let interval = get_send_interval(config_service.as_ref()).await;
-                    tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
-                    continue;
-                }
-                Err(e) => {
-                    mark_recipient_failed(
-                        recipient_dao.as_ref(),
-                        job_dao.as_ref(),
-                        &next,
-                        &mut job,
-                        &format!("Failed to load member for template rendering: {:?}", e),
-                    )
-                    .await;
-                    let interval = get_send_interval(config_service.as_ref()).await;
-                    tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
-                    continue;
-                }
+        // Quick 260614-b1t: render subject/body via the shared resolver (Single
+        // Source of Truth — the startup backfill calls the exact same function).
+        // On any render/member/repayment failure, mark the recipient failed and
+        // skip the send (same tracing/interval semantics as the old inline block).
+        let (rendered_subject, rendered_body) = match crate::render::resolve_rendered_content(
+            &next,
+            &job,
+            member_resolver.as_ref(),
+            repayment_entry_dao.as_ref(),
+            repayment_phase_dao.as_ref(),
+            transaction_dao.as_ref(),
+            repayment_context_resolver.as_ref(),
+        )
+        .await
+        {
+            Ok(rendered) => rendered,
+            Err(failure) => {
+                mark_recipient_failed(
+                    recipient_dao.as_ref(),
+                    job_dao.as_ref(),
+                    &next,
+                    &mut job,
+                    &failure.message,
+                )
+                .await;
+                let interval = get_send_interval(config_service.as_ref()).await;
+                tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
+                continue;
             }
-        } else {
-            // No member_id — plain text passthrough
-            (job.subject.to_string(), job.body.to_string())
         };
 
         // Resolve In-Reply-To header for reply jobs
@@ -621,6 +448,10 @@ pub async fn start_mail_worker<C, J, R, A, SA, D, M, IB, MD, AL, MT, RE, RP, TX,
         // this point, so their rendered_* correctly stay None.
         updated_recipient.rendered_subject = Some(Arc::from(rendered_subject.as_str()));
         updated_recipient.rendered_body = Some(Arc::from(rendered_body.as_str()));
+        // Quick 260614-b1t: live worker renders are NOT reconstructions — they are
+        // the byte-accurate content sent at this moment. The backfill flips this to
+        // true only for retroactively-rendered legacy rows.
+        updated_recipient.rendered_reconstructed = false;
 
         // Capture send-result summary for the post-send audited MemberDocument
         // create (Phase 10 D-10). We move out of send_result in the match below,

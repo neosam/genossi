@@ -1500,6 +1500,33 @@ impl RestStateImpl {
             .await;
         });
     }
+
+    /// Quick 260614-b1t: one-shot startup backfill that retroactively renders
+    /// legacy mail_recipients rows (rendered_subject/body still NULL) and marks
+    /// them rendered_reconstructed=true. Shares the exact same render function as
+    /// start_mail_worker (DRY). Idempotent: a second run after a full fill is a
+    /// no-op because find_recipients_without_rendered only returns NULL rows.
+    pub fn start_rendered_backfill_worker(&self) {
+        let recipient_dao = self.worker_recipient_dao.clone();
+        let job_dao = self.worker_job_dao.clone();
+        let member_resolver = Arc::new(PoolMemberResolver::new(self.pool.clone()));
+        let repayment_entry_dao = self.repayment_entry_dao.clone();
+        let repayment_phase_dao = self.repayment_phase_dao.clone();
+        let transaction_dao = self.transaction_dao.clone();
+        let repayment_context_resolver = self.repayment_context_resolver.clone();
+        tokio::spawn(async move {
+            genossi_mail::backfill::run_rendered_backfill(
+                recipient_dao,
+                job_dao,
+                member_resolver,
+                repayment_entry_dao,
+                repayment_phase_dao,
+                transaction_dao,
+                repayment_context_resolver,
+            )
+            .await;
+        });
+    }
 }
 
 impl genossi_mail::inbox_rest::InboxRestState for RestStateImpl {
