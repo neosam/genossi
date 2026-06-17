@@ -26,7 +26,7 @@
 
 use genossi_bin::RestStateImpl;
 use genossi_rest::test_server::test_support::{start_test_server, TestServer};
-use genossi_rest_types::{MemberStatusTO, MemberTO};
+use genossi_rest_types::{MemberStatusTO, MemberTO, PostalStatusTO};
 use reqwest::StatusCode;
 use serde_json::Value;
 use sqlx::SqlitePool;
@@ -82,6 +82,7 @@ fn sample_member(member_number: i64, first_name: &str) -> MemberTO {
         bank_account: Some("DE89370400440532013000".to_string()),
         account_holder: None,
         status: MemberStatusTO::Normal,
+        postal_status: PostalStatusTO::Erreichbar,
         created: None,
         deleted: None,
         version: None,

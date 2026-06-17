@@ -445,7 +445,7 @@ pub async fn get_members_not_reached_by<RestState: RestStateDef>(
         import_members,
         get_members_not_reached_by
     ),
-    components(schemas(MemberTO, MemberSlimTO, genossi_rest_types::SalutationTO, genossi_rest_types::MemberStatusTO, MemberImportResultTO, genossi_rest_types::MemberImportErrorTO, MemberImportUpload)),
+    components(schemas(MemberTO, MemberSlimTO, genossi_rest_types::SalutationTO, genossi_rest_types::MemberStatusTO, genossi_rest_types::PostalStatusTO, MemberImportResultTO, genossi_rest_types::MemberImportErrorTO, MemberImportUpload)),
     tags((name = "Members", description = "Member management endpoints"))
 )]
 pub struct ApiDoc;

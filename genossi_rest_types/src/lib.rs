@@ -1,5 +1,5 @@
 use genossi_dao::application::ApplicationStatus;
-use genossi_dao::member::{MemberStatus, Salutation};
+use genossi_dao::member::{MemberStatus, PostalStatus, Salutation};
 use genossi_dao::member_action::ActionType;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -156,6 +156,32 @@ impl From<&MemberStatusTO> for MemberStatus {
     }
 }
 
+/// Quick 260625-e14: REST-Transfer-Objekt für den postalischen Status.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema, Default)]
+pub enum PostalStatusTO {
+    #[default]
+    Erreichbar,
+    Unzustellbar,
+}
+
+impl From<&PostalStatus> for PostalStatusTO {
+    fn from(s: &PostalStatus) -> Self {
+        match s {
+            PostalStatus::Erreichbar => PostalStatusTO::Erreichbar,
+            PostalStatus::Unzustellbar => PostalStatusTO::Unzustellbar,
+        }
+    }
+}
+
+impl From<&PostalStatusTO> for PostalStatus {
+    fn from(s: &PostalStatusTO) -> Self {
+        match s {
+            PostalStatusTO::Erreichbar => PostalStatus::Erreichbar,
+            PostalStatusTO::Unzustellbar => PostalStatus::Unzustellbar,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct MemberTO {
     #[schema(example = "123e4567-e89b-12d3-a456-426614174000")]
@@ -218,6 +244,10 @@ pub struct MemberTO {
     pub account_holder: Option<String>,
     #[serde(default)]
     pub status: MemberStatusTO,
+    // Quick 260625-e14: postalischer Status. #[serde(default)] sorgt für
+    // Abwärtskompatibilität älterer Clients (fehlt -> Erreichbar).
+    #[serde(default)]
+    pub postal_status: PostalStatusTO,
     #[serde(
         skip_serializing_if = "Option::is_none",
         serialize_with = "iso8601_datetime::serialize",
@@ -262,6 +292,7 @@ impl From<&genossi_service::member::Member> for MemberTO {
             bank_account: m.bank_account.as_deref().map(String::from),
             account_holder: m.account_holder.as_deref().map(String::from),
             status: MemberStatusTO::from(&m.status),
+            postal_status: PostalStatusTO::from(&m.postal_status),
             created: Some(m.created),
             deleted: m.deleted,
             version: Some(m.version),
@@ -333,6 +364,7 @@ impl From<&MemberTO> for genossi_service::member::Member {
             bank_account: to.bank_account.as_deref().map(Arc::from),
             account_holder: to.account_holder.as_deref().map(Arc::from),
             status: MemberStatus::from(&to.status),
+            postal_status: PostalStatus::from(&to.postal_status),
             created: to.created.unwrap_or_else(|| {
                 let now = time::OffsetDateTime::now_utc();
                 time::PrimitiveDateTime::new(now.date(), now.time())
@@ -2576,6 +2608,7 @@ mod member_slim_to_tests {
             bank_account: Some(Arc::from("DE89370400440532013000")),
             account_holder: Some(Arc::from("Erika Mustermann")),
             status: MemberStatus::Normal,
+            postal_status: PostalStatus::Erreichbar,
             created: {
                 let now = time::OffsetDateTime::now_utc();
                 time::PrimitiveDateTime::new(now.date(), now.time())
@@ -2720,5 +2753,25 @@ mod member_slim_to_tests {
         let to = MemberTO::from(&m);
         let back = genossi_service::member::Member::from(&to);
         assert_eq!(back.account_holder.as_deref(), Some("Firma XY GmbH"));
+    }
+
+    /// Quick 260625-e14: postal_status survives Member -> MemberTO -> Member.
+    #[test]
+    fn test_member_to_postal_status_roundtrip() {
+        let mut m = sample_service_member();
+        m.postal_status = PostalStatus::Unzustellbar;
+        let to = MemberTO::from(&m);
+        assert_eq!(to.postal_status, PostalStatusTO::Unzustellbar);
+        let back = genossi_service::member::Member::from(&to);
+        assert_eq!(back.postal_status, PostalStatus::Unzustellbar);
+    }
+
+    /// Quick 260625-e14: missing postal_status in JSON defaults to Erreichbar
+    /// (backward compatibility for older clients).
+    #[test]
+    fn test_member_to_postal_status_defaults_when_absent() {
+        let json = r#"{"member_number":1,"first_name":"A","last_name":"B","join_date":"2024-01-15","shares_at_joining":1,"current_shares":1,"current_balance":0}"#;
+        let to: MemberTO = serde_json::from_str(json).unwrap();
+        assert_eq!(to.postal_status, PostalStatusTO::Erreichbar);
     }
 }

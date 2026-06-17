@@ -130,6 +130,11 @@ pub enum Key {
     MemberStatusNormal,
     MemberStatusFehlerhaftErfasst,
 
+    // Quick 260625-e14: Postal Status
+    MemberPostalStatus,
+    MemberPostalStatusErreichbar,
+    MemberPostalStatusUnzustellbar,
+
     // Migration Status
     MigrationStatus,
     Migrated,

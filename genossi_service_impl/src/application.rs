@@ -341,6 +341,8 @@ impl<Deps: ApplicationServiceDeps> ApplicationService for ApplicationServiceImpl
             // keinen Kontoinhaber-Wert — Vorstand kann ihn manuell auf der
             // Member-Detail-Seite ergänzen.
             account_holder: None,
+            // Quick 260625-e14: neue Mitglieder sind per Default postalisch erreichbar.
+            postal_status: genossi_dao::member::PostalStatus::Erreichbar,
             created,
             deleted: None,
             version: self.uuid_service.new_v4().await,

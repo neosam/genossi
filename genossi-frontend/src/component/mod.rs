@@ -148,6 +148,10 @@ pub use fiscal_year_date_input::{is_valid_fiscal_year_date, FiscalYearDateInput}
 // `show_toast` + `ToastContainer` sind bereits oben in der Phase-4-Sektion re-exportiert.
 pub use toast::{show_success_toast, SuccessToastContainer, ToastVariant};
 
+// ─── Quick 260625-e14 ─── MemberPostalStatusSelect ──────────────────
+pub mod member_postal_status_select;
+pub use member_postal_status_select::MemberPostalStatusSelect;
+
 // ─── Phase 18 ─── MembershipAdjustModal (Plan 06) ────
 pub mod membership_adjust_modal;
 pub use membership_adjust_modal::{

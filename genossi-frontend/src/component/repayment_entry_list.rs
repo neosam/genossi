@@ -570,6 +570,7 @@ mod tests {
             bank_account: None,
             account_holder: None,
             status: MemberStatusTO::Normal,
+            postal_status: rest_types::PostalStatusTO::Erreichbar,
             created: None,
             deleted: None,
             version: None,

@@ -1,15 +1,15 @@
 use dioxus::prelude::*;
 use rest_types::{
     ActionTypeTO, CommunicationEntryTO, DocumentTypeTO, MemberActionTO, MemberDocumentTO,
-    MemberStatusTO, MemberTO, MigrationStatusTO, SalutationTO,
+    MemberStatusTO, MemberTO, MigrationStatusTO, PostalStatusTO, SalutationTO,
 };
 use uuid::Uuid;
 
 use crate::api::{self, FileTreeEntry};
 use crate::auth::RequirePrivilege;
 use crate::component::{
-    show_success_toast, CommunicationTimeline, ErrorAlert, MemberSearch, MembershipAdjustModal,
-    Modal, SuccessToastContainer, ToastContainer, TopBar,
+    show_success_toast, CommunicationTimeline, ErrorAlert, MemberPostalStatusSelect, MemberSearch,
+    MembershipAdjustModal, Modal, SuccessToastContainer, ToastContainer, TopBar,
 };
 use crate::i18n::use_i18n;
 use crate::i18n::Key;
@@ -119,6 +119,8 @@ pub fn MemberDetails(id: String) -> Element {
             // explizit, wenn das Bankkonto auf einen anderen Namen läuft).
             account_holder: None,
             status: MemberStatusTO::Normal,
+            // Quick 260625-e14: neue Mitglieder sind per Default postalisch erreichbar.
+            postal_status: PostalStatusTO::Erreichbar,
             created: None,
             deleted: None,
             version: None,
@@ -607,6 +609,14 @@ pub fn MemberDetails(id: String) -> Element {
                                 }
                             }
                         }
+                    }
+
+                    // Quick 260625-e14: Postal Status (Component-First, kein inline-Duplikat)
+                    MemberPostalStatusSelect {
+                        value: member.read().postal_status.clone(),
+                        onchange: move |s| {
+                            member.write().postal_status = s;
+                        },
                     }
 
                     // Email & Company

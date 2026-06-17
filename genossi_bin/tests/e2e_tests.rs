@@ -65,6 +65,7 @@ fn sample_member() -> MemberTO {
         bank_account: Some("DE89370400440532013000".to_string()),
         account_holder: None,
         status: genossi_rest_types::MemberStatusTO::Normal,
+        postal_status: genossi_rest_types::PostalStatusTO::Erreichbar,
         created: None,
         deleted: None,
         version: None,

@@ -185,6 +185,47 @@ impl Default for MemberStatusTO {
     }
 }
 
+/// Quick 260625-e14: postalischer Status (Frontend-Spiegel). Pattern wie MemberStatusTO.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub enum PostalStatusTO {
+    Erreichbar,
+    Unzustellbar,
+}
+
+impl PostalStatusTO {
+    pub fn all() -> &'static [PostalStatusTO] {
+        &[PostalStatusTO::Erreichbar, PostalStatusTO::Unzustellbar]
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            PostalStatusTO::Erreichbar => "Erreichbar",
+            PostalStatusTO::Unzustellbar => "Unzustellbar",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "Erreichbar" => Some(PostalStatusTO::Erreichbar),
+            "Unzustellbar" => Some(PostalStatusTO::Unzustellbar),
+            _ => None,
+        }
+    }
+
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            PostalStatusTO::Erreichbar => "Erreichbar",
+            PostalStatusTO::Unzustellbar => "Unzustellbar",
+        }
+    }
+}
+
+impl Default for PostalStatusTO {
+    fn default() -> Self {
+        PostalStatusTO::Erreichbar
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MemberTO {
     pub id: Option<Uuid>,
@@ -228,6 +269,9 @@ pub struct MemberTO {
     pub account_holder: Option<String>,
     #[serde(default)]
     pub status: MemberStatusTO,
+    // Quick 260625-e14: postalischer Status. default -> Erreichbar (Abwärtskompat).
+    #[serde(default)]
+    pub postal_status: PostalStatusTO,
     #[serde(
         skip_serializing_if = "Option::is_none",
         serialize_with = "iso8601_datetime::serialize",
@@ -672,10 +716,37 @@ mod tests {
             bank_account: None,
             account_holder: None,
             status: MemberStatusTO::Normal,
+            postal_status: PostalStatusTO::Erreichbar,
             created: None,
             deleted: None,
             version: None,
         }
+    }
+
+    /// Quick 260625-e14: from_str(as_str()) roundtrips for every variant.
+    #[test]
+    fn test_postal_status_to_roundtrip() {
+        for variant in PostalStatusTO::all() {
+            assert_eq!(PostalStatusTO::from_str(variant.as_str()).as_ref(), Some(variant));
+        }
+    }
+
+    #[test]
+    fn test_postal_status_to_from_str_invalid() {
+        assert_eq!(PostalStatusTO::from_str("X"), None);
+    }
+
+    #[test]
+    fn test_postal_status_to_default_is_erreichbar() {
+        assert_eq!(PostalStatusTO::default(), PostalStatusTO::Erreichbar);
+    }
+
+    #[test]
+    fn test_postal_status_to_all_has_both_variants() {
+        assert_eq!(
+            PostalStatusTO::all(),
+            &[PostalStatusTO::Erreichbar, PostalStatusTO::Unzustellbar]
+        );
     }
 
     #[test]
@@ -913,6 +984,7 @@ mod phase_18_dtos_tests {
             bank_account: None,
             account_holder: None,
             status: MemberStatusTO::Normal,
+            postal_status: PostalStatusTO::Erreichbar,
             created: None,
             deleted: None,
             version: None,

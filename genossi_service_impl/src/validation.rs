@@ -392,6 +392,7 @@ mod tests {
             bank_account: None,
             status: genossi_dao::member::MemberStatus::Normal,
             account_holder: None,
+            postal_status: genossi_dao::member::PostalStatus::Erreichbar,
             created: datetime,
             deleted,
             version: Uuid::new_v4(),

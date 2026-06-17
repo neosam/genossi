@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use genossi_dao::member::{MemberDao, MemberEntity, MemberStatus, Salutation};
+use genossi_dao::member::{MemberDao, MemberEntity, MemberStatus, PostalStatus, Salutation};
 use genossi_dao::DaoError;
 use sqlx::SqlitePool;
 use std::sync::Arc;
@@ -63,6 +63,9 @@ struct MemberDb {
     // Quick 260607-mw9: account_holder column (nullable TEXT).
     // Positional sqlx::FromRow — must match SELECT column order below.
     account_holder: Option<String>,
+    // Quick 260625-e14: postal_status column (TEXT DEFAULT 'Erreichbar').
+    // Positional FromRow — must follow account_holder in SELECT order.
+    postal_status: Option<String>,
     created: String,
     deleted: Option<String>,
     version: Vec<u8>,
@@ -106,6 +109,13 @@ impl TryFrom<&MemberDb> for MemberEntity {
                 .unwrap_or_default(),
             // Quick 260607-mw9: account_holder column.
             account_holder: db.account_holder.as_deref().map(Arc::from),
+            // Quick 260625-e14: postal_status column (default Erreichbar).
+            postal_status: db
+                .postal_status
+                .as_deref()
+                .map(PostalStatus::from_str)
+                .transpose()?
+                .unwrap_or_default(),
             created: parse_datetime(&db.created)?,
             deleted: db.deleted.as_ref().map(|d| parse_datetime(d)).transpose()?,
             version: Uuid::from_slice(&db.version)?,
@@ -131,7 +141,7 @@ impl MemberDao for MemberDaoImpl {
         let rows = sqlx::query_as::<_, MemberDb>(
             "SELECT id, member_number, first_name, last_name, salutation, title, email, company, comment, \
              street, house_number, postal_code, city, join_date, shares_at_joining, \
-             current_shares, current_balance, action_count, migrated, exit_date, bank_account, status, account_holder, created, deleted, version \
+             current_shares, current_balance, action_count, migrated, exit_date, bank_account, status, account_holder, postal_status, created, deleted, version \
              FROM member ORDER BY member_number",
         )
         .fetch_all(tx.tx.lock().await.as_mut())
@@ -175,12 +185,14 @@ impl MemberDao for MemberDaoImpl {
         let status = entity.status.as_str().to_string();
         // Quick 260607-mw9: account_holder ist Option<Arc<str>> wie bank_account.
         let account_holder = entity.account_holder.as_deref().map(String::from);
+        // Quick 260625-e14: postal_status (NOT NULL enum, always a value).
+        let postal_status = entity.postal_status.as_str().to_string();
 
         sqlx::query(
             "INSERT INTO member (id, member_number, first_name, last_name, salutation, title, email, company, comment, \
              street, house_number, postal_code, city, join_date, shares_at_joining, \
-             current_shares, current_balance, action_count, migrated, exit_date, bank_account, status, account_holder, created, version) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             current_shares, current_balance, action_count, migrated, exit_date, bank_account, status, account_holder, postal_status, created, version) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(id)
         .bind(entity.member_number)
@@ -205,6 +217,7 @@ impl MemberDao for MemberDaoImpl {
         .bind(bank_account)
         .bind(status)
         .bind(account_holder)
+        .bind(postal_status)
         .bind(created)
         .bind(version)
         .execute(tx.tx.lock().await.as_mut())
@@ -240,6 +253,8 @@ impl MemberDao for MemberDaoImpl {
         let status = entity.status.as_str().to_string();
         // Quick 260607-mw9: account_holder ist Option<Arc<str>> wie bank_account.
         let account_holder = entity.account_holder.as_deref().map(String::from);
+        // Quick 260625-e14: postal_status (NOT NULL enum, always a value).
+        let postal_status = entity.postal_status.as_str().to_string();
 
         let deleted = match entity.deleted {
             Some(dt) => {
@@ -269,7 +284,7 @@ impl MemberDao for MemberDaoImpl {
             "UPDATE member SET member_number = ?, first_name = ?, last_name = ?, salutation = ?, title = ?, email = ?, \
              company = ?, comment = ?, street = ?, house_number = ?, postal_code = ?, city = ?, \
              join_date = ?, shares_at_joining = ?, current_shares = ?, current_balance = ?, \
-             action_count = ?, migrated = ?, exit_date = ?, bank_account = ?, status = ?, account_holder = ?, deleted = ?, version = ? \
+             action_count = ?, migrated = ?, exit_date = ?, bank_account = ?, status = ?, account_holder = ?, postal_status = ?, deleted = ?, version = ? \
              WHERE id = ? AND version = ? AND deleted IS NULL",
         )
         .bind(entity.member_number)
@@ -294,6 +309,7 @@ impl MemberDao for MemberDaoImpl {
         .bind(bank_account)
         .bind(status)
         .bind(account_holder)
+        .bind(postal_status)
         .bind(deleted)
         .bind(new_version)
         .bind(id)

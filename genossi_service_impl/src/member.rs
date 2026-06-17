@@ -251,6 +251,8 @@ impl<Deps: MemberServiceDeps> MemberService for MemberServiceImpl<Deps> {
             // Quick 260607-mw9: account_holder vom Eingabe-Item übernehmen,
             // damit Create-Endpoint den Wert akzeptiert.
             account_holder: item.account_holder.clone(),
+            // Quick 260625-e14: postalischen Status vom Eingabe-Item übernehmen.
+            postal_status: item.postal_status.clone(),
             created,
             deleted: None,
             version: self.uuid_service.new_v4().await,
@@ -423,7 +425,7 @@ mod tests {
     use super::*;
     use async_trait::async_trait;
     use genossi_dao::audit_log::{AuditLogEntry, AuditQueryFilter};
-    use genossi_dao::member::{MemberEntity, MemberStatus, Salutation};
+    use genossi_dao::member::{MemberEntity, MemberStatus, PostalStatus, Salutation};
     use genossi_dao::member_action::MemberActionEntity;
     use genossi_dao::{DaoError, Transaction};
     use genossi_service::permission::MockContext;
@@ -694,6 +696,7 @@ mod tests {
             bank_account: None,
             status: MemberStatus::Normal,
             account_holder: None,
+            postal_status: PostalStatus::Erreichbar,
             created: time::PrimitiveDateTime::new(join, time::Time::MIDNIGHT),
             deleted: None,
             version: Uuid::new_v4(),

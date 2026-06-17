@@ -1419,6 +1419,7 @@ mod tests {
             bank_account: None,
             status: genossi_dao::member::MemberStatus::Normal,
             account_holder: None,
+            postal_status: genossi_dao::member::PostalStatus::Erreichbar,
             created: time::PrimitiveDateTime::new(
                 time::Date::from_calendar_date(2024, time::Month::January, 15).unwrap(),
                 time::Time::from_hms(10, 0, 0).unwrap(),
@@ -2069,6 +2070,7 @@ foo
             bank_account: Some(Arc::from("DE89370400440532013000")),
             status: genossi_dao::member::MemberStatus::Normal,
             account_holder: None,
+            postal_status: genossi_dao::member::PostalStatus::Erreichbar,
             created: time::PrimitiveDateTime::new(now.date(), now.time()),
             deleted: None,
             version: Uuid::new_v4(),

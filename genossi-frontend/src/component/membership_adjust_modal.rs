@@ -88,6 +88,8 @@ pub fn to_member_to(slim: &MemberSlimTO) -> MemberTO {
         // explizit auf None.
         account_holder: None,
         status: MemberStatusTO::Normal,
+        // Quick 260625-e14: Adapter setzt Default Erreichbar (Slim hat kein Postal-Feld).
+        postal_status: rest_types::PostalStatusTO::Erreichbar,
         created: None,
         deleted: None,
         version: None,

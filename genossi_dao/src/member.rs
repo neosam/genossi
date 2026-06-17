@@ -65,6 +65,40 @@ impl MemberStatus {
     }
 }
 
+/// Quick 260625-e14: postalischer Erreichbarkeits-Status eines Mitglieds.
+/// Erweiterbar gehalten (Enum statt Bool), damit später Gründe wie `Umgezogen`,
+/// `Verstorben` etc. ergänzt werden können. Vorbild: `MemberStatus`.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub enum PostalStatus {
+    #[default]
+    Erreichbar,
+    Unzustellbar,
+}
+
+impl PostalStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            PostalStatus::Erreichbar => "Erreichbar",
+            PostalStatus::Unzustellbar => "Unzustellbar",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Result<Self, DaoError> {
+        match s {
+            "Erreichbar" => Ok(PostalStatus::Erreichbar),
+            "Unzustellbar" => Ok(PostalStatus::Unzustellbar),
+            _ => Err(DaoError::ParseError(Arc::from(format!(
+                "Unknown postal status: {}",
+                s
+            )))),
+        }
+    }
+
+    pub fn is_reachable(&self) -> bool {
+        matches!(self, PostalStatus::Erreichbar)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MemberEntity {
     pub id: Uuid,
@@ -94,6 +128,8 @@ pub struct MemberEntity {
     // wenn das Bankkonto auf einen anderen Namen läuft (z.B. Ehepartner, Firma).
     // None = Fallback auf first_name + last_name. APPENDED AT END für Hashchain-Stabilität.
     pub account_holder: Option<Arc<str>>,
+    // Quick 260625-e14: postalischer Status. APPENDED AT END für Hashchain-Stabilität.
+    pub postal_status: PostalStatus,
     pub created: time::PrimitiveDateTime,
     pub deleted: Option<time::PrimitiveDateTime>,
     pub version: Uuid,
@@ -252,6 +288,12 @@ impl crate::auditable::Auditable for MemberEntity {
                 "account_holder",
                 self.account_holder.as_ref().map(|s| s.to_string()),
             ),
+            // Quick 260625-e14: postal_status APPENDED AT END (FROZEN-order
+            // Hashchain-Stabilität; vorhandene Audit-Log-Hashes bleiben gültig).
+            (
+                "postal_status",
+                Some(self.postal_status.as_str().to_string()),
+            ),
         ]
     }
 }
@@ -296,6 +338,7 @@ mod tests {
             bank_account: None,
             status: MemberStatus::Normal,
             account_holder: None,
+            postal_status: PostalStatus::Erreichbar,
             created: datetime,
             deleted,
             version: Uuid::new_v4(),
@@ -529,6 +572,38 @@ mod tests {
         assert!(!MemberStatus::FehlerhaftErfasst.is_normal());
     }
 
+    #[test]
+    fn test_postal_status_roundtrip() {
+        for variant in &[PostalStatus::Erreichbar, PostalStatus::Unzustellbar] {
+            let s = variant.as_str();
+            let parsed = PostalStatus::from_str(s).unwrap();
+            assert_eq!(&parsed, variant);
+        }
+    }
+
+    #[test]
+    fn test_postal_status_as_str() {
+        assert_eq!(PostalStatus::Erreichbar.as_str(), "Erreichbar");
+        assert_eq!(PostalStatus::Unzustellbar.as_str(), "Unzustellbar");
+    }
+
+    #[test]
+    fn test_postal_status_invalid_value() {
+        let result = PostalStatus::from_str("Unbekannt");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_postal_status_default() {
+        assert_eq!(PostalStatus::default(), PostalStatus::Erreichbar);
+    }
+
+    #[test]
+    fn test_postal_status_is_reachable() {
+        assert!(PostalStatus::Erreichbar.is_reachable());
+        assert!(!PostalStatus::Unzustellbar.is_reachable());
+    }
+
     #[tokio::test]
     async fn test_count_active_excludes_fehlerhaft_erfasst() {
         let mut entity = make_entity(1, None);
@@ -553,7 +628,8 @@ mod tests {
         let entity = make_entity(1, None);
         let fields = entity.audit_fields();
         // Quick 260607-mw9: 21 -> 22 (account_holder added at end).
-        assert_eq!(fields.len(), 22);
+        // Quick 260625-e14: 22 -> 23 (postal_status added at end).
+        assert_eq!(fields.len(), 23);
         // Verify excluded fields are not present
         let field_names: Vec<&str> = fields.iter().map(|(name, _)| *name).collect();
         assert!(!field_names.contains(&"id"));
@@ -562,21 +638,31 @@ mod tests {
         assert!(!field_names.contains(&"deleted"));
         // Quick 260607-mw9: new account_holder field is present.
         assert!(field_names.contains(&"account_holder"));
+        // Quick 260625-e14: new postal_status field is present.
+        assert!(field_names.contains(&"postal_status"));
     }
 
-    /// Quick 260607-mw9: verifies that `account_holder` is the FINAL entry
+    /// Quick 260625-e14: verifies that `postal_status` is the FINAL entry
     /// in `audit_fields()`. Critical for hashchain stability — reordering
     /// existing fields would invalidate every prior audit_log row's hash.
     /// Phase-7-Lektion: new fields MUST be appended at the end.
+    /// (Replaces test_auditable_account_holder_appended_at_end — account_holder
+    /// is now the second-to-last entry.)
     #[test]
-    fn test_auditable_account_holder_appended_at_end() {
+    fn test_auditable_postal_status_appended_at_end() {
         use crate::auditable::Auditable;
         let entity = make_entity(1, None);
         let fields = entity.audit_fields();
         assert_eq!(
             fields.last().map(|(name, _)| *name),
+            Some("postal_status"),
+            "postal_status MUST be the last entry in audit_fields() for hashchain stability"
+        );
+        // account_holder is now second-to-last.
+        assert_eq!(
+            fields.get(fields.len() - 2).map(|(name, _)| *name),
             Some("account_holder"),
-            "account_holder MUST be the last entry in audit_fields() for hashchain stability"
+            "account_holder MUST remain in its position before postal_status"
         );
     }
 

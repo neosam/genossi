@@ -80,6 +80,9 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::MemberStatus => "Status".into(),
         Key::MemberStatusNormal => "Normal".into(),
         Key::MemberStatusFehlerhaftErfasst => "Erroneously Registered".into(),
+        Key::MemberPostalStatus => "Postal Status".into(),
+        Key::MemberPostalStatusErreichbar => "Reachable".into(),
+        Key::MemberPostalStatusUnzustellbar => "Undeliverable".into(),
 
         Key::MigrationStatus => "Migration Status".into(),
         Key::Migrated => "Migrated".into(),

@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use genossi_dao::member::{MemberEntity, MemberStatus, Salutation};
+use genossi_dao::member::{MemberEntity, MemberStatus, PostalStatus, Salutation};
 use mockall::automock;
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -37,6 +37,8 @@ pub struct Member {
     /// anderen Namen läuft (Ehepartner, Firma). None = Fallback auf
     /// first_name + last_name. Spiegelt das gleiche Feld auf MemberEntity.
     pub account_holder: Option<Arc<str>>,
+    /// Quick 260625-e14: postalischer Status, spiegelt MemberEntity.
+    pub postal_status: PostalStatus,
     pub created: time::PrimitiveDateTime,
     pub deleted: Option<time::PrimitiveDateTime>,
     pub version: Uuid,
@@ -68,6 +70,7 @@ impl From<&MemberEntity> for Member {
             bank_account: entity.bank_account.clone(),
             status: entity.status.clone(),
             account_holder: entity.account_holder.clone(),
+            postal_status: entity.postal_status.clone(),
             created: entity.created,
             deleted: entity.deleted,
             version: entity.version,
@@ -101,6 +104,7 @@ impl From<&Member> for MemberEntity {
             bank_account: member.bank_account.clone(),
             status: member.status.clone(),
             account_holder: member.account_holder.clone(),
+            postal_status: member.postal_status.clone(),
             created: member.created,
             deleted: member.deleted,
             version: member.version,
@@ -193,6 +197,7 @@ mod tests {
             bank_account: None,
             status: MemberStatus::Normal,
             account_holder: None,
+            postal_status: PostalStatus::Erreichbar,
             created: datetime,
             deleted: None,
             version: Uuid::new_v4(),
@@ -248,5 +253,27 @@ mod tests {
         assert_eq!(entity.account_holder, None);
         let back = Member::from(&entity);
         assert_eq!(back.account_holder, None);
+    }
+
+    /// Quick 260625-e14: round-trip preserves postal_status between
+    /// Member (service-layer) and MemberEntity (DAO-layer) in both directions.
+    #[test]
+    fn test_member_to_entity_preserves_postal_status() {
+        let mut member = make_member();
+        member.postal_status = PostalStatus::Unzustellbar;
+        let entity = MemberEntity::from(&member);
+        assert_eq!(entity.postal_status, PostalStatus::Unzustellbar);
+        let back = Member::from(&entity);
+        assert_eq!(back.postal_status, PostalStatus::Unzustellbar);
+    }
+
+    /// Quick 260625-e14: default Erreichbar survives the round-trip.
+    #[test]
+    fn test_member_to_entity_default_postal_status_roundtrip() {
+        let member = make_member();
+        let entity = MemberEntity::from(&member);
+        assert_eq!(entity.postal_status, PostalStatus::Erreichbar);
+        let back = Member::from(&entity);
+        assert_eq!(back.postal_status, PostalStatus::Erreichbar);
     }
 }

@@ -253,6 +253,8 @@ fn build_member(t: &TestMember) -> genossi_service::member::Member {
         status: genossi_dao::member::MemberStatus::Normal,
         // Quick 260607-mw9: dev/test-data hat keinen Kontoinhaber.
         account_holder: None,
+        // Quick 260625-e14: dev/test-data ist postalisch erreichbar.
+        postal_status: genossi_dao::member::PostalStatus::Erreichbar,
         created,
         deleted: None,
         version: uuid::Uuid::new_v4(),
