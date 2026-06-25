@@ -280,7 +280,10 @@ pub async fn revoke_helper_token<RestState: RestStateDef + HelperTokenRestState>
 // Public Handler 4: redeem_helper_token (POST /redeem, PUBLIC, Set-Cookie)
 // ============================================================================
 
-#[instrument(skip(rest_state))]
+// skip(body): RedeemRequest enthält den Klartext-Redeem-Code (#[derive(Debug)]),
+// der bei RUST_LOG=debug sonst im Tracing-Span landen würde — der Service-Layer
+// vermeidet das bewusst, der Span darf es nicht aushebeln (replay-bare Codes).
+#[instrument(skip(rest_state, body))]
 #[utoipa::path(
     post,
     tag = "Helper Redeem",
@@ -588,6 +591,34 @@ pub struct PublicApiDoc;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Security-Regression-Guard (instrument-skip-redeem-code): der Klartext-
+    /// Redeem-Code (`RedeemRequest.code`, `#[derive(Debug)]`) darf NICHT im
+    /// Tracing-Span landen. Das `skip(...)` der `#[instrument]`-Annotation IST
+    /// das Verhalten (compile-time), deshalb wird es hier auf Quellebene
+    /// abgesichert: entfernt jemand `body` aus dem skip, schlägt der Test fehl.
+    /// Ein Laufzeit-Test ist nicht praktikabel, weil Server-Handler-Spans in
+    /// eigenen Worker-Threads laufen (thread-lokaler Capture greift dort nicht).
+    #[test]
+    fn test_redeem_handler_skips_body_in_tracing_span() {
+        let src = include_str!("helper_token.rs");
+        let fn_idx = src
+            .find("pub async fn redeem_helper_token")
+            .expect("redeem_helper_token handler not found");
+        // Die dem Handler unmittelbar vorausgehende #[instrument(...)]-Zeile.
+        let attr_start = src[..fn_idx]
+            .rfind("#[instrument(")
+            .expect("#[instrument] before redeem_helper_token not found");
+        let line_len = src[attr_start..]
+            .find('\n')
+            .expect("instrument attribute must be single-line");
+        let instrument_line = &src[attr_start..attr_start + line_len];
+        assert!(
+            instrument_line.contains("body"),
+            "redeem_helper_token muss `body` im instrument(skip(...)) ausschließen, \
+             sonst landet der Klartext-Redeem-Code im Tracing-Span. Gefunden: {instrument_line}"
+        );
+    }
 
     #[test]
     fn test_validate_create_helper_token_request_valid() {
