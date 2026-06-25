@@ -51,7 +51,11 @@ impl FilesystemDocumentStorage {
             )));
         }
 
-        Ok(joined)
+        // Den NORMALISIERTEN Pfad zurückgeben, nicht den rohen `joined`: sonst
+        // wird zwar gegen die normalisierte Variante validiert, aber ein Pfad mit
+        // `.`/`..`-Segmenten unverändert an die fs-Operationen weitergereicht
+        // (document-storage-normalized-path, Defense-in-Depth).
+        Ok(normalized)
     }
 }
 
@@ -119,6 +123,27 @@ mod tests {
 
         let result = storage.save("../evil", b"bad").await;
         assert!(matches!(result, Err(StorageError::ValidationError(_))));
+    }
+
+    #[tokio::test]
+    async fn test_full_path_returns_normalized_path() {
+        use std::path::Component;
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().to_path_buf();
+        let storage = FilesystemDocumentStorage::new(base.clone());
+
+        // Interior `..`, das innerhalb der Base bleibt → erlaubt, MUSS aber
+        // normalisiert zurückkommen (kein `..`-Segment mehr im Rückgabepfad).
+        let resolved = storage
+            .full_path("sub/../keep.pdf")
+            .expect("path within base must be allowed");
+
+        assert!(
+            !resolved.components().any(|c| c == Component::ParentDir),
+            "full_path muss einen normalisierten Pfad ohne `..` liefern, war: {}",
+            resolved.display()
+        );
+        assert_eq!(resolved, base.clean().join("keep.pdf"));
     }
 
     #[tokio::test]
