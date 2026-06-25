@@ -1,6 +1,6 @@
 use axum::{
     body::Body,
-    extract::{Multipart, Path, Query, State},
+    extract::{DefaultBodyLimit, Multipart, Path, Query, State},
     response::Response,
     routing::{delete, get, post},
     Extension, Router,
@@ -34,10 +34,20 @@ struct DocumentUpload {
     file: String,
 }
 
+/// Body-Limit für MemberDocument-Uploads. Konsistent zum Service-Limit
+/// `MAX_FILE_SIZE` (50 MB) in `genossi_service_impl/src/member_document.rs`.
+/// Ohne dieses Layer greift axums 2-MB-Default und die Service-Limits sind
+/// toter Code (default-body-limit-uploads).
+const MEMBER_DOCUMENT_BODY_LIMIT: usize = 50 * 1024 * 1024;
+
 pub fn generate_route<RestState: RestStateDef>() -> Router<RestState> {
     Router::new()
         .route("/", get(list_documents::<RestState>))
-        .route("/", post(upload_document::<RestState>))
+        .route(
+            "/",
+            post(upload_document::<RestState>)
+                .layer(DefaultBodyLimit::max(MEMBER_DOCUMENT_BODY_LIMIT)),
+        )
         .route(
             "/generate/{document_type}",
             post(generate_document::<RestState>),

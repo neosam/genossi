@@ -1,6 +1,6 @@
 use axum::{
     body::Body,
-    extract::{Multipart, Path, Query, State},
+    extract::{DefaultBodyLimit, Multipart, Path, Query, State},
     response::Response,
     routing::{delete, get, post, put},
     Extension, Json, Router,
@@ -42,7 +42,13 @@ pub fn generate_route<RestState: RestStateDef>() -> Router<RestState> {
             "/transfer-recipients",
             get(get_transfer_recipients::<RestState>),
         )
-        .route("/import", post(import_members::<RestState>))
+        // Excel-Import liest field.bytes() komplett in den Speicher; ein Body-Limit
+        // verhindert den stillen 2-MB-Default-Abbruch und dient als DoS-Härtung.
+        // 10 MB ist großzügig für Mitglieder-Excel-Listen (default-body-limit-uploads).
+        .route(
+            "/import",
+            post(import_members::<RestState>).layer(DefaultBodyLimit::max(10 * 1024 * 1024)),
+        )
         .route(
             "/not-reached-by/{job_id}",
             get(get_members_not_reached_by::<RestState>),

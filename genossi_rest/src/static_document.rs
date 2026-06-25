@@ -1,12 +1,12 @@
 use axum::{
     body::Body,
-    extract::{Multipart, Path, State},
+    extract::{DefaultBodyLimit, Multipart, Path, State},
     response::Response,
     routing::{delete, get, post},
     Extension, Router,
 };
 use genossi_mail::static_document_service::{
-    StaticDocumentError, StaticDocumentService, UploadStaticDocument,
+    StaticDocumentError, StaticDocumentService, UploadStaticDocument, DEFAULT_MAX_SIZE_BYTES,
 };
 use genossi_service::permission::{Authentication, PermissionService, ADMIN_PRIVILEGE};
 use serde::{Deserialize, Serialize};
@@ -65,7 +65,13 @@ pub struct ApiDoc;
 pub fn generate_route<RestState: RestStateDef>() -> Router<RestState> {
     Router::new()
         .route("/", get(list_documents::<RestState>))
-        .route("/", post(upload_document::<RestState>))
+        // Body-Limit konsistent zum Service-Limit DEFAULT_MAX_SIZE_BYTES (10 MB);
+        // ohne dieses Layer greift axums 2-MB-Default (default-body-limit-uploads).
+        .route(
+            "/",
+            post(upload_document::<RestState>)
+                .layer(DefaultBodyLimit::max(DEFAULT_MAX_SIZE_BYTES as usize)),
+        )
         .route("/{document_id}", get(download_document::<RestState>))
         .route("/{document_id}", delete(delete_document::<RestState>))
 }

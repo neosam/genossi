@@ -1907,6 +1907,56 @@ async fn test_document_upload_list_download_delete() {
 }
 
 #[tokio::test]
+async fn test_document_upload_above_axum_default_limit_succeeds() {
+    // Regression-Guard (default-body-limit-uploads): ohne explizites DefaultBodyLimit
+    // greift axums 2-MB-Default und ein >2-MB-Upload würde still mit 413 abbrechen,
+    // obwohl das MemberDocument-Service-Limit 50 MB ist. Mit dem Layer (50 MB) muss
+    // ein 3-MB-Upload durchgehen.
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let member = create_test_member(&client, &server).await;
+    let member_id = member.id.unwrap();
+
+    let file_content = vec![0u8; 3 * 1024 * 1024]; // 3 MB > axum-Default (2 MB)
+    let file_part = reqwest::multipart::Part::bytes(file_content.clone())
+        .file_name("gross.pdf")
+        .mime_str("application/pdf")
+        .unwrap();
+    let form = reqwest::multipart::Form::new()
+        .text("document_type", "join_declaration")
+        .part("file", file_part);
+
+    let response = client
+        .post(server.url(&format!("/api/members/{}/documents", member_id)))
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::CREATED,
+        "3-MB-Upload muss durchgehen (Body-Limit auf 50 MB angehoben), \
+         nicht am 2-MB-axum-Default scheitern"
+    );
+
+    // Roundtrip: heruntergeladene Bytes müssen exakt der 3-MB-Datei entsprechen.
+    let doc: MemberDocumentTO = response.json().await.unwrap();
+    let download = client
+        .get(server.url(&format!(
+            "/api/members/{}/documents/{}",
+            member_id,
+            doc.id.unwrap()
+        )))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(download.status(), StatusCode::OK);
+    let body = download.bytes().await.unwrap();
+    assert_eq!(body.len(), file_content.len());
+}
+
+#[tokio::test]
 async fn test_document_singleton_blocks_duplicate() {
     let server = setup().await;
     let client = reqwest::Client::new();
