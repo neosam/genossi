@@ -493,6 +493,12 @@ impl<Deps: MemberActionServiceDeps> MemberActionService for MemberActionServiceI
     ) -> Result<(), ServiceError> {
         let tx = self.transaction_dao.use_transaction(tx).await?;
 
+        let user_id = self
+            .permission_service
+            .current_user_id(context.clone())
+            .await?
+            .unwrap_or_else(|| "SYSTEM".to_string());
+
         self.permission_service
             .check_permission(MANAGE_MEMBERS_PRIVILEGE, context)
             .await?;
@@ -523,11 +529,19 @@ impl<Deps: MemberActionServiceDeps> MemberActionService for MemberActionServiceI
         // expected_action_count = action_count + 1, so action_count = actual - 1
         let new_action_count = actual_action_count - 1;
 
+        // Member ist eine auditierte Entität: Statusänderung läuft über das
+        // Audit-Macro, damit der action_count-Wechsel in der Hashchain landet.
         let mut updated_member = member.clone();
         updated_member.action_count = new_action_count;
-        self.member_dao
-            .update(&updated_member, "confirm-migration", tx.clone())
-            .await?;
+        crate::audited_update!(
+            self,
+            self.member_dao,
+            member_id,
+            &updated_member,
+            "confirm-migration",
+            &user_id,
+            tx
+        );
 
         self.recalc_migrated(member_id, tx.clone()).await?;
 

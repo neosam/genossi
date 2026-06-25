@@ -1665,6 +1665,92 @@ async fn test_confirm_migration_resolves_action_count_mismatch() {
 }
 
 #[tokio::test]
+async fn test_confirm_migration_writes_audit_entry() {
+    // Regression-Guard: confirm_migration ändert action_count auf einer auditierten
+    // Entität (Member) und MUSS daher über das Audit-Macro laufen — ein direkter
+    // member_dao.update würde die Hashchain umgehen (audit-macro-confirm-migration).
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let mut member = sample_member();
+    member.shares_at_joining = 3;
+    let response = client
+        .post(server.url("/api/members"))
+        .json(&member)
+        .send()
+        .await
+        .unwrap();
+    let created: MemberTO = response.json().await.unwrap();
+    let member_id = created.id.unwrap();
+
+    // action_count=5 erzwingen → Mismatch (expected=6, actual=1) → pending
+    let mut updated = created.clone();
+    updated.action_count = 5;
+    let response = client
+        .put(server.url(&format!("/api/members/{}", member_id)))
+        .json(&updated)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Snapshot: wie viele action_count-Update-Audit-Einträge gibt es VOR confirm?
+    let before: Vec<genossi_rest_types::AuditLogEntryTO> = client
+        .get(server.url(&format!("/api/audit/member/{}", member_id)))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let action_count_updates_before = before
+        .iter()
+        .filter(|e| e.action == "update" && e.field_name == "action_count")
+        .count();
+
+    // Confirm migration (setzt action_count = actual - 1 = 0)
+    let response = client
+        .post(server.url(&format!(
+            "/api/members/{}/actions/confirm-migration",
+            member_id
+        )))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Nach confirm: action_count-Update-Audit-Einträge müssen zugenommen haben.
+    let after: Vec<genossi_rest_types::AuditLogEntryTO> = client
+        .get(server.url(&format!("/api/audit/member/{}", member_id)))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let action_count_updates_after = after
+        .iter()
+        .filter(|e| e.action == "update" && e.field_name == "action_count")
+        .count();
+
+    assert!(
+        action_count_updates_after > action_count_updates_before,
+        "confirm_migration muss die action_count-Änderung auditieren \
+         (vorher: {action_count_updates_before}, nachher: {action_count_updates_after})"
+    );
+
+    // Hashchain muss weiterhin valide sein.
+    let verify = client
+        .get(server.url("/api/audit/verify"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(verify.status(), StatusCode::OK);
+    let result: genossi_rest_types::VerifyResponseTO = verify.json().await.unwrap();
+    assert!(result.valid, "Audit-Hashchain muss nach confirm valide sein");
+}
+
+#[tokio::test]
 async fn test_confirm_migration_shares_mismatch_stays_pending() {
     let server = setup().await;
     let client = reqwest::Client::new();
