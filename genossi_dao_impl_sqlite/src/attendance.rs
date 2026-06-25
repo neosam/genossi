@@ -7,17 +7,7 @@ use time::PrimitiveDateTime;
 use uuid::Uuid;
 
 use crate::TransactionImpl;
-
-/// Module-local datetime formatter -- mirrors the analog helper in
-/// `helper_token.rs`. Kept module-local because the call sites here all
-/// touch SQLite TEXT-encoded datetimes, and the helper is short enough
-/// that re-export would add coupling for no benefit.
-fn format_dt(dt: &PrimitiveDateTime) -> Result<String, DaoError> {
-    let format = &time::format_description::well_known::Iso8601::DEFAULT;
-    dt.assume_utc()
-        .format(format)
-        .map_err(|e| DaoError::ParseError(Arc::from(e.to_string())))
-}
+use crate::datetime_utils::format_dt;
 
 /// Internal row type for `list_members_for_assembly`. Mirrors the
 /// 7-column SELECT-whitelist (D-24, ATTN-01) -- adding a column here

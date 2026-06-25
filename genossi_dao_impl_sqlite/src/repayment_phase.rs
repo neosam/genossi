@@ -3,10 +3,9 @@ use genossi_dao::repayment_phase::{RepaymentPhaseDao, RepaymentPhaseEntity, Repa
 use genossi_dao::DaoError;
 use sqlx::SqlitePool;
 use std::sync::Arc;
-use time::PrimitiveDateTime;
 use uuid::Uuid;
 
-use crate::assembly::parse_datetime;
+use crate::datetime_utils::{format_dt, parse_datetime};
 use crate::TransactionImpl;
 
 #[derive(Debug, sqlx::FromRow)]
@@ -63,12 +62,6 @@ impl RepaymentPhaseDaoImpl {
     }
 }
 
-fn format_dt(dt: &PrimitiveDateTime) -> Result<String, DaoError> {
-    let format = &time::format_description::well_known::Iso8601::DEFAULT;
-    dt.assume_utc()
-        .format(format)
-        .map_err(|e| DaoError::ParseError(Arc::from(e.to_string())))
-}
 
 #[async_trait]
 impl RepaymentPhaseDao for RepaymentPhaseDaoImpl {

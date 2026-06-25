@@ -3,38 +3,13 @@ use genossi_dao::member::{MemberDao, MemberEntity, MemberStatus, PostalStatus, S
 use genossi_dao::DaoError;
 use sqlx::SqlitePool;
 use std::sync::Arc;
-use time::PrimitiveDateTime;
 use uuid::Uuid;
 
 use crate::TransactionImpl;
+use crate::datetime_utils::{format_date, parse_date, parse_datetime};
 
-fn parse_datetime(s: &str) -> Result<PrimitiveDateTime, time::error::Parse> {
-    if let Ok(dt) =
-        PrimitiveDateTime::parse(s, &time::format_description::well_known::Iso8601::DEFAULT)
-    {
-        return Ok(dt);
-    }
-    let sqlite_format = time::format_description::parse(
-        "[year]-[month]-[day] [hour]:[minute]:[second].[subsecond]",
-    )
-    .unwrap();
-    if let Ok(dt) = PrimitiveDateTime::parse(s, &sqlite_format) {
-        return Ok(dt);
-    }
-    let sqlite_simple =
-        time::format_description::parse("[year]-[month]-[day] [hour]:[minute]:[second]").unwrap();
-    PrimitiveDateTime::parse(s, &sqlite_simple)
-}
 
-fn parse_date(s: &str) -> Result<time::Date, time::error::Parse> {
-    let format = time::format_description::parse("[year]-[month]-[day]").unwrap();
-    time::Date::parse(s, &format)
-}
 
-fn format_date(d: &time::Date) -> String {
-    let format = time::format_description::parse("[year]-[month]-[day]").unwrap();
-    d.format(&format).unwrap()
-}
 
 #[derive(Debug, sqlx::FromRow)]
 struct MemberDb {

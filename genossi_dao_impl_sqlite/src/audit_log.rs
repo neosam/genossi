@@ -3,10 +3,10 @@ use genossi_dao::audit_log::{AuditLogDao, AuditLogEntry, AuditQueryFilter};
 use genossi_dao::DaoError;
 use sqlx::{QueryBuilder, Sqlite, SqlitePool};
 use std::sync::Arc;
-use time::PrimitiveDateTime;
 use uuid::Uuid;
 
 use crate::TransactionImpl;
+use crate::datetime_utils::parse_datetime;
 
 /// Append `WHERE` clauses for the given filter to a `QueryBuilder`. The same
 /// builder is used by `query` and `count` so the filter semantics stay aligned.
@@ -51,23 +51,6 @@ fn push_filter<'a>(builder: &mut QueryBuilder<'a, Sqlite>, filter: &'a AuditQuer
     }
 }
 
-fn parse_datetime(s: &str) -> Result<PrimitiveDateTime, time::error::Parse> {
-    if let Ok(dt) =
-        PrimitiveDateTime::parse(s, &time::format_description::well_known::Iso8601::DEFAULT)
-    {
-        return Ok(dt);
-    }
-    let sqlite_format = time::format_description::parse(
-        "[year]-[month]-[day] [hour]:[minute]:[second].[subsecond]",
-    )
-    .unwrap();
-    if let Ok(dt) = PrimitiveDateTime::parse(s, &sqlite_format) {
-        return Ok(dt);
-    }
-    let sqlite_simple =
-        time::format_description::parse("[year]-[month]-[day] [hour]:[minute]:[second]").unwrap();
-    PrimitiveDateTime::parse(s, &sqlite_simple)
-}
 
 #[derive(Debug, sqlx::FromRow)]
 struct AuditLogDb {
@@ -282,6 +265,7 @@ mod tests {
     use super::*;
     use crate::TransactionDaoImpl;
     use genossi_dao::{Transaction, TransactionDao};
+    use time::PrimitiveDateTime;
 
     async fn setup_db() -> Arc<SqlitePool> {
         let pool = SqlitePool::connect("sqlite::memory:")

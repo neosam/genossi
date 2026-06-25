@@ -3,31 +3,11 @@ use genossi_dao::assembly::{AssemblyDao, AssemblyEntity, AssemblyStatus};
 use genossi_dao::DaoError;
 use sqlx::SqlitePool;
 use std::sync::Arc;
-use time::PrimitiveDateTime;
 use uuid::Uuid;
 
 use crate::TransactionImpl;
+use crate::datetime_utils::{format_dt, parse_datetime};
 
-/// Parse a datetime string written by either our ISO8601 ser code or the SQLite
-/// `CURRENT_TIMESTAMP`/default text format. Public to crate so the snapshot DAO
-/// can reuse it.
-pub(crate) fn parse_datetime(s: &str) -> Result<PrimitiveDateTime, time::error::Parse> {
-    if let Ok(dt) =
-        PrimitiveDateTime::parse(s, &time::format_description::well_known::Iso8601::DEFAULT)
-    {
-        return Ok(dt);
-    }
-    let sqlite_format = time::format_description::parse(
-        "[year]-[month]-[day] [hour]:[minute]:[second].[subsecond]",
-    )
-    .unwrap();
-    if let Ok(dt) = PrimitiveDateTime::parse(s, &sqlite_format) {
-        return Ok(dt);
-    }
-    let sqlite_simple =
-        time::format_description::parse("[year]-[month]-[day] [hour]:[minute]:[second]").unwrap();
-    PrimitiveDateTime::parse(s, &sqlite_simple)
-}
 
 #[derive(Debug, sqlx::FromRow)]
 struct AssemblyDb {
@@ -80,12 +60,6 @@ impl AssemblyDaoImpl {
     }
 }
 
-fn format_dt(dt: &PrimitiveDateTime) -> Result<String, DaoError> {
-    let format = &time::format_description::well_known::Iso8601::DEFAULT;
-    dt.assume_utc()
-        .format(format)
-        .map_err(|e| DaoError::ParseError(Arc::from(e.to_string())))
-}
 
 #[async_trait]
 impl AssemblyDao for AssemblyDaoImpl {
