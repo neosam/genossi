@@ -435,7 +435,7 @@ pub fn MemberDetails(id: String) -> Element {
                         // Erscheint nur bei existierenden Mitgliedern (nicht bei `new`).
                         if !is_new {
                             RequirePrivilege {
-                                privilege: "admin",
+                                privilege: crate::auth::PRIVILEGE_ADMIN,
                                 button {
                                     r#type: "button",
                                     class: "px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm font-medium min-h-[44px]",
@@ -1432,7 +1432,7 @@ pub fn MemberDetails(id: String) -> Element {
                         // === Generate Document Section ===
                         {
                             let is_board = AUTH.read().auth_info.as_ref()
-                                .map(|a| a.has_privilege("manage_members") || a.has_privilege("admin"))
+                                .map(|a| a.has_privilege("manage_members") || a.has_privilege(crate::auth::PRIVILEGE_ADMIN))
                                 .unwrap_or(false);
                             rsx! {
                                 if is_board && !is_new {

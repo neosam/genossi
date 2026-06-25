@@ -61,8 +61,8 @@ pub fn Permissions() -> Element {
 
     rsx! {
         RequirePrivilege {
-            privilege: "admin",
-            fallback: rsx! { AccessDeniedPage { required_privilege: "admin".to_string() } },
+            privilege: crate::auth::PRIVILEGE_ADMIN,
+            fallback: rsx! { AccessDeniedPage { required_privilege: crate::auth::PRIVILEGE_ADMIN.to_string() } },
             div { class: "flex flex-col min-h-screen",
                 TopBar {}
                 div { class: "flex-1 container mx-auto px-4 py-8",

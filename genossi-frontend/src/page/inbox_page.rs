@@ -20,8 +20,8 @@ fn format_member_option(m: &MemberTO) -> String {
 pub fn InboxPage() -> Element {
     rsx! {
         RequirePrivilege {
-            privilege: "admin",
-            fallback: rsx! { AccessDeniedPage { required_privilege: "admin".to_string() } },
+            privilege: crate::auth::PRIVILEGE_ADMIN,
+            fallback: rsx! { AccessDeniedPage { required_privilege: crate::auth::PRIVILEGE_ADMIN.to_string() } },
             InboxPageInner { initial_id: None }
         }
     }
@@ -31,8 +31,8 @@ pub fn InboxPage() -> Element {
 pub fn InboxDetail(id: String) -> Element {
     rsx! {
         RequirePrivilege {
-            privilege: "admin",
-            fallback: rsx! { AccessDeniedPage { required_privilege: "admin".to_string() } },
+            privilege: crate::auth::PRIVILEGE_ADMIN,
+            fallback: rsx! { AccessDeniedPage { required_privilege: crate::auth::PRIVILEGE_ADMIN.to_string() } },
             InboxPageInner { initial_id: Some(id) }
         }
     }

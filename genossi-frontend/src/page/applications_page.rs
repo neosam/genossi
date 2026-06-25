@@ -58,8 +58,8 @@ pub fn ApplicationsPage() -> Element {
 
     rsx! {
         RequirePrivilege {
-            privilege: "admin",
-            fallback: rsx! { AccessDeniedPage { required_privilege: "admin".to_string() } },
+            privilege: crate::auth::PRIVILEGE_ADMIN,
+            fallback: rsx! { AccessDeniedPage { required_privilege: crate::auth::PRIVILEGE_ADMIN.to_string() } },
             TopBar {}
             div { class: "container mx-auto px-4 py-6",
                 div { class: "flex justify-between items-start mb-4",

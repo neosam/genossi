@@ -21,23 +21,23 @@ pub fn TopBar() -> Element {
 
     let show_members = auth_info
         .as_ref()
-        .map(|a| a.has_privilege("view_members") || a.has_privilege("admin"))
+        .map(|a| a.has_privilege("view_members") || a.has_privilege(crate::auth::PRIVILEGE_ADMIN))
         .unwrap_or(false);
     let show_permissions = auth_info
         .as_ref()
-        .map(|a| a.has_privilege("admin"))
+        .map(|a| a.has_privilege(crate::auth::PRIVILEGE_ADMIN))
         .unwrap_or(false);
     let show_templates = auth_info
         .as_ref()
-        .map(|a| a.has_privilege("manage_members") || a.has_privilege("admin"))
+        .map(|a| a.has_privilege("manage_members") || a.has_privilege(crate::auth::PRIVILEGE_ADMIN))
         .unwrap_or(false);
     let show_admin = auth_info
         .as_ref()
-        .map(|a| a.has_privilege("admin"))
+        .map(|a| a.has_privilege(crate::auth::PRIVILEGE_ADMIN))
         .unwrap_or(false);
     let show_backup = auth_info
         .as_ref()
-        .map(|a| a.has_privilege("export_backup") || a.has_privilege("admin"))
+        .map(|a| a.has_privilege("export_backup") || a.has_privilege(crate::auth::PRIVILEGE_ADMIN))
         .unwrap_or(false);
 
     // Build nav group items
