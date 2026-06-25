@@ -32,7 +32,7 @@ See: `.planning/PROJECT.md` (updated 2026-06-07 after v1.2 close)
 Phase: 20
 Plan: Not started
 Status: Ready to plan
-Last activity: 2026-06-25 - Completed quick task 260625-e14: PostalStatus-Feld (Erreichbar/Unzustellbar) auf Member durch alle Layer + Audit + Frontend-Select (Versand-Flow-Integration separat)
+Last activity: 2026-06-25 - Tech-Debt-Sweep: 7 Code-Audit-Todos abgearbeitet (Audit-Lücke confirm_migration, Redeem-Code-Tracing, DefaultBodyLimit, document_storage-Normalisierung, .env-gitignore, admin-Privilege-const, datetime-Helper-Dedup) — alle mit Tests + atomarem Commit
 
 ## Deferred Items
 
