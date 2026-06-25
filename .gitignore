@@ -3,7 +3,8 @@ documents/
 *.db
 *.db-shm
 *.db-wal
-.env.localinventurly-test.qcow2
+.env
+.env.local
 inventurly.db
 result
 inventurly-test.qcow2
