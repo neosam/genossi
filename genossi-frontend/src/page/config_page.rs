@@ -58,6 +58,11 @@ pub fn ConfigPage() -> Element {
     let mut imap_folders_loading = use_signal(|| false);
     let mut imap_folders_loaded = use_signal(|| false);
 
+    // Digest / Posteingangs-Benachrichtigung (Phase 20)
+    let mut digest_recipients = use_signal(|| String::new());
+    let mut digest_send_time = use_signal(|| "08:00".to_string());
+    let mut digest_saving = use_signal(|| false);
+
     // New entry form state
     let mut new_key = use_signal(|| String::new());
     let mut new_value = use_signal(|| String::new());
@@ -137,6 +142,13 @@ pub fn ConfigPage() -> Element {
                     let poll_val = get_config_value(&data, "imap_poll_interval_seconds");
                     if !poll_val.is_empty() {
                         imap_poll_interval.set(poll_val);
+                    }
+
+                    // Populate digest / Posteingangs-Benachrichtigung settings (Phase 20)
+                    digest_recipients.set(get_config_value(&data, "digest_recipients"));
+                    let dst = get_config_value(&data, "digest_send_time");
+                    if !dst.is_empty() {
+                        digest_send_time.set(dst);
                     }
 
                     // Populate mail footer from entries
