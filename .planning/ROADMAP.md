@@ -1,13 +1,13 @@
 # Roadmap: Genossi
 
-Mitgliederverwaltungs-Software für Genossenschaften. Aktiver Stand: drei ausgelieferte Milestones — v1.0 (GV-Anwesenheits-Erfassung), v1.1 (Anteile-Rückzahlungsphase), v1.2 (Mitgliedschaft-Anpassungen während des Geschäftsjahres). Nächstes Milestone steht noch zur Definition; Start via `/gsd-new-milestone`.
+Mitgliederverwaltungs-Software für Genossenschaften. Aktiver Stand: drei ausgelieferte Milestones — v1.0 (GV-Anwesenheits-Erfassung), v1.1 (Anteile-Rückzahlungsphase), v1.2 (Mitgliedschaft-Anpassungen während des Geschäftsjahres). Aktuell in Arbeit: **v1.3 Posteingang-Benachrichtigung & Reply-Komfort** (Phase 19 Anhänge als Vorläufer geshippt; Phasen 20–21 definiert).
 
 ## Milestones
 
 - ✅ **v1.0 GV-Anwesenheits-Erfassung** — Phases 1-6 (Phase 5 SKIPPED — echte GV bereits durchgeführt) (shipped 2026-05-29)
 - ✅ **v1.1 Anteile-Rückzahlungsphase** — Phases 7-13 (shipped 2026-06-02)
 - ✅ **v1.2 Mitgliedschaft-Anpassungen** — Phases 14-18 (shipped 2026-06-07)
-- 📋 **v1.3 (TBD)** — keine Phasen definiert; nächster Milestone wird mit `/gsd-new-milestone` gestartet
+- 🚧 **v1.3 Posteingang-Benachrichtigung & Reply-Komfort** — Phase 19 (Anhänge) geshippt; Phasen 20 (Inbox-Digest) + 21 (Reply-Modal) in Arbeit
 
 ## Phases
 
@@ -53,14 +53,15 @@ Archive: `.planning/milestones/v1.2-ROADMAP.md` · `v1.2-REQUIREMENTS.md` · `v1
 
 </details>
 
-### 📋 v1.3 (Not started — define via `/gsd-new-milestone`)
+### 🚧 v1.3 Posteingang-Benachrichtigung & Reply-Komfort (Phases 19–21)
 
-Kein Inhalt definiert. Wahrscheinlich-Themen für die nächste Iteration aus dokumentiertem Tech-Debt:
+**Goal:** Vorstände verpassen keine eingehenden Mails mehr und können bequemer auf sie antworten.
 
-- Projektweite Cleanup-Phase: CR-02 Permission-Check-Ordering refactor (alle 4 v1.2-MembershipAdjustService-Methoden + alle 5 v1.1-RepaymentPhaseService-Methoden) — extrahierbar in `gen_auth_admin!`-Helper
-- Phase-18-UX-Polish: CR-01 (`date_signal`-leak across Sub-Choice), CR-02 (`Signal::set` im Render-Pfad refactoren), unused i18n-Keys aktivieren oder entfernen
-- Mail-Subsystem-Triage: pre-existing failure `test_mail_preview_repayment_no_entries_does_not_default_to_one`
-- 16 deferred v1.1-Quick-Tasks reviewen + ggf. closen
+- [x] Phase 19: E-Mail-Anhänge anzeigen (Vorläufer, geshippt 2026-06-09)
+- [ ] Phase 20: Inbox-Digest — täglicher Posteingangs-Benachrichtigungs-Worker (DIGEST-01..07)
+- [ ] Phase 21: Reply-Komfort — Antwort im vollflächigen Modal (REPLY-01..04)
+
+> Nicht in v1.3: v1.2-Tech-Debt (CR-02 Permission-Ordering, Phase-18-UX-Polish, Mail-Subsystem-Triage, 16 deferred v1.1-Quick-Tasks) bleibt Backlog/Kandidat — siehe Backlog (999.x) unten und `milestones/v1.2-MILESTONE-AUDIT.md`.
 
 ## Progress
 
@@ -84,7 +85,9 @@ Kein Inhalt definiert. Wahrscheinlich-Themen für die nächste Iteration aus dok
 | 16. Service+REST: Teil-Rückgabe + Auto-Anlegen     | v1.2      | 5/5            | Complete    | 2026-06-05 |
 | 17. Service+REST: Übertrag (Atomare 2-Action)      | v1.2      | 4/4            | Complete    | 2026-06-06 |
 | 18. Frontend Component-First (v1.2)                | v1.2      | 7/7            | Complete    | 2026-06-07 |
-| 19. E-Mail-Anhänge anzeigen                        | v1.3 (TBD)| 7/7 | Complete    | 2026-06-09 |
+| 19. E-Mail-Anhänge anzeigen                        | v1.3      | 7/7            | Complete    | 2026-06-09 |
+| 20. Inbox-Digest (täglicher Benachrichtigungs-Worker) | v1.3   | 0/0            | Not started | -          |
+| 21. Reply-Komfort (Antwort im Modal)               | v1.3      | 0/0            | Not started | -          |
 
 ### Phase 19: E-Mail-Anhänge anzeigen — Backend-Endpoint zum Abrufen von Anhängen aus eingehenden Mails (mail-parser nutzt async-imap bereits) plus Dioxus-Frontend-UI zum Anzeigen/Herunterladen der Attachments in der Mail-Ansicht.
 
@@ -101,16 +104,93 @@ Plans:
 - [x] 19-05-PLAN.md — Frontend Components (InboxAttachmentList + InboxAttachmentListItem, format_size Util, 7 i18n-Keys in De+En)
 - [x] 19-06-PLAN.md — Frontend Page Wiring (MVP-Hinweis gelöscht, InboxAttachmentList eingebunden, WASM-Build grün; Vorstand-Sichtprüfung Task 2 pending)
 
-### Phase 20: In-App-Hilfe für Vorstände: durchsuchbare Feature-Referenz im Dioxus-Frontend mit Übersicht/Navigation und pro Feature einem erklärenden Eintrag (Component-First)
+### Phase 20: Inbox-Digest — täglicher Posteingangs-Benachrichtigungs-Worker
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** Ein Scheduler-Worker verschickt einmal pro Kalendertag zur konfigurierten Uhrzeit eine Zusammenfassungs-Mail aller offenen (nicht-archivierten) Posteingangs-Mails an eine oder mehrere konfigurierbare Empfänger-Adressen — mit Titel, Absender, Eingangszeitpunkt je Mail und einem Deep-Link auf `/inbox` (via `APP_URL`). Versand nur bei nicht-leerem Posteingang; Empfänger und Uhrzeit werden über das bestehende Runtime-Config-System (Config-Seite, wie SMTP-Settings) gepflegt.
+**Requirements:** DIGEST-01, DIGEST-02, DIGEST-03, DIGEST-04, DIGEST-05, DIGEST-06, DIGEST-07
 **Depends on:** Phase 19
-**Plans:** 0 plans
+**Plans:** 0 plans (run /gsd-plan-phase 20 to break down)
+
+Success criteria:
+1. Vorstand trägt auf der Config-Seite Empfänger-Adressen und Versand-Uhrzeit ein; beide bleiben nach Reload erhalten.
+2. Zur konfigurierten Uhrzeit erhält jeder konfigurierte Empfänger genau eine Digest-Mail pro Tag, sofern offene Mails vorliegen.
+3. Bei leerem Posteingang oder ohne konfigurierte Empfänger geht keine Mail raus (kein Fehler).
+4. Die Digest-Mail listet jede offene Mail mit Titel, Absender und Eingangszeitpunkt und enthält einen funktionierenden Link auf `/inbox`.
 
 Plans:
 - [ ] TBD (run /gsd-plan-phase 20 to break down)
 
+### Phase 21: Reply-Komfort — Antwort im vollflächigen Modal
+
+**Goal:** Das Antworten auf eine eingegangene Mail öffnet künftig in einem vollflächigen Modal (bestehende `modal.rs`-Component) mit großem Textfeld statt im schmalen Inline-Feld. Abbrechen ohne Senden ist möglich; das Absenden nutzt die unveränderte bestehende Sende-Logik und zeigt Erfolg-/Fehler-Feedback wie bisher.
+**Requirements:** REPLY-01, REPLY-02, REPLY-03, REPLY-04
+**Depends on:** Phase 19
+**Plans:** 0 plans (run /gsd-plan-phase 21 to break down)
+
+Success criteria:
+1. Vorstand klickt „Antworten" und ein vollflächiges Modal öffnet sich mit einem großen Eingabefeld.
+2. Das Antwort-Textfeld bietet sichtbar deutlich mehr Schreibfläche als das bisherige Inline-Feld.
+3. Vorstand kann das Modal abbrechen/schließen ohne zu senden und landet wieder in der Mail-Ansicht.
+4. Senden aus dem Modal verschickt die Antwort wie bisher und zeigt Erfolg-/Fehler-Feedback.
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 21 to break down)
+
 ---
 
-_Last updated: 2026-06-07 after Plan 19-06 Task 1 wiring (checkpoint:human-verify pending)._
+## Backlog
+
+> Tech-Debt aus Code-Audit 2026-06-14. Strukturelle Brocken, die mehr als einen Quick-Fix
+> wert sind (Designentscheidung oder mehrere Dateien). Per `/gsd-review-backlog` in den
+> aktiven Milestone promotbar. Mechanische Einzelfixes liegen als Todos in `.planning/todos/pending/`.
+
+### Phase 999.1: mock_auth-Deploy-Footgun absichern (BACKLOG)
+
+**Priorität:** hoch (Security/Build) · **Quelle:** Code-Audit 2026-06-14
+**Goal:** Verhindern, dass versehentlich ein Backend ohne Authentifizierung produktiv läuft.
+**Befund:**
+- `default = ["mock_auth"]` (`genossi_bin/Cargo.toml:7`, `genossi_rest/Cargo.toml:36`) → `cargo run` / `nix run` (default-Package, `flake.nix:26-29`) startet ein API, das jede Permission-Prüfung durchwinkt (`session.rs:119-137`) — voller PII-Zugriff ohne Login.
+- NixOS-Modul (`module.nix:155-192`) entkoppelt das Build-Feature vom Runtime-Flag `oidc.enable` → stiller Auth-Bypass bei Fehlkonfiguration möglich.
+**Ansatz (Diskussion vor Umsetzung):** Default-Feature auf sicheren Wert setzen ODER Startup-Panic/Compile-Fehler bei `mock_auth` in Release-Builds (`#[cfg(not(debug_assertions))]`); Feature-Wahl im Nix-Modul wieder an `oidc.enable` koppeln oder Assertion ergänzen.
+**Routing:** `/gsd-discuss-phase` (Designentscheidung), dann `/gsd-plan-phase`.
+
+### Phase 999.2: MailRecipientsTable-Komponente extrahieren (BACKLOG)
+
+**Priorität:** hoch (Component-First) · **Quelle:** Code-Audit 2026-06-14
+**Goal:** Letzte verbliebene Inline-RSX-Duplikation aus Phase quick-260614-ckn beseitigen.
+**Befund:** Die Empfänger-Tabelle ist Zeile für Zeile dupliziert zwischen `genossi-frontend/src/component/mail_jobs_list.rs:185-265` und `genossi-frontend/src/page/mail_page.rs:622-711` (`MailJobDetail`). Einziger Unterschied: Padding-Klassen + Reload-Mechanismus. Bei der Job-Listen-Extraktion wurde die Zwillings-Tabelle auf der Detailseite nicht mit-extrahiert.
+**Ansatz:** `MailRecipientsTable`-Komponente (Props: `recipients`, `job`/`repayment_phase_id`, `padding`-Variante, `on_recovered`-Callback) in `src/component/` anlegen, in beiden Stellen verwenden. Status-Helper (`job_status_color`/`job_status_key`) sind bereits geteilt.
+**Routing:** `/gsd-quick` (klar umrissen) oder `/gsd-plan-phase` als kleine Folge-Phase zu quick-260614-ckn.
+
+### Phase 999.3: Service-Layer für audit_log- und backup-REST-Handler (BACKLOG)
+
+**Priorität:** mittel (Layering) · **Quelle:** Code-Audit 2026-06-14
+**Goal:** REST-Handler, die DAO + eigene Transaktion direkt ansprechen, hinter einen Service legen.
+**Befund:**
+- `genossi_rest/src/audit_log.rs:119-137` (analog `:186-191`, `:232-237`): Handler holt eigene Transaktion und ruft `audit_log_dao().count()/.query()` direkt — kein `AuditLogService`.
+- `genossi_rest/src/backup.rs:61-133`: Handler ruft `backup_dao()` direkt.
+**Ansatz:** `AuditLogService` + `BackupService` einziehen, die Permission-Check, Transaktion und DAO-Zugriff kapseln; `RestStateDef` sollte `audit_log_dao()`/`backup_dao()`/`audit_transaction()` nicht mehr direkt an Handler exponieren.
+**Routing:** `/gsd-plan-phase` (mehrere Dateien, neue Service-Traits).
+
+### Phase 999.4: Daten-Lade-Boilerplate im Frontend in Hook bündeln (BACKLOG)
+
+**Priorität:** niedrig (Redundanz) · **Quelle:** Code-Audit 2026-06-14
+**Goal:** Wiederholtes loading/error/use_effect+spawn-Tripel in ~16 Pages durch geteilten Helper ersetzen.
+**Befund:** Identisches Muster (`use_signal(|| true)` loading + `Signal<Option<AppError>>` error + `use_effect`→`spawn`-Fetch + `ErrorAlert`-Block) copy-paste in `applications_page.rs`, `audit_log.rs`, `mail_templates.rs`, `inbox_page.rs`, `assemblies.rs`, `config_page.rs` u.a.
+**Ansatz:** Einen `use_loader<T>()`-Hook (oder Wrapper-Komponente) bereitstellen, der Loading-, Error- und Fetch-State kapselt. Funktional heute korrekt — reiner DRY-Gewinn.
+**Routing:** `/gsd-quick --discuss` (Hook-API muss durchdacht werden).
+
+### Phase 999.5: In-App-Hilfe für Vorstände — durchsuchbare Feature-Referenz (BACKLOG)
+
+**Priorität:** niedrig (Nice-to-have / UX) · **Quelle:** zurückgestellt 2026-06-26 (war aktive Phase 20)
+**Goal:** Durchsuchbare Feature-Referenz im Dioxus-Frontend — Übersicht/Navigation plus pro Feature ein erklärender Eintrag, Component-First. Reines Frontend, keine neue Entität, kein Audit.
+**Offene Designentscheidungen (vor Umsetzung in discuss-phase klären):**
+- Content-Speicherung: zentrales i18n-Key-System (`de.rs`/`en.rs`) vs. eigene Rust-Datenstruktur (`Vec<HelpEntry>`) vs. Markdown-Assets via manganis vs. Backend
+- Einbindung & Navigation: eigene Route `/help` + Sidebar-Eintrag (welche Nav-Gruppe?) vs. globaler `?`-Button; Übersicht→Detail vs. Single-Page-Akkordeon
+- Suche & Kategorisierung: Client-Substring-Filter (Vorbild `attendance_search`/`member_search`) über Titel (+Body); Gruppierung nach Nav-Bereich
+- Eintrags-Tiefe: Kurzbeschreibung vs. Schritt-Anleitung; „Feature öffnen"-Deep-Link; Sprache (De-only vs. De+En); Feature-Scope (alle vs. kuratiert)
+**Routing:** `/gsd-discuss-phase` (Designentscheidungen offen), dann `/gsd-plan-phase`.
+
+---
+
+_Last updated: 2026-06-26 — Milestone v1.3 (Posteingang-Benachrichtigung & Reply-Komfort) definiert: Phasen 20 (Inbox-Digest, DIGEST-01..07) + 21 (Reply-Modal, REPLY-01..04), 11 Requirements zu 100% gemappt. Frühere In-App-Hilfe-Phase-20 zuvor ins Backlog 999.5 verschoben. Vorher: 2026-06-14 — Backlog-Sektion + 7 Todos aus Code-Audit ergänzt._

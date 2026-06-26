@@ -51,22 +51,22 @@ Welche Phasen welche Requirements abdecken. Während der Roadmap-Erstellung gef�
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DIGEST-01 | TBD | Pending |
-| DIGEST-02 | TBD | Pending |
-| DIGEST-03 | TBD | Pending |
-| DIGEST-04 | TBD | Pending |
-| DIGEST-05 | TBD | Pending |
-| DIGEST-06 | TBD | Pending |
-| DIGEST-07 | TBD | Pending |
-| REPLY-01 | TBD | Pending |
-| REPLY-02 | TBD | Pending |
-| REPLY-03 | TBD | Pending |
-| REPLY-04 | TBD | Pending |
+| DIGEST-01 | Phase 20 | Pending |
+| DIGEST-02 | Phase 20 | Pending |
+| DIGEST-03 | Phase 20 | Pending |
+| DIGEST-04 | Phase 20 | Pending |
+| DIGEST-05 | Phase 20 | Pending |
+| DIGEST-06 | Phase 20 | Pending |
+| DIGEST-07 | Phase 20 | Pending |
+| REPLY-01 | Phase 21 | Pending |
+| REPLY-02 | Phase 21 | Pending |
+| REPLY-03 | Phase 21 | Pending |
+| REPLY-04 | Phase 21 | Pending |
 
 **Coverage:**
 - v1 requirements: 11 total
-- Mapped to phases: 0 (Roadmapper füllt Traceability)
-- Unmapped: 11 ⚠️
+- Mapped to phases: 11 ✓
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-06-26*
