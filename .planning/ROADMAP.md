@@ -86,7 +86,7 @@ Archive: `.planning/milestones/v1.2-ROADMAP.md` · `v1.2-REQUIREMENTS.md` · `v1
 | 17. Service+REST: Übertrag (Atomare 2-Action)      | v1.2      | 4/4            | Complete    | 2026-06-06 |
 | 18. Frontend Component-First (v1.2)                | v1.2      | 7/7            | Complete    | 2026-06-07 |
 | 19. E-Mail-Anhänge anzeigen                        | v1.3      | 7/7            | Complete    | 2026-06-09 |
-| 20. Inbox-Digest (täglicher Benachrichtigungs-Worker) | v1.3   | 0/0            | Not started | -          |
+| 20. Inbox-Digest (täglicher Benachrichtigungs-Worker) | v1.3   | 0/3            | Planned     | -          |
 | 21. Reply-Komfort (Antwort im Modal)               | v1.3      | 0/0            | Not started | -          |
 
 ### Phase 19: E-Mail-Anhänge anzeigen — Backend-Endpoint zum Abrufen von Anhängen aus eingehenden Mails (mail-parser nutzt async-imap bereits) plus Dioxus-Frontend-UI zum Anzeigen/Herunterladen der Attachments in der Mail-Ansicht.
@@ -109,7 +109,7 @@ Plans:
 **Goal:** Ein Scheduler-Worker verschickt einmal pro Kalendertag zur konfigurierten Uhrzeit eine Zusammenfassungs-Mail aller offenen (nicht-archivierten) Posteingangs-Mails an eine oder mehrere konfigurierbare Empfänger-Adressen — mit Titel, Absender, Eingangszeitpunkt je Mail und einem Deep-Link auf `/inbox` (via `APP_URL`). Versand nur bei nicht-leerem Posteingang; Empfänger und Uhrzeit werden über das bestehende Runtime-Config-System (Config-Seite, wie SMTP-Settings) gepflegt.
 **Requirements:** DIGEST-01, DIGEST-02, DIGEST-03, DIGEST-04, DIGEST-05, DIGEST-06, DIGEST-07
 **Depends on:** Phase 19
-**Plans:** 0 plans (run /gsd-plan-phase 20 to break down)
+**Plans:** 3 plans in 2 Wellen
 
 Success criteria:
 1. Vorstand trägt auf der Config-Seite Empfänger-Adressen und Versand-Uhrzeit ein; beide bleiben nach Reload erhalten.
@@ -118,7 +118,9 @@ Success criteria:
 4. Die Digest-Mail listet jede offene Mail mit Titel, Absender und Eingangszeitpunkt und enthält einen funktionierenden Link auf `/inbox`.
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 20 to break down)
+- [ ] 20-01-PLAN.md — DB-Foundation (Migration `digest_state` + DigestStateDao-Trait + DigestStateDaoSqlite-Upsert + Tests) [Wave 1]
+- [ ] 20-02-PLAN.md — Digest-Worker (poll-loop nach timestamp_worker.rs + reine Helfer is_due/parse/build_* + Tests + DI-Wiring lib.rs/main.rs) [Wave 2, depends_on 20-01]
+- [ ] 20-03-PLAN.md — Frontend Config-Abschnitt "Posteingangs-Benachrichtigung" (Empfänger + Uhrzeit + Inline-Validierung + Save) [Wave 1]
 
 ### Phase 21: Reply-Komfort — Antwort im vollflächigen Modal
 
@@ -193,4 +195,4 @@ Plans:
 
 ---
 
-_Last updated: 2026-06-26 — Milestone v1.3 (Posteingang-Benachrichtigung & Reply-Komfort) definiert: Phasen 20 (Inbox-Digest, DIGEST-01..07) + 21 (Reply-Modal, REPLY-01..04), 11 Requirements zu 100% gemappt. Frühere In-App-Hilfe-Phase-20 zuvor ins Backlog 999.5 verschoben. Vorher: 2026-06-14 — Backlog-Sektion + 7 Todos aus Code-Audit ergänzt._
+_Last updated: 2026-06-26 — Phase 20 (Inbox-Digest) geplant: 3 Plans in 2 Wellen (DB-Foundation + Frontend parallel in Wave 1, Worker + DI-Wiring in Wave 2), alle DIGEST-01..07 gemappt. Vorher: 2026-06-26 — Milestone v1.3 definiert: Phasen 20 (Inbox-Digest, DIGEST-01..07) + 21 (Reply-Modal, REPLY-01..04). Frühere In-App-Hilfe-Phase-20 ins Backlog 999.5 verschoben. 2026-06-14 — Backlog-Sektion + 7 Todos aus Code-Audit ergänzt._
