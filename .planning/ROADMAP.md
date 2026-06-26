@@ -58,7 +58,7 @@ Archive: `.planning/milestones/v1.2-ROADMAP.md` · `v1.2-REQUIREMENTS.md` · `v1
 **Goal:** Vorstände verpassen keine eingehenden Mails mehr und können bequemer auf sie antworten.
 
 - [x] Phase 19: E-Mail-Anhänge anzeigen (Vorläufer, geshippt 2026-06-09)
-- [ ] Phase 20: Inbox-Digest — täglicher Posteingangs-Benachrichtigungs-Worker (DIGEST-01..07)
+- [x] Phase 20: Inbox-Digest — täglicher Posteingangs-Benachrichtigungs-Worker (DIGEST-01..07) (completed 2026-06-26)
 - [ ] Phase 21: Reply-Komfort — Antwort im vollflächigen Modal (REPLY-01..04)
 
 > Nicht in v1.3: v1.2-Tech-Debt (CR-02 Permission-Ordering, Phase-18-UX-Polish, Mail-Subsystem-Triage, 16 deferred v1.1-Quick-Tasks) bleibt Backlog/Kandidat — siehe Backlog (999.x) unten und `milestones/v1.2-MILESTONE-AUDIT.md`.
@@ -86,7 +86,7 @@ Archive: `.planning/milestones/v1.2-ROADMAP.md` · `v1.2-REQUIREMENTS.md` · `v1
 | 17. Service+REST: Übertrag (Atomare 2-Action)      | v1.2      | 4/4            | Complete    | 2026-06-06 |
 | 18. Frontend Component-First (v1.2)                | v1.2      | 7/7            | Complete    | 2026-06-07 |
 | 19. E-Mail-Anhänge anzeigen                        | v1.3      | 7/7            | Complete    | 2026-06-09 |
-| 20. Inbox-Digest (täglicher Benachrichtigungs-Worker) | v1.3   | 2/3 | In Progress|  |
+| 20. Inbox-Digest (täglicher Benachrichtigungs-Worker) | v1.3   | 3/3 | Complete   | 2026-06-26 |
 | 21. Reply-Komfort (Antwort im Modal)               | v1.3      | 0/0            | Not started | -          |
 
 ### Phase 19: E-Mail-Anhänge anzeigen — Backend-Endpoint zum Abrufen von Anhängen aus eingehenden Mails (mail-parser nutzt async-imap bereits) plus Dioxus-Frontend-UI zum Anzeigen/Herunterladen der Attachments in der Mail-Ansicht.
@@ -109,7 +109,7 @@ Plans:
 **Goal:** Ein Scheduler-Worker verschickt einmal pro Kalendertag zur konfigurierten Uhrzeit eine Zusammenfassungs-Mail aller offenen (nicht-archivierten) Posteingangs-Mails an eine oder mehrere konfigurierbare Empfänger-Adressen — mit Titel, Absender, Eingangszeitpunkt je Mail und einem Deep-Link auf `/inbox` (via `APP_URL`). Versand nur bei nicht-leerem Posteingang; Empfänger und Uhrzeit werden über das bestehende Runtime-Config-System (Config-Seite, wie SMTP-Settings) gepflegt.
 **Requirements:** DIGEST-01, DIGEST-02, DIGEST-03, DIGEST-04, DIGEST-05, DIGEST-06, DIGEST-07
 **Depends on:** Phase 19
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 
 Success criteria:
 1. Vorstand trägt auf der Config-Seite Empfänger-Adressen und Versand-Uhrzeit ein; beide bleiben nach Reload erhalten.
@@ -123,7 +123,7 @@ Plans:
 - [x] 20-03-PLAN.md — Frontend Config-Abschnitt "Posteingangs-Benachrichtigung" (Empfänger + Uhrzeit + Inline-Validierung + Save) [Wave 1]
 
 **Wave 2** *(blocked on Wave 1 completion)*
-- [ ] 20-02-PLAN.md — Digest-Worker (poll-loop nach timestamp_worker.rs + reine Helfer is_due/parse/build_* + Tests + DI-Wiring lib.rs/main.rs) [Wave 2, depends_on 20-01]
+- [x] 20-02-PLAN.md — Digest-Worker (poll-loop nach timestamp_worker.rs + reine Helfer is_due/parse/build_* + Tests + DI-Wiring lib.rs/main.rs) [Wave 2, depends_on 20-01]
 
 ### Phase 21: Reply-Komfort — Antwort im vollflächigen Modal
 

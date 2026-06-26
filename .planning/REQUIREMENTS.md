@@ -14,9 +14,9 @@ Requirements für Milestone v1.3. Jede Anforderung mappt auf genau eine Roadmap-
 - [x] **DIGEST-01**: Vorstand kann eine oder mehrere Empfänger-E-Mail-Adressen für die tägliche Posteingangs-Benachrichtigung über die Config-Seite pflegen (speichern und ändern)
 - [x] **DIGEST-02**: Vorstand kann die tägliche Versand-Uhrzeit für die Benachrichtigung über die Config-Seite konfigurieren
 - [x] **DIGEST-03**: Das System verschickt einmal pro Kalendertag zur konfigurierten Uhrzeit eine Digest-Mail an alle konfigurierten Empfänger
-- [ ] **DIGEST-04**: Das System verschickt keine Digest-Mail, wenn der Posteingang leer ist (keine nicht-archivierten Mails vorhanden)
-- [ ] **DIGEST-05**: Die Digest-Mail listet alle offenen (nicht-archivierten) Mails mit Titel, Absender und Eingangszeitpunkt auf
-- [ ] **DIGEST-06**: Die Digest-Mail enthält einen Deep-Link, der direkt die Inbox-Seite (`/inbox`) öffnet
+- [x] **DIGEST-04**: Das System verschickt keine Digest-Mail, wenn der Posteingang leer ist (keine nicht-archivierten Mails vorhanden)
+- [x] **DIGEST-05**: Die Digest-Mail listet alle offenen (nicht-archivierten) Mails mit Titel, Absender und Eingangszeitpunkt auf
+- [x] **DIGEST-06**: Die Digest-Mail enthält einen Deep-Link, der direkt die Inbox-Seite (`/inbox`) öffnet
 - [x] **DIGEST-07**: Sind keine Empfänger konfiguriert, unterbleibt der Versand ohne Fehler (Feature ist faktisch deaktiviert)
 
 ### Reply-Komfort
@@ -54,9 +54,9 @@ Welche Phasen welche Requirements abdecken. Während der Roadmap-Erstellung gef�
 | DIGEST-01 | Phase 20 | Complete |
 | DIGEST-02 | Phase 20 | Complete |
 | DIGEST-03 | Phase 20 | Complete |
-| DIGEST-04 | Phase 20 | Pending |
-| DIGEST-05 | Phase 20 | Pending |
-| DIGEST-06 | Phase 20 | Pending |
+| DIGEST-04 | Phase 20 | Complete |
+| DIGEST-05 | Phase 20 | Complete |
+| DIGEST-06 | Phase 20 | Complete |
 | DIGEST-07 | Phase 20 | Complete |
 | REPLY-01 | Phase 21 | Pending |
 | REPLY-02 | Phase 21 | Pending |
