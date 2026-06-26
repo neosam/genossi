@@ -4,14 +4,14 @@ milestone: v1.3
 milestone_name: Posteingang-Benachrichtigung & Reply-Komfort
 status: executing
 stopped_at: Completed 20-01-PLAN.md
-last_updated: "2026-06-26T21:34:43.991Z"
+last_updated: "2026-06-26T21:42:20.580Z"
 last_activity: 2026-06-26
 progress:
   total_phases: 8
   completed_phases: 1
   total_plans: 10
-  completed_plans: 8
-  percent: 80
+  completed_plans: 9
+  percent: 90
 ---
 
 # State: Genossi — Between Milestones (v1.2 shipped, v1.3 not yet defined)
@@ -30,7 +30,7 @@ See: `.planning/PROJECT.md` (updated 2026-06-07 after v1.2 close)
 ## Current Position
 
 Phase: 20 (inbox-digest-t-glicher-posteingangs-benachrichtigungs-worker) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-06-26
 
@@ -172,6 +172,7 @@ v1.0 Phasen (alle abgeschlossen, archiviert in .planning/milestones/v1.0-phases/
 | Phase 19 P05 | ~14min | 2 tasks | 10 files |
 | Phase 19 P06 | ~5min | 1 task (Task 2 checkpoint pending) | 1 file |
 | Phase 20 P01 | 6min | 2 tasks | 3 files |
+| Phase 20 P03 | 4min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -202,6 +203,7 @@ v1.0 Phasen (alle abgeschlossen, archiviert in .planning/milestones/v1.0-phases/
 | Plan 03-06: Differential `map_attendance_error` (PermissionDenied → 403 Forbidden) lebt LOKAL in `genossi_rest/src/attendance.rs`, NICHT als globaler `From<ServiceError>`-Override. Begründung: globale Änderung würde Phase-1+2-Endpoints brechen. Pattern reusable für künftige Endpoint-Familien mit eigener Status-Code-Policy. | Phase 3, Plan 06 |
 | Plan 03-06: Stats-Endpoint registriert als separater `Router::nest("/api/assembly/{assembly_id}", attendance::generate_stats_route())` neben `assembly::generate_route()` unter `/api/assembly`. Axum erlaubt mehrere `.nest`-Aufrufe mit unterschiedlich-spezifischen Pfad-Prefixes. Pattern für cross-namespace-Endpoints, deren Implementation in einem anderen Service als der Pfad-Namespace lebt. | Phase 3, Plan 06 |
 | Plan 03-06: `assembly_member_snapshot_dao` jetzt Arc-shared via `.clone()` zwischen AssemblyServiceImpl und AttendanceServiceImpl — exakt EIN DAO pro Prozess (Mirror des helper_token_dao-Sharing-Patterns von Plan 05). | Phase 3, Plan 06 |
+| Plan 20-03: Clientseitige Digest-Validierung in pure unit-getestete free-Funktionen `validate_digest_recipients`/`validate_digest_send_time` extrahiert (statt inline im onclick), damit testbar trotz WASM-Bin-Crate (Tests via `cargo test --bin genossi-frontend config_page::tests`). `api::AppError` hat kein `From<String>` → Client-Validierungsfehler via `api::AppError::new(None, msg, None)`. Save-Button nutzt `r#type: "button"` + onclick gegen Dioxus-Reload-Bug. Leeres Empfänger-Feld ist gültig (D-14/DIGEST-07). | Phase 20, Plan 03 |
 | Plan 03-06: Hash-chain-Burst-Test reduziert von 100 auf 40 Toggles — global `api_rate_layer` cap (60 burst, 1/sec refill) hätte 100 Toggles + 4 surrounding REST calls als 429 Too Many Requests gedrosselt. ATTN-05-Invariante (count_before == count_after) ist unabhängig von der Burst-Größe; 40 reicht für volle Verifikation. | Phase 3, Plan 06 |
 | Plan 07-01: i64-Cent-Konvention für `share_value` etabliert — neue Pattern-Vorlage für Phase 8 `RepaymentEntry.amount`, Phase 9 MemberAction-Cascade und Phase 11 Export-Multiplikation; SQLite INTEGER ist 8-Byte → Rust i64; Validierung `> 0` ohne Obergrenze (D-12) | Phase 7, Plan 01 |
 | Plan 07-01: KEIN UNIQUE-Constraint auf `fiscal_year` (D-08) — mehrere RepaymentPhases pro Geschäftsjahr in beliebigen Statuskombinationen explizit erlaubt (Q1+Q4-Phasen, Korrektur-Phasen, parallele Vorbereitung+Closed). Frontend (Phase 12) sortiert per `fiscal_year DESC, created DESC` zur Auffindbarkeit. | Phase 7, Plan 01 |
