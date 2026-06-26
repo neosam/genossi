@@ -1,17 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: null
-milestone_name: null
-status: ready_to_plan
-stopped_at: Phase 19 UI-SPEC approved
-last_updated: "2026-06-09T04:30:45.151Z"
-last_activity: "2026-06-08 — Quick 260608-jb1 (Bug-Fix: gekündigte Mitglieder werden in Repayment-Periode eingefügt) abgeschlossen"
+milestone: v1.3
+milestone_name: Posteingang-Benachrichtigung & Reply-Komfort
+status: planning
+last_updated: "2026-06-26T17:12:17.654Z"
+last_activity: 2026-06-26
 progress:
-  total_phases: 2
-  completed_phases: 2
-  total_plans: 7
-  completed_plans: 7
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # State: Genossi — Between Milestones (v1.2 shipped, v1.3 not yet defined)
@@ -29,10 +28,10 @@ See: `.planning/PROJECT.md` (updated 2026-06-07 after v1.2 close)
 
 ## Current Position
 
-Phase: 20
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-06-25 - Tech-Debt-Sweep: 7 Code-Audit-Todos abgearbeitet (Audit-Lücke confirm_migration, Redeem-Code-Tracing, DefaultBodyLimit, document_storage-Normalisierung, .env-gitignore, admin-Privilege-const, datetime-Helper-Dedup) — alle mit Tests + atomarem Commit
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-06-26 — Milestone v1.3 started
 
 ## Deferred Items
 

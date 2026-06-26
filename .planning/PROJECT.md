@@ -16,14 +16,17 @@ Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachv
 - ✅ **v1.1 Anteile-Rückzahlungsphase** (2026-06-02) — RepaymentPhase-Lifecycle, atomare Auszahlungs-Buchung, Massenmail mit Auszahlungs-Variablen, PDF-Export für Banking, Bulk-Briefe für Nicht-Email-Mitglieder
 - ✅ **v1.2 Mitgliedschaft-Anpassungen während des Geschäftsjahres** (2026-06-07) — `MembershipAdjustModal` als shared Component (1078 LOC, 4 Sub-Views Kündigung/Teil-Rückgabe/Übertrag/Aufstockung mit Live-Preview-Confirmation), `compute_effective_date` Pure-Function für H1/H2-Stichtag, atomare Single-Tx-Cascades für alle 4 Operationen, 5 neue REST-Endpoints unter `/api/members/{id}/{cancel|increase-shares|partial-repayment|transfer-shares}` + `/api/members/transfer-recipients`. Vorstand-UAT signed-off; Audit-Status `tech_debt` (alle 31 REQs satisfied, dokumentierte Carry-forward-Posten zu CR-02 Permission-Ordering + Phase-18-UX-Polish).
 
-## Next Milestone: v1.3 (not yet defined)
+## Current Milestone: v1.3 Posteingang-Benachrichtigung & Reply-Komfort
 
-Start via `/gsd-new-milestone`. Kandidaten-Themen aus v1.2-Tech-Debt-Posten (siehe `milestones/v1.2-MILESTONE-AUDIT.md`):
+**Goal:** Vorstände verpassen keine eingehenden Mails mehr und können bequemer auf sie antworten.
 
-- Projektweite Cleanup-Phase für **CR-02 (Permission-Check-Ordering)** — `current_user_id()` läuft VOR `check_permission()` in allen 4 v1.2-MembershipAdjustService-Methoden UND in allen 5 v1.1-RepaymentPhaseService-Methoden. Extrahierbar in einen `gen_auth_admin!`-Helper, der die Reihenfolge erzwingt.
-- **Phase-18 UX-Polish** — CR-01 (`date_signal`-leak across Sub-Choice-Wechsel) + CR-02 (`Signal::set` im Render-Pfad refactoren in onclick-Handler). Submit-`is_valid`-Check verhindert Datenfehler heute, aber UX bleibt inkonsistent.
-- **Mail-Subsystem-Triage** — pre-existing failure `test_mail_preview_repayment_no_entries_does_not_default_to_one` (`genossi_bin/tests/e2e_tests.rs:13964`) seit Quick-c19.
-- 16 deferred v1.1-Quick-Tasks reviewen + ggf. closen (siehe STATE.md Deferred Items).
+**Target features:**
+- **Täglicher Inbox-Digest** — ein Worker verschickt einmal pro Tag zu einer konfigurierbaren Uhrzeit eine E-Mail an eine oder mehrere konfigurierbare Empfänger-Adressen (gepflegt als Runtime-Config wie die SMTP-Settings), aber nur falls der Posteingang nicht leer ist (= nicht-archivierte Mails liegen vor). Die Mail fasst alle offenen Mails mit Titel, Absender und Zeitpunkt zusammen und enthält einen Deep-Link direkt auf die Inbox-Seite (via `APP_URL`).
+- **Reply-UX im Modal** — Das Antworten auf Mails öffnet künftig in einem vollflächigen Modal (bestehende `modal.rs`-Component) statt im aktuell schmalen, kleinen Inline-Antwortfeld.
+
+**Lead-in:** Phase 19 (E-Mail-Anhänge anzeigen, shipped 2026-06-09) lief bereits als v1.3-Vorläufer; v1.3 wird hiermit formell definiert und mit den Phasen 20–21 fortgesetzt.
+
+> Aus dem v1.2-Tech-Debt **nicht** in diesen Milestone gezogen (bleibt Backlog/Kandidat für später): CR-02 Permission-Check-Ordering (`gen_auth_admin!`-Helper), Phase-18 UX-Polish (CR-01/CR-02), Mail-Subsystem-Triage (`test_mail_preview_repayment_no_entries_does_not_default_to_one`), 16 deferred v1.1-Quick-Tasks. Siehe `.planning/ROADMAP.md` Backlog (999.x) und `milestones/v1.2-MILESTONE-AUDIT.md`.
 
 ## Requirements
 
@@ -93,7 +96,11 @@ Start via `/gsd-new-milestone`. Kandidaten-Themen aus v1.2-Tech-Debt-Posten (sie
 
 <!-- v1.3 noch nicht definiert. Wird mit `/gsd-new-milestone` initialisiert (questioning → research → requirements → roadmap). -->
 
-(None — nächster Milestone v1.3 noch nicht definiert. Kandidaten siehe „Next Milestone" oben.)
+v1.3 Posteingang-Benachrichtigung & Reply-Komfort (siehe `.planning/REQUIREMENTS.md` für REQ-IDs):
+
+- [ ] Täglicher Inbox-Digest an konfigurierbare Empfänger zu konfigurierbarer Uhrzeit, nur bei nicht-leerem Posteingang, mit Mail-Zusammenfassung (Titel/Absender/Zeitpunkt) + Deep-Link auf `/inbox`
+- [ ] Empfänger-Adressen und Versand-Uhrzeit über das bestehende Config-System (Config-Seite) pflegbar
+- [ ] Antworten auf Mails öffnet in einem vollflächigen Modal statt im schmalen Inline-Feld
 
 ### Out of Scope
 
@@ -305,4 +312,4 @@ bestehende admin-only Listing-Route `GET /api/assembly/{id}/helper-tokens`).
 
 ---
 
-*Last updated: 2026-06-07 after v1.2 milestone — Mitgliedschaft-Anpassungen während des Geschäftsjahres shipped. 5 Phasen, 24 Pläne, 127 commits in 4 Tagen. Audit-Status `tech_debt` (31/31 REQs satisfied, dokumentierte Carry-forward-Posten: CR-02 Permission-Ordering projektweit, Phase-18 CR-01/CR-02 UX-Polish, Wire-Asymmetrie PartialRepaymentResponseTO). Vorstand-UAT signed-off durch Browser-Walk-Through aller 6 Szenarien. Next: v1.3 noch nicht definiert — Start via `/gsd-new-milestone`.*
+*Last updated: 2026-06-26 — Milestone v1.3 (Posteingang-Benachrichtigung & Reply-Komfort) gestartet: täglicher Inbox-Digest an konfigurierbare Empfänger + Reply-im-Modal. Phase 19 (E-Mail-Anhänge) lief als v1.3-Vorläufer; formelle Definition jetzt, Fortsetzung mit Phasen 20–21. Vorheriger Stand: 2026-06-07 nach v1.2-Milestone (Mitgliedschaft-Anpassungen, 5 Phasen/24 Pläne, Audit `tech_debt`, 31/31 REQs satisfied).*
