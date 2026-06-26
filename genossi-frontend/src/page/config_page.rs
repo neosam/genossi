@@ -21,6 +21,32 @@ fn has_config_key(entries: &[ConfigEntryTO], key: &str) -> bool {
     entries.iter().any(|e| e.key == key)
 }
 
+/// Validate a comma-separated digest recipient list (Phase 20, D-13/D-14).
+///
+/// An empty (or whitespace-only) list is **valid** — it disables the feature (D-14).
+/// Otherwise each comma-separated address must satisfy a coarse e-mail format:
+/// exactly one `@`, non-empty local + domain part, and a `.` in the domain.
+fn validate_digest_recipients(recipients: &str) -> bool {
+    let trimmed = recipients.trim();
+    if trimmed.is_empty() {
+        return true;
+    }
+    trimmed.split(',').all(|addr| {
+        let a = addr.trim();
+        let parts: Vec<&str> = a.split('@').collect();
+        parts.len() == 2 && !parts[0].is_empty() && !parts[1].is_empty() && parts[1].contains('.')
+    })
+}
+
+/// Validate an `HH:MM` send time (Phase 20, D-13): two colon-separated parts,
+/// hours `0..=23`, minutes `0..=59`.
+fn validate_digest_send_time(send_time: &str) -> bool {
+    let tparts: Vec<&str> = send_time.trim().split(':').collect();
+    tparts.len() == 2
+        && tparts[0].parse::<u8>().map(|h| h <= 23).unwrap_or(false)
+        && tparts[1].parse::<u8>().map(|m| m <= 59).unwrap_or(false)
+}
+
 #[component]
 pub fn ConfigPage() -> Element {
     let i18n = use_i18n();
@@ -791,6 +817,102 @@ pub fn ConfigPage() -> Element {
                         }
                     }
 
+                    // Posteingangs-Benachrichtigung (Digest) Section
+                    CollapsibleSection { title: "Posteingangs-Benachrichtigung".to_string(),
+                        div { class: "space-y-4",
+                            p { class: "text-sm text-gray-600",
+                                "Tägliche Zusammenfassung offener Posteingangs-Mails. Mehrere Empfänger komma-getrennt. Leeres Empfänger-Feld deaktiviert die Benachrichtigung."
+                            }
+                            // Empfänger-Feld
+                            div {
+                                label { class: "block text-sm font-medium text-gray-700 mb-1",
+                                    "Empfänger (komma-getrennt)"
+                                }
+                                input {
+                                    class: "w-full border rounded px-3 py-2",
+                                    r#type: "text",
+                                    placeholder: "vorstand@genossenschaft.de, kontakt@genossenschaft.de",
+                                    value: "{digest_recipients}",
+                                    oninput: move |e| digest_recipients.set(e.value()),
+                                }
+                            }
+                            // Uhrzeit-Feld
+                            div {
+                                label { class: "block text-sm font-medium text-gray-700 mb-1",
+                                    "Versand-Uhrzeit (HH:MM, Server-Zeit)"
+                                }
+                                input {
+                                    class: "w-full border rounded px-3 py-2",
+                                    r#type: "text",
+                                    placeholder: "08:00",
+                                    value: "{digest_send_time}",
+                                    oninput: move |e| digest_send_time.set(e.value()),
+                                }
+                            }
+                            // Speichern-Button
+                            div { class: "flex items-center space-x-4 pt-2",
+                                button {
+                                    class: "bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded disabled:opacity-50",
+                                    r#type: "button",
+                                    disabled: *digest_saving.read(),
+                                    onclick: move |_| {
+                                        let recipients = digest_recipients.read().clone();
+                                        let send_time = digest_send_time.read().clone();
+
+                                        // Inline-Validierung (D-13) VOR dem spawn.
+                                        // Empfänger: leer ist erlaubt (D-14); sonst jede komma-getrennte Adresse grob prüfen.
+                                        if !validate_digest_recipients(&recipients) {
+                                            error.set(Some(api::AppError::new(
+                                                None,
+                                                "Ungültige E-Mail-Adresse im Empfänger-Feld",
+                                                None,
+                                            )));
+                                            return;
+                                        }
+                                        // Uhrzeit HH:MM validieren (0–23 / 0–59)
+                                        if !validate_digest_send_time(&send_time) {
+                                            error.set(Some(api::AppError::new(
+                                                None,
+                                                "Ungültige Uhrzeit (Format HH:MM, z.B. 08:00)",
+                                                None,
+                                            )));
+                                            return;
+                                        }
+
+                                        spawn(async move {
+                                            digest_saving.set(true);
+                                            error.set(None);
+                                            success_msg.set(None);
+                                            let config = CONFIG.read().clone();
+                                            let mut all_ok = true;
+                                            let entries_to_save: Vec<(&str, String, &str)> = vec![
+                                                ("digest_recipients", recipients, "string"),
+                                                ("digest_send_time", send_time, "string"),
+                                            ];
+                                            for (key, value, vtype) in &entries_to_save {
+                                                if let Err(e) = api::set_config_entry(&config, key, value, vtype).await {
+                                                    error.set(Some(e));
+                                                    all_ok = false;
+                                                    break;
+                                                }
+                                            }
+                                            if all_ok {
+                                                success_msg.set(Some("Posteingangs-Benachrichtigung gespeichert".to_string()));
+                                                reload();
+                                            }
+                                            digest_saving.set(false);
+                                        });
+                                    },
+                                    if *digest_saving.read() {
+                                        "Speichere…"
+                                    } else {
+                                        "Speichern"
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     // WebDAV Backup Settings Section
                     CollapsibleSection { title: i18n.t(Key::WebDavBackup).to_string(),
                         div { class: "space-y-4",
@@ -1245,5 +1367,64 @@ pub fn ConfigPage() -> Element {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{validate_digest_recipients, validate_digest_send_time};
+
+    #[test]
+    fn empty_recipients_is_valid_disables_feature() {
+        // D-14: leeres Empfänger-Feld ist gültig und deaktiviert das Feature.
+        assert!(validate_digest_recipients(""));
+        assert!(validate_digest_recipients("   "));
+    }
+
+    #[test]
+    fn single_valid_recipient() {
+        assert!(validate_digest_recipients("vorstand@genossenschaft.de"));
+    }
+
+    #[test]
+    fn multiple_valid_recipients_comma_separated() {
+        assert!(validate_digest_recipients(
+            "vorstand@genossenschaft.de, kontakt@genossenschaft.de"
+        ));
+        // Whitespace um Adressen wird getrimmt.
+        assert!(validate_digest_recipients(
+            "  a@b.de ,  c@d.com  "
+        ));
+    }
+
+    #[test]
+    fn invalid_recipients_rejected() {
+        assert!(!validate_digest_recipients("no-at-sign"));
+        assert!(!validate_digest_recipients("missing-domain@"));
+        assert!(!validate_digest_recipients("@missing-local.de"));
+        assert!(!validate_digest_recipients("no-dot@localhost"));
+        assert!(!validate_digest_recipients("two@@at.de"));
+        // Eine ungültige Adresse in einer ansonsten gültigen Liste schlägt fehl.
+        assert!(!validate_digest_recipients("ok@valid.de, broken"));
+    }
+
+    #[test]
+    fn valid_send_times() {
+        assert!(validate_digest_send_time("08:00"));
+        assert!(validate_digest_send_time("00:00"));
+        assert!(validate_digest_send_time("23:59"));
+        assert!(validate_digest_send_time("  09:30  "));
+    }
+
+    #[test]
+    fn invalid_send_times() {
+        assert!(!validate_digest_send_time(""));
+        assert!(!validate_digest_send_time("8"));
+        assert!(!validate_digest_send_time("08"));
+        assert!(!validate_digest_send_time("24:00"));
+        assert!(!validate_digest_send_time("08:60"));
+        assert!(!validate_digest_send_time("08:00:00"));
+        assert!(!validate_digest_send_time("ab:cd"));
+        assert!(!validate_digest_send_time("-1:00"));
     }
 }
