@@ -17,7 +17,10 @@ tracing = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
-time = { workspace = true }
+# `local-offset`: Digest-Worker liest die Server-Lokalzeit (TZ env) via
+# OffsetDateTime::now_local() für is_due (Phase 20, D-02). Vereinigt sich mit
+# den Workspace-Features (serde/formatting/parsing).
+time = { workspace = true, features = ["local-offset"] }
 axum = { workspace = true }
 utoipa = { workspace = true }
 lettre = { workspace = true }

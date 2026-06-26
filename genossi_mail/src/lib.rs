@@ -1,6 +1,7 @@
 pub mod communication_rest;
 pub mod dao;
 pub mod dao_sqlite;
+pub mod digest;
 pub mod inbox;
 pub mod inbox_imap;
 pub mod inbox_rest;
