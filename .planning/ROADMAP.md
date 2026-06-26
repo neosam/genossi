@@ -86,7 +86,7 @@ Archive: `.planning/milestones/v1.2-ROADMAP.md` · `v1.2-REQUIREMENTS.md` · `v1
 | 17. Service+REST: Übertrag (Atomare 2-Action)      | v1.2      | 4/4            | Complete    | 2026-06-06 |
 | 18. Frontend Component-First (v1.2)                | v1.2      | 7/7            | Complete    | 2026-06-07 |
 | 19. E-Mail-Anhänge anzeigen                        | v1.3      | 7/7            | Complete    | 2026-06-09 |
-| 20. Inbox-Digest (täglicher Benachrichtigungs-Worker) | v1.3   | 0/3            | Planned     | -          |
+| 20. Inbox-Digest (täglicher Benachrichtigungs-Worker) | v1.3   | 1/3 | In Progress|  |
 | 21. Reply-Komfort (Antwort im Modal)               | v1.3      | 0/0            | Not started | -          |
 
 ### Phase 19: E-Mail-Anhänge anzeigen — Backend-Endpoint zum Abrufen von Anhängen aus eingehenden Mails (mail-parser nutzt async-imap bereits) plus Dioxus-Frontend-UI zum Anzeigen/Herunterladen der Attachments in der Mail-Ansicht.
@@ -109,7 +109,7 @@ Plans:
 **Goal:** Ein Scheduler-Worker verschickt einmal pro Kalendertag zur konfigurierten Uhrzeit eine Zusammenfassungs-Mail aller offenen (nicht-archivierten) Posteingangs-Mails an eine oder mehrere konfigurierbare Empfänger-Adressen — mit Titel, Absender, Eingangszeitpunkt je Mail und einem Deep-Link auf `/inbox` (via `APP_URL`). Versand nur bei nicht-leerem Posteingang; Empfänger und Uhrzeit werden über das bestehende Runtime-Config-System (Config-Seite, wie SMTP-Settings) gepflegt.
 **Requirements:** DIGEST-01, DIGEST-02, DIGEST-03, DIGEST-04, DIGEST-05, DIGEST-06, DIGEST-07
 **Depends on:** Phase 19
-**Plans:** 3 plans in 2 Wellen
+**Plans:** 1/3 plans executed
 
 Success criteria:
 1. Vorstand trägt auf der Config-Seite Empfänger-Adressen und Versand-Uhrzeit ein; beide bleiben nach Reload erhalten.
@@ -119,7 +119,7 @@ Success criteria:
 
 Plans:
 **Wave 1**
-- [ ] 20-01-PLAN.md — DB-Foundation (Migration `digest_state` + DigestStateDao-Trait + DigestStateDaoSqlite-Upsert + Tests) [Wave 1]
+- [x] 20-01-PLAN.md — DB-Foundation (Migration `digest_state` + DigestStateDao-Trait + DigestStateDaoSqlite-Upsert + Tests) [Wave 1]
 - [ ] 20-03-PLAN.md — Frontend Config-Abschnitt "Posteingangs-Benachrichtigung" (Empfänger + Uhrzeit + Inline-Validierung + Save) [Wave 1]
 
 **Wave 2** *(blocked on Wave 1 completion)*
