@@ -118,9 +118,12 @@ Success criteria:
 4. Die Digest-Mail listet jede offene Mail mit Titel, Absender und Eingangszeitpunkt und enthält einen funktionierenden Link auf `/inbox`.
 
 Plans:
+**Wave 1**
 - [ ] 20-01-PLAN.md — DB-Foundation (Migration `digest_state` + DigestStateDao-Trait + DigestStateDaoSqlite-Upsert + Tests) [Wave 1]
-- [ ] 20-02-PLAN.md — Digest-Worker (poll-loop nach timestamp_worker.rs + reine Helfer is_due/parse/build_* + Tests + DI-Wiring lib.rs/main.rs) [Wave 2, depends_on 20-01]
 - [ ] 20-03-PLAN.md — Frontend Config-Abschnitt "Posteingangs-Benachrichtigung" (Empfänger + Uhrzeit + Inline-Validierung + Save) [Wave 1]
+
+**Wave 2** *(blocked on Wave 1 completion)*
+- [ ] 20-02-PLAN.md — Digest-Worker (poll-loop nach timestamp_worker.rs + reine Helfer is_due/parse/build_* + Tests + DI-Wiring lib.rs/main.rs) [Wave 2, depends_on 20-01]
 
 ### Phase 21: Reply-Komfort — Antwort im vollflächigen Modal
 
