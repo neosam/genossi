@@ -1235,6 +1235,68 @@ impl MailTemplateDao for MailTemplateDaoSqlite {
     }
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// Digest state (Phase 20 — D-03: persistiertes letztes Digest-Versanddatum)
+// ────────────────────────────────────────────────────────────────────────────
+
+/// Singleton-Key in der digest_state-Tabelle (max. 1 Row).
+const LAST_SENT_DATE_KEY: &str = "last_sent_date";
+
+/// `[year]-[month]-[day]`-Maske für das ISO-Datum 'YYYY-MM-DD'.
+fn digest_date_format() -> Vec<time::format_description::FormatItem<'static>> {
+    time::format_description::parse("[year]-[month]-[day]")
+        .expect("static digest date format is valid")
+}
+
+pub struct DigestStateDaoSqlite {
+    pool: Arc<SqlitePool>,
+}
+
+impl DigestStateDaoSqlite {
+    pub fn new(pool: Arc<SqlitePool>) -> Self {
+        Self { pool }
+    }
+}
+
+#[async_trait]
+impl DigestStateDao for DigestStateDaoSqlite {
+    async fn get_last_sent_date(&self) -> Result<Option<time::Date>, MailDaoError> {
+        let row: Option<(String,)> =
+            sqlx::query_as("SELECT value FROM digest_state WHERE key = ?")
+                .bind(LAST_SENT_DATE_KEY)
+                .fetch_optional(self.pool.as_ref())
+                .await
+                .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
+
+        match row {
+            None => Ok(None),
+            Some((s,)) => {
+                let fmt = digest_date_format();
+                let date = time::Date::parse(&s, &fmt)
+                    .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
+                Ok(Some(date))
+            }
+        }
+    }
+
+    async fn set_last_sent_date(&self, date: time::Date) -> Result<(), MailDaoError> {
+        let fmt = digest_date_format();
+        let value = date
+            .format(&fmt)
+            .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
+        sqlx::query(
+            "INSERT INTO digest_state (key, value) VALUES (?, ?)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        )
+        .bind(LAST_SENT_DATE_KEY)
+        .bind(value)
+        .execute(self.pool.as_ref())
+        .await
+        .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
