@@ -152,6 +152,19 @@ pub trait InboundMailAttachmentDao: Send + Sync + 'static {
     async fn count_for_mail(&self, mail_id: Uuid) -> Result<i64, MailDaoError>;
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// Digest state (Phase 20 — D-03: persistiertes letztes Digest-Versanddatum)
+// ────────────────────────────────────────────────────────────────────────────
+
+#[automock]
+#[async_trait]
+pub trait DigestStateDao: Send + Sync + 'static {
+    /// Letztes Digest-Versanddatum (None = noch nie gesendet).
+    async fn get_last_sent_date(&self) -> Result<Option<time::Date>, MailDaoError>;
+    /// Setzt (upsert) das letzte Digest-Versanddatum.
+    async fn set_last_sent_date(&self, date: time::Date) -> Result<(), MailDaoError>;
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StaticDocument {
     pub id: Uuid,

@@ -5,7 +5,7 @@ use time::PrimitiveDateTime;
 use uuid::Uuid;
 
 use crate::dao::{
-    CommunicationDao, CommunicationDirection, CommunicationEntry, InboundMail,
+    CommunicationDao, CommunicationDirection, CommunicationEntry, DigestStateDao, InboundMail,
     InboundMailAttachment, InboundMailAttachmentDao, InboundMailDao, MailDaoError, MailJob,
     MailJobDao, MailJobStaticAttachment, MailJobStaticAttachmentDao, MailRecipient,
     MailRecipientAttachment, MailRecipientAttachmentDao, MailRecipientDao, MailTemplate,
@@ -2430,5 +2430,77 @@ mod tests {
         let found = res_ok.unwrap();
         assert_eq!(found.id, attachment_a1_id);
         assert_eq!(found.inbound_mail_id, mail_a_id);
+    }
+}
+
+#[cfg(test)]
+mod digest_state_tests {
+    use super::*;
+
+    async fn setup_db() -> Arc<SqlitePool> {
+        let pool = SqlitePool::connect("sqlite::memory:")
+            .await
+            .expect("Failed to create in-memory database");
+        sqlx::query(
+            "CREATE TABLE digest_state (
+                key TEXT PRIMARY KEY NOT NULL,
+                value TEXT NOT NULL
+            )",
+        )
+        .execute(&pool)
+        .await
+        .expect("Failed to create digest_state table");
+        Arc::new(pool)
+    }
+
+    fn date(year: i32, month: time::Month, day: u8) -> time::Date {
+        time::Date::from_calendar_date(year, month, day).unwrap()
+    }
+
+    /// Test 1: get_last_sent_date on an empty table returns Ok(None).
+    #[tokio::test]
+    async fn test_get_on_empty_returns_none() {
+        let pool = setup_db().await;
+        let dao = DigestStateDaoSqlite::new(pool);
+
+        let result = dao.get_last_sent_date().await.unwrap();
+        assert_eq!(result, None);
+    }
+
+    /// Test 2: after set_last_sent_date(2026-06-26), get returns Ok(Some(2026-06-26)).
+    #[tokio::test]
+    async fn test_set_then_get_returns_date() {
+        let pool = setup_db().await;
+        let dao = DigestStateDaoSqlite::new(pool);
+
+        let d = date(2026, time::Month::June, 26);
+        dao.set_last_sent_date(d).await.unwrap();
+
+        let result = dao.get_last_sent_date().await.unwrap();
+        assert_eq!(result, Some(d));
+    }
+
+    /// Test 3: a second set overwrites (upsert) — get returns the new date and the
+    /// table still holds exactly one row (no duplicate insert).
+    #[tokio::test]
+    async fn test_second_set_overwrites_singleton() {
+        let pool = setup_db().await;
+        let dao = DigestStateDaoSqlite::new(pool.clone());
+
+        dao.set_last_sent_date(date(2026, time::Month::June, 26))
+            .await
+            .unwrap();
+        dao.set_last_sent_date(date(2026, time::Month::June, 27))
+            .await
+            .unwrap();
+
+        let result = dao.get_last_sent_date().await.unwrap();
+        assert_eq!(result, Some(date(2026, time::Month::June, 27)));
+
+        let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM digest_state")
+            .fetch_one(pool.as_ref())
+            .await
+            .unwrap();
+        assert_eq!(count, 1, "upsert must not create a second row");
     }
 }
