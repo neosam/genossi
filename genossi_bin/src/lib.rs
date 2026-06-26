@@ -579,6 +579,8 @@ type StaticDocumentDaoType = genossi_mail::dao_sqlite::StaticDocumentDaoSqlite;
 type MailJobStaticAttachmentDaoType = genossi_mail::dao_sqlite::MailJobStaticAttachmentDaoSqlite;
 type InboundMailDaoType = genossi_mail::dao_sqlite::InboundMailDaoSqlite;
 type InboundMailAttachmentDaoType = genossi_mail::dao_sqlite::InboundMailAttachmentDaoSqlite;
+// Phase 20 (Plan 02): Digest-Worker persistiert das letzte Versanddatum.
+type DigestStateDaoType = genossi_mail::dao_sqlite::DigestStateDaoSqlite;
 type InboxImapClientType = genossi_mail::inbox_imap::AsyncImapClient;
 type InboxServiceType = genossi_mail::inbox::InboxServiceImpl<
     ConfigService,
@@ -1448,6 +1450,28 @@ impl RestStateImpl {
             genossi_service_impl::timestamp_worker::start_timestamp_worker(
                 timestamp_service,
                 config_service,
+            )
+            .await;
+        });
+    }
+
+    /// Phase 20 (Plan 02): Digest-Worker — pollt periodisch (~60s) und verschickt
+    /// zur konfigurierten Uhrzeit eine Posteingangs-Digest-Mail pro Empfänger
+    /// pro Kalendertag. Wiring spiegelt `start_timestamp_worker`; inbox_service
+    /// und mail_service sind bereits vorhandene Felder, der DigestStateDao wird
+    /// ad-hoc aus dem Pool gebaut (Pattern start_mail_worker).
+    pub fn start_digest_worker(&self) {
+        let config_dao = ConfigDao::new(self.pool.clone());
+        let config_service = Arc::new(ConfigService::new(config_dao));
+        let inbox_service = self.inbox_service.clone();
+        let mail_service = self.mail_service.clone();
+        let digest_state_dao = Arc::new(DigestStateDaoType::new(self.pool.clone()));
+        tokio::spawn(async move {
+            genossi_mail::digest::start_digest_worker(
+                config_service,
+                inbox_service,
+                mail_service,
+                digest_state_dao,
             )
             .await;
         });
