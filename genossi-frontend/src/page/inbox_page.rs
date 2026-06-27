@@ -6,7 +6,7 @@ use crate::auth::RequirePrivilege;
 use crate::component::inbox::{
     InboxAttachmentList, InboxMailListItem, InboxReplyForm, InboxStatusBadge,
 };
-use crate::component::{ErrorAlert, TopBar};
+use crate::component::{ErrorAlert, Modal, TopBar};
 use crate::i18n::use_i18n;
 use crate::page::AccessDeniedPage;
 use crate::service::config::CONFIG;
@@ -425,11 +425,8 @@ fn InboxPageInner(initial_id: Option<String>) -> Element {
                                 div { class: "flex flex-wrap gap-2 mt-3",
                                     button {
                                         class: "text-sm px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded",
-                                        onclick: move |_| {
-                                            let current = *show_reply.read();
-                                            show_reply.set(!current);
-                                        },
-                                        if *show_reply.read() { "Antwort abbrechen" } else { "Antworten" }
+                                        onclick: move |_| show_reply.set(true),
+                                        "Antworten"
                                     }
                                     button {
                                         class: "text-sm px-3 py-1 border rounded hover:bg-gray-100",
@@ -462,25 +459,28 @@ fn InboxPageInner(initial_id: Option<String>) -> Element {
                                         let original_from = d.from_address.clone();
                                         let original_date = i18n.format_datetime(&d.received_at);
                                         rsx! {
-                                            InboxReplyForm {
-                                                mail_id: mail_id,
-                                                from_address: from_addr,
-                                                initial_subject: reply_subject,
-                                                assigned_member_id: member_id,
-                                                original_body: original_body,
-                                                original_from: original_from,
-                                                original_date: original_date,
-                                                on_sent: move |_| {
-                                                    info.set(Some("Antwort gesendet".to_string()));
-                                                    show_reply.set(false);
-                                                    reload();
-                                                    if let Some(mid) = selected_id.read().clone() {
-                                                        load_detail(mid);
-                                                    }
-                                                },
-                                                on_error: move |e: String| {
-                                                    error.set(Some(api::AppError::new(None, e, None)));
-                                                },
+                                            Modal {
+                                                InboxReplyForm {
+                                                    mail_id: mail_id,
+                                                    from_address: from_addr,
+                                                    initial_subject: reply_subject,
+                                                    assigned_member_id: member_id,
+                                                    original_body: original_body,
+                                                    original_from: original_from,
+                                                    original_date: original_date,
+                                                    on_sent: move |_| {
+                                                        info.set(Some("Antwort gesendet".to_string()));
+                                                        show_reply.set(false);
+                                                        reload();
+                                                        if let Some(mid) = selected_id.read().clone() {
+                                                            load_detail(mid);
+                                                        }
+                                                    },
+                                                    on_error: move |e: String| {
+                                                        error.set(Some(api::AppError::new(None, e, None)));
+                                                    },
+                                                    on_close: move |_| show_reply.set(false),
+                                                }
                                             }
                                         }
                                     }
