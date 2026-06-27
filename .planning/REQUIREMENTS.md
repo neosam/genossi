@@ -21,10 +21,10 @@ Requirements für Milestone v1.3. Jede Anforderung mappt auf genau eine Roadmap-
 
 ### Reply-Komfort
 
-- [ ] **REPLY-01**: Vorstand öffnet das Antwort-Formular für eine eingegangene Mail in einem vollflächigen Modal statt im Inline-Feld
-- [ ] **REPLY-02**: Das Antwort-Modal bietet deutlich mehr Schreibfläche (größeres Textfeld) als das bisherige schmale Inline-Feld
-- [ ] **REPLY-03**: Vorstand kann das Antwort-Modal abbrechen/schließen, ohne zu senden, und kehrt zur Mail-Ansicht zurück
-- [ ] **REPLY-04**: Das Absenden der Antwort aus dem Modal nutzt die bestehende Sende-Logik und zeigt Erfolg/Fehler-Feedback wie bisher
+- [x] **REPLY-01**: Vorstand öffnet das Antwort-Formular für eine eingegangene Mail in einem vollflächigen Modal statt im Inline-Feld
+- [x] **REPLY-02**: Das Antwort-Modal bietet deutlich mehr Schreibfläche (größeres Textfeld) als das bisherige schmale Inline-Feld
+- [x] **REPLY-03**: Vorstand kann das Antwort-Modal abbrechen/schließen, ohne zu senden, und kehrt zur Mail-Ansicht zurück
+- [x] **REPLY-04**: Das Absenden der Antwort aus dem Modal nutzt die bestehende Sende-Logik und zeigt Erfolg/Fehler-Feedback wie bisher
 
 ## v2 Requirements
 
@@ -58,12 +58,13 @@ Welche Phasen welche Requirements abdecken. Während der Roadmap-Erstellung gef�
 | DIGEST-05 | Phase 20 | Complete |
 | DIGEST-06 | Phase 20 | Complete |
 | DIGEST-07 | Phase 20 | Complete |
-| REPLY-01 | Phase 21 | Pending |
-| REPLY-02 | Phase 21 | Pending |
-| REPLY-03 | Phase 21 | Pending |
-| REPLY-04 | Phase 21 | Pending |
+| REPLY-01 | Phase 21 | Complete |
+| REPLY-02 | Phase 21 | Complete |
+| REPLY-03 | Phase 21 | Complete |
+| REPLY-04 | Phase 21 | Complete |
 
 **Coverage:**
+
 - v1 requirements: 11 total
 - Mapped to phases: 11 ✓
 - Unmapped: 0 ✓

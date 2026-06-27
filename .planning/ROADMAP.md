@@ -59,7 +59,7 @@ Archive: `.planning/milestones/v1.2-ROADMAP.md` · `v1.2-REQUIREMENTS.md` · `v1
 
 - [x] Phase 19: E-Mail-Anhänge anzeigen (Vorläufer, geshippt 2026-06-09)
 - [x] Phase 20: Inbox-Digest — täglicher Posteingangs-Benachrichtigungs-Worker (DIGEST-01..07) (completed 2026-06-26)
-- [ ] Phase 21: Reply-Komfort — Antwort im vollflächigen Modal (REPLY-01..04)
+- [x] Phase 21: Reply-Komfort — Antwort im vollflächigen Modal (REPLY-01..04) (completed 2026-06-27)
 
 > Nicht in v1.3: v1.2-Tech-Debt (CR-02 Permission-Ordering, Phase-18-UX-Polish, Mail-Subsystem-Triage, 16 deferred v1.1-Quick-Tasks) bleibt Backlog/Kandidat — siehe Backlog (999.x) unten und `milestones/v1.2-MILESTONE-AUDIT.md`.
 
@@ -87,7 +87,7 @@ Archive: `.planning/milestones/v1.2-ROADMAP.md` · `v1.2-REQUIREMENTS.md` · `v1
 | 18. Frontend Component-First (v1.2)                | v1.2      | 7/7            | Complete    | 2026-06-07 |
 | 19. E-Mail-Anhänge anzeigen                        | v1.3      | 7/7            | Complete    | 2026-06-09 |
 | 20. Inbox-Digest (täglicher Benachrichtigungs-Worker) | v1.3   | 3/3 | Complete    | 2026-06-27 |
-| 21. Reply-Komfort (Antwort im Modal)               | v1.3      | 0/0            | Not started | -          |
+| 21. Reply-Komfort (Antwort im Modal)               | v1.3      | 1/1 | Complete   | 2026-06-27 |
 
 ### Phase 19: E-Mail-Anhänge anzeigen — Backend-Endpoint zum Abrufen von Anhängen aus eingehenden Mails (mail-parser nutzt async-imap bereits) plus Dioxus-Frontend-UI zum Anzeigen/Herunterladen der Attachments in der Mail-Ansicht.
 
@@ -97,6 +97,7 @@ Archive: `.planning/milestones/v1.2-ROADMAP.md` · `v1.2-REQUIREMENTS.md` · `v1
 **Plans:** 7/7 plans complete
 
 Plans:
+
 - [x] 19-01-PLAN.md — DAO + Migration (InboundMailAttachment-Entity, Trait, SQLite-Impl, Migration `20260608000000`)
 - [ ] 19-02-PLAN.md — Service + IMAP (parse_raw_mail-Erweiterung, persist_attachment mit 10-MB-Cap + Rollback, fetch_one_by_uid mit UIDVALIDITY-Check, Poll-Worker-Persistenz)
 - [ ] 19-03-PLAN.md — REST Endpoints (DetailTO-Extension, /api/inbox/{mail_id}/attachments/{attachment_id} mit ?disposition=inline, content_disposition_inline-Helper, 5 E2E-Tests)
@@ -112,6 +113,7 @@ Plans:
 **Plans:** 3/3 plans complete
 
 Success criteria:
+
 1. Vorstand trägt auf der Config-Seite Empfänger-Adressen und Versand-Uhrzeit ein; beide bleiben nach Reload erhalten.
 2. Zur konfigurierten Uhrzeit erhält jeder konfigurierte Empfänger genau eine Digest-Mail pro Tag, sofern offene Mails vorliegen.
 3. Bei leerem Posteingang oder ohne konfigurierte Empfänger geht keine Mail raus (kein Fehler).
@@ -119,10 +121,12 @@ Success criteria:
 
 Plans:
 **Wave 1**
+
 - [x] 20-01-PLAN.md — DB-Foundation (Migration `digest_state` + DigestStateDao-Trait + DigestStateDaoSqlite-Upsert + Tests) [Wave 1]
 - [x] 20-03-PLAN.md — Frontend Config-Abschnitt "Posteingangs-Benachrichtigung" (Empfänger + Uhrzeit + Inline-Validierung + Save) [Wave 1]
 
 **Wave 2** *(blocked on Wave 1 completion)*
+
 - [x] 20-02-PLAN.md — Digest-Worker (poll-loop nach timestamp_worker.rs + reine Helfer is_due/parse/build_* + Tests + DI-Wiring lib.rs/main.rs) [Wave 2, depends_on 20-01]
 
 ### Phase 21: Reply-Komfort — Antwort im vollflächigen Modal
@@ -130,16 +134,18 @@ Plans:
 **Goal:** Das Antworten auf eine eingegangene Mail öffnet künftig in einem vollflächigen Modal (bestehende `modal.rs`-Component) mit großem Textfeld statt im schmalen Inline-Feld. Abbrechen ohne Senden ist möglich; das Absenden nutzt die unveränderte bestehende Sende-Logik und zeigt Erfolg-/Fehler-Feedback wie bisher.
 **Requirements:** REPLY-01, REPLY-02, REPLY-03, REPLY-04
 **Depends on:** Phase 19
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 
 Success criteria:
+
 1. Vorstand klickt „Antworten" und ein vollflächiges Modal öffnet sich mit einem großen Eingabefeld.
 2. Das Antwort-Textfeld bietet sichtbar deutlich mehr Schreibfläche als das bisherige Inline-Feld.
 3. Vorstand kann das Modal abbrechen/schließen ohne zu senden und landet wieder in der Mail-Ansicht.
 4. Senden aus dem Modal verschickt die Antwort wie bisher und zeigt Erfolg-/Fehler-Feedback.
 
 Plans:
-- [ ] 21-01-PLAN.md — Reply-Form ins vollflächige Modal verlagern (on_close + Header + «Abbrechen» + Dirty-Check-Confirm + i18n)
+
+- [x] 21-01-PLAN.md — Reply-Form ins vollflächige Modal verlagern (on_close + Header + «Abbrechen» + Dirty-Check-Confirm + i18n)
 
 ---
 
@@ -154,8 +160,10 @@ Plans:
 **Priorität:** hoch (Security/Build) · **Quelle:** Code-Audit 2026-06-14
 **Goal:** Verhindern, dass versehentlich ein Backend ohne Authentifizierung produktiv läuft.
 **Befund:**
+
 - `default = ["mock_auth"]` (`genossi_bin/Cargo.toml:7`, `genossi_rest/Cargo.toml:36`) → `cargo run` / `nix run` (default-Package, `flake.nix:26-29`) startet ein API, das jede Permission-Prüfung durchwinkt (`session.rs:119-137`) — voller PII-Zugriff ohne Login.
 - NixOS-Modul (`module.nix:155-192`) entkoppelt das Build-Feature vom Runtime-Flag `oidc.enable` → stiller Auth-Bypass bei Fehlkonfiguration möglich.
+
 **Ansatz (Diskussion vor Umsetzung):** Default-Feature auf sicheren Wert setzen ODER Startup-Panic/Compile-Fehler bei `mock_auth` in Release-Builds (`#[cfg(not(debug_assertions))]`); Feature-Wahl im Nix-Modul wieder an `oidc.enable` koppeln oder Assertion ergänzen.
 **Routing:** `/gsd-discuss-phase` (Designentscheidung), dann `/gsd-plan-phase`.
 
@@ -172,8 +180,10 @@ Plans:
 **Priorität:** mittel (Layering) · **Quelle:** Code-Audit 2026-06-14
 **Goal:** REST-Handler, die DAO + eigene Transaktion direkt ansprechen, hinter einen Service legen.
 **Befund:**
+
 - `genossi_rest/src/audit_log.rs:119-137` (analog `:186-191`, `:232-237`): Handler holt eigene Transaktion und ruft `audit_log_dao().count()/.query()` direkt — kein `AuditLogService`.
 - `genossi_rest/src/backup.rs:61-133`: Handler ruft `backup_dao()` direkt.
+
 **Ansatz:** `AuditLogService` + `BackupService` einziehen, die Permission-Check, Transaktion und DAO-Zugriff kapseln; `RestStateDef` sollte `audit_log_dao()`/`backup_dao()`/`audit_transaction()` nicht mehr direkt an Handler exponieren.
 **Routing:** `/gsd-plan-phase` (mehrere Dateien, neue Service-Traits).
 
@@ -190,10 +200,12 @@ Plans:
 **Priorität:** niedrig (Nice-to-have / UX) · **Quelle:** zurückgestellt 2026-06-26 (war aktive Phase 20)
 **Goal:** Durchsuchbare Feature-Referenz im Dioxus-Frontend — Übersicht/Navigation plus pro Feature ein erklärender Eintrag, Component-First. Reines Frontend, keine neue Entität, kein Audit.
 **Offene Designentscheidungen (vor Umsetzung in discuss-phase klären):**
+
 - Content-Speicherung: zentrales i18n-Key-System (`de.rs`/`en.rs`) vs. eigene Rust-Datenstruktur (`Vec<HelpEntry>`) vs. Markdown-Assets via manganis vs. Backend
 - Einbindung & Navigation: eigene Route `/help` + Sidebar-Eintrag (welche Nav-Gruppe?) vs. globaler `?`-Button; Übersicht→Detail vs. Single-Page-Akkordeon
 - Suche & Kategorisierung: Client-Substring-Filter (Vorbild `attendance_search`/`member_search`) über Titel (+Body); Gruppierung nach Nav-Bereich
 - Eintrags-Tiefe: Kurzbeschreibung vs. Schritt-Anleitung; „Feature öffnen"-Deep-Link; Sprache (De-only vs. De+En); Feature-Scope (alle vs. kuratiert)
+
 **Routing:** `/gsd-discuss-phase` (Designentscheidungen offen), dann `/gsd-plan-phase`.
 
 ---
