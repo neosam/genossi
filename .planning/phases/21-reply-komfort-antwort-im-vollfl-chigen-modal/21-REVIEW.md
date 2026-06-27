@@ -14,8 +14,20 @@ findings:
   warning: 2
   info: 2
   total: 5
-status: issues_found
+status: resolved
+resolved_at: 2026-06-27
+resolution_commit: 5bdc081
 ---
+
+> **Resolution (2026-06-27, commit `5bdc081`):** All four in-scope findings fixed and
+> re-reviewed clean (NO-NEW-BUG). CR-01 (body-overwrite data loss) + WR-02 (empty-baseline
+> spurious confirm): baselines now seeded synchronously and `baseline_body` tracks the
+> intended composed-initial (not the possibly-edited body); the footer effect only overwrites
+> the body when the user has not typed (`reply_body == pre_footer` guard). WR-01: the three
+> hardcoded German literals now use `Key::MailTo`/`MailSend`/`MailSending` in both locales.
+> IN-01: `r#type: "button"` added to the send button. Tests: 5× `is_draft_dirty` (incl. a new
+> typed-during-load case) + i18n-distinct, all green; `cargo check` clean. IN-02 (cached_quote
+> redundancy) intentionally deferred — readability nit, not a defect.
 
 # Phase 21: Code Review Report
 
