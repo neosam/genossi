@@ -27,20 +27,29 @@ pub fn InboxReplyForm(
     let header_title = i18n.t(Key::InboxReplyModalTitle).to_string();
     let cancel_label = i18n.t(Key::InboxReplyCancel).to_string();
     let confirm_msg = i18n.t(Key::InboxReplyDiscardConfirm).to_string();
+    // WR-01: localize the recipient label and the send/sending button copy via
+    // the existing reusable mail keys (Component-First — they exist in both locales).
+    let mail_to_label = i18n.t(Key::MailTo).to_string();
+    let send_label = i18n.t(Key::MailSend).to_string();
+    let sending_label = i18n.t(Key::MailSending).to_string();
 
-    let mut reply_subject = use_signal(move || initial_subject.clone());
+    let mut reply_subject = use_signal({
+        let s = initial_subject.clone();
+        move || s
+    });
 
     // Build the quote block once; it's static for the lifetime of the form.
     let quote_block = build_original_quote(&original_body, &original_from, &original_date);
+    // The synchronous initial body: empty typing space, then the quote. Computed
+    // once so reply_body AND the dirty-check baseline start from the SAME value.
+    let initial_body = if quote_block.is_empty() {
+        String::new()
+    } else {
+        format!("\n\n{}", quote_block)
+    };
     let mut reply_body = use_signal({
-        let q = quote_block.clone();
-        move || {
-            if q.is_empty() {
-                String::new()
-            } else {
-                format!("\n\n{}", q)
-            }
-        }
+        let b = initial_body.clone();
+        move || b
     });
     let cached_quote = use_signal({
         let q = quote_block.clone();
@@ -49,10 +58,18 @@ pub fn InboxReplyForm(
     let mut sending = use_signal(|| false);
     let mut cached_footer = use_signal(|| String::new());
 
-    // D-05: dirty-check baseline — snapshotted AFTER the async footer load (see
-    // the footer use_effect below), never against the first quote-only value.
-    let mut baseline_subject = use_signal(String::new);
-    let mut baseline_body = use_signal(String::new);
+    // D-05: dirty-check baseline. Seeded SYNCHRONOUSLY with the same initial
+    // subject/body the editors start with (WR-02 — no spurious confirm during the
+    // footer-load window), then refined to the composed footer+quote body in the
+    // footer use_effect below once it resolves (CR-01).
+    let mut baseline_subject = use_signal({
+        let s = initial_subject.clone();
+        move || s
+    });
+    let mut baseline_body = use_signal({
+        let b = initial_body.clone();
+        move || b
+    });
 
     // Quick 260607-s0s: same attachment state as Compose — populated by
     // MailAttachmentPicker via shared signals.
@@ -71,19 +88,29 @@ pub fn InboxReplyForm(
     use_effect(move || {
         spawn(async move {
             let config = CONFIG.read().clone();
+            // CR-01: capture the body BEFORE the await so we can tell whether the
+            // user typed into the editor during the (possibly slow) footer load.
+            let pre_footer = reply_body.read().clone();
             if let Ok(footer) = api::get_mail_footer(&config).await {
                 cached_footer.set(footer.clone());
                 let quote = cached_quote.read().clone();
                 let initial = compose_initial_body(&footer, &quote);
                 if !initial.is_empty() {
-                    reply_body.set(initial);
+                    // CR-01: only seed the composed footer+quote body if the user
+                    // has NOT typed in the load window — never clobber their text.
+                    if reply_body.read().clone() == pre_footer {
+                        reply_body.set(initial.clone());
+                    }
+                    // WR-02/CR-01: the baseline must reflect the INTENDED initial
+                    // body (composed footer+quote), NOT the possibly-edited current
+                    // body — so text typed during the load window stays dirty and
+                    // an untouched draft closes without a confirm.
+                    baseline_body.set(initial);
                 }
             }
-            // D-05 (critical): capture the dirty-check baseline AFTER the footer
-            // load composed the body. Placed at the end of the async body so it
-            // covers all paths (footer-ok-with-body, footer-ok-empty, fetch-err).
-            baseline_subject.set(reply_subject.read().clone());
-            baseline_body.set(reply_body.read().clone());
+            // Err path / empty-footer path: leave the synchronous step-1 baselines
+            // in place. The subject baseline is never modified here (the footer
+            // effect does not touch the subject), preserving any subject edits.
         });
     });
 
@@ -144,7 +171,7 @@ pub fn InboxReplyForm(
                 }
             }
             div { class: "text-sm text-gray-600",
-                "An: {from_address}"
+                "{mail_to_label}: {from_address}"
             }
             MailSubjectInput {
                 value: reply_subject.read().clone(),
@@ -198,6 +225,7 @@ pub fn InboxReplyForm(
             }
             div { class: "flex gap-2 items-center",
                 button {
+                    r#type: "button",
                     class: "bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded disabled:opacity-50",
                     disabled: *sending.read() || reply_subject.read().is_empty(),
                     onclick: move |_| {
@@ -216,7 +244,7 @@ pub fn InboxReplyForm(
                             sending.set(false);
                         });
                     },
-                    if *sending.read() { "Sende..." } else { "Antwort senden" }
+                    if *sending.read() { "{sending_label}" } else { "{send_label}" }
                 }
                 // «Abbrechen» (D-01): neutral, second close affordance.
                 button {
@@ -374,6 +402,31 @@ mod tests {
             "body + getippter Text",
             "Re: Anfrage",
             "body",
+        ));
+    }
+
+    #[test]
+    fn is_draft_dirty_typed_during_footer_load_is_dirty() {
+        // CR-01/WR-02 corrected semantics: while the footer loads, the user
+        // top-posts into the quote-prefilled body. The baseline is the INTENDED
+        // composed-initial body (footer+quote); the current body is quote+usertext.
+        // They differ → dirty=true → the unsaved text is protected by a confirm.
+        let quote = "Am d schrieb x:\n> hi";
+        let composed_initial = compose_initial_body("Foo", quote); // footer+quote baseline
+        let typed_during_load = format!("Meine Antwort\n\n{}", quote); // user top-posted
+        assert_ne!(typed_during_load, composed_initial);
+        assert!(is_draft_dirty(
+            "Re: Anfrage",
+            &typed_during_load,
+            "Re: Anfrage",
+            &composed_initial,
+        ));
+        // Untouched draft: body equals the composed-initial baseline → not dirty.
+        assert!(!is_draft_dirty(
+            "Re: Anfrage",
+            &composed_initial,
+            "Re: Anfrage",
+            &composed_initial,
         ));
     }
 
