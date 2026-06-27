@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Posteingang-Benachrichtigung & Reply-Komfort
-status: verifying
+status: ready_to_plan
 stopped_at: Completed 20-01-PLAN.md
 last_updated: "2026-06-26T22:02:18.184Z"
 last_activity: 2026-06-26
 progress:
   total_phases: 8
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 10
   completed_plans: 10
-  percent: 100
+  percent: 38
 ---
 
 # State: Genossi — Between Milestones (v1.2 shipped, v1.3 not yet defined)
@@ -29,10 +29,10 @@ See: `.planning/PROJECT.md` (updated 2026-06-07 after v1.2 close)
 
 ## Current Position
 
-Phase: 20 (inbox-digest-t-glicher-posteingangs-benachrichtigungs-worker) — EXECUTING
-Plan: 3 of 3
-Status: Phase complete — ready for verification
-Last activity: 2026-06-26
+Phase: 21
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-06-27
 
 ## Deferred Items
 

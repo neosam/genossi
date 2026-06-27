@@ -74,7 +74,7 @@ if offen.is_empty() {
 
 ---
 
-### WR-02: Grammatikfehler im Betreff bei genau 1 offener Mail
+### WR-02: Grammatikfehler im Betreff bei genau 1 offener Mail — ✅ BEHOBEN (Commit fix(20): correct singular grammar)
 
 **File:** `genossi_mail/src/digest.rs:80-82`
 
