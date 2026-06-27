@@ -1,10 +1,11 @@
 ---
 phase: 21
 slug: reply-komfort-antwort-im-vollfl-chigen-modal
-status: draft
+status: approved
 shadcn_initialized: false
 preset: none
 created: 2026-06-27
+reviewed_at: 2026-06-27
 ---
 
 # Phase 21 — UI Design Contract
