@@ -366,9 +366,7 @@ impl MailRecipientDao for MailRecipientDaoSqlite {
             .map(|v| v.into())
     }
 
-    async fn find_recipients_without_rendered(
-        &self,
-    ) -> Result<Arc<[MailRecipient]>, MailDaoError> {
+    async fn find_recipients_without_rendered(&self) -> Result<Arc<[MailRecipient]>, MailDaoError> {
         let rows = sqlx::query_as::<_, MailRecipientDb>(
             "SELECT id, created, deleted, version, mail_job_id, to_address, member_id, status, error, sent_at, message_id, rendered_subject, rendered_body, rendered_reconstructed \
              FROM mail_recipients \
@@ -1261,12 +1259,11 @@ impl DigestStateDaoSqlite {
 #[async_trait]
 impl DigestStateDao for DigestStateDaoSqlite {
     async fn get_last_sent_date(&self) -> Result<Option<time::Date>, MailDaoError> {
-        let row: Option<(String,)> =
-            sqlx::query_as("SELECT value FROM digest_state WHERE key = ?")
-                .bind(LAST_SENT_DATE_KEY)
-                .fetch_optional(self.pool.as_ref())
-                .await
-                .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
+        let row: Option<(String,)> = sqlx::query_as("SELECT value FROM digest_state WHERE key = ?")
+            .bind(LAST_SENT_DATE_KEY)
+            .fetch_optional(self.pool.as_ref())
+            .await
+            .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
 
         match row {
             None => Ok(None),
@@ -1824,7 +1821,11 @@ mod tests {
             .find_recipients_without_rendered()
             .await
             .unwrap();
-        assert_eq!(without.len(), 1, "only the NULL-rendered row should be returned");
+        assert_eq!(
+            without.len(),
+            1,
+            "only the NULL-rendered row should be returned"
+        );
         assert_eq!(without[0].id, null_row.id);
 
         // Soft-deleted NULL rows are also excluded.
@@ -2488,7 +2489,10 @@ mod tests {
             .find_by_id_and_mail(mail_a_id, attachment_a1_id)
             .await
             .unwrap();
-        assert!(res_ok.is_some(), "positive control: correct pair returns Some");
+        assert!(
+            res_ok.is_some(),
+            "positive control: correct pair returns Some"
+        );
         let found = res_ok.unwrap();
         assert_eq!(found.id, attachment_a1_id);
         assert_eq!(found.inbound_mail_id, mail_a_id);

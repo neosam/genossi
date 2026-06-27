@@ -1392,9 +1392,7 @@ mod tests {
             "vorstand@genossenschaft.de, kontakt@genossenschaft.de"
         ));
         // Whitespace um Adressen wird getrimmt.
-        assert!(validate_digest_recipients(
-            "  a@b.de ,  c@d.com  "
-        ));
+        assert!(validate_digest_recipients("  a@b.de ,  c@d.com  "));
     }
 
     #[test]

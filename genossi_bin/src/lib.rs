@@ -1123,8 +1123,7 @@ impl RestStateImpl {
         let worker_inbox_dao = Arc::new(InboundMailDaoType::new(pool.clone()));
         let worker_inbox_imap_client = Arc::new(InboxImapClientType::new());
         // Phase 19: worker also needs its own attachment DAO + storage handle.
-        let worker_inbox_attachment_dao =
-            Arc::new(InboundMailAttachmentDaoType::new(pool.clone()));
+        let worker_inbox_attachment_dao = Arc::new(InboundMailAttachmentDaoType::new(pool.clone()));
         let worker_inbox_storage = document_storage.clone();
 
         // Create separate instances for the worker (worker needs its own DAOs)

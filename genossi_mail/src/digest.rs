@@ -78,7 +78,11 @@ pub(crate) fn is_due(
 
 /// Betreff der Digest-Mail mit Anzahl offener Mails (D-09).
 pub(crate) fn build_digest_subject(count: usize) -> String {
-    let noun = if count == 1 { "offene Mail" } else { "offene Mails" };
+    let noun = if count == 1 {
+        "offene Mail"
+    } else {
+        "offene Mails"
+    };
     format!("Posteingang: {} {}", count, noun)
 }
 
@@ -135,8 +139,8 @@ pub async fn start_digest_worker<C, I, M, S>(
         let send_time = send_time.unwrap();
 
         // Server-Lokalzeit (D-02). Fallback auf now_utc, falls now_local fehlschlägt.
-        let now_local = time::OffsetDateTime::now_local()
-            .unwrap_or_else(|_| time::OffsetDateTime::now_utc());
+        let now_local =
+            time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
 
         let last_sent = digest_state_dao.get_last_sent_date().await.unwrap_or(None);
 
@@ -172,11 +176,9 @@ pub async fn start_digest_worker<C, I, M, S>(
                             }
                         }
                         // Versanddatum trotzdem setzen (D-07: Tag gilt als erledigt, kein Retry).
-                        if let Err(e) = digest_state_dao.set_last_sent_date(now_local.date()).await {
-                            tracing::error!(
-                                "Digest worker: failed to persist sent date: {:?}",
-                                e
-                            );
+                        if let Err(e) = digest_state_dao.set_last_sent_date(now_local.date()).await
+                        {
+                            tracing::error!("Digest worker: failed to persist sent date: {:?}", e);
                         }
                     }
                 }

@@ -96,9 +96,7 @@ pub trait MailRecipientDao: Send + Sync + 'static {
     /// NULL (and not soft-deleted). Used by the startup backfill to retroactively
     /// render legacy rows. Includes status='failed' rows — they were rendered at
     /// send time too, just not persisted before 9zf.
-    async fn find_recipients_without_rendered(
-        &self,
-    ) -> Result<Arc<[MailRecipient]>, MailDaoError>;
+    async fn find_recipients_without_rendered(&self) -> Result<Arc<[MailRecipient]>, MailDaoError>;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
