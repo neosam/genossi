@@ -58,6 +58,7 @@ Items acknowledged and deferred at v1.2 milestone close on 2026-06-07:
 | quick_task | 260603-n3m-mail-test-endpoints-dummy-repayment-cont | missing |
 | todo | backend-pre-flight-check-attach-repayment-letter.md | low |
 | todo | frontend-bulk-no-repayment-letter-action.md | low |
+| todo | 2026-06-27-originalen-mitgliedsantrag-als-datei-attachment-an-applicati.md | low |
 
 Alle 18 Items sind v1.1-Ära (Mail/Template/RepaymentLetter-Themen) und nicht v1.2-relevant. Sollten in einer v1.3-Backlog-Sichtung reviewed werden.
 
