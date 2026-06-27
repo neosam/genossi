@@ -691,5 +691,10 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::MembershipAdjustSuccess => "Adjustment saved successfully.".into(),
         Key::FiscalYearDateInputHelper => "Allowed: FY {min_year} or {max_year}".into(),
         Key::FiscalYearDateOutOfRange => "Date is outside the allowed fiscal-year range.".into(),
+
+        // ─── Phase 21 ─── InboxReplyForm Modal ────
+        Key::InboxReplyModalTitle => "Compose reply".into(),
+        Key::InboxReplyCancel => "Cancel".into(),
+        Key::InboxReplyDiscardConfirm => "The draft has changed. Discard changes and close?".into(),
     }
 }

@@ -797,6 +797,14 @@ pub enum Key {
     /// Format-Args: {min_year}, {max_year}.
     FiscalYearDateInputHelper,
     FiscalYearDateOutOfRange,
+
+    // ─── Phase 21 ─── InboxReplyForm Modal ────
+    /// Modal-Header-Titel der Reply-Maske.
+    InboxReplyModalTitle,
+    /// "Abbrechen"-Button im Reply-Modal.
+    InboxReplyCancel,
+    /// Confirm-Text bei geändertem Entwurf.
+    InboxReplyDiscardConfirm,
 }
 
 pub struct I18n {
@@ -1090,6 +1098,33 @@ mod tests {
                 de_str, en_str,
                 "Key {:?}: DE und EN sind identisch ('{}'). \
                  Pruefe ob Copy-Paste-Fehler vorliegt oder ergaenze die Whitelist.",
+                key, de_str
+            );
+        }
+    }
+
+    /// Phase 21 — Stellt sicher dass jeder Phase-21-Key in DE und EN UNTERSCHIEDLICHE,
+    /// nicht-leere Strings hat. Alle drei Texte sind absichtlich distinkt — keine Whitelist.
+    #[test]
+    fn phase_21_keys_have_distinct_de_en_translations() {
+        let phase_21_keys: &[Key] = &[
+            Key::InboxReplyModalTitle,
+            Key::InboxReplyCancel,
+            Key::InboxReplyDiscardConfirm,
+        ];
+
+        let de = I18n::new(Locale::De);
+        let en = I18n::new(Locale::En);
+
+        for key in phase_21_keys {
+            let de_str = de.t(key.clone()).to_string();
+            let en_str = en.t(key.clone()).to_string();
+
+            assert!(!de_str.is_empty(), "Key {:?}: DE-Translation ist leer.", key);
+            assert!(!en_str.is_empty(), "Key {:?}: EN-Translation ist leer.", key);
+            assert_ne!(
+                de_str, en_str,
+                "Key {:?}: DE und EN sind identisch ('{}').",
                 key, de_str
             );
         }
