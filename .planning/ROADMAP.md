@@ -130,7 +130,7 @@ Plans:
 **Goal:** Das Antworten auf eine eingegangene Mail öffnet künftig in einem vollflächigen Modal (bestehende `modal.rs`-Component) mit großem Textfeld statt im schmalen Inline-Feld. Abbrechen ohne Senden ist möglich; das Absenden nutzt die unveränderte bestehende Sende-Logik und zeigt Erfolg-/Fehler-Feedback wie bisher.
 **Requirements:** REPLY-01, REPLY-02, REPLY-03, REPLY-04
 **Depends on:** Phase 19
-**Plans:** 0 plans (run /gsd-plan-phase 21 to break down)
+**Plans:** 1 plan
 
 Success criteria:
 1. Vorstand klickt „Antworten" und ein vollflächiges Modal öffnet sich mit einem großen Eingabefeld.
@@ -139,7 +139,7 @@ Success criteria:
 4. Senden aus dem Modal verschickt die Antwort wie bisher und zeigt Erfolg-/Fehler-Feedback.
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 21 to break down)
+- [ ] 21-01-PLAN.md — Reply-Form ins vollflächige Modal verlagern (on_close + Header + «Abbrechen» + Dirty-Check-Confirm + i18n)
 
 ---
 
