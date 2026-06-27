@@ -51,6 +51,7 @@
             cargo
             rust-analyzer
             clippy
+            rustfmt
             sqlx-cli
             sqlite
             nodejs
