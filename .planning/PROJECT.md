@@ -26,6 +26,8 @@ Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachv
 
 **Lead-in:** Phase 19 (E-Mail-Anhänge anzeigen, shipped 2026-06-09) lief bereits als v1.3-Vorläufer; v1.3 wird hiermit formell definiert und mit den Phasen 20–21 fortgesetzt.
 
+**Progress:** ✅ Phase 20 (Inbox-Digest, 2026-06-27) — `digest_state`-Tabelle + `DigestStateDao`, config-getriebener Digest-Worker (`genossi_mail/src/digest.rs`, nach `timestamp_worker.rs`-Vorbild) mit Ein-Versand-pro-Kalendertag-Garantie + Catch-up, Config-Abschnitt „Posteingangs-Benachrichtigung" (Empfänger + Uhrzeit, leeres Feld = deaktiviert). DIGEST-01…07 verifiziert (10/10 must-haves); 2 manuelle UAT-Items offen (UI-Sicht + echter Mail-Versand, `20-HUMAN-UAT.md`). ▶ Nächste: Phase 21 (Reply-im-Modal).
+
 > Aus dem v1.2-Tech-Debt **nicht** in diesen Milestone gezogen (bleibt Backlog/Kandidat für später): CR-02 Permission-Check-Ordering (`gen_auth_admin!`-Helper), Phase-18 UX-Polish (CR-01/CR-02), Mail-Subsystem-Triage (`test_mail_preview_repayment_no_entries_does_not_default_to_one`), 16 deferred v1.1-Quick-Tasks. Siehe `.planning/ROADMAP.md` Backlog (999.x) und `milestones/v1.2-MILESTONE-AUDIT.md`.
 
 ## Requirements
@@ -312,4 +314,4 @@ bestehende admin-only Listing-Route `GET /api/assembly/{id}/helper-tokens`).
 
 ---
 
-*Last updated: 2026-06-26 — Milestone v1.3 (Posteingang-Benachrichtigung & Reply-Komfort) gestartet: täglicher Inbox-Digest an konfigurierbare Empfänger + Reply-im-Modal. Phase 19 (E-Mail-Anhänge) lief als v1.3-Vorläufer; formelle Definition jetzt, Fortsetzung mit Phasen 20–21. Vorheriger Stand: 2026-06-07 nach v1.2-Milestone (Mitgliedschaft-Anpassungen, 5 Phasen/24 Pläne, Audit `tech_debt`, 31/31 REQs satisfied).*
+*Last updated: 2026-06-27 — Phase 20 (Inbox-Digest-Worker) abgeschlossen: DIGEST-01…07 verifiziert, Worker + DB-Foundation + Config-UI live, 2 manuelle UAT-Items offen. Nächste: Phase 21 (Reply-im-Modal). Milestone v1.3 (Posteingang-Benachrichtigung & Reply-Komfort) gestartet: täglicher Inbox-Digest an konfigurierbare Empfänger + Reply-im-Modal. Phase 19 (E-Mail-Anhänge) lief als v1.3-Vorläufer; formelle Definition jetzt, Fortsetzung mit Phasen 20–21. Vorheriger Stand: 2026-06-07 nach v1.2-Milestone (Mitgliedschaft-Anpassungen, 5 Phasen/24 Pläne, Audit `tech_debt`, 31/31 REQs satisfied).*
