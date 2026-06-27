@@ -7,6 +7,7 @@ use crate::component::mail_compose::{
     MailAttachmentPicker, MailBodyEditor, MailSubjectInput, TemplatePreview, TemplateSelector,
     TemplateVarButtons,
 };
+use crate::i18n::{use_i18n, Key};
 use crate::service::config::CONFIG;
 
 #[component]
@@ -20,7 +21,13 @@ pub fn InboxReplyForm(
     original_date: String,
     on_sent: EventHandler<()>,
     on_error: EventHandler<String>,
+    on_close: EventHandler<()>,
 ) -> Element {
+    let i18n = use_i18n();
+    let header_title = i18n.t(Key::InboxReplyModalTitle).to_string();
+    let cancel_label = i18n.t(Key::InboxReplyCancel).to_string();
+    let confirm_msg = i18n.t(Key::InboxReplyDiscardConfirm).to_string();
+
     let mut reply_subject = use_signal(move || initial_subject.clone());
 
     // Build the quote block once; it's static for the lifetime of the form.
@@ -41,6 +48,11 @@ pub fn InboxReplyForm(
     });
     let mut sending = use_signal(|| false);
     let mut cached_footer = use_signal(|| String::new());
+
+    // D-05: dirty-check baseline — snapshotted AFTER the async footer load (see
+    // the footer use_effect below), never against the first quote-only value.
+    let mut baseline_subject = use_signal(String::new);
+    let mut baseline_body = use_signal(String::new);
 
     // Quick 260607-s0s: same attachment state as Compose — populated by
     // MailAttachmentPicker via shared signals.
@@ -67,6 +79,11 @@ pub fn InboxReplyForm(
                     reply_body.set(initial);
                 }
             }
+            // D-05 (critical): capture the dirty-check baseline AFTER the footer
+            // load composed the body. Placed at the end of the async body so it
+            // covers all paths (footer-ok-with-body, footer-ok-empty, fetch-err).
+            baseline_subject.set(reply_subject.read().clone());
+            baseline_body.set(reply_body.read().clone());
         });
     });
 
@@ -97,7 +114,35 @@ pub fn InboxReplyForm(
     });
 
     rsx! {
-        div { class: "border-t pt-3 mt-3 space-y-3",
+        div { class: "space-y-3",
+            // ── Modal header (D-01, D-03): title + X-close affordance ──
+            div { class: "flex items-center justify-between border-b border-gray-200 pb-3",
+                h2 { class: "text-xl font-semibold text-gray-900",
+                    "{header_title}"
+                }
+                button {
+                    r#type: "button",
+                    class: "text-gray-500 hover:text-gray-700 px-2 py-1",
+                    onclick: {
+                        let confirm_msg = confirm_msg.clone();
+                        move |_| {
+                            let subj = reply_subject.read().clone();
+                            let body = reply_body.read().clone();
+                            let bsubj = baseline_subject.read().clone();
+                            let bbody = baseline_body.read().clone();
+                            if !is_draft_dirty(&subj, &body, &bsubj, &bbody) {
+                                on_close.call(());
+                            } else if web_sys::window()
+                                .and_then(|w| w.confirm_with_message(&confirm_msg).ok())
+                                .unwrap_or(false)
+                            {
+                                on_close.call(());
+                            }
+                        }
+                    },
+                    "\u{2715}"
+                }
+            }
             div { class: "text-sm text-gray-600",
                 "An: {from_address}"
             }
@@ -151,26 +196,51 @@ pub fn InboxReplyForm(
                     }
                 }
             }
-            button {
-                class: "bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded disabled:opacity-50",
-                disabled: *sending.read() || reply_subject.read().is_empty(),
-                onclick: move |_| {
-                    let mid = mail_id.clone();
-                    let subj = reply_subject.read().clone();
-                    let b = reply_body.read().clone();
-                    let att_ids: Vec<Uuid> = selected_attachment_ids.read().clone();
-                    let static_ids: Vec<String> = selected_static_document_ids.read().clone();
-                    spawn(async move {
-                        sending.set(true);
-                        let cfg = CONFIG.read().clone();
-                        match api::reply_inbox_mail(&cfg, &mid, &subj, &b, &att_ids, &static_ids).await {
-                            Ok(_) => on_sent.call(()),
-                            Err(e) => on_error.call(e.to_string()),
+            div { class: "flex gap-2 items-center",
+                button {
+                    class: "bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded disabled:opacity-50",
+                    disabled: *sending.read() || reply_subject.read().is_empty(),
+                    onclick: move |_| {
+                        let mid = mail_id.clone();
+                        let subj = reply_subject.read().clone();
+                        let b = reply_body.read().clone();
+                        let att_ids: Vec<Uuid> = selected_attachment_ids.read().clone();
+                        let static_ids: Vec<String> = selected_static_document_ids.read().clone();
+                        spawn(async move {
+                            sending.set(true);
+                            let cfg = CONFIG.read().clone();
+                            match api::reply_inbox_mail(&cfg, &mid, &subj, &b, &att_ids, &static_ids).await {
+                                Ok(_) => on_sent.call(()),
+                                Err(e) => on_error.call(e.to_string()),
+                            }
+                            sending.set(false);
+                        });
+                    },
+                    if *sending.read() { "Sende..." } else { "Antwort senden" }
+                }
+                // «Abbrechen» (D-01): neutral, second close affordance.
+                button {
+                    r#type: "button",
+                    class: "px-4 py-2 text-gray-700 hover:bg-gray-100 rounded",
+                    onclick: {
+                        let confirm_msg = confirm_msg.clone();
+                        move |_| {
+                            let subj = reply_subject.read().clone();
+                            let body = reply_body.read().clone();
+                            let bsubj = baseline_subject.read().clone();
+                            let bbody = baseline_body.read().clone();
+                            if !is_draft_dirty(&subj, &body, &bsubj, &bbody) {
+                                on_close.call(());
+                            } else if web_sys::window()
+                                .and_then(|w| w.confirm_with_message(&confirm_msg).ok())
+                                .unwrap_or(false)
+                            {
+                                on_close.call(());
+                            }
                         }
-                        sending.set(false);
-                    });
-                },
-                if *sending.read() { "Sende..." } else { "Antwort senden" }
+                    },
+                    "{cancel_label}"
+                }
             }
         }
     }
@@ -206,6 +276,19 @@ fn compose_initial_body(footer: &str, quote: &str) -> String {
         (true, false) => format!("\n\n{}", quote),
         (false, false) => format!("\n\n{}\n\n{}", footer, quote),
     }
+}
+
+/// Pure dirty-check (D-06): the draft differs from the post-footer-load baseline.
+/// The baseline is captured AFTER the async footer load (D-05), so an untouched
+/// draft — whose body equals the composed footer+quote string, NOT the first quote —
+/// is correctly reported as not dirty.
+fn is_draft_dirty(
+    subject: &str,
+    body: &str,
+    baseline_subject: &str,
+    baseline_body: &str,
+) -> bool {
+    subject != baseline_subject || body != baseline_body
 }
 
 #[cfg(test)]
@@ -261,5 +344,54 @@ mod tests {
             compose_initial_body("Foo", "Am d schrieb x:\n> hi"),
             "\n\nFoo\n\nAm d schrieb x:\n> hi"
         );
+    }
+
+    #[test]
+    fn is_draft_dirty_unchanged_is_not_dirty() {
+        // subject + body equal the baseline → not dirty.
+        assert!(!is_draft_dirty(
+            "Re: Anfrage",
+            "\n\nFoo\n\nAm d schrieb x:\n> hi",
+            "Re: Anfrage",
+            "\n\nFoo\n\nAm d schrieb x:\n> hi",
+        ));
+    }
+
+    #[test]
+    fn is_draft_dirty_subject_changed_is_dirty() {
+        assert!(is_draft_dirty(
+            "Re: Anfrage (geändert)",
+            "body",
+            "Re: Anfrage",
+            "body",
+        ));
+    }
+
+    #[test]
+    fn is_draft_dirty_body_changed_is_dirty() {
+        assert!(is_draft_dirty(
+            "Re: Anfrage",
+            "body + getippter Text",
+            "Re: Anfrage",
+            "body",
+        ));
+    }
+
+    #[test]
+    fn is_draft_dirty_baseline_is_post_footer_body_not_first_quote() {
+        // D-05 trap: reply_body starts quote-only, then the footer load overwrites
+        // it with the composed footer+quote string. The baseline equals that
+        // POST-footer body. Comparing the post-footer body against the post-footer
+        // baseline → not dirty, even though it differs from the first quote string.
+        let first_quote = "\n\nAm d schrieb x:\n> hi";
+        let post_footer_body = compose_initial_body("Foo", "Am d schrieb x:\n> hi");
+        assert_ne!(post_footer_body, first_quote);
+        // baseline == post-footer body → not dirty.
+        assert!(!is_draft_dirty(
+            "Re: Anfrage",
+            &post_footer_body,
+            "Re: Anfrage",
+            &post_footer_body,
+        ));
     }
 }
