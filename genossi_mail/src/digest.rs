@@ -78,7 +78,8 @@ pub(crate) fn is_due(
 
 /// Betreff der Digest-Mail mit Anzahl offener Mails (D-09).
 pub(crate) fn build_digest_subject(count: usize) -> String {
-    format!("Posteingang: {} offene Mails", count)
+    let noun = if count == 1 { "offene Mail" } else { "offene Mails" };
+    format!("Posteingang: {} {}", count, noun)
 }
 
 /// Plain-Text-Body (D-08): hardcodierter deutscher Text, je eine Zeile pro
@@ -360,8 +361,14 @@ mod tests {
     }
 
     #[test]
-    fn build_digest_subject_single_contains_count() {
-        assert!(build_digest_subject(1).contains('1'));
+    fn build_digest_subject_single_uses_singular_noun() {
+        // WR-02: Singular muss grammatisch korrekt "offene Mail" lauten, nicht "offene Mails".
+        assert_eq!(build_digest_subject(1), "Posteingang: 1 offene Mail");
+    }
+
+    #[test]
+    fn build_digest_subject_zero_uses_plural_noun() {
+        assert_eq!(build_digest_subject(0), "Posteingang: 0 offene Mails");
     }
 
     // ── build_digest_body ─────────────────────────────────────────────────────
