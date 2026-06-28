@@ -2,7 +2,7 @@
 
 ## What This Is
 
-Mitgliederverwaltungs-Software für Genossenschaften, produktiv im Einsatz. Ersetzt manuelle Excel-Listen durch eine REST-API mit Dioxus-WASM-Frontend, sodass Vorstände Mitgliederdaten verbandskonform pflegen, Anträge bearbeiten, Dokumente erzeugen und Audit-Spuren hinterlegen können. Mit v1.0 (GV-Anwesenheits-Erfassung, shipped 2026-05-29) ist papierlose Anwesenheits-Erfassung auf der Generalversammlung produktiv erprobt; mit v1.1 (Anteile-Rückzahlungsphase, shipped 2026-06-02) ersetzt Genossi die manuelle Excel-Liste für Auszahlungen — vom RepaymentPhase-Lifecycle über atomare Auszahlungs-Buchung bis zu Massenmail- und Bulk-PDF-Brief-Versand. Mit v1.2 (Mitgliedschaft-Anpassungen während des Geschäftsjahres, shipped 2026-06-07) deckt Genossi den vollen Mitgliedschafts-Lifecycle ab — Vorstand triggert Kündigung, Teil-Rückgabe, Übertrag und Aufstockung direkt am Mitglied (Single-Button auf Member-Detail), während v1.1's PaidOut-Cascade weiterhin die `current_shares`-Reduktion und `Verkauf`-Action übernimmt (kein Doppelbuchen).
+Mitgliederverwaltungs-Software für Genossenschaften, produktiv im Einsatz. Ersetzt manuelle Excel-Listen durch eine REST-API mit Dioxus-WASM-Frontend, sodass Vorstände Mitgliederdaten verbandskonform pflegen, Anträge bearbeiten, Dokumente erzeugen und Audit-Spuren hinterlegen können. Mit v1.0 (GV-Anwesenheits-Erfassung, shipped 2026-05-29) ist papierlose Anwesenheits-Erfassung auf der Generalversammlung produktiv erprobt; mit v1.1 (Anteile-Rückzahlungsphase, shipped 2026-06-02) ersetzt Genossi die manuelle Excel-Liste für Auszahlungen — vom RepaymentPhase-Lifecycle über atomare Auszahlungs-Buchung bis zu Massenmail- und Bulk-PDF-Brief-Versand. Mit v1.2 (Mitgliedschaft-Anpassungen während des Geschäftsjahres, shipped 2026-06-07) deckt Genossi den vollen Mitgliedschafts-Lifecycle ab — Vorstand triggert Kündigung, Teil-Rückgabe, Übertrag und Aufstockung direkt am Mitglied (Single-Button auf Member-Detail), während v1.1's PaidOut-Cascade weiterhin die `current_shares`-Reduktion und `Verkauf`-Action übernimmt (kein Doppelbuchen). Mit v1.3 (Posteingang-Benachrichtigung & Reply-Komfort, shipped 2026-06-28) verpassen Vorstände keine eingehenden Mails mehr — Inbox-Anhänge sind sichtbar/herunterladbar, ein täglicher Digest-Worker mailt die offenen Posteingangs-Mails mit Deep-Link, und das Antworten läuft im vollflächigen Modal mit Entwurfs-Schutz.
 
 ## Core Value
 
@@ -15,20 +15,16 @@ Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachv
 - ✅ **v1.0 GV-Anwesenheits-Erfassung** (2026-05-29) — Helfer-QR-Tokens, Anwesenheits-Erfassung, Teilnehmerlisten-Export PDF/CSV/XLSX
 - ✅ **v1.1 Anteile-Rückzahlungsphase** (2026-06-02) — RepaymentPhase-Lifecycle, atomare Auszahlungs-Buchung, Massenmail mit Auszahlungs-Variablen, PDF-Export für Banking, Bulk-Briefe für Nicht-Email-Mitglieder
 - ✅ **v1.2 Mitgliedschaft-Anpassungen während des Geschäftsjahres** (2026-06-07) — `MembershipAdjustModal` als shared Component (1078 LOC, 4 Sub-Views Kündigung/Teil-Rückgabe/Übertrag/Aufstockung mit Live-Preview-Confirmation), `compute_effective_date` Pure-Function für H1/H2-Stichtag, atomare Single-Tx-Cascades für alle 4 Operationen, 5 neue REST-Endpoints unter `/api/members/{id}/{cancel|increase-shares|partial-repayment|transfer-shares}` + `/api/members/transfer-recipients`. Vorstand-UAT signed-off; Audit-Status `tech_debt` (alle 31 REQs satisfied, dokumentierte Carry-forward-Posten zu CR-02 Permission-Ordering + Phase-18-UX-Polish).
+- ✅ **v1.3 Posteingang-Benachrichtigung & Reply-Komfort** (2026-06-28) — Inbox-Anhänge persistieren/anzeigen/herunterladen (Phase 19), täglicher Inbox-Digest-Worker (`genossi_mail/src/digest.rs`: konfigurierbare Empfänger + Uhrzeit, Ein-Versand-pro-Kalendertag, Deep-Link auf `/inbox`, kein Versand bei leerem Posteingang/ohne Empfänger), und Reply im vollflächigen `Modal` (X-Header + «Abbrechen» + Dirty-Check-Confirm, Body-Editor unverändert `h-40`). Audit `passed` (11/11 REQs, Integration 8/8 sauber, E2E-Flow Digest→Inbox→Anhänge→Reply, Live-Browser-Smoke-Test bestanden). Phase-21-Code-Review fand+fixte 1 Critical (Footer-Load überschrieb getippten Reply-Body → Datenverlust).
 
-## Current Milestone: v1.3 Posteingang-Benachrichtigung & Reply-Komfort
+## Current Milestone: — (kein aktiver Milestone)
 
-**Goal:** Vorstände verpassen keine eingehenden Mails mehr und können bequemer auf sie antworten.
+v1.3 ist abgeschlossen (2026-06-28, Audit `passed`). Der nächste Milestone wird via `/gsd-new-milestone` definiert (Questioning → Research → Requirements → Roadmap).
 
-**Target features:**
-- **Täglicher Inbox-Digest** — ein Worker verschickt einmal pro Tag zu einer konfigurierbaren Uhrzeit eine E-Mail an eine oder mehrere konfigurierbare Empfänger-Adressen (gepflegt als Runtime-Config wie die SMTP-Settings), aber nur falls der Posteingang nicht leer ist (= nicht-archivierte Mails liegen vor). Die Mail fasst alle offenen Mails mit Titel, Absender und Zeitpunkt zusammen und enthält einen Deep-Link direkt auf die Inbox-Seite (via `APP_URL`).
-- **Reply-UX im Modal** — Das Antworten auf Mails öffnet künftig in einem vollflächigen Modal (bestehende `modal.rs`-Component) statt im aktuell schmalen, kleinen Inline-Antwortfeld.
-
-**Lead-in:** Phase 19 (E-Mail-Anhänge anzeigen, shipped 2026-06-09) lief bereits als v1.3-Vorläufer; v1.3 wird hiermit formell definiert und mit den Phasen 20–21 fortgesetzt.
-
-**Progress:** ✅ Phase 20 (Inbox-Digest, 2026-06-27) — `digest_state`-Tabelle + `DigestStateDao`, config-getriebener Digest-Worker (`genossi_mail/src/digest.rs`, nach `timestamp_worker.rs`-Vorbild) mit Ein-Versand-pro-Kalendertag-Garantie + Catch-up, Config-Abschnitt „Posteingangs-Benachrichtigung" (Empfänger + Uhrzeit, leeres Feld = deaktiviert). DIGEST-01…07 verifiziert (10/10 must-haves); 2 manuelle UAT-Items offen (UI-Sicht + echter Mail-Versand, `20-HUMAN-UAT.md`). ▶ Nächste: Phase 21 (Reply-im-Modal).
-
-> Aus dem v1.2-Tech-Debt **nicht** in diesen Milestone gezogen (bleibt Backlog/Kandidat für später): CR-02 Permission-Check-Ordering (`gen_auth_admin!`-Helper), Phase-18 UX-Polish (CR-01/CR-02), Mail-Subsystem-Triage (`test_mail_preview_repayment_no_entries_does_not_default_to_one`), 16 deferred v1.1-Quick-Tasks. Siehe `.planning/ROADMAP.md` Backlog (999.x) und `milestones/v1.2-MILESTONE-AUDIT.md`.
+**Offene Backlog-Kandidaten** (siehe `.planning/ROADMAP.md` Backlog 999.x + `milestones/v1.2-MILESTONE-AUDIT.md`):
+- 999.1 mock_auth-Deploy-Footgun absichern · 999.2 MailRecipientsTable-Komponente extrahieren · 999.3 Service-Layer für audit_log-/backup-Handler · 999.4 Daten-Lade-Boilerplate in Hook bündeln · 999.5 In-App-Hilfe für Vorstände
+- Carry-forward v1.2-Tech-Debt: CR-02 Permission-Check-Ordering (`gen_auth_admin!`-Helper), Phase-18 UX-Polish, Mail-Subsystem-Triage, 16 deferred v1.1-Quick-Tasks
+- Aus v1.3: Phase-21 IN-02 (trivial — `cached_quote`-Signal-Redundanz)
 
 ## Requirements
 

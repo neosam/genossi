@@ -1,13 +1,13 @@
 # Roadmap: Genossi
 
-Mitgliederverwaltungs-Software für Genossenschaften. Aktiver Stand: drei ausgelieferte Milestones — v1.0 (GV-Anwesenheits-Erfassung), v1.1 (Anteile-Rückzahlungsphase), v1.2 (Mitgliedschaft-Anpassungen während des Geschäftsjahres). Aktuell in Arbeit: **v1.3 Posteingang-Benachrichtigung & Reply-Komfort** (Phase 19 Anhänge als Vorläufer geshippt; Phasen 20–21 definiert).
+Mitgliederverwaltungs-Software für Genossenschaften. Aktiver Stand: vier ausgelieferte Milestones — v1.0 (GV-Anwesenheits-Erfassung), v1.1 (Anteile-Rückzahlungsphase), v1.2 (Mitgliedschaft-Anpassungen während des Geschäftsjahres), v1.3 (Posteingang-Benachrichtigung & Reply-Komfort). Kein aktiver Milestone — nächster via `/gsd-new-milestone`. Offene Kandidaten siehe Backlog (999.x).
 
 ## Milestones
 
 - ✅ **v1.0 GV-Anwesenheits-Erfassung** — Phases 1-6 (Phase 5 SKIPPED — echte GV bereits durchgeführt) (shipped 2026-05-29)
 - ✅ **v1.1 Anteile-Rückzahlungsphase** — Phases 7-13 (shipped 2026-06-02)
 - ✅ **v1.2 Mitgliedschaft-Anpassungen** — Phases 14-18 (shipped 2026-06-07)
-- 🚧 **v1.3 Posteingang-Benachrichtigung & Reply-Komfort** — Phase 19 (Anhänge) geshippt; Phasen 20 (Inbox-Digest) + 21 (Reply-Modal) in Arbeit
+- ✅ **v1.3 Posteingang-Benachrichtigung & Reply-Komfort** — Phases 19-21 (shipped 2026-06-28)
 
 ## Phases
 
@@ -53,15 +53,18 @@ Archive: `.planning/milestones/v1.2-ROADMAP.md` · `v1.2-REQUIREMENTS.md` · `v1
 
 </details>
 
-### 🚧 v1.3 Posteingang-Benachrichtigung & Reply-Komfort (Phases 19–21)
+<details>
+<summary>✅ v1.3 Posteingang-Benachrichtigung & Reply-Komfort (Phases 19-21, 11 plans) — SHIPPED 2026-06-28</summary>
 
 **Goal:** Vorstände verpassen keine eingehenden Mails mehr und können bequemer auf sie antworten.
 
 - [x] Phase 19: E-Mail-Anhänge anzeigen (Vorläufer, geshippt 2026-06-09)
-- [x] Phase 20: Inbox-Digest — täglicher Posteingangs-Benachrichtigungs-Worker (DIGEST-01..07) (completed 2026-06-26)
-- [x] Phase 21: Reply-Komfort — Antwort im vollflächigen Modal (REPLY-01..04) (completed 2026-06-27)
+- [x] Phase 20: Inbox-Digest — täglicher Posteingangs-Benachrichtigungs-Worker (DIGEST-01..07) — completed 2026-06-26
+- [x] Phase 21: Reply-Komfort — Antwort im vollflächigen Modal (REPLY-01..04) — completed 2026-06-28 (Code-Review fand+fixte 1 Critical; Live-Smoke-Test bestanden)
 
-> Nicht in v1.3: v1.2-Tech-Debt (CR-02 Permission-Ordering, Phase-18-UX-Polish, Mail-Subsystem-Triage, 16 deferred v1.1-Quick-Tasks) bleibt Backlog/Kandidat — siehe Backlog (999.x) unten und `milestones/v1.2-MILESTONE-AUDIT.md`.
+Archive: `.planning/milestones/v1.3-ROADMAP.md` · `v1.3-REQUIREMENTS.md` · `v1.3-MILESTONE-AUDIT.md`
+
+</details>
 
 ## Progress
 
@@ -88,64 +91,6 @@ Archive: `.planning/milestones/v1.2-ROADMAP.md` · `v1.2-REQUIREMENTS.md` · `v1
 | 19. E-Mail-Anhänge anzeigen                        | v1.3      | 7/7            | Complete    | 2026-06-09 |
 | 20. Inbox-Digest (täglicher Benachrichtigungs-Worker) | v1.3   | 3/3 | Complete    | 2026-06-27 |
 | 21. Reply-Komfort (Antwort im Modal)               | v1.3      | 1/1 | Complete   | 2026-06-27 |
-
-### Phase 19: E-Mail-Anhänge anzeigen — Backend-Endpoint zum Abrufen von Anhängen aus eingehenden Mails (mail-parser nutzt async-imap bereits) plus Dioxus-Frontend-UI zum Anzeigen/Herunterladen der Attachments in der Mail-Ansicht.
-
-**Goal:** Eingehende E-Mail-Anhänge im Vorstands-Inbox persistent speichern (10-MB-Cap, Filesystem via DocumentStorage), per Vorstand-only-Endpoint ausliefern (Download + optional Inline-Preview), und im Dioxus-Frontend per Component-First-Liste mit Image-Thumbnail / PDF-Vorschau / Download-Action sichtbar machen — inkl. einmaligem Backfill-Worker für Bestandsmails.
-**Requirements**: TBD (v1.3 noch nicht definiert; Scope = CONTEXT.md D-01..D-14 + UI-SPEC)
-**Depends on:** Phase 18
-**Plans:** 7/7 plans complete
-
-Plans:
-
-- [x] 19-01-PLAN.md — DAO + Migration (InboundMailAttachment-Entity, Trait, SQLite-Impl, Migration `20260608000000`)
-- [ ] 19-02-PLAN.md — Service + IMAP (parse_raw_mail-Erweiterung, persist_attachment mit 10-MB-Cap + Rollback, fetch_one_by_uid mit UIDVALIDITY-Check, Poll-Worker-Persistenz)
-- [ ] 19-03-PLAN.md — REST Endpoints (DetailTO-Extension, /api/inbox/{mail_id}/attachments/{attachment_id} mit ?disposition=inline, content_disposition_inline-Helper, 5 E2E-Tests)
-- [x] 19-04-PLAN.md — Backfill Worker (run_attachment_backfill für Bestandsmails, einmaliger tokio::spawn, best-effort silent-skip)
-- [x] 19-05-PLAN.md — Frontend Components (InboxAttachmentList + InboxAttachmentListItem, format_size Util, 7 i18n-Keys in De+En)
-- [x] 19-06-PLAN.md — Frontend Page Wiring (MVP-Hinweis gelöscht, InboxAttachmentList eingebunden, WASM-Build grün; Vorstand-Sichtprüfung Task 2 pending)
-
-### Phase 20: Inbox-Digest — täglicher Posteingangs-Benachrichtigungs-Worker
-
-**Goal:** Ein Scheduler-Worker verschickt einmal pro Kalendertag zur konfigurierten Uhrzeit eine Zusammenfassungs-Mail aller offenen (nicht-archivierten) Posteingangs-Mails an eine oder mehrere konfigurierbare Empfänger-Adressen — mit Titel, Absender, Eingangszeitpunkt je Mail und einem Deep-Link auf `/inbox` (via `APP_URL`). Versand nur bei nicht-leerem Posteingang; Empfänger und Uhrzeit werden über das bestehende Runtime-Config-System (Config-Seite, wie SMTP-Settings) gepflegt.
-**Requirements:** DIGEST-01, DIGEST-02, DIGEST-03, DIGEST-04, DIGEST-05, DIGEST-06, DIGEST-07
-**Depends on:** Phase 19
-**Plans:** 3/3 plans complete
-
-Success criteria:
-
-1. Vorstand trägt auf der Config-Seite Empfänger-Adressen und Versand-Uhrzeit ein; beide bleiben nach Reload erhalten.
-2. Zur konfigurierten Uhrzeit erhält jeder konfigurierte Empfänger genau eine Digest-Mail pro Tag, sofern offene Mails vorliegen.
-3. Bei leerem Posteingang oder ohne konfigurierte Empfänger geht keine Mail raus (kein Fehler).
-4. Die Digest-Mail listet jede offene Mail mit Titel, Absender und Eingangszeitpunkt und enthält einen funktionierenden Link auf `/inbox`.
-
-Plans:
-**Wave 1**
-
-- [x] 20-01-PLAN.md — DB-Foundation (Migration `digest_state` + DigestStateDao-Trait + DigestStateDaoSqlite-Upsert + Tests) [Wave 1]
-- [x] 20-03-PLAN.md — Frontend Config-Abschnitt "Posteingangs-Benachrichtigung" (Empfänger + Uhrzeit + Inline-Validierung + Save) [Wave 1]
-
-**Wave 2** *(blocked on Wave 1 completion)*
-
-- [x] 20-02-PLAN.md — Digest-Worker (poll-loop nach timestamp_worker.rs + reine Helfer is_due/parse/build_* + Tests + DI-Wiring lib.rs/main.rs) [Wave 2, depends_on 20-01]
-
-### Phase 21: Reply-Komfort — Antwort im vollflächigen Modal
-
-**Goal:** Das Antworten auf eine eingegangene Mail öffnet künftig in einem vollflächigen Modal (bestehende `modal.rs`-Component) mit großem Textfeld statt im schmalen Inline-Feld. Abbrechen ohne Senden ist möglich; das Absenden nutzt die unveränderte bestehende Sende-Logik und zeigt Erfolg-/Fehler-Feedback wie bisher.
-**Requirements:** REPLY-01, REPLY-02, REPLY-03, REPLY-04
-**Depends on:** Phase 19
-**Plans:** 1/1 plans complete
-
-Success criteria:
-
-1. Vorstand klickt „Antworten" und ein vollflächiges Modal öffnet sich mit einem großen Eingabefeld.
-2. Das Antwort-Textfeld bietet sichtbar deutlich mehr Schreibfläche als das bisherige Inline-Feld.
-3. Vorstand kann das Modal abbrechen/schließen ohne zu senden und landet wieder in der Mail-Ansicht.
-4. Senden aus dem Modal verschickt die Antwort wie bisher und zeigt Erfolg-/Fehler-Feedback.
-
-Plans:
-
-- [x] 21-01-PLAN.md — Reply-Form ins vollflächige Modal verlagern (on_close + Header + «Abbrechen» + Dirty-Check-Confirm + i18n)
 
 ---
 
@@ -210,4 +155,4 @@ Plans:
 
 ---
 
-_Last updated: 2026-06-26 — Phase 20 (Inbox-Digest) geplant: 3 Plans in 2 Wellen (DB-Foundation + Frontend parallel in Wave 1, Worker + DI-Wiring in Wave 2), alle DIGEST-01..07 gemappt. Vorher: 2026-06-26 — Milestone v1.3 definiert: Phasen 20 (Inbox-Digest, DIGEST-01..07) + 21 (Reply-Modal, REPLY-01..04). Frühere In-App-Hilfe-Phase-20 ins Backlog 999.5 verschoben. 2026-06-14 — Backlog-Sektion + 7 Todos aus Code-Audit ergänzt._
+_Last updated: 2026-06-28 — v1.3 abgeschlossen (Phasen 19-21, 11 Plans): Inbox-Anhänge + täglicher Digest-Worker + Reply-Modal. Milestone-Audit `passed` (11/11 Reqs, Integration 8/8 sauber, Live-Smoke-Test); Phase-21-Code-Review fand+fixte 1 Critical. Archiviert nach `milestones/v1.3-*`. Kein aktiver Milestone — nächster via `/gsd-new-milestone`. Backlog 999.x offen._
