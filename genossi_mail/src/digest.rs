@@ -3,7 +3,7 @@
 //! Baut exakt nach dem Vorbild `genossi_service_impl/src/timestamp_worker.rs`:
 //! ein config-getriebener Poll-Loop (~60s), der Server-Lokalzeit + letztes
 //! Versanddatum vergleicht (D-02, D-04). Zur konfigurierten Uhrzeit sammelt er
-//! alle offenen (nicht-archivierten) Mails und verschickt pro Empfänger genau
+//! alle offenen (nicht-archivierten, nicht-erledigten) Mails und verschickt pro Empfänger genau
 //! eine Plain-Text-Digest-Mail pro Kalendertag (D-05). Ein verpasstes Fenster
 //! wird beim nächsten Lauf nachgeholt (Catch-up, D-01).
 //!
@@ -101,6 +101,14 @@ pub(crate) fn build_digest_body(mails: &[&crate::dao::InboundMail], inbox_url: &
     body
 }
 
+/// Eine Mail zählt für den Digest als „offen" — exakt wie der Inbox-„Offen"-Filter
+/// (`inbox_page.rs`: `!done`, auf der bereits nicht-archivierten Liste). Erledigte
+/// (`done`) und archivierte (`archived`) Mails gehören NICHT in die Benachrichtigung.
+/// Beantwortete (`replied`), aber nicht erledigte Mails bleiben offen.
+pub(crate) fn is_open(m: &crate::dao::InboundMail) -> bool {
+    !m.archived && !m.done
+}
+
 /// Digest-Worker-Loop. Pollt periodisch (~60s), vergleicht Server-Lokalzeit +
 /// letztes Versanddatum und verschickt bei Fälligkeit pro Empfänger eine
 /// Digest-Mail. Spiegelt die Struktur von `start_timestamp_worker`.
@@ -145,12 +153,13 @@ pub async fn start_digest_worker<C, I, M, S>(
         let last_sent = digest_state_dao.get_last_sent_date().await.unwrap_or(None);
 
         if is_due(now_local, send_time, last_sent) {
-            // offene (nicht-archivierte) Mails laden (DIGEST-04/05).
+            // offene Mails laden = nicht-archiviert UND nicht-erledigt (wie der
+            // Inbox-Tab „Offen": `!done`); siehe is_open() (DIGEST-04/05).
             // InboxService::list() liefert bereits ORDER BY received_at DESC (D-10).
             match inbox_service.list().await {
                 Ok(mails) => {
                     let offen: Vec<&crate::dao::InboundMail> =
-                        mails.iter().filter(|m| !m.archived).collect();
+                        mails.iter().filter(|m| is_open(m)).collect();
                     if offen.is_empty() {
                         // KEIN set_last_sent_date — leerer Tag gilt nicht als erledigt (DIGEST-04)
                         tracing::debug!("Digest worker: inbox empty, not sending (DIGEST-04)");
@@ -241,6 +250,34 @@ mod tests {
             archived: false,
             assigned_member_id: None,
         }
+    }
+
+    // ── is_open (Digest enthält nur „Offen"-Mails) ───────────────────────────
+
+    #[test]
+    fn is_open_default_mail_is_open() {
+        assert!(is_open(&sample_mail("s", "a@x.de")));
+    }
+
+    #[test]
+    fn is_open_done_mail_excluded() {
+        let mut m = sample_mail("s", "a@x.de");
+        m.done = true;
+        assert!(!is_open(&m), "erledigte (done) Mails gehören NICHT in den Digest");
+    }
+
+    #[test]
+    fn is_open_archived_mail_excluded() {
+        let mut m = sample_mail("s", "a@x.de");
+        m.archived = true;
+        assert!(!is_open(&m));
+    }
+
+    #[test]
+    fn is_open_replied_but_not_done_stays_open() {
+        let mut m = sample_mail("s", "a@x.de");
+        m.replied = true;
+        assert!(is_open(&m), "beantwortet, aber nicht erledigt → bleibt offen (wie Inbox-Tab)");
     }
 
     // ── parse_recipients ──────────────────────────────────────────────────────
