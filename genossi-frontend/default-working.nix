@@ -21,7 +21,6 @@ pkgs.stdenv.mkDerivation rec {
     rustToolchain
     wasm-pack
     nodejs
-    nodePackages.npm
     tailwindcss
     pkg-config
   ];

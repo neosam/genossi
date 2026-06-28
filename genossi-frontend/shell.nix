@@ -24,8 +24,7 @@ pkgs.mkShell {
     
     # Node.js for Tailwind and package management
     nodejs
-    nodePackages.npm
-    
+
     # Tailwind CSS
     tailwindcss
     

@@ -29,7 +29,6 @@ in pkgs.rustPlatform.buildRustPackage rec {
     
     # Node.js for Tailwind CSS
     nodejs
-    nodePackages.npm
     tailwindcss
     
     # System dependencies

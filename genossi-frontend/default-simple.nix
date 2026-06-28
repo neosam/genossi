@@ -16,8 +16,7 @@ pkgs.stdenv.mkDerivation rec {
     # Required for building and bundling
     wasm-pack
     nodejs
-    nodePackages.npm
-    
+
     # For Tailwind CSS
     tailwindcss
     
