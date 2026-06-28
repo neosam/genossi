@@ -1,5 +1,24 @@
 # Milestones
 
+## v1.3 Posteingang-Benachrichtigung & Reply-Komfort (Shipped: 2026-06-28)
+
+**Phases completed:** 3 phases, 11 plans, 18 tasks
+
+**Key accomplishments:**
+
+- Read-only InboundMailAttachment DAO with 4 methods (incl. T-03 IDOR-safe `find_by_id_and_mail`), SQLite impl, and idempotent migration for inbound_mail_attachments table.
+- Attachment-Pipeline (parse → 10 MB cap → save-then-DB → rollback) + fetch_one_by_uid (UIDVALIDITY-guard) + InboxService API surface for attachment listing/lookup — all wired through genossi_bin so the existing inbox worker persists attachments automatically after each successful mail-create.
+- Download-Endpunkt `GET /api/inbox/{mail_id}/attachments/{attachment_id}` mit `?disposition=inline|attachment`-Switch + `InboundMailDetailTO.attachments` (Embed via `InboxService::list_attachments`) + T-03 IDOR-Guard (cross-mail → 404) + 410 GONE für oversized (D-02). 4 Unit-Tests für `content_disposition_inline` + 5 E2E-Tests grün.
+- One-shot attachment backfill worker — `run_attachment_backfill` iterates legacy inbound mails (`has_attachments=true` + `count_for_mail==0`), refetches each from IMAP via `fetch_one_by_uid`, and runs the same `persist_attachment` pipeline as the poll worker. Best-effort (D-05/D-06): IMAP-Err / Ok(None) → silent-skip. Idempotent on restart via the `count_for_mail == 0` filter. Spawned at server boot from `genossi_bin/src/main.rs` immediately after the inbox worker.
+- Two new Dioxus components — `InboxAttachmentList` (section wrapper) and `InboxAttachmentListItem` (per-row layout) — plus `format_size` integer-math util, 7 i18n keys × 2 locales, and the `InboundMailAttachmentTO` frontend mirror. All actions are anchor-only (no `<button onclick>`), every `target="_blank"` has `rel="noopener"`, filename flows only into RSX text content (T-05 + T-08 mitigations grep-gated). 4 unit tests for `format_size` green; WASM build green.
+- Inbox detail pane wired to `InboxAttachmentList` — MVP-amber-hint deleted, single component invocation inserted between `<pre>` body and assignment-section divider, Component-First principle enforced (zero inline RSX iteration in page file). WASM build green; manual smoke test pending checkpoint.
+- Probe-Read-Pattern in `extract_attachments` schliesst CR-01 BLOCKER: 10-MB-Cap greift jetzt VOR Heap-Allokation, nicht erst beim Persist-Schritt.
+- Dedizierte SQLite-Tabelle `digest_state` + `DigestStateDao`/`DigestStateDaoSqlite` mit Upsert-Singleton-Semantik für das letzte Digest-Versanddatum (D-03) — inklusive 3 In-Memory-Unit-Tests.
+- Config-getriebener Tokio-Poll-Loop (genossi_mail/src/digest.rs), der zur konfigurierten Uhrzeit pro Empfänger genau eine Plain-Text-Posteingangs-Digest-Mail pro Kalendertag verschickt (mit Catch-up nach verpasstem Fenster), inklusive 21 Unit-Tests für alle reinen Helfer und vollständigem DI-Wiring beim Serverstart.
+- Neuer Config-Abschnitt „Posteingangs-Benachrichtigung" auf der Config-Seite mit komma-getrenntem Empfänger-Feld, HH:MM-Uhrzeit, Speichern und pure-funktional unit-getesteter Inline-Validierung — persistiert `digest_recipients` + `digest_send_time` für den Plan-02-Worker.
+
+---
+
 ## v1.2 Mitgliedschaft-Anpassungen während des Geschäftsjahres (Shipped: 2026-06-07)
 
 **Phases completed:** 5 phases (14-18), 24 plans

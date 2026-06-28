@@ -2,17 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Posteingang-Benachrichtigung & Reply-Komfort
-current_phase: 21
-status: executing
-stopped_at: Phase 21 Plan 01 executed (Reply-Modal)
-last_updated: "2026-06-27T21:22:29.773Z"
-last_activity: 2026-06-27
+current_phase: 3
+status: Awaiting next milestone
+stopped_at: Phase 21 UI-SPEC approved
+last_updated: "2026-06-28T05:43:22.509Z"
+last_activity: 2026-06-28
+last_activity_desc: Milestone v1.3 completed and archived
 progress:
   total_phases: 3
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 11
-  completed_plans: 10
-  percent: 67
+  completed_plans: 11
+  percent: 100
 ---
 
 # State: Genossi — Between Milestones (v1.2 shipped, v1.3 not yet defined)
@@ -30,12 +31,13 @@ See: `.planning/PROJECT.md` (updated 2026-06-07 after v1.2 close)
 
 ## Current Position
 
-Phase: 21
-Plan: 01 (complete)
-Status: Plan 21-01 executed — Reply-Form öffnet im vollflächigen Modal (REPLY-01..04)
-Last activity: 2026-06-27
+Phase: Milestone v1.3 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-06-28 — Milestone v1.3 completed and archived
 
 ### Decisions (Phase 21)
+
 - D-05-Falle umgesetzt: Dirty-Check-Baseline (subject+body) wird INNERHALB des Footer-use_effect NACH dem Body-Compose gesnapshottet — pure `is_draft_dirty`-Helfer mit 4 Unit-Tests.
 - D-07: nativer `web_sys::window().confirm_with_message` als Verwerfen-Bestätigung (kein verschachteltes In-App-Modal).
 - D-08: `MailBodyEditor` unverändert (h-40, von Compose geteilt); mehr Schreibfläche kommt aus dem breiten Modal-Kontext.
@@ -591,3 +593,7 @@ Details siehe `.planning/milestones/v1.0-MILESTONE-AUDIT.md` und `.planning/MILE
 *Phase 11 Plan 02 completed: 2026-06-01*
 *Phase 11 Plan 03 completed: 2026-06-01*
 *Phase 11 Plan 04 completed: 2026-06-01 (REST-Handler + Format-Whitelist + map_export_error + Wiring)*
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone
