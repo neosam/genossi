@@ -1,348 +1,362 @@
-# Pitfalls Research — v1.2 Mitgliedschaft-Anpassungen während des Geschäftsjahres
+# Pitfalls Research
 
-**Domain:** Membership lifecycle adjustments coexisting with v1.1 RepaymentPhase/PaidOut-Cascade
-**Researched:** 2026-06-04
-**Confidence:** HIGH (codebase-grounded with file:line references)
+**Domain:** Adding HTML/8bit mail formatting + WYSIWYG editor + application-document upload/carryover to a Rust/Axum/SQLite + Dioxus-WASM membership system (Genossi v1.4)
+**Researched:** 2026-06-29
+**Confidence:** HIGH (grounded in this repo's actual mail/render/storage/application code; lettre 0.11 + minijinja behavior verified against source)
 
----
-
-## Kritische Invariante (Lest dies zuerst)
-
-**v1.2 darf NICHT `MemberAction::Verkauf` erzeugen und NICHT `current_shares` reduzieren, wenn die Genossenschaft später Geld auszahlt. Das macht v1.1's PaidOut-Cascade** (`genossi_service_impl/src/repayment_entry.rs::mark_paid_out`, Z. 517–723).
-
-v1.2 erzeugt nur **Intent-Datensätze:**
-- **Kündigung** → `exit_date` am Member; KEINE MemberAction, KEIN RepaymentEntry direkt (v1.1's Auto-Fill picked beim nächsten Phase-Open)
-- **Teil-Rückgabe** → `RepaymentEntry` in Ziel-Phase; KEINE MemberAction, KEINE `current_shares`-Reduktion
-- **Übertrag** → 2 verlinkte MemberActions (neuer Action-Typ, NICHT `Verkauf`); `current_shares` atomar; KEIN RepaymentEntry
-- **Aufstocken** → MemberAction (neuer Aufstockung-Action-Typ); `current_shares` sofort
+> Scope note: every pitfall below is specific to ADDING the four v1.4 features to THIS codebase. The relevant existing code is cited so the roadmapper can map each pitfall to a concrete phase and write a verification check.
 
 ---
 
-## Kategorie 1: Doppelbuchung — Auto-Fill + v1.2-Trigger (KRITISCH)
+## Critical Pitfalls
 
-### Risiko
+### Pitfall 1: Reusing the existing strict minijinja env for HTML bodies → unescaped member data (XSS + broken HTML)
 
-v1.2-Kündigung setzt `exit_date` am Member. Beim nächsten `open_repayment_phase` filtert v1.1's Auto-Fill (`genossi_service_impl/src/repayment_phase.rs:319–395`) alle Member mit `exit_date IN [fy_start, fy_end]` und `current_shares > 0`. Wenn v1.2 dieselbe Kündigung zusätzlich als RepaymentEntry vor-greifend einfügt, entsteht ein Duplikat — **ENTR-03** hat bewusst KEINEN UNIQUE-Constraint auf `(member_id, phase_id)` (siehe PROJECT.md Key Decisions).
+**What goes wrong:**
+`genossi_mail/src/template.rs::strict_env()` builds `Environment::new()` with `UndefinedBehavior::Strict` but **never sets autoescape**. minijinja only auto-enables HTML escaping when a template is loaded with an `.html`/`.htm`/`.xml` *name*; templates here are loaded with `template_from_str` (no name), so **autoescape is OFF**. That is correct for the current plain-text mails. The moment the same `render_template()` path produces an HTML body, `{{ last_name }}` for a member named `Müller & <b>Co</b>` or `O'Brien <script>…</script>` is injected verbatim into HTML — corrupting layout at best, and at worst rendering attacker/member-controlled markup in the mail and in any in-app HTML preview.
 
-Komplexer Fall: Wenn ein Member im selben GJ **sowohl** Teil-Rückgabe (v1.2 erzeugt Entry) **als auch** später Kündigung mit Stichtag im selben fiscal_year hat, picked Auto-Fill ihn beim Phase-Open zusätzlich auf — Duplikat-Entry.
+**Why it happens:**
+The render pipeline is shared (worker live-send AND startup backfill both call `render_template`, per `render.rs`). The "obvious" implementation reuses it for HTML too. Autoescape being name-driven is a silent minijinja footgun: nothing errors, output just isn't escaped.
 
-### Warning Signs
+**How to avoid:**
+- Add a **separate HTML environment** with `env.set_auto_escape_callback(|_| AutoEscape::Html)` (or `set_autoescape`) used ONLY for HTML bodies. Keep `strict_env()` exactly as-is for plain text and subject lines.
+- Critical mental model: the WYSIWYG/editor HTML is the **template source** (literal markup, passes through), while member fields are **variables** (must be escaped). Autoescape escapes variable output, not literal template text — so autoescape ON is exactly right and does NOT escape the editor's `<b>`/`<a>` tags.
+- Subjects must NEVER be HTML-escaped (they are header text) — keep subject rendering on the plain env.
+- Add a unit test mirroring `template.rs` style: render an HTML template with a member whose `last_name = "<script>alert(1)</script> & Co"` and assert the output contains `&lt;script&gt;` and `&amp;`.
 
-- `create_repayment_entry` (`genossi_service_impl/src/repayment_entry.rs:101–170`) validiert nur gegen `Phase.status == Open` (D-11.1 Z. 128–133), **nicht** gegen Duplikate auf `(member_id, phase_id)`.
-- Audit-Log würde zwei separate `audited_create!`-Einträge zeigen (semantisch valid, business-logisch falsch).
-- Helper-Funktion für Duplikat-Detection fehlt; nur `current_shares`-Range-Check existiert (D-11.3 Z. 143).
+**Warning signs:**
+Mail HTML breaks for members with `&`, `<`, `>`, `"`, `'` in name/company/comment/address; raw `<` appears in rendered preview; security review flags `dangerous_inner_html` fed by un-sanitized render output.
 
-### Prevention Strategy
-
-- **Service-Layer-Sum-Check** beim `create_repayment_entry`: vor Insert prüfen, dass `sum(share_count_to_pay_out) für (member_id, phase_id) WHERE status != PaidOut + new.share_count <= member.current_shares`.
-- **Auto-Fill-Skip-Pattern** im `open_repayment_phase` — wenn der Member bereits Entries in der Phase hat, Auto-Fill überspringt ihn (statt zusätzlichen Entry erzeugen). Pattern-Anker: Phase-8-Auto-Fill-Loop bei Z. 360–395 erweitern.
-- **Neue DAO-Query** `find_by_member_and_phase(member_id, phase_id, tx) -> Vec<Entry>` als Foundation für beide Strategies.
-
-### In welcher Phase abzudecken
-
-- **Spec-Phase:** Duplikat-Detection-Pflicht spezifizieren
-- **Plan-Phase:** Service-Layer-Sum-Check + Auto-Fill-Skip + DAO-Query implementieren, E2E-Test schreiben für „Kündigung + Auto-Fill = nur 1 Entry"
+**Phase to address:** HTML-mail backend phase (the phase that introduces `multipart/alternative`).
 
 ---
 
-## Kategorie 2: Auto-Anlegen-Ziel-Phase bei H2-Offset (MITTEL-HOCH)
+### Pitfall 2: 8bit encoding without SMTP 8BITMIME negotiation → corrupted/rejected mail
 
-### Risiko
+**What goes wrong:**
+The current send path (`worker.rs::send_mail_for_recipient`) uses `SinglePart::plain(body)`, and lettre auto-selects `Content-Transfer-Encoding: quoted-printable` (the existing tests at `worker.rs:1001` and `:1095` assert QP-or-base64). To get "8bit, no `=` soft-breaks", you must explicitly set the `ContentTransferEncoding::EightBit` header on the part. **lettre's SMTP transport does NOT inspect the server's EHLO `8BITMIME` capability and does NOT downgrade** an 8bit part to quoted-printable when the relay lacks 8BITMIME. If the configured relay (operator-supplied SMTP — unknown server) does not advertise 8BITMIME, raw 8-bit bytes either get silently mangled (high bit stripped → broken umlauts: `Müller` → `M?ller`) or the message is rejected.
 
-v1.2-Teil-Rückgabe im H2 (z.B. November 2026) mit Stichtag 31.12. **folgendes** GJ (2027) braucht eine `RepaymentPhase` für FY 2027 im Status **Open**. Wenn diese Phase nicht existiert oder noch in `Vorbereitung` ist, schlägt `create_repayment_entry` mit `Phase.status != Open` (D-11.1 Z. 128–133) fehl.
+**Why it happens:**
+Developers assume the mail library negotiates transfer encoding like a browser negotiates content. lettre does not; encoding is a build-time choice on the message, independent of the live SMTP session.
 
-Bei Kündigung ist das **nicht** akut — Auto-Fill picked den Member ja erst beim späteren `open_phase` automatisch auf, kein Direkt-Insert. Bei **Teil-Rückgabe** hingegen ist der RepaymentEntry der einzige Intent-Datensatz; ohne ihn geht die Information verloren.
+**How to avoid:**
+- Treat 8bit as **opt-in, configurable, with a safe default**. Add a config flag (reuse the existing Config system, like `mail_send_interval_seconds`) e.g. `mail_text_encoding = quoted-printable|8bit`, defaulting to the current QP behavior so production is unchanged until the operator opts in.
+- Document/verify the production relay (`shifty.nebenan-unverpackt.de`'s configured SMTP) advertises 8BITMIME before enabling 8bit. If feasible, log the EHLO capabilities once at startup so the operator can confirm.
+- Keep the body strictly UTF-8 (it already is). 8bit + UTF-8 is fine ONLY across an 8BITMIME path.
+- Update the two encoding-assertion tests so they don't hard-fail when 8bit is the chosen mode — make the assertion mode-aware.
 
-### Warning Signs
+**Warning signs:**
+Umlauts arrive corrupted at some recipients but not others (relay-dependent); SMTP 554/500 rejects after enabling 8bit; line-length-related `data` errors.
 
-- `create_repayment_entry` schlägt mit 409 fehl, wenn Phase nicht existiert oder in falschem Status — Vorstand-Workflow „Teilrückgabe eingeben" → Fehlermeldung → Workflow bricht ab.
-- v1.1's `open_repayment_phase` lädt Phase via `repayment_phase_dao.find_by_id` und 404-t bei fehlender Phase.
-
-### Prevention Strategy (3 Optionen — Discuss-Phase-Item)
-
-**A) Auto-Create in `Vorbereitung` + D-11.1-Guard erweitern auf `Preparation | Open`** + Auto-Fill-Dedup beim späteren Open
-- Risiko: D-11.1-Guard-Aufweichung berührt v1.1-Invarianten (Phase-8-Decisions); benötigt Audit-Story für Auto-Erzeugte Phasen
-- Vorteil: Phase wird im richtigen Status angelegt (Vorstand kann später öffnen/abschliessen wie üblich)
-
-**B) Auto-Create direkt in `Open` + Auto-Fill-Skip-Pattern (Kategorie 1)**
-- Risiko: Auto-Fill iteriert über existing exit_date-Members → Müllentries entstehen, wenn Phase nur für 1 Teilrückgabe-Member angelegt
-- Vorteil: D-11.1 bleibt unangetastet; Direkt-Insert funktioniert sofort
-- Vorbedingung: Auto-Fill-Skip-Pattern aus Kategorie 1 muss zuverlässig sein
-
-**C) Explicit Error + Helpful Message** (kein Auto-Create)
-- v1.2-Dialog: „Phase für FY 2027 existiert nicht. Vorstand muss diese zuerst anlegen → [Link zur Phase-Anlegen-Seite]"
-- Vorteil: minimaler Eingriff; explizite Vorstands-Aktion erzwingt Bewusstsein für GJ-Wechsel
-- Nachteil: User-Experience-Bruch — Workflow muss neu gestartet werden
-
-**D) MemberAction sofort, RepaymentEntry deferred bis Phase-Open** (Drittvariante)
-- v1.2-Teilrückgabe erzeugt nur ein neues `PendingPartialReturn`-Marker (Member-Spalte oder leichte neue Entity); Phase-Open-Auto-Fill picked Marker auf
-- Risiko: zusätzliche Entity mit eigenem Lifecycle, höhere Komplexität
-- Nicht empfohlen für v1.2-Scope (Out-of-Scope-Kandidat)
-
-**Empfehlung:** Variante **B** (Auto-Create in Open) abhängig von Kategorie-1-Skip-Lösung. Discuss-Phase muss zwischen A/B/C entscheiden.
-
-### In welcher Phase abzudecken
-
-- **Discuss-Phase:** A vs. B vs. C entscheiden
-- **Plan-Phase:** je nach Entscheidung Service-Layer `ensure_repayment_phase` oder Error-Mapping implementieren
+**Phase to address:** 8bit-encoding phase (do this phase FIRST and in isolation — it is the smallest, highest-deliverability-risk change and a clean place to add the encoding-mode config that the HTML phase also benefits from).
 
 ---
 
-## Kategorie 3: Audit-Hashchain-Konsistenz bei verlinkt-atomaren Operationen (MITTEL)
+### Pitfall 3: Broken multipart nesting for HTML + attachments → unreadable mail or lost text fallback
 
-### Risiko
+**What goes wrong:**
+The current code builds `MultiPart::mixed().singlepart(text)` then appends attachments. The correct structure for "text + HTML + optional attachments" is nested:
+- No attachments: `multipart/alternative` { text/plain, text/html } — **text part FIRST**, html SECOND (clients pick the last part they understand).
+- With attachments: `multipart/mixed` { `multipart/alternative` { plain, html }, attachment, … }.
 
-Übertrag erzeugt 2 verlinkte MemberActions:
-- `Übertragung-Aus (A: −n, transfer_member_id=B.id)`
-- `Übertragung-Ein (B: +n, transfer_member_id=A.id)`
+If you flatten this (e.g. put html as a sibling of attachments under `mixed`, or omit the alternative wrapper), clients show the raw HTML source, show only the attachment, or drop the HTML. Reversing alternative order makes clients prefer plain text and the formatting is never seen.
 
-Wenn v1.2 nur eine der beiden in der Tx ausführt (Exception zwischen den zwei `audited_create!`-Calls), bleibt der `audit_log` mit einer verwaisten Action. Die Hash-Chain bleibt technisch valid (Hash ≠ vorherige + neue Hash), aber die Semantik bricht — Verlinkung fehlt.
+**Why it happens:**
+The existing attachment loop (`worker.rs:675-697`) is written for the single-text-part case; bolting HTML on without restructuring produces a wrong tree. MIME `alternative` ordering semantics are non-obvious.
 
-Außerdem: Wenn beide Actions denselben `transaction_id` brauchen, damit Auditor sie als ein Vorgang erkennt, muss das im Service-Layer explizit gesetzt sein. v1.1's PaidOut-Cascade nutzt gemeinsamen `process="repayment-entry.mark-paid-out"`-String (`repayment_entry.rs:47`, `REPAYMENT_ENTRY_PROCESS_MARK_PAID_OUT`).
+**How to avoid:**
+- Build a helper that always emits `alternative(plain, html)` and wraps it in `mixed` only when attachments exist. Always include BOTH parts (see Pitfall 4).
+- Keep the existing `SinglePart::plain` with explicit `charset=utf-8` (the comment at `worker.rs:653` and the tests guard this — preserve it for the plain leg).
+- Test the serialized message bytes (the existing tests already do `email.formatted()` string assertions — extend them) for: presence of `multipart/alternative`, plain-before-html order, and that attachments sit under `mixed`.
 
-### Warning Signs
+**Warning signs:**
+Recipients see HTML tags as literal text; HTML mail with a PDF attached shows only the PDF; some clients (Apple Mail vs GMX vs Outlook) render differently.
 
-- `MemberActionEntity` hat `transfer_member_id: Option<Uuid>` (`genossi_dao/src/member_action.rs:59`).
-- Zwei Service-Layer-`audited_create!`-Calls für die zwei Actions, falls sie nicht in derselben Tx liegen → erste committed, zweite rollback → inkonsistenter State.
-- Wenn unterschiedliche `process`-Strings vergeben werden, gruppiert `/api/audit/verify` + Process-Filter den Vorgang nicht.
-
-### Prevention Strategy
-
-- **Single-Tx-Anker:** v1.2-Übertrag-Implementation analog `mark_paid_out`-Cascade (12-Schritt-Pattern Phase 9) — beide `audited_create!`s in derselben Tx mit gemeinsamem `process="member-adjust.transfer"`.
-- Beide Actions teilen `tx.clone()`; Exception im zweiten Schritt → ganze Tx rollback.
-- **Test:** v1.2-Übertrag mit Mock-Exception nach erstem `audited_create!` → Tx-Rollback verifizieren, audit_log enthält keine der beiden Actions.
-- **Audit-Verifikation** im E2E: `/api/audit/verify.valid==true` UND `/api/audit/member_action` mit Filter `process="member-adjust.transfer"` zeigt genau 2 Einträge pro Übertrag.
-
-### In welcher Phase abzudecken
-
-- **Plan-Phase:** Übertrag-Implementierung mit atomarer 2-Action-Tx + gemeinsamem `process`-String
-- **Verify-Phase:** E2E-Audit-Verifikation analog Phase-9-Multi-Endpoint-Pattern
+**Phase to address:** HTML-mail backend phase.
 
 ---
 
-## Kategorie 4: H1/H2-Stichtagsregel-Edge-Cases (MITTEL)
+### Pitfall 4: Missing or mismatched plain-text alternative → spam score + accessibility/regression
 
-### Risiko
+**What goes wrong:**
+Sending HTML-only mail (no text/plain leg), or a text leg that is empty / says "view in HTML", sharply raises spam score and breaks plain-text clients and screen readers. Worse for this project: an empty or placeholder text part is a **silent regression** of the current plain-text product, and the audited `MemberDocument` record (created in `worker.rs::try_create_member_document_audited`) would no longer reflect a meaningful body.
 
-- **Schaltjahr:** Willensbekundung am 30.06. (H1-Grenze) bzw. 01.07. (H2-Grenze) muss explizit gehandelt werden — die Definition `H1 = Monat 1–6, H2 = 7–12` ist im Design-Doc, aber im Code nirgendwo dokumentiert.
-- **Willensbekundung am 31.12.:** Kündigung am 31.12.2026 → H2 → Stichtag 31.12.2027. Aber: Was ist das `MemberAction.date`-Feld? Willensbekundungs-Datum oder berechneter Stichtag? `compute_dates` in `genossi_service_impl/src/member_action.rs:155–177` nutzt `effective_date.unwrap_or(action.date)`.
-- **Datepicker-Bounds:** „nur offenes GJ erlaubt" (Design-Doc) ist ambig, wenn H2-Wirksamkeit folgendes GJ erreicht — Datepicker muss aktuelles + nächstes GJ erlauben, sonst keine H2-Erfassung möglich.
+**Why it happens:**
+WYSIWYG produces HTML; generating a faithful plain-text twin is extra work and easy to skip.
 
-### Warning Signs
+**How to avoid:**
+- Always generate a real text/plain alternative. Either (a) keep authoring the plain body as today and let HTML be additive, or (b) derive plain text from the editor model (strip tags, convert `<a href>` to `text (url)`, lists to `- ` lines). Do NOT ship `text = ""`.
+- Decide explicitly what the audited `MemberDocument` stores (plain text is the sensible canonical record; document the decision).
 
-- `member_action.rs:168` `effective_date.unwrap_or(a.date)` — implizit, nicht v1.2-aware.
-- `member.rs:213–218` `join_date`, Z. 280–300 `exit_date` — keine H1/H2-Bezugskommentare.
-- Audit-Log würde nicht zeigen, ob ein `exit_date` aus v1.2's Stichtagsregel kommt oder manuell gesetzt war.
+**Warning signs:**
+Spamassassin `MIME_HTML_ONLY` / `MPART_ALT_DIFF` hits; blank previews in plain-text clients; audit records with empty bodies.
 
-### Prevention Strategy
-
-- **Pure-Function** `compute_effective_date(willensbekundung_date: Date) -> (fiscal_year: i32, exit_date: Date)`:
-  - H1 (Monat 1–6): `fiscal_year = year(willensbekundung)`, `exit_date = 31.12. year(willensbekundung)`
-  - H2 (Monat 7–12): `fiscal_year = year(willensbekundung) + 1`, `exit_date = 31.12. year(willensbekundung)+1`
-- Lokation: neuer Helper in `genossi_service_impl/src/membership_adjust.rs` oder `member_action.rs`. Unit-testbar mit Edge-Cases (30.06., 01.07., 31.12., 01.01., Schaltjahr-Februar).
-- **Datepicker-Logik im Frontend:** erlaubt `today() ± span(aktuelles offenes GJ)`; Backend-Service validiert zusätzlich.
-- **MemberAction.date-Konvention:** Wilensbekundungs-Datum geht in `MemberAction.date`; berechneter Stichtag (falls != Willensbekundung) geht in `effective_date`. Inline-Doc im Service-Code.
-
-### In welcher Phase abzudecken
-
-- **Discuss-Phase:** H1/H2-Grenze + Datepicker-Scope explizit fixieren
-- **Plan-Phase:** Pure-Function `compute_effective_date` + Unit-Tests (mind. 6 Edge-Cases)
+**Phase to address:** HTML-mail backend phase (text-fallback generation) + WYSIWYG phase (plain-text derivation from the editor model).
 
 ---
 
-## Kategorie 5: ActionType-Enum-Erweiterung ohne PaidOut-Cascade-Seiteneffekt (MITTEL-HOCH)
+### Pitfall 5: Server-side HTML sanitization missing or done only in the frontend (stored XSS)
 
-### Risiko
+**What goes wrong:**
+The WYSIWYG editor emits HTML that gets stored (mail template body / job body) and later (a) rendered into outgoing mail and (b) displayed back in the Dioxus admin UI. If sanitization happens only in the WASM frontend, an attacker (or a paste-from-Word blob, or a crafted API call — the API is reachable independently of the UI) can store `<script>`, `<img onerror>`, `<a href="javascript:…">`, `<iframe>`, `<style>`, event handlers, etc. This is classic **stored XSS** in the board-facing admin app, which is the highest-trust surface in the system (it can read all member PII, IBANs, audit log).
 
-v1.2 braucht neue `ActionType`-Varianten:
-- **Übertragung-Aus** (transfer_member_id required, shares_change < 0)
-- **Übertragung-Ein** (transfer_member_id required, shares_change > 0)
-- **Aufstockung** (shares_change > 0, transfer_member_id = None)
+**Why it happens:**
+"The editor only produces safe HTML" is false — the editor is a UI convenience, not a security boundary. The REST endpoint accepts arbitrary `body` strings (see `MailTemplateService::create/update` which take `body: &str` with zero sanitization today).
 
-`mark_paid_out` (`genossi_service_impl/src/repayment_entry.rs:600–627`) hardcodet `ActionType::Verkauf` (Z. 610). Wenn v1.2 fälschlich `ActionType::Verkauf` für Übertrag verwendet:
-- `validate_action` (`member_action.rs:96–103`) erzwingt `shares_change < 0` für Verkauf → fängt einen Teil der Falsch-Verwendung
-- Aber: Audit-Story wird verwirrt (Verkauf statt Übertrag in `/api/audit/member_action`)
+**How to avoid:**
+- **Sanitize on the server, at the service/REST boundary, as the mandatory gate.** Add the `ammonia` crate (not currently a dependency) and sanitize HTML on write (template create/update, mail job create) AND/OR on render. Sanitizing on write keeps stored data clean; sanitizing on render is defense-in-depth — do both if cheap, but the write-side gate is non-negotiable.
+- Configure ammonia tightly: allow only formatting tags the editor actually produces (`b/strong, i/em, u, a, ul/ol/li, p, br, span`), strip all event handlers, allow `href` only with `http/https/mailto` schemes (ammonia's `url_schemes` allowlist — this kills `javascript:`/`data:` URIs), force `rel="noopener noreferrer"` on links.
+- Note `minijinja` autoescape (Pitfall 1) protects member *variables*; it does NOT sanitize the *template body itself* (the editor HTML is literal template text and passes through un-escaped by design). So autoescape and ammonia are complementary, not redundant — you need both.
+- Treat existing plain-text templates as plain: do not run ammonia over a template that is declared plain-text (it would mangle `<` in legitimate text like `a < b`). Track a per-template/per-job content-type flag.
 
-Außerdem: PaidOut-Cascade triggert auf `RepaymentEntry`-Status-Toggle (nicht auf MemberAction-Type), also kein direkter Cascade-Seiteneffekt. **Risiko ist primär semantisch**, nicht buchhalterisch.
+**Warning signs:**
+A stored template renders `<script>` when previewed; pen-test of `POST /api/mail/templates` with `<img src=x onerror=alert(1)>` survives round-trip; `javascript:` links present in stored bodies.
 
-### Warning Signs
-
-- `ActionType`-Enum-Variante muss in mehreren Stellen synchron gepflegt werden: DAO (`genossi_dao/src/member_action.rs:9–18`), Service-Validierung (`validate_action` Z. 76–153), REST-TO, Frontend-Translation.
-- Wenn `validate_action` für die neuen Types keine Regel hat, akzeptiert sie alles → Datenqualitätsbug.
-
-### Prevention Strategy
-
-- **Enum-Erweiterung-Checkliste** (im Plan-Doc):
-  1. `ActionType`-Enum in `genossi_dao/src/member_action.rs` (Migration falls Enum-as-String stored)
-  2. `validate_action`-Regeln in `genossi_service_impl/src/member_action.rs`:
-     - `Übertragung-Aus`: `shares_change < 0` AND `transfer_member_id.is_some()`
-     - `Übertragung-Ein`: `shares_change > 0` AND `transfer_member_id.is_some()`
-     - `Aufstockung`: `shares_change > 0` AND `transfer_member_id.is_none()`
-  3. REST-TO + Frontend-Display-Strings (i18n DE/EN)
-  4. Unit-Test pro neue Variante
-- **Verkauf-Verteidigung:** Inline-Doc auf `mark_paid_out` (Z. 610): „ActionType::Verkauf ist EXKLUSIV für PaidOut-Cascade. Übertragung/Aufstockung haben eigene Types."
-- **Grep-Gate** in der Plan-Phase: `grep -n "ActionType::Verkauf" --include="*.rs"` zeigt nur die eine Zeile in `mark_paid_out`. Falls v1.2-Code zusätzliche Zeilen erzeugt → fail.
-
-### In welcher Phase abzudecken
-
-- **Discuss-Phase:** Namen + Validierungsregeln finalisieren (insbesondere DE/EN-Naming-Convention)
-- **Plan-Phase:** Enum-Erweiterung + validate_action-Tests + Grep-Gate
+**Phase to address:** HTML-mail backend phase (server-side ammonia gate) — must land BEFORE or WITH the WYSIWYG phase, never after.
 
 ---
 
-## Kategorie 6: current_shares-Race (Optimistic Locking) (MITTEL)
+### Pitfall 6: Rendering inbound/stored HTML in Dioxus via `dangerous_inner_html` without sanitization
 
-### Risiko
+**What goes wrong:**
+The inbox already parses `raw_html_body: Option<String>` and `has_html_body` (`genossi_mail/src/inbox.rs:182-183`), and the inbox page currently only shows `body_text` (`inbox_page.rs:333`). v1.4's HTML focus will tempt rendering inbound HTML, or rendering the WYSIWYG preview, via Dioxus `dangerous_inner_html`. Inbound mail HTML is **fully attacker-controlled** (anyone can email the cooperative). Piping it into `dangerous_inner_html` is direct XSS in the board app. Dioxus normally HTML-escapes `{interpolation}` (noted in `mail_recipient_rendered_content.rs:9`); `dangerous_inner_html` bypasses that — it is the only XSS vector in the WASM UI and is already used for QR SVG (`qr_card.rs:63`, where input is controlled).
 
-v1.1's `mark_paid_out` (`repayment_entry.rs:629–641`) aktualisiert `Member.current_shares -= N`. v1.2-Übertrag aktualisiert `current_shares` sofort (A: −n, B: +n). v1.2-Aufstockung aktualisiert sofort (+n). Wenn parallel:
-- v1.2-Übertrag auf Member A
-- v1.1-mark_paid_out auf Member A
+**Why it happens:**
+"We need to show formatting" → reach for `dangerous_inner_html`. The QR-card precedent makes it look blessed.
 
-optimistic-locking (`genossi_service_impl/src/member.rs:214–215` `if entity.version != update.version`) blockt eine der beiden mit 409. Frontend muss Re-Read durchführen (siehe Phase-7-Tech-Debt: Optimistic-Locking Stale-Retry-Pattern).
+**How to avoid:**
+- Never feed un-sanitized HTML to `dangerous_inner_html`. Sanitize on the **server** before it reaches the frontend (the frontend is WASM — bundling/maintaining a sanitizer there is worse than doing it server-side where ammonia already lives after Pitfall 5).
+- For inbound mail specifically: prefer continuing to show `body_text`; if HTML display is wanted, render server-sanitized HTML, and consider an iframe sandbox / stripping remote `<img>` (tracking-pixel + privacy concern) and all links-to-scripts.
+- Keep a single documented rule: "HTML reaches `dangerous_inner_html` only after passing the server ammonia gate."
 
-### Warning Signs
+**Warning signs:**
+New `dangerous_inner_html` call sites whose data originates from inbound mail or user input; a test email with `<script>`/`<img onerror>` executes in the inbox view.
 
-- Nach `audited_update!` wird Member-Entity zwar re-read (`member.rs:343–348`), aber NEUE `version` UUID wird im Service-Return mitgegeben — Frontend muss diese auch im Formular halten.
-- Wenn zwei nebenläufige REST-Calls beide auf demselben Member landen, sieht der zweite die alte `version`.
-
-### Prevention Strategy
-
-- **Service-Layer-Fehler-Message** muss klar sein: „Member.version mismatch — Daten wurden parallel geändert. Bitte Seite neu laden und erneut versuchen."
-- **Frontend:** nach 409 (Conflict) im v1.2-Dialog → expliziter Hinweis + auto-Refresh des Dialogs mit neuen Daten.
-- **Discuss-Phase-Item:** Sollte v1.2 eine pessimistische Lock auf dem Member halten während des Dialogs? — empfohlen: **nein**, das ist v2-Architektur.
-
-### In welcher Phase abzudecken
-
-- **Plan-Phase:** Service-Layer-Fehler-Message + Frontend-Re-Read-Pattern für 409
+**Phase to address:** WYSIWYG/preview phase (admin-authored preview) and any inbox-HTML phase. If inbound-HTML rendering is in scope, make it its own gated decision.
 
 ---
 
-## Kategorie 7: Empfänger-Search bei Übertrag — Soft-Delete + Self-Transfer (MITTEL)
+### Pitfall 7: Orphaned files / partial carryover on application activation (file-vs-DB atomicity)
 
-### Risiko
+**What goes wrong:**
+`ApplicationService::confirm()` (`application.rs:280-420`) runs a single SQLite transaction: create Member + Eintritt + Aufstockung + update Application, all audited. v1.4 adds "copy the uploaded application file into a `MemberDocument` on activation." Filesystem writes (via `FilesystemDocumentStorage::save`) are **not transactional with SQLite**. Two failure shapes:
+1. File copied to disk, then the DB tx rolls back → orphaned file, no DB row, no audit (disk leak; the project already has a noted orphan/leak class of bug, e.g. Phase 13 `std::mem::forget(tempdir)`).
+2. DB row committed referencing a `relative_path`, but the file copy failed/was skipped → a `MemberDocument` that 404s on download (`DocumentStorage::load` → `StorageError::NotFound`).
 
-v1.2-Übertrag braucht ein Search-Feld für „Empfänger aktives Mitglied". `member.rs` `all()` (genossi_service/src/member.rs) lädt alle Member; der DAO-`dump_all` filtert nur `deleted IS NULL`, **nicht** auf `status` oder `exit_date`. Eine soft-deleted oder gekündigte Member könnte im Search auftauchen.
+**Why it happens:**
+Mixing a non-transactional resource (FS) into a carefully-atomic DB cascade. The temptation is to `save()` the file inside the tx block.
 
-Zusätzlich: Member darf nicht **sich selbst** als Empfänger wählen (Self-Transfer ist kein valider Geschäftsvorfall).
+**How to avoid:**
+- Prefer **reusing the already-on-disk application file** rather than re-uploading: if the upload at application-attach time already stored the bytes at a stable path, the carryover can create a copy BEFORE `commit`, with cleanup-on-rollback. Pick one ordering and stick to it:
+  - Recommended: write the new member-document file to disk first (idempotent, content-addressed by new UUID path), THEN run the DB tx; on tx error, best-effort `delete()` the just-written file (log on failure). Net effect: a rolled-back activation may transiently leak one file, but never produces a dangling DB row (the worse, user-visible failure).
+- Verify the file exists/loads before creating the row (cheap `load`/metadata check) so you never persist a 404 document.
+- Add the `MemberDocument` create to the SAME audited cascade (it is an audited entity) using the existing `audited_create!` pattern, sharing `APPLICATION_SERVICE_PROCESS` so the carryover is forensically linked to the activation.
 
-### Warning Signs
+**Warning signs:**
+`MemberDocument` rows whose download 404s; `documents/` dir grows with files no row references; audit log shows a member doc create with no corresponding activation.
 
-- `member_dao.all()` und `find_by_id()` filtern `deleted IS NULL` per Default — aber `exit_date IS NOT NULL` heißt der Member ist gekündigt, nicht soft-deleted.
-- `member.rs:309–311` `update()` hat keinen Status-Mutation-Guard.
-
-### Prevention Strategy
-
-- **Neue Service-Methode** `list_transfer_recipients(exclude_member_id: Uuid) -> Vec<Member>`:
-  - Filter: `deleted IS NULL` (default) AND `exit_date IS NULL` (aktives Mitglied) AND `id != exclude_member_id`
-- **Neuer REST-Endpoint** `GET /api/members/transfer-recipients?exclude_self={uuid}` mit Permission-Check (admin-only).
-- **Frontend-Search:** ausschließlich diesen Endpoint nutzen, nicht den allgemeinen `GET /api/members`.
-- **Service-Layer-Guard** beim Übertrag-Create: zusätzlich validieren `from_member_id != to_member_id`.
-
-### In welcher Phase abzudecken
-
-- **Plan-Phase:** `list_transfer_recipients` DAO/Service-Methode + REST-Endpoint + Frontend-Search
+**Phase to address:** Application-document phase (the carryover sub-feature).
 
 ---
 
-## Kategorie 8: Permission-Edge-Case — Vorstand kündigt sich selbst (MITTEL)
+### Pitfall 8: Duplicate carryover on re-activation / re-confirm
 
-### Risiko
+**What goes wrong:**
+If activation is ever retried, or a rejected/re-opened application is confirmed again, the carryover could attach the original document to the member twice (the project explicitly allows multiple `MemberDocument` rows; there is no uniqueness constraint, mirroring the deliberate `RepaymentEntry` no-unique-PK decision). The current `confirm()` guards `status != Offen → Conflict` (`application.rs:303`), which today blocks double-confirm — but the carryover MUST be added strictly inside that guard, and any future "re-open" path must be considered.
 
-v1.2-Kündigung ist `admin`-only. Ein Mitglied der Genossenschaft kann auch Vorstand sein. Wenn Vorstand sich selbst kündigt:
-- `exit_date` wird gesetzt
-- bei Voll-Kündigung wird später (via PaidOut-Cascade) `current_shares = 0`
-- Eventuell: Vorstand verliert noch in der UI-Session selbst die Berechtigung, was zu unklarem UX führt
+**Why it happens:**
+The status guard exists for the member-creation cascade; a new sub-feature can accidentally be wired before/outside it, or a retry-on-transient-error loop can re-run the side effect.
 
-### Warning Signs
+**How to avoid:**
+- Place the carryover entirely within the existing `status == Offen` guarded block, in the same tx, so it cannot run twice for an already-confirmed application.
+- If idempotency beyond the status guard is desired, key the carried `MemberDocument` by a deterministic marker (e.g. `document_type = "join_application"` + source application id in description) and skip if one already exists — analogous to `find_repayment_letter_for_recipient`'s fingerprint pattern (`worker.rs:84`).
+- Add an E2E test: confirm once → 1 doc; confirm again → `Conflict`, still 1 doc.
 
-- Permission-Check global auf `ADMIN_PRIVILEGE`, nicht auf „darf ich auf mich selbst operieren?".
-- Audit-Log zeigt `actor_id == subject_id` für die Action — semantisch ok, aber ungewöhnlich.
+**Warning signs:**
+Two identical application PDFs on one member; audit log shows two carryover creates for one application.
 
-### Prevention Strategy
-
-- **Frontend-Dialog:** Wenn `current_user_id == member_id`, extra Warn-Modal: „Sie sind dabei, Ihre eigene Mitgliedschaft zu beenden. Das ist unwiderruflich. Fortfahren?"
-- **Kein Service-Layer-Guard** — Vorstand darf sich selbst kündigen, das ist verbandsrechtlich legitim (z.B. Vorstand muss aus persönlichen Gründen austreten).
-- Optional: Im Audit-Log expliziter Flag „self-action" für leichteren Audit-Trail.
-
-### In welcher Phase abzudecken
-
-- **Plan-Phase:** Frontend-Dialog-Text + Visual-Warning
+**Phase to address:** Application-document phase.
 
 ---
 
-## Kategorie 9: SQLITE_BUSY-Race in v1.2-Cascade-Tests (NIEDRIG)
+### Pitfall 9: Unauthenticated / unvalidated file upload (the application submit path is PUBLIC)
 
-### Risiko
+**What goes wrong:**
+`ApplicationService::submit()` is called with actor `"PUBLIC"` (`application.rs:222`) — applications can be created without auth. If the file-upload endpoint is naively attached to the public submission flow, you get an **unauthenticated arbitrary-file-upload**: disk-fill DoS, malware storage, oversized multipart memory blowups. Even on an admin-only upload, missing limits/validation are dangerous: Axum multipart will buffer large bodies; a client-supplied filename used in the storage path enables path traversal; a spoofed `Content-Type` lets an executable masquerade as a PDF.
 
-v1.1-Phase-9-E2E-Tests akzeptieren `[200, 409|500]` als Race-Outcome (Phase-9-Tech-Debt; siehe `milestones/v1.1-MILESTONE-AUDIT.md`). v1.2-Übertrag-Cascade (2 verlinkte MemberActions + 2 Member-Updates in einer Tx) ist ähnlich strukturiert; SQLITE_BUSY-Race-Path im Memory-Pool-Test ist erwartbar.
+**Why it happens:**
+The milestone text ("Vorstand hinterlegt den Antrag") implies admin-only, but the existing application create is public, so the boundary is ambiguous and easy to get wrong. File validation is tedious and often deferred.
 
-### Prevention Strategy
+**How to avoid:**
+- Make the upload endpoint **admin-only** (privilege `manage_members`, same as the other application mutations), attaching the file to an existing application — do NOT bolt it onto the public `submit`.
+- **Fix the permission-ordering carry-forward (CR-02)** here: existing methods call `current_user_id()` BEFORE `check_permission()` (`application.rs:287-294`). New upload/carryover methods must check permission first (extract the planned `gen_auth_admin!` helper) to avoid the documented side-channel + `"SYSTEM"` audit-fallback smell.
+- Enforce a max upload size (Axum `DefaultBodyLimit` / multipart field limit) and reject early.
+- Validate the file type by **content sniffing**, not the client `Content-Type` or extension (check magic bytes; allow PDF + common image types only). Store the validated/normalized mime, not the client-claimed one.
+- **Never put the client filename in the storage path.** Generate a server-side UUID path (the codebase already uses `static_documents/<uuid>` and `MemberDocument.relative_path` conventions). `FilesystemDocumentStorage::full_path` has path-clean traversal protection (`document_storage.rs:25-59`) — rely on it, but still derive the path from a UUID, keeping the original filename only as the display `file_name`.
 
-- **E2E-Test-Pool-Setup:** `busy_timeout(5000)` im In-Memory-Pool setzen (analog v1.1 Phase 9 Pool-Setup).
-- Tests akzeptieren `[200, 409|500]` mit Negativ-Constraint `!(status_a == 200 && status_b == 200)` (Pattern Phase-9-Plan-04).
-- DAO-Layer-Mapping `SQLITE_BUSY → ConflictError` ist Rule-4-Change und bleibt Tech-Debt für v1.3+.
+**Warning signs:**
+Upload reachable without a session; 100 MB upload OOMs the server; a `.pdf` that is actually HTML/JS; storage paths containing user-controlled segments.
 
-### In welcher Phase abzudecken
-
-- **Verify-Phase:** E2E-Pool mit `busy_timeout` + sortierte Status-Assertion
-
----
-
-## Kategorie 10: recalc_migrated-Konsistenz bei v1.2-Operationen (NIEDRIG–MITTEL)
-
-### Risiko
-
-v1.1's `mark_paid_out` ruft `recalc_migrated` auf (`repayment_entry.rs:692–718`), um den `Member.migrated`-Flag zu aktualisieren. `compute_migration_status` in `member.rs:74–82` zählt MemberActions zur Bestimmung.
-
-v1.2-Operationen erzeugen MemberActions:
-- **Übertrag** (2× MemberAction) → muss `recalc_migrated` aufrufen für beide Members
-- **Aufstockung** (1× MemberAction) → muss `recalc_migrated` aufrufen
-- **Kündigung** (KEINE MemberAction direkt; setzt nur `exit_date`) → KEIN `recalc_migrated` nötig
-- **Teil-Rückgabe** (nur RepaymentEntry, keine MemberAction) → KEIN `recalc_migrated` nötig
-
-### Warning Signs
-
-- `recalc_migrated` ist Service-internal in `genossi_service_impl/src/member.rs`; wenn v1.2-Service nicht denselben Helper teilt, könnte er vergessen werden.
-- Bestehende `MemberServiceImpl` ruft `recalc_migrated` nach `MemberAction`-Create automatisch (über `MemberActionService`-Interaktion). Wenn v1.2 einen eigenen Service-Pfad nimmt, muss er den Helper explizit aufrufen.
-
-### Prevention Strategy
-
-- **Service-Code-Konvention:** Nach jedem `audited_create!(MemberAction)` in v1.2-Code muss `recalc_migrated` für die betroffenen Member-IDs aufgerufen werden (in derselben Tx).
-- **Grep-Gate** in Plan-Phase: jede `audited_create!(...member_action_dao, ...)`-Stelle in v1.2-Code muss in derselben Funktion einen `recalc_migrated`-Aufruf haben (oder explizit dokumentierte Ausnahme).
-- **Test:** v1.2-Übertrag erzeugt 2 MemberActions → `Member.migrated`-Flag beider Members nach Übertrag korrekt gesetzt.
-
-### In welcher Phase abzudecken
-
-- **Plan-Phase:** Helper-Aufruf-Konvention in der Service-Code-Skizze festhalten; Unit-Test pro Operation
+**Phase to address:** Application-document phase (upload sub-feature) — and it is the right place to land the CR-02 `gen_auth_admin!` fix.
 
 ---
 
-## Zusammenfassung — Priorisierung
+### Pitfall 10: WYSIWYG ↔ Dioxus signal desync and paste-from-Word junk
 
-| # | Kategorie | Severity | Phase-Coverage |
-|---|-----------|----------|----------------|
-| 1 | Doppelbuchung Auto-Fill + v1.2 | **KRITISCH** | Spec + Plan + Verify |
-| 2 | Ziel-Phase nicht existent (H2→folgendes GJ) | **MITTEL-HOCH** | Discuss + Plan |
-| 3 | Audit-Verlinkung Übertrag-Action | MITTEL | Plan + Verify |
-| 4 | H1/H2-Stichtag Edge-Cases | MITTEL | Discuss + Plan |
-| 5 | Neue ActionTypes statt Verkauf | **MITTEL-HOCH** | Discuss + Plan |
-| 6 | current_shares-Race (Optimistic-Lock) | MITTEL | Plan |
-| 7 | Empfänger-Search Soft-Delete + Self | MITTEL | Plan |
-| 8 | Vorstand-Self-Kündigung | MITTEL | Plan |
-| 9 | SQLITE_BUSY in v1.2-E2E | NIEDRIG | Verify |
-| 10 | recalc_migrated-Konsistenz | NIEDRIG–MITTEL | Plan |
+**What goes wrong:**
+`contenteditable` maintains its own DOM; Dioxus owns a virtual DOM driven by signals. If you bind `contenteditable` naively and also write the signal back on every `oninput`, Dioxus re-renders and resets the caret to position 0 (classic contenteditable cursor jump), or the editor and signal diverge so the body that gets sent ≠ what the board saw. Pasting from Word/Outlook injects huge `<o:p>`, `mso-` styles, `<font>`, nested `<span style>` garbage that bloats the stored body and defeats narrow sanitization.
 
----
+**Why it happens:**
+contenteditable is notoriously hard to make declarative; Dioxus's reactive model fights the browser's direct DOM mutation. This bites EVERY contenteditable integration.
 
-## Top-Empfehlungen für Discuss-Phase v1.2
+**How to avoid:**
+- Do not round-trip the signal into the DOM on every keystroke. Read the editor's HTML on demand (on blur / before submit) rather than two-way binding every input.
+- Follow the existing Dioxus button/reload lesson (`r#type: "button"` + onclick, never form-submit — project memory `feedback_dioxus_button_type.md`) so the editor's toolbar buttons don't reload the page.
+- Strongly consider a small, battle-tested JS editor (lightweight contenteditable lib) wrapped as ONE Dioxus component (Component-First — `genossi-frontend/src/component/`), with a clean `value`/`onchange` boundary, rather than hand-rolling contenteditable in RSX.
+- Clean paste: strip on paste (or rely fully on the server ammonia gate to discard `mso-`/`<font>`/`style` — ensure the ammonia config strips `style` and `class` unless explicitly needed).
+- Accessibility: provide labels, keyboard operability for toolbar, and an HTML/source fallback; contenteditable without ARIA is unusable for screen readers.
 
-1. **Auto-Anlegen-Phase-Strategie:** A vs. B vs. C aus Kategorie 2 fixieren — bestimmt die ganze Teilrückgabe-Pipeline.
-2. **H1/H2-Grenze:** im Code-Kommentar fixieren (Monat 1–6 / 7–12), nicht implizit.
-3. **ActionType-Naming:** Deutsch (Übertragung-Aus/Ein, Aufstockung) oder English (TransferOut/In, Increase)? Bestehende Enum-Werte sind gemischt — Konvention vor Plan-Phase fixieren.
-4. **Datepicker-Bounds:** nur aktuelles GJ ODER auch nächstes (für H2-Wirksamkeit)?
-5. **Sub-Choice-Form:** 4 Buttons flat vs. 3 mit Nesting (Reduzieren → Genossenschaft/Mitglied) vs. Kündigungs-Quickpath — Design-Doc-offene-Frage.
+**Warning signs:**
+Caret jumps to start while typing; sent body differs from on-screen; stored bodies balloon to tens of KB after a paste; toolbar click reloads the page.
+
+**Phase to address:** WYSIWYG phase.
 
 ---
 
-*Pitfalls research for: Genossi v1.2 Mitgliedschaft-Anpassungen während des Geschäftsjahres*
-*Researched: 2026-06-04*
+### Pitfall 11: Missing List-Unsubscribe and bulk-send deliverability hygiene
+
+**What goes wrong:**
+The system does **bulk** sends (Massenmail to members; `worker.rs` loops recipients). HTML bulk mail without `List-Unsubscribe` (and ideally `List-Unsubscribe-Post` for one-click) scores higher as spam and, for larger lists, risks the configured relay's reputation. Long HTML lines (>~990 chars, common in WYSIWYG output) violate RFC 5322 line-length limits and, on a non-8BITMIME path, force re-encoding or get the message rejected.
+
+**Why it happens:**
+Transactional-mail mindset carried into bulk; lettre won't add `List-Unsubscribe` for you; WYSIWYG emits unwrapped long lines.
+
+**How to avoid:**
+- Add `List-Unsubscribe` (mailto and/or URL) on bulk jobs. For a small cooperative an unsubscribe *mailbox*/contact may suffice operationally, but the header still helps deliverability.
+- Ensure the HTML part uses a transfer encoding that handles long lines safely (quoted-printable wraps automatically; if you choose 8bit per Pitfall 2, confirm the relay accepts long lines or wrap them).
+- This is a deliverability hygiene item, not a correctness blocker — but flag it so the roadmapper doesn't ship HTML bulk mail blind.
+
+**Warning signs:**
+Mails landing in spam after the HTML switch; relay rate-limiting/reputation warnings; `data` command errors on long-line messages.
+
+**Phase to address:** HTML-mail backend phase (headers) — verify during the HTML send phase's UAT against a real client.
+
+---
+
+## Technical Debt Patterns
+
+| Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
+|----------|-------------------|----------------|-----------------|
+| Sanitize HTML only in the WASM frontend | Fast; no new Rust dep | Stored XSS via direct API calls; security boundary bypassed | Never — server-side ammonia is mandatory |
+| Reuse `strict_env()` for HTML bodies | One render path | Unescaped member PII/markup in mail + previews | Never for HTML; keep it for plain text |
+| Enable 8bit globally, no config flag | Simpler code | Corrupted umlauts / rejects on non-8BITMIME relays; production regression | Never — must be opt-in with QP default |
+| `save()` the carryover file inside the DB tx | Looks atomic | Orphan files on rollback; or 404 docs | Never — order FS-before-DB with rollback cleanup |
+| Use client filename in storage path | Preserves name | Path traversal; collisions | Never — UUID path, filename as display only |
+| Trust client `Content-Type` for uploads | Less code | Spoofed executables stored as "PDF" | Only with content sniffing added later (track as debt) |
+| Skip plain-text alternative (HTML-only) | Half the authoring | Spam score, a11y, audit-record regression | Never |
+| Hand-roll contenteditable in RSX | No JS dep | Caret bugs, signal desync, paste junk, a11y gaps | Prototype only; productionize as a wrapped component |
+| Keep `current_user_id()` before `check_permission()` in new upload methods | Matches existing code | Carries forward CR-02 side-channel + SYSTEM-audit smell | Never in new code — fix via `gen_auth_admin!` |
+
+## Integration Gotchas
+
+| Integration | Common Mistake | Correct Approach |
+|-------------|----------------|------------------|
+| lettre 0.11 SMTP | Assuming it negotiates/downgrades 8BITMIME | It does not; choose encoding at build time, gate 8bit behind relay capability/config |
+| lettre MultiPart | Flattening html as sibling of attachments under `mixed` | Nest `alternative(plain,html)` inside `mixed` with attachments; plain part first |
+| lettre SinglePart | Dropping the explicit `charset=utf-8` on the plain part | Keep `SinglePart::plain` (preserves charset; guarded by tests `worker.rs:978`,`:1062`) |
+| minijinja 2.x | Expecting autoescape from `template_from_str` | Name-less templates are NOT auto-escaped; set an explicit HTML autoescape env |
+| ammonia | Default allowlist too permissive (allows `img`, `class`, remote refs) | Restrict to editor's tags; allowlist url schemes to http/https/mailto; strip `style`/`on*` |
+| Axum multipart | No body-size limit; buffering full upload in memory | `DefaultBodyLimit` + size check; validate before persist |
+| FilesystemDocumentStorage | Assuming FS write joins the SQLite tx | It doesn't; sequence FS-then-DB with rollback cleanup; verify file loadable before row commit |
+| Dioxus `dangerous_inner_html` | Feeding inbound/user HTML directly | Only server-sanitized HTML; default to escaped `{text}` |
+| IMAP inbound `raw_html_body` | Rendering attacker-controlled HTML to look feature-complete | Keep `body_text` default; sanitize + sandbox if HTML display is truly required |
+
+## Performance Traps
+
+| Trap | Symptoms | Prevention | When It Breaks |
+|------|----------|------------|----------------|
+| Buffering large uploads fully in memory | RAM spike per upload | Body-size limit; reject early | A single multi-MB scan on a small self-hosted box |
+| ammonia-sanitizing on every render in the bulk loop | Slower per-recipient send | Sanitize once on write; render is already per-recipient (`worker.rs` loop) | Large repayment bulk sends (hundreds of members) |
+| HTML body bloat from paste-from-Word | Multi-KB rows; bigger mails | Strip on paste + ammonia `style`/`class` removal | After board pastes formatted Word content |
+| Re-reading application file from disk per carryover unnecessarily | Extra IO at activation | Single read; one copy | Negligible at this scale, but avoid in a loop |
+
+## Security Mistakes
+
+| Mistake | Risk | Prevention |
+|---------|------|------------|
+| No server-side HTML sanitization | Stored XSS in the highest-trust admin app (PII/IBAN/audit access) | Mandatory ammonia gate at service/REST write |
+| Rendering inbound mail HTML unsanitized | XSS from anyone who can email the co-op | Sanitize server-side; prefer text; sandbox if rendered |
+| `javascript:`/`data:` URIs in links | Script execution / phishing via stored links | ammonia url-scheme allowlist (http/https/mailto only) |
+| Public/unauthenticated file upload | DoS, malware storage | Admin-only endpoint; auth before side effects |
+| Client filename in storage path | Path traversal / overwrite | UUID-based server path; rely on `full_path` clean-check |
+| Content-Type spoofing | Executable stored as PDF | Magic-byte sniffing; store validated mime |
+| Member data unescaped in HTML mail | Injection / mail corruption / phishing | minijinja HTML autoescape for variables |
+| New upload code repeats CR-02 ordering | Permission side-channel + `"SYSTEM"` audit attribution | Check permission before `current_user_id`/work (`gen_auth_admin!`) |
+| Carryover not audited | Document on member with no audit trail (Application/MemberDocument are audited) | Use `audited_create!` in the activation cascade |
+
+## UX Pitfalls
+
+| Pitfall | User Impact | Better Approach |
+|---------|-------------|-----------------|
+| Caret jumps while typing in editor | Board can't write a mail | Don't two-way-bind contenteditable per keystroke |
+| Toolbar button reloads page | Lost draft (project has a history of this exact bug) | `r#type:"button"` + onclick, never form-submit |
+| HTML preview differs from what recipients see | Board sends mis-formatted mail | Render preview through the SAME server render+sanitize path |
+| No plain-text fallback shown to plain clients | Some members see blank/garbled mail | Always generate real plain text |
+| Inbound HTML mail shows nothing or raw tags | Board can't read replies | Show sanitized HTML or fall back to `body_text` (current behavior) |
+| Editor not keyboard/screen-reader accessible | Excludes some board members | ARIA labels, keyboard toolbar, source fallback |
+
+## "Looks Done But Isn't" Checklist
+
+- [ ] **HTML mail:** Often missing the text/plain alternative — verify both parts present and ordered plain-then-html in `email.formatted()`.
+- [ ] **HTML escaping:** Often missing variable escaping — verify a member named `<script> & Co` renders as `&lt;script&gt; &amp;` in the HTML body.
+- [ ] **Sanitization:** Often only in frontend — verify `POST` of `<img src=x onerror=alert(1)>` to the template/job API is stripped server-side.
+- [ ] **8bit:** Often missing relay-capability gate — verify default stays quoted-printable and 8bit is config-opt-in; confirm relay 8BITMIME before enabling.
+- [ ] **Upload:** Often missing size limit + content sniffing — verify oversized and spoofed-type uploads are rejected; auth required.
+- [ ] **Storage path:** Often uses client filename — verify path is UUID-derived and traversal attempts return `ValidationError`.
+- [ ] **Carryover atomicity:** Often leaves orphans/404s — verify rollback leaves no dangling DB row, and a confirmed app's document downloads.
+- [ ] **Re-confirm:** Often duplicates — verify second confirm returns Conflict and produces no second document.
+- [ ] **Audit:** Often skipped for carryover — verify an `audited_create!` entry exists for the member document linked to the activation process string.
+- [ ] **Backward compat:** Often regresses plain text — verify existing plain templates, the application confirmation mail (`application.rs:108`), the digest worker, and reply mails still send as before with default config.
+- [ ] **List-Unsubscribe:** Often absent on bulk — verify header present on bulk HTML jobs.
+- [ ] **dangerous_inner_html:** Often un-audited new call sites — grep for new uses and confirm each is fed only server-sanitized data.
+
+## Recovery Strategies
+
+| Pitfall | Recovery Cost | Recovery Steps |
+|---------|---------------|----------------|
+| Stored XSS in templates/jobs | MEDIUM | Add ammonia gate; one-time sanitize sweep of existing stored bodies; audit who could have injected |
+| 8bit corrupting mail in production | LOW | Flip config back to quoted-printable (default); resend affected mails |
+| Orphaned files | LOW | Reconciliation job: list `documents/` vs `MemberDocument.relative_path`; delete unreferenced |
+| 404 documents (row without file) | MEDIUM | Identify rows whose `load()` fails; re-derive from source application file or soft-delete + re-carry |
+| Duplicate carryover | LOW | Soft-delete the duplicate `MemberDocument` (existing soft-delete pattern) |
+| HTML-only mail in spam | LOW | Add text/plain part + List-Unsubscribe; warm relay reputation |
+| contenteditable desync shipping wrong bodies | MEDIUM | Switch to read-on-submit; add test comparing editor output to payload |
+
+## Pitfall-to-Phase Mapping
+
+| Pitfall | Prevention Phase | Verification |
+|---------|------------------|--------------|
+| 8bit without 8BITMIME (P2) | 8bit-encoding phase (first) | Config defaults to QP; encoding-mode tests pass; relay 8BITMIME confirmed |
+| Unescaped member data in HTML (P1) | HTML-mail backend phase | Test: malicious member name appears escaped |
+| Broken multipart nesting (P3) | HTML-mail backend phase | `email.formatted()` shows `alternative` in `mixed`, plain-first |
+| Missing text fallback (P4) | HTML-mail backend + WYSIWYG | Non-empty text/plain part asserted |
+| No server-side sanitization (P5) | HTML-mail backend phase | API injection test stripped; ammonia config reviewed |
+| `dangerous_inner_html` XSS (P6) | WYSIWYG/preview (+ inbox-HTML if scoped) | Grep call sites; `<script>` email doesn't execute |
+| Orphan/partial carryover (P7) | Application-document phase | Rollback test: no dangling row; doc downloads |
+| Duplicate carryover (P8) | Application-document phase | Re-confirm → Conflict, 1 doc |
+| Unauthenticated/unsafe upload (P9) | Application-document phase | Auth required; size/type/path tests; CR-02 ordering fixed |
+| contenteditable desync / paste junk (P10) | WYSIWYG phase | Caret/typing test; sent==shown; paste sanitized |
+| Missing List-Unsubscribe / long lines (P11) | HTML-mail backend phase | Header present; real-client deliverability check |
+| Plain-text backward-compat regression (cross-cutting) | Every phase (UAT gate) | Existing plain mails/digest/reply unchanged with default config |
+
+## Sources
+
+- This repository (HIGH): `genossi_mail/src/worker.rs` (send path, encoding tests, audited MemberDocument), `genossi_mail/src/render.rs` + `template.rs` (minijinja `strict_env`, no autoescape), `genossi_service_impl/src/document_storage.rs` (path-clean traversal guard), `genossi_service_impl/src/application.rs` (confirm() activation cascade, PUBLIC submit, CR-02 ordering), `genossi_mail/src/inbox.rs` (`raw_html_body`/`has_html_body`), `genossi-frontend/src/page/inbox_page.rs` + `component/qr_card.rs` + `component/mail_recipient_rendered_content.rs` (`dangerous_inner_html` usage), `Cargo.toml` (lettre 0.11, no ammonia).
+- `.planning/PROJECT.md` (HIGH): v1.4 goal, constraints, CR-02 carry-forward, soft-delete/audit/Component-First patterns.
+- Project memory (HIGH): `feedback_dioxus_button_type.md` (button-reload bug), `feedback_component_first.md`.
+- lettre 0.11 behavior re: 8BITMIME non-negotiation and build-time transfer encoding (MEDIUM — based on library design; verify against the configured production relay before enabling 8bit).
+- General mail/MIME/XSS domain knowledge: MIME multipart/alternative ordering, RFC 5322 line limits, List-Unsubscribe, ammonia allowlisting (MEDIUM-HIGH).
+
+---
+*Pitfalls research for: HTML/8bit mail + WYSIWYG + application-document carryover in Genossi (Rust/Axum/SQLite + Dioxus-WASM)*
+*Researched: 2026-06-29*

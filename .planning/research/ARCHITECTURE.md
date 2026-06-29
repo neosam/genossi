@@ -1,789 +1,303 @@
-# v1.2 Mitgliedschaft-Anpassungen — Brownfield-Architecture-Research
+# Architecture Research
 
-**Datum:** 2026-06-04  
-**Scope:** Vorbereitung für Milestone v1.2 (4 Operationen: Kündigung, Teil-Rückgabe, Übertrag, Aufstockung)  
-**Kern-Constraint:** v1.2 erzeugt NUR Intent-Datensätze. Anteils-Reduktion und `MemberAction::Verkauf` bleiben Aufgabe der v1.1-PaidOut-Cascade (kein Doppelbuchen).
+**Domain:** Mail formatting (8bit + HTML multipart) & Application file-attachment carryover — integration into the existing layered Rust/Axum/SQLx/Dioxus codebase (Genossi v1.4)
+**Researched:** 2026-06-29
+**Confidence:** HIGH (integration points are codebase-verified; lettre API verified against docs.rs)
 
----
-
-## 1. Integration in Layered DAO/Service/REST-Architektur
-
-### Architektur-Übersicht
-Genossi folgt dem Pattern **DAO → Service → REST** (3-Schichten):
-- **DAO-Layer** (`genossi_dao/src/*`, `genossi_dao_impl_sqlite/src/*`): Trait-Definitionen + SQLite-Impl
-- **Service-Layer** (`genossi_service/src/*`, `genossi_service_impl/src/*`): Business-Logik + Permission-Gating
-- **REST-Layer** (`genossi_rest/src/*`): HTTP-Endpoints + OpenAPI-Dokumentation
-- **Frontend** (`genossi-frontend/src/page/*`, `genossi_frontend/src/component/*`): Dioxus-WASM mit Component-First-Prinzip
-
-Beispiel-Architektur aus v1.1:
-- **DAO:** `RepaymentPhaseDao` (Trait in `genossi_dao/src/repayment_phase.rs:L20`)
-- **Service:** `RepaymentPhaseService` (Trait in `genossi_service/src/repayment_phase.rs`) → `RepaymentPhaseServiceImpl` (Impl in `genossi_service_impl/src/repayment_phase.rs:L52`)
-- **REST:** `genossi_rest/src/repayment_phase.rs` → Endpoints gebunden in `genossi_rest/src/lib.rs:L641` via `repayment_phase::generate_route::<RestState>()`
-
-### Placement-Decision: `MembershipAdjustService` — Extension vs. Neuer Service
-
-**Empfehlung: Extension von `MemberActionService` (nicht: neuer Service)**
-
-**Begründung:**
-1. **Kohäsion:** Alle 4 Operationen (Kündigung, Teil-Rückgabe, Übertrag, Aufstockung) erzeugen `MemberAction`-Datensätze
-2. **Bestehende Patterns:** `MemberActionServiceImpl` (genossi_service_impl/src/member_action.rs:L21) hat bereits:
-   - Permission-Gate (`MANAGE_MEMBERS_PRIVILEGE`, L19)
-   - `recalc_dates()` (L180-203) — rekalkuliert `exit_date` aus den `MemberAction`-Einträgen
-   - Validation (`validate_action()`, L76-150) — bereits `UebertragungEmpfang` und `UebertragungAbgabe` sowie `Aufstockung` validiert
-3. **Cross-Entity-Atomarität:** Teil-Rückgabe braucht `RepaymentPhase`-Lookup; Übertrag braucht 2× `MemberAction` in 1 Tx. Beides ist im Service-Impl möglich, neue Crate-Komplexität nicht nötig.
-4. **Lifecycle:** Alle sind Lifecycle-Events des Mitglieds → `MemberAction` ist der Single Source of Truth
-
-**Neue Methoden in `MemberActionService` (genossi_service/src/member_action.rs):**
-```rust
-// Neue Trait-Signaturen
-pub async fn create_cancellation(
-    &self,
-    member_id: Uuid,
-    effective_date: Option<time::Date>,  // willensbekundungsdatum
-    context: Authentication<Self::Context>,
-) -> Result<MemberAction, ServiceError>;
-
-pub async fn create_partial_repayment(
-    &self,
-    member_id: Uuid,
-    share_count_to_pay_out: i32,
-    effective_date: Option<time::Date>,
-    context: Authentication<Self::Context>,
-) -> Result<(MemberAction, RepaymentEntry), ServiceError>;
-
-pub async fn transfer_shares(
-    &self,
-    from_member_id: Uuid,
-    to_member_id: Uuid,
-    share_count: i32,
-    effective_date: Option<time::Date>,  // nicht verwendet, sofort wirksam, aber für UI-Konsistenz
-    context: Authentication<Self::Context>,
-) -> Result<(MemberAction, MemberAction), ServiceError>;  // (UebertragungAbgabe, UebertragungEmpfang)
-
-pub async fn create_increase(
-    &self,
-    member_id: Uuid,
-    share_count: i32,
-    effective_date: Option<time::Date>,  // nicht verwendet, sofort wirksam
-    context: Authentication<Self::Context>,
-) -> Result<MemberAction, ServiceError>;
-```
-
-**Implementierungs-Anker:**
-- `genossi_service_impl/src/member_action.rs:L232ff` — bereits `#[async_trait] impl MemberActionService`
-- Dependency-Injection: `MemberActionServiceImpl` braucht neu:
-  - `RepaymentPhaseDao` (für Phase-Lookup bei Teil-Rückgabe)
-  - `RepaymentEntryDao` (für RepaymentEntry-Creation)
-  - `MemberDao` (schon vorhanden für Member-Lookup)
-  - `audit_log_dao`, `uuid_service`, `permission_service`, `transaction_dao` (alle schon vorhanden)
+> This is an **integration** architecture document for a subsequent milestone. The DAO→Service→REST→Frontend layering, audit-macro discipline, and Component-First frontend rule are already established and are **not** re-researched here. The focus is exactly four features and where each one touches existing code.
 
 ---
 
-## 2. MemberAction-ActionType-Erweiterung
+## Standard Architecture
 
-### Existierende Varianten
-`genossi_dao/src/member_action.rs:L9-18`:
-```rust
-pub enum ActionType {
-    Eintritt,           // Entry
-    Austritt,           // Exit
-    Todesfall,          // Death
-    Aufstockung,        // Increase (schon vorhanden!)
-    Verkauf,            // Sale (v1.1: erzeugt von PaidOut-Cascade)
-    UebertragungEmpfang,// Transfer In (schon vorhanden!)
-    UebertragungAbgabe, // Transfer Out (schon vorhanden!)
-    Note,               // Free-form note
-}
+### System Overview — what the four features touch
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│  FRONTEND (Dioxus WASM)                                                │
+│  ┌────────────────────────┐        ┌──────────────────────────────┐   │
+│  │ component/mail_compose/ │        │ page/applications_page.rs    │   │
+│  │  + NEW wysiwyg_editor   │        │  + NEW application file-upload│  │
+│  │    (produces HTML)      │        │    + attachment list/download │  │
+│  └───────────┬────────────┘        └───────────────┬──────────────┘   │
+├──────────────┼──────────────────────────────────────┼─────────────────┤
+│  REST (Axum) │                                       │                 │
+│  genossi_mail/src/rest.rs               genossi_rest/src/application.rs │
+│   send-bulk / template (+ body_html)     + NEW POST /{id}/documents     │
+│                                          (multipart, mirrors            │
+│                                           member_document.rs:115)       │
+├──────────────┼──────────────────────────────────────┼─────────────────┤
+│  SERVICE     │                                       │                 │
+│  genossi_mail: service.rs / worker.rs / digest.rs    genossi_service_  │
+│   render.rs (dual render) + NEW mail_body.rs helper  impl/application.rs│
+│   + NEW sanitize step (ammonia, server-side)          confirm() cascade│
+│                                                       → audited MemberDoc│
+├──────────────┼──────────────────────────────────────┼─────────────────┤
+│  DAO (SQLx / SQLite)                                  │                 │
+│  mail_templates(+body_html)  mail_jobs(+body_html)    + NEW             │
+│  mail_recipients(+rendered_body_html?)                application_      │
+│                                                        documents table   │
+├──────────────────────────────────────────────────────┼─────────────────┤
+│  FILESYSTEM  DocumentStorage (save/load/delete by relative_path)        │
+│   member docs: "<uuid>.<ext>"   static: "static_documents/<uuid>"       │
+│   + NEW application docs: "application_documents/<uuid>.<ext>"          │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
-**Status:** ✓ Alle v1.2-nötigen Typen existieren bereits!
-- `Aufstockung` → v1.2 Aufstockung-Operation
-- `UebertragungEmpfang` / `UebertragungAbgabe` → v1.2 Übertrag-Operation (2 verlinkte Actions)
-- `Austritt` mit `effective_date` → v1.2 Kündigung
-- `Verkauf` mit `share_count < 0` → v1.1 PaidOut-Cascade (Teil-Rückgabe braucht KEIN neuen Type, sondern RepaymentEntry + später Verkauf)
+### Component Responsibilities (new vs modified)
 
-### Validation v1.1 ↔ v1.2 Cross-Check
-`genossi_service_impl/src/member_action.rs:L76-150` — `validate_action()` bereits enforced:
-
-| ActionType | v1.1 validate_action | v1.2 Constraint | Risk? |
-|---|---|---|---|
-| `Aufstockung` | shares_change > 0 (L88-93) | V.1.2 erzeugt bei Aufstockung (shares_change > 0) | ✓ kompatibel |
-| `UebertragungEmpfang` | shares_change > 0, transfer_member_id required (L88-93, L127-136) | V1.2 erzeugt bei Übertrag-In (shares_change > 0, transfer_member_id = source) | ✓ kompatibel |
-| `UebertragungAbgabe` | shares_change < 0, transfer_member_id required (L96-102, L127-136) | V1.2 erzeugt bei Übertrag-Out (shares_change < 0, transfer_member_id = target) | ✓ kompatibel |
-| `Austritt` | effective_date required (L138-143) | V1.2 Kündigung erzeugt Austritt mit effective_date (H1/H2-Stichtag) | ✓ kompatibel |
-| `Verkauf` | shares_change < 0 (L96-102) | V1.1 PaidOut-Cascade erzeugt mit shares_change (Summe aller paid_out RepaymentEntries) | ✓ kompatibel |
-
-**Niedrig-Risiko für v1.1-Cascade:** `mark_paid_out()` (genossi_service_impl/src/repayment_entry.rs:L517) erzeugt IMMER `MemberAction::Verkauf` (L583ff), unabhängig von Action-Type der Quelle. v1.2's neue Types (`Aufstockung`, `UebertragungEmpfang/Abgabe`) sind **nicht** Repayment-Einträge und triggern daher kein PaidOut. *Aber:* Teil-Rückgabe **ist** ein RepaymentEntry, dessen PaidOut MUSS `Verkauf` erzeugen (nicht neue Types). Das ist bereits richtig in v1.1, v1.2 braucht nichts zu ändern.
-
-**Double-Booking-Guard:**
-- v1.1 `mark_paid_out()` lädt `RepaymentEntry` + erzeugt `MemberAction::Verkauf` + reduziert `current_shares` (genossi_service_impl/src/repayment_entry.rs:L556-620)
-- v1.2 Teil-Rückgabe erzeugt `RepaymentEntry` + **kein** `MemberAction` (Datensatz bleibt im Open-Status, wartet auf PaidOut)
-- v1.2 Aufstockung/Übertrag erzeugen `MemberAction` + reduzieren/erhöhen `current_shares` **sofort** (kein RepaymentEntry)
-- **Fazit:** Kein Doppelbuchen, da zwei unterschiedliche Pfade (MemberAction-direct vs. RepaymentEntry→PaidOut→MemberAction).
+| Component | New / Modified | Responsibility | File |
+|-----------|----------------|----------------|------|
+| `mail_body` helper | **NEW** | Pure, sync MIME-body builder: 8bit text part, optional multipart/alternative (text+html), fold in attachments. Single source of truth for all send paths. | `genossi_mail/src/mail_body.rs` |
+| `send_mail_for_recipient` | Modified | Call `mail_body` helper instead of inline `SinglePart::plain` + `MultiPart::mixed`. | `genossi_mail/src/worker.rs:627` |
+| `send_test_mail` / `send_test_mail_with_body` | Modified | Replace `.body(...)` (currently no charset, no SinglePart) with the `mail_body` helper → fixes existing charset bug + adds 8bit. | `genossi_mail/src/service.rs:415,447` |
+| `resolve_rendered_content` | Modified | Return `(subject, text_body, Option<html_body>)`; render the HTML template with the same context via a new autoescaping render fn. | `genossi_mail/src/render.rs:48` |
+| `render_html_template` | **NEW** | minijinja render with HTML autoescape ON (variables escaped, template tags literal). | `genossi_mail/src/template.rs` |
+| HTML sanitizer | **NEW** | Server-side allow-list sanitization of WYSIWYG HTML (ammonia). Applied at `create_job` and template create/update. | `genossi_mail/src/sanitize.rs` (or `service.rs`) |
+| `wysiwyg_editor` | **NEW** | Reusable Dioxus component emitting HTML; feeds existing compose flow. | `genossi-frontend/src/component/` |
+| `ApplicationDocument` entity + DAO | **NEW** | 0..n files attached to an Application; mirrors `MemberDocument` shape; **not** audited. | `genossi_dao/src/application_document.rs` (+ sqlite impl) |
+| Application upload/list/download endpoints | **NEW** | multipart upload → DocumentStorage; mirrors `member_document.rs`. | `genossi_rest/src/application.rs` |
+| `confirm()` carryover cascade | Modified | On activation, copy each ApplicationDocument file to a member-doc path and create a **`audited_create!`** MemberDocument in the same tx. | `genossi_service_impl/src/application.rs:280` |
 
 ---
 
-## 3. H1/H2-Stichtagsregel-Implementierung
+## Architectural Patterns (the decisions to make)
 
-### Spezifikation aus PROJECT.md
-**Stichtagsregel (Kündigung + Teil-Rückgabe):**
-- **H1 (1.–6. Monat):** effective_date = 31.12. des **aktuellen** Geschäftsjahres
-- **H2 (7.–12. Monat):** effective_date = 31.12. des **folgenden** Geschäftsjahres
+### (a) Shared "build mail body" helper — location & signature
 
-### Implementierungs-Ort: Pure Function in Service-Impl
+**Problem today:** Three send paths build the lettre body three different ways and are inconsistent:
+- `worker.rs::send_mail_for_recipient` (line 627): builds `SinglePart::plain(body)`; if attachments, `MultiPart::mixed().singlepart(text).singlepart(attachment…)`. Correct charset, but auto transfer-encoding = quoted-printable (the `=` soft-breaks v1.4 wants gone).
+- `service.rs::send_test_mail` (415) and `send_test_mail_with_body` (447): use `Message::builder().body(String)` — **no `SinglePart::plain`, so no `charset=utf-8`** (the exact GMX-umlaut bug the worker tests guard against). The digest worker calls `send_test_mail_with_body`, so it inherits this.
 
-**Platzierung:** `genossi_service_impl/src/member_action.rs` (neue Funktion)
+**Decision — place a pure, sync helper in a new module `genossi_mail/src/mail_body.rs`.** It is the single source of truth, unit-testable without SMTP, and consumed by all three paths. Keep file I/O (DocumentStorage `.load`) in the async caller; pass already-loaded attachment parts in.
+
+**Proposed signature:**
 
 ```rust
-/// Berechnet das Wirksamkeitsdatum nach H1/H2-Regel.
-/// - Willensbekundung im 1.-6. Monat → 31.12. des laufenden Jahres
-/// - Willensbekundung im 7.-12. Monat → 31.12. des nächsten Jahres
-/// Pure function, unit-testbar, keine I/O.
-pub(crate) fn compute_effective_date(
-    willensbekundung_datum: time::Date,
-) -> time::Date {
-    let month = willensbekundung_datum.month() as u8;
-    let year = if month <= 6 {
-        willensbekundung_datum.year()
-    } else {
-        willensbekundung_datum.year() + 1
-    };
-    
-    time::Date::from_calendar_date(year, time::Month::December, 31)
-        .expect("December 31 is always valid")
+use lettre::message::{Message, MessageBuilder, MultiPart, SinglePart};
+use lettre::message::header::{ContentType, ContentTransferEncoding};
+
+/// One assembled MIME body, ready to attach to a MessageBuilder.
+pub enum MailContent {
+    Single(SinglePart),   // plain text only, no attachments
+    Multi(MultiPart),     // alternative (text+html) and/or mixed (attachments)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// Build the body. `text` is always required (the plain-text fallback part).
+/// `html` Some → multipart/alternative. `attachments` non-empty → wrap in mixed.
+/// Both text and html parts are emitted with charset=utf-8 and 8bit encoding.
+pub fn build_mail_content(
+    text: &str,
+    html: Option<&str>,
+    attachments: Vec<SinglePart>,   // pre-built via lettre Attachment::new(..).body(bytes, ct)
+) -> MailContent;
 
-    #[test]
-    fn test_h1_returns_dec31_current_year() {
-        let date = time::Date::from_calendar_date(2026, time::Month::March, 15).unwrap();
-        let result = compute_effective_date(date);
-        assert_eq!(result.year(), 2026);
-        assert_eq!(result.month(), time::Month::December);
-        assert_eq!(result.day(), 31);
-    }
-
-    #[test]
-    fn test_h2_returns_dec31_next_year() {
-        let date = time::Date::from_calendar_date(2026, time::Month::September, 10).unwrap();
-        let result = compute_effective_date(date);
-        assert_eq!(result.year(), 2027);
-        assert_eq!(result.month(), time::Month::December);
-        assert_eq!(result.day(), 31);
-    }
+impl MailContent {
+    /// Fold the content into the builder, choosing singlepart vs multipart.
+    pub fn into_message(self, builder: MessageBuilder)
+        -> Result<Message, lettre::error::Error>;
 }
 ```
 
-**Aufruf in den neuen Service-Methoden:**
-```rust
-// create_cancellation + create_partial_repayment
-let effective_date = compute_effective_date(willensbekundungs_datum);
+**8bit forcing** (verified on docs.rs — `ContentTransferEncoding::EightBit` exists, but lettre auto-selects quoted-printable unless you set it manually):
 
-// transfer_shares + create_increase: NOT verwendet (sofort wirksam)
-// aber Willensbekundungs-Datum wird trotzdem als `date` im MemberAction gespeichert
+```rust
+fn text_part(s: &str) -> SinglePart {
+    SinglePart::builder()
+        .header(ContentType::parse("text/plain; charset=utf-8").unwrap())
+        .header(ContentTransferEncoding::EightBit)
+        .body(s.to_string())
+}
+// html part identical but ContentType::parse("text/html; charset=utf-8")
+// alternative: MultiPart::alternative().singlepart(text_part).singlepart(html_part)
 ```
 
-**Unit-Testbar:** ✓ Reine Funktion, keine Abhängigkeiten, einfache Datumsarithmetik.
+Note: lettre also offers `MultiPart::alternative_plain_html(plain, html)`, but it does **not** let you set 8bit, so build the two `SinglePart`s explicitly and combine with `MultiPart::alternative()`.
+
+**Trade-off / pitfall:** 8bit requires the SMTP relay to advertise `8BITMIME`. Most do; if a configured relay does not, lettre will still send 8bit bytes and the server may reject or silently mangle. **Flag as a deploy-time verification item** (test against the production relay early in the HTML-mail phase). This is the one genuine risk in feature (a).
+
+### (b) minijinja dual-render — render two templates, do NOT derive text from HTML
+
+**Decision: render an authored text template AND an authored HTML template against the *same* context. Do not derive plain text from rendered HTML.**
+
+Rationale:
+- The existing `body` field is already a clean, authored, jinja-variable text template (`render.rs` + `template.rs` are built around it, strict-env, repayment-var merge). It is the guaranteed `text/plain` fallback. Keep it.
+- HTML→text derivation (e.g. `html2text`) is lossy, adds a dependency, and produces worse output than the already-authored text. There is no upside.
+- The same `minijinja::Value` context (`member_to_template_context` + `merge_repayment_context`) feeds both renders with zero new context plumbing.
+
+**Change to `resolve_rendered_content`** (`render.rs:48`): return `(String, String, Option<String>)` = (subject, text_body, html_body?). Render the HTML template only when the job carries an HTML template (`job.body_html`). Worker passes the `Option<String>` straight into `build_mail_content`.
+
+**Autoescape:** `render_template` (template.rs:67) uses a non-autoescaping env — correct for plain text. Add `render_html_template` using an env with HTML autoescape ON so member values (`{{ first_name }}`) are HTML-escaped while the template's own markup stays literal. Repayment vars (`payout_amount` etc.) are also escaped harmlessly.
+
+**Plain-text fallback source:** the existing `body` column / `job.body`. The WYSIWYG flow should *seed* `body` with a tag-stripped text version of the HTML at compose time so the Vorstand authors once, but `body` remains the authoritative text part (round-trippable, editable, audit-clear). This keeps both renders symmetric and strict-env-validatable via the existing `validate_template` / `validate_template_with_repayment` helpers (extend them to also probe the HTML template).
+
+### (c) Data model & migrations (forward-only SQLite)
+
+**Mail HTML — add nullable columns, mirroring the existing `20260601000000_extend_mail_job_template_phase.sql` pattern (ALTER TABLE … ADD COLUMN … NULL, no down-migration).**
+
+```sql
+-- NEW migration e.g. 20260630000000_mail_html_body.sql
+ALTER TABLE mail_templates ADD COLUMN body_html TEXT NULL;   -- authored HTML template
+ALTER TABLE mail_jobs      ADD COLUMN body_html TEXT NULL;   -- snapshot at send-time, mirrors `body`
+-- optional, for "what did this recipient receive" parity with rendered_subject/body:
+ALTER TABLE mail_recipients ADD COLUMN rendered_body_html TEXT NULL;
+```
+
+Why columns, not "derive at send-time from a stored format": the codebase **already snapshots** subject+body into `mail_jobs` at `create_job` and per-recipient rendered output into `mail_recipients`. HTML must follow the same snapshot discipline (a template edit after a job is queued must not change what goes out). So `body_html` is a stored authored template on `mail_templates`, snapshotted onto `mail_jobs` exactly like `body`. Legacy rows = NULL → single-part text mail (fully backward compatible: digest, confirmation mail, old jobs all keep NULL and render as today).
+
+**Application attachment — NEW table (not a single column).** An applicant may submit more than one document, and the codebase's consistent pattern is an entity table with soft-delete + version (mirrors `MemberDocument`). A `member_documents`-style table is the lowest-surprise choice.
+
+```sql
+-- NEW migration e.g. 20260630000100_create_application_documents_table.sql
+CREATE TABLE application_documents (
+    id             BLOB PRIMARY KEY,
+    application_id BLOB NOT NULL,
+    document_type  TEXT NOT NULL,      -- e.g. "other"/"join_declaration"
+    description    TEXT NULL,
+    file_name      TEXT NOT NULL,
+    mime_type      TEXT NOT NULL,
+    relative_path  TEXT NOT NULL,      -- "application_documents/<uuid>.<ext>"
+    created        TEXT NOT NULL,
+    deleted        TEXT NULL,
+    version        BLOB NOT NULL
+);
+CREATE INDEX idx_application_documents_application_id ON application_documents(application_id);
+```
+
+**Audit:** `ApplicationDocument` is a NEW entity → per the milestone constraint it does **not** need the `Auditable` trait / audit macros (same exemption as the GV entities). The **carryover MemberDocument is audited** (MemberDocument is an audited entity), and the `confirm()` Application status flip already uses `audited_update!`.
+
+### (d) Application attachment — endpoints + activation cascade
+
+**Upload endpoint — mirror the proven member-document upload.** The exact pattern to copy is `genossi_rest/src/member_document.rs:115` (`upload_document`): `Multipart` extractor, `while multipart.next_field()`, extension whitelist via `lookup_allowed_mime` / `allowed_extensions`, `DefaultBodyLimit::max(50 MB)` layer (member_document.rs:41,49), service creates the entity, **then the REST handler calls `document_storage().save(&relative_path, &data)`** (member_document.rs:209). Add to `genossi_rest/src/application.rs`:
+
+```
+POST   /api/applications/{id}/documents          (multipart upload)
+GET    /api/applications/{id}/documents          (list)
+GET    /api/applications/{id}/documents/{doc_id} (download — mirror member_document.rs:242)
+DELETE /api/applications/{id}/documents/{doc_id} (soft-delete)
+```
+
+**Route-ordering pitfall:** the existing router (`application.rs:479`) has `/{id}` (GET/PUT), `/{id}/confirm`, `/{id}/reject`. The new `/{id}/documents` and `/{id}/documents/{doc_id}` are more-specific and safe, but follow the v1.2 lesson (PROJECT.md Key Decisions: "all sub-routes BEFORE `/{id}` catch-all") — register them and add E2E asserts that `/{id}/documents` is not parsed as a UUID.
+
+**Activation cascade — the audit-critical piece.** Today `ApplicationServiceImpl::confirm` (application.rs:280) opens one tx, creates Member + two MemberActions + flips Application status, all via `audited_create!`/`audited_update!` sharing `APPLICATION_SERVICE_PROCESS` + `user_id`. To carry files over, extend `ApplicationServiceDeps` with **`MemberDocumentDao`** and **`DocumentStorage`** (DocumentStorage is currently only wired into `MemberDocumentService` / mail; it must be added to the application service's deps and `RestStateImpl::new()` in `genossi_bin/src/lib.rs`).
+
+Sequence inside `confirm`, after the member is created:
+
+```
+for app_doc in application_document_dao.find_by_application_id(id, tx):
+    1. bytes = document_storage.load(&app_doc.relative_path)          // before write
+    2. new_path = "<new_uuid>.<ext>"                                  // member-doc namespace
+    3. document_storage.save(&new_path, &bytes)                       // copy file (non-transactional)
+    4. build MemberDocumentEntity { member_id, document_type, relative_path: new_path, .. }
+    5. audited_create!(self, self.member_document_dao, &entity,
+                       APPLICATION_SERVICE_PROCESS, &user_id, tx)      // same tx, same process
+```
+
+**Why copy the file (load+save) rather than reuse the ApplicationDocument's path:** the MemberDocument must own its file independently — a later soft-delete/cleanup of the application or its document must not orphan the member's document. Copy **before** `audited_create!` so a storage failure leaves at most a harmless orphan file (GC-able), never a DB row pointing at a missing file. This matches the existing upload flow's failure class (DB row then storage save).
+
+**DocumentType for the carried-over doc:** recommend `DocumentType::Other` with `description = "Originaler Mitgliedsantrag"`. Reason: `JoinDeclaration` is a **singleton** type (`is_singleton()` true, member_document.rs:114) and is also the type of the *generated* `join_declaration.typ` PDF — a carryover under `JoinDeclaration` would collide with the singleton guard if a declaration was generated. `Other` avoids the collision and reads clearly in the audit log. (Alternative: `JoinDeclaration` if product wants it to occupy that slot — but then handle the singleton conflict.)
 
 ---
 
-## 4. Auto-Anlegen-Ziel-Phase-Strategie
+## Data Flow
 
-### Problem
-Teil-Rückgabe im H2 mit Willensbekundung Nov 2026 → effective_date = 31.12.2027 → benötigt RepaymentPhase für FY 2027. Was tun, wenn Phase noch nicht existiert?
+### HTML mass-mail (compose → send)
 
-**Drei Optionen (aus PROJECT.md):**
-
-| Option | Vorteil | Nachteil |
-|--------|---------|---------|
-| A: Auto-Create in Preparation + D-11.1-Guard erweitern | Vorhersehbar: Phase immer vorhanden beim Create | Extra-DAO-Call, Status-Komplexität: RepaymentEntry in Open Phase erzeugt, aber Phase ist Preparation |
-| B: Auto-Create direkt in Open + Auto-Fill-Dedup | Konsistent mit open_repayment_phase (Phase 8): alle Entries sofort Open | Komplexe Dedup-Logik nötig (Teil-Rückgabe-Entry könnte doppelt landen wenn Phase Auto-Created + später auch Open wird) |
-| C: Defer RepaymentEntry bis Phase-Open | Fehlerkanal: wenn Phase nie opened wird, Member wartet ewig | Deferred-Semantik ist UI-schwer zu erklären; Undo-Path unklar |
-
-### Empfehlung: **Option B (Auto-Create direkt in Open)**
-
-**Begründung:**
-1. **Konsistenz mit v1.1:** `open_repayment_phase()` (Phase 8) erzeugt RepaymentEntries in Open-Status automatisch. Wenn v1.2 Teil-Rückgabe eine Phase Auto-Create in Open tut, ist die Semantik unify.
-2. **Keine Dedup-Komplexität:** Das Auto-Create-Skript erzeugt die **Ziel-Phase** auf Basis (fiscal_year = Wirksamkeits-Jahr). `open_repayment_phase()` filtert Members via `m.exit_date.is_some_and(|d| d >= fy_start && d <= fy_end)` — die Teil-Rückgabe-Entry wird NICHT doppelt erstellt, weil der Member noch kein `exit_date` hat (nur `current_shares` wurde reduziert).
-3. **UI-Simple:** Vorstand drückt "Teil-Rückgabe", System antwortet sofort mit "Teil-Rückgabe erstellt für FY 2027" (ggf. neue Phase angelegt). Kein Warten, kein "bitte öffne Phase später".
-
-**Implementierung:**
-
-```rust
-pub async fn create_partial_repayment(
-    &self,
-    member_id: Uuid,
-    share_count_to_pay_out: i32,
-    willensbekundungs_datum: time::Date,
-    context: Authentication<Self::Context>,
-) -> Result<(MemberAction, RepaymentEntry), ServiceError> {
-    let tx = self.transaction_dao.use_transaction(None).await?;
-    
-    // ...Permission-Check etc...
-    
-    // Step 1: Berechne effective_date nach H1/H2-Regel
-    let effective_date = compute_effective_date(willensbekundungs_datum);
-    let target_fiscal_year = effective_date.year();
-    
-    // Step 2: Versuche Phase zu laden; wenn nicht existiert, create in Open status
-    let phase = match self
-        .repayment_phase_dao
-        .find_by_fiscal_year(target_fiscal_year, tx.clone())
-        .await? {
-        Some(p) => p,
-        None => {
-            // Auto-Create in Open status
-            // Aber: für "share_value" braucht Vorstand Input oder sensible Default?
-            // Vorläufig: Fehler zurückgeben + UI sagt "bitte Create Phase erst".
-            // TODO(v1.2-discuss): Auto-Create mit share_value from latest phase?
-            return Err(ServiceError::Conflict(Arc::from(
-                format!("RepaymentPhase for fiscal_year {} does not exist; please create it first", target_fiscal_year)
-            )));
-        }
-    };
-    
-    // Guard: D-11.1 — Phase muss Open sein (v1.1-Constraint bleibt)
-    if phase.status != RepaymentPhaseStatus::Open {
-        return Err(ServiceError::Conflict(Arc::from(
-            format!("RepaymentPhase status must be Open, got {}", phase.status.as_str())
-        )));
-    }
-    
-    // Step 3: Lade Member + validiere shares
-    let mut member = self
-        .member_dao
-        .find_by_id(member_id, tx.clone())
-        .await?
-        .ok_or(ServiceError::EntityNotFound(member_id))?;
-    
-    // Validierung (ENTR-02)
-    validate_entry_create(share_count_to_pay_out, member.current_shares)?;
-    
-    // Step 4: Erstelle MemberAction (keine shares_change, nur Intent-Marker)
-    // ABER: laut v1.2-Spec erzeugt Teil-Rückgabe KEINE MemberAction, sondern nur RepaymentEntry
-    // Das heißt: compute_dates() wird NICHT neu ausgeführt
-    // TODO(v1.2-discuss): Fallback Option — sollen wir einen "TeilRückgabe"-Type in ActionType hinzufügen?
-    // Für jetzt: keine MemberAction, nur RepaymentEntry
-    
-    // Step 5: Erstelle RepaymentEntry
-    let entry = RepaymentEntryEntity {
-        id: self.uuid_service.new_v4().await,
-        member_id,
-        phase_id: phase.id,
-        share_count_to_pay_out,
-        status: RepaymentEntryStatus::Open,
-        created: /* now */,
-        deleted: None,
-        version: self.uuid_service.new_v4().await,
-    };
-    
-    crate::audited_create!(
-        self,
-        self.repayment_entry_dao,
-        &entry,
-        "repayment-entry.create-from-membership-adjust",
-        &user_id,
-        tx
-    );
-    
-    self.transaction_dao.commit(tx).await?;
-    Ok((/* no MemberAction */, RepaymentEntry::from(&entry)))
-}
+```
+Vorstand types in WYSIWYG (HTML) + text seed
+        ↓  POST /api/mail/send-bulk { subject, body(text), body_html, recipients, ... }
+REST rest.rs → MailService::create_job (sanitize body_html server-side via ammonia)
+        ↓  persist mail_jobs.{subject, body, body_html} + mail_recipients(pending)
+worker.rs loop → resolve_rendered_content(recipient, job)  [render.rs]
+        ↓  (subject, text_body, Option<html_body>)  — same ctx, dual render
+build_mail_content(text, html, attachments)  [mail_body.rs]
+        ↓  multipart/alternative (8bit text + 8bit html) [+ mixed if attachments]
+lettre transport.send → SMTP (relay must support 8BITMIME)
+        ↓  audited MemberDocument anchor (existing Phase-10 path, unchanged)
 ```
 
-**Problematisch:** Laut PROJECT.md "v1.2 erzeugt nur Intent-Datensätze — keine MemberAction". Teil-Rückgabe erzeugt nur RepaymentEntry. Das ist **OK**, weil v1.1's `mark_paid_out()` die Reduktion macht. *Aber:* wenn Vorstand ändert Gedanken und cancelt die RepaymentEntry, wurde `current_shares` nie reduziert → Member-State bleibt korrekt. ✓ Sauber.
+### Application attachment carryover
 
-**Recommend für Discuss-Phase:** Klären, ob Fallback auf "Phase nicht existiert" → "Auto-Create Phase in Open" soll, oder ob Fehler → "Vorstand create manuell" acceptable ist.
-
----
-
-## 5. Cross-Entity-Atomarität für Übertragung
-
-### Anforderung
-**2 verlinkte MemberActions in einer Tx:**
-- A: `MemberAction(member_id=from, action_type=UebertragungAbgabe, shares_change=-n, transfer_member_id=to)`
-- B: `MemberAction(member_id=to, action_type=UebertragungEmpfang, shares_change=+n, transfer_member_id=from)`
-- Member A: `current_shares -= n`
-- Member B: `current_shares += n`
-- Genau-einmal-Semantik: beide oder keine
-
-### Pattern-Anker aus v1.1 Phase 9
-`genossi_service_impl/src/repayment_entry.rs:L517-620` `mark_paid_out()` — 12-Schritt-Cascade:
-1. Tx beginnen
-2. User-ID + Permission-Check
-3. RepaymentEntry laden + Status-Guard
-4. Member laden (Payout-Owner)
-5. Validierung (shares_change > 0)
-6. `audited_update!` RepaymentEntry.status = PaidOut
-7. `audited_create!` MemberAction::Verkauf (mit shares_change = −entry.share_count)
-8. `audited_update!` Member.current_shares -= shares_change
-9. `recalc_dates()` / `recalc_migrated()` falls nötig
-10. Re-read (CR-01)
-11. Commit
-12. Return
-
-**v1.2 Übertrag-Analogon (7 Schritte):**
-
-```rust
-pub async fn transfer_shares(
-    &self,
-    from_member_id: Uuid,
-    to_member_id: Uuid,
-    share_count: i32,
-    context: Authentication<Self::Context>,
-) -> Result<TransferResult, ServiceError> {
-    let tx = self.transaction_dao.use_transaction(None).await?;
-    
-    // Step 1-2: User + Permission
-    let user_id = self.permission_service.current_user_id(context.clone()).await?
-        .unwrap_or_else(|| "SYSTEM".to_string());
-    self.permission_service.check_permission(MANAGE_MEMBERS_PRIVILEGE, context).await?;
-    
-    // Step 3: Lade beide Members
-    let mut from_member = self.member_dao.find_by_id(from_member_id, tx.clone()).await?
-        .ok_or(ServiceError::EntityNotFound(from_member_id))?;
-    let mut to_member = self.member_dao.find_by_id(to_member_id, tx.clone()).await?
-        .ok_or(ServiceError::EntityNotFound(to_member_id))?;
-    
-    // Step 4: Validierungen
-    if share_count <= 0 {
-        return Err(ServiceError::ValidationError(vec![
-            ValidationFailureItem {
-                field: Arc::from("share_count"),
-                message: Arc::from("must be > 0"),
-            }
-        ]));
-    }
-    if from_member.current_shares < share_count {
-        return Err(ServiceError::ValidationError(vec![
-            ValidationFailureItem {
-                field: Arc::from("share_count"),
-                message: Arc::from(format!(
-                    "transfer count {} exceeds from_member current_shares {}",
-                    share_count, from_member.current_shares
-                )),
-            }
-        ]));
-    }
-    if to_member.exit_date.is_some() {
-        return Err(ServiceError::Conflict(Arc::from(
-            "cannot transfer to member with exit_date (not active)"
-        )));
-    }
-    
-    let now = time::OffsetDateTime::now_utc();
-    let now_pdt = time::PrimitiveDateTime::new(now.date(), now.time());
-    
-    // Step 5a: Erstelle MemberAction::UebertragungAbgabe
-    let from_action = MemberActionEntity {
-        id: self.uuid_service.new_v4().await,
-        member_id: from_member_id,
-        action_type: ActionType::UebertragungAbgabe,
-        date: now.date(),
-        shares_change: -(share_count as i32),
-        transfer_member_id: Some(to_member_id),
-        effective_date: None,  // sofort wirksam
-        comment: None,
-        created: now_pdt,
-        deleted: None,
-        version: self.uuid_service.new_v4().await,
-    };
-    
-    crate::audited_create!(
-        self,
-        self.member_action_dao,
-        &from_action,
-        "membership-adjust.transfer-out",
-        &user_id,
-        tx.clone()
-    );
-    
-    // Step 5b: Erstelle MemberAction::UebertragungEmpfang
-    let to_action = MemberActionEntity {
-        id: self.uuid_service.new_v4().await,
-        member_id: to_member_id,
-        action_type: ActionType::UebertragungEmpfang,
-        date: now.date(),
-        shares_change: share_count as i32,
-        transfer_member_id: Some(from_member_id),  // link back to source
-        effective_date: None,
-        comment: None,
-        created: now_pdt,
-        deleted: None,
-        version: self.uuid_service.new_v4().await,
-    };
-    
-    crate::audited_create!(
-        self,
-        self.member_action_dao,
-        &to_action,
-        "membership-adjust.transfer-in",
-        &user_id,
-        tx.clone()
-    );
-    
-    // Step 6: Reduziere from_member.current_shares
-    from_member.current_shares -= share_count;
-    // Wenn from → 0: setze exit_date
-    if from_member.current_shares == 0 {
-        from_member.exit_date = Some(now.date());
-    }
-    
-    crate::audited_update!(
-        self,
-        self.member_dao,
-        from_member_id,
-        &from_member,
-        "membership-adjust.transfer",
-        &user_id,
-        tx.clone()
-    );
-    
-    // Step 7: Erhöhe to_member.current_shares
-    to_member.current_shares += share_count;
-    
-    crate::audited_update!(
-        self,
-        self.member_dao,
-        to_member_id,
-        &to_member,
-        "membership-adjust.transfer",
-        &user_id,
-        tx.clone()
-    );
-    
-    // Step 8: recalc_dates für from (exit_date könnte gesetzt worden sein)
-    self.recalc_dates(from_member_id, tx.clone()).await?;
-    
-    self.transaction_dao.commit(tx).await?;
-    
-    Ok(TransferResult {
-        from_action_id: from_action.id,
-        to_action_id: to_action.id,
-    })
-}
 ```
-
-**Cross-Entity-Linking:** Die zwei MemberActions verlinken sich via `transfer_member_id` (beide zeigen aufeinander). Das ist das existierende Pattern aus v1.1.
-
----
-
-## 6. Frontend-Integration
-
-### Member-Detail-Page-Struktur
-**Pfad:** `/home/neosam/programming/rust/projects/genossi3/genossi-frontend/src/page/member_details.rs`
-
-**Aktuelle Page-Struktur (Zeilen 75ff):**
-```rust
-#[component]
-pub fn MemberDetails(id: String) -> Element {
-    let i18n = use_i18n();
-    let nav = navigator();
-    
-    // Signal: member (MemberTO)
-    let mut member = use_signal(|| { /* default */ });
-    
-    // UI-Sections:
-    // 1. TopBar (Zeile ~150)
-    // 2. Member-Daten (Form mit Feldern wie Name, Email, etc.)
-    // 3. Action-Buttons (z.B. "Eintrittsbestätigung generieren", Zeile ~200)
-    // 4. MemberAction-Timeline (CommunicationTimeline, Zeile ~350)
-    // 5. MemberDocuments (Zeile ~400)
-}
-```
-
-### Neue UI-Komponente: "Mitgliedschaft anpassen"-Button + Modal
-
-**Komponenten-Struktur (Component-First-Prinzip):**
-
-**1. New Component: `membership_adjust_modal.rs`**
-Pfad: `genossi-frontend/src/component/membership_adjust_modal.rs` (neue Datei)
-
-```rust
-#[component]
-pub fn MembershipAdjustModal(
-    member_id: Uuid,
-    is_open: bool,
-    on_close: EventHandler,
-    on_success: EventHandler,  // callback nach Aktion
-) -> Element {
-    let i18n = use_i18n();
-    
-    // State: welche Operation ist gewählt?
-    let mut operation = use_signal(|| MembershipOperation::Cancellation);
-    
-    // State: Datepicker (default: today)
-    let mut willensbekundungs_datum = use_signal(|| /* today */);
-    let mut share_count = use_signal(|| 1i32);
-    let mut target_member_id = use_signal(|| None::<Uuid>);
-    
-    // Rendering:
-    // 1. Modal-Wrapper
-    // 2. Tabs/RadioButtons für die 4 Operationen
-    // 3. Form-Felder pro Operation (z.B. target member für Übertrag)
-    // 4. Datepicker (für Willensbekundung)
-    // 5. Vorschau-Tabelle (read-only)
-    // 6. Confirm-Button + Cancel
-}
-
-enum MembershipOperation {
-    Cancellation,          // Kündigung
-    PartialRepayment,      // Teil-Rückgabe
-    TransferOut,           // Übertrag (nur shares_count + target_member)
-    Increase,              // Aufstockung (nur share_count)
-}
-```
-
-**Shared Components (reuse von v1.1):**
-- `Modal` (bestehend, genossi-frontend/src/component/modal.rs) — Wrapper für die Adjust-Modal
-- `MemberSearch` (bestehend, genossi-frontend/src/component/member_search.rs) — für target-member-Auswahl bei Übertrag
-- `RequirePrivilege` (bestehend?) — oder inline Permission-Check für Admin-only
-
-**2. Button-Integration in MemberDetails**
-`genossi-frontend/src/page/member_details.rs` — neue Button-Zeile:
-
-```rust
-// Nach den existing Buttons (z.B. "Eintrittsbestätigung generieren")
-// um Zeile ~200:
-
-let mut show_adjust_modal = use_signal(|| false);
-
-// Button:
-rsx! {
-    button {
-        disabled: !is_admin,  // nur Vorstand
-        onclick: move |_| show_adjust_modal.set(true),
-        "{i18n.t(Key::MembershipAdjustButton)}"  // "Mitgliedschaft anpassen"
-    }
-}
-
-// Modal:
-{
-    show_adjust_modal() && rsx! {
-        MembershipAdjustModal {
-            member_id: member.id.unwrap(),
-            is_open: show_adjust_modal(),
-            on_close: move |_| show_adjust_modal.set(false),
-            on_success: move |_| {
-                // Reload member data
-                show_adjust_modal.set(false);
-                // Trigger: refetch member from API
-            },
-        }
-    }
-}
-```
-
-**3. i18n Keys (neue Einträge)**
-`genossi-frontend/src/i18n/mod.rs`:
-```rust
-pub enum Key {
-    // ... existing ...
-    MembershipAdjustButton,
-    MembershipAdjustCancellation,
-    MembershipAdjustPartialRepayment,
-    MembershipAdjustTransfer,
-    MembershipAdjustIncrease,
-    MembershipAdjustEffectiveDate,  // Wirksamkeitsdatum
-    MembershipAdjustTargetMember,   // für Übertrag
-    MembershipAdjustShareCount,
-    MembershipAdjustPreview,        // Vorschau-Sektion
-    MembershipAdjustConfirm,        // Bestätigung
-}
-```
-
-**4. Service-Layer Frontend API**
-`genossi-frontend/src/api.rs` — neue Funktionen:
-
-```rust
-pub async fn create_cancellation(
-    member_id: Uuid,
-    effective_date: time::Date,
-) -> Result<MemberActionTO, String> {
-    // POST /api/members/{member_id}/cancel
-}
-
-pub async fn create_partial_repayment(
-    member_id: Uuid,
-    share_count: i32,
-    effective_date: time::Date,
-) -> Result<RepaymentEntryTO, String> {
-    // POST /api/members/{member_id}/partial-repayment
-}
-
-pub async fn transfer_shares(
-    from_member_id: Uuid,
-    to_member_id: Uuid,
-    share_count: i32,
-) -> Result<TransferResultTO, String> {
-    // POST /api/members/{from_member_id}/transfer-to/{to_member_id}
-}
-
-pub async fn create_increase(
-    member_id: Uuid,
-    share_count: i32,
-) -> Result<MemberActionTO, String> {
-    // POST /api/members/{member_id}/increase-shares
-}
+Vorstand uploads file on Application detail
+        ↓  POST /api/applications/{id}/documents (multipart)
+REST application.rs → ApplicationDocumentService.create + document_storage.save
+        ↓  row in application_documents (NOT audited)
+... later: Vorstand confirms application ...
+        ↓  POST /api/applications/{id}/confirm
+ApplicationServiceImpl::confirm (one tx)
+   create Member (audited) → MemberActions (audited)
+   → for each app_doc: copy file + audited_create! MemberDocument  ← NEW
+   → audited_update! Application status=Bestaetigt
+        ↓  commit
 ```
 
 ---
 
-## 7. Permission-Funnel
+## Recommended Build Order (phases)
 
-### Existierendes Permission-System
-`genossi_service/src/permission.rs` — `PermissionService` trait:
-- `check_permission(privilege: &str, context: Authentication<C>) -> Result<(), ServiceError>`
-- Kontext kann sein: `Full` (OIDC-authenticated) oder `Bearer` (QR-Token) oder other
+Ordering respects DAO→Service→REST→Frontend and isolates the audit-bearing work. Features (a)+(b)+(c) are sequential (each builds on the shared helper / schema); feature (d) is independent and can run in parallel.
 
-**Existierende Privileges:**
-- `"admin"` — Vorstand-only (v1.1 RepaymentPhase, MemberAction)
-- `"view_members"` — read-only Mitgliederliste
-- `"manage_members"` — Mitglieder-CRUD
+| Phase | Scope | Depends on | Layer span | Audit? |
+|-------|-------|-----------|------------|--------|
+| **P1 — 8bit + shared mail-body helper** | NEW `mail_body.rs`; refactor `worker.rs::send_mail_for_recipient`, `service.rs::send_test_mail(_with_body)` to use it; force 8bit. Fixes existing test/digest charset bug as a bonus. | — | Service (mail) only, no schema | No |
+| **P2 — HTML mail backend** | Migration (`body_html` on mail_templates+mail_jobs, optional `rendered_body_html`); DAO field plumbing; `create_job`/template signatures; `render_html_template` + dual `resolve_rendered_content`; worker emits multipart/alternative; REST send-bulk/template carry `body_html`; **server-side sanitize (ammonia)**; extend `validate_template*` to probe HTML. | P1 | DAO→Service→REST | No |
+| **P3 — WYSIWYG editor (frontend)** | Reusable Dioxus `wysiwyg_editor` component → HTML into compose flow; preview; seed plain-text `body` from HTML. Component-First (no inline RSX). | P2 (needs `body_html` wire) | Frontend | No |
+| **P4 — Application attachment + carryover** | Migration (`application_documents`); NEW DAO + sqlite impl; `ApplicationDocumentService` (upload/list/download/delete); add `MemberDocumentDao`+`DocumentStorage` to `ApplicationServiceDeps` and wire in `genossi_bin/src/lib.rs`; **`confirm()` cascade with `audited_create!` MemberDocument**; REST endpoints (mirror member_document.rs); frontend upload UI on applications_page. | independent (can parallel P1–P3) | DAO→Service→REST→Frontend | **Yes** (carryover MemberDocument) |
 
-### v1.2 Permission-Strategy
-
-**Alle 4 Operationen:** Vorstand-only (`MANAGE_MEMBERS_PRIVILEGE`)
-
-```rust
-const MANAGE_MEMBERS_PRIVILEGE: &str = "manage_members";
-```
-
-**Service-Methods werden gated bei Entry (vgl. v1.1 Pattern):**
-
-```rust
-// Alle neuen Methods in MemberActionServiceImpl
-pub async fn create_cancellation(&self, ..., context: Authentication<Self::Context>) {
-    // Step 1: Check permission
-    self.permission_service.check_permission(MANAGE_MEMBERS_PRIVILEGE, context).await?;
-    // Step 2-N: proceed
-}
-```
-
-**Frontend-Check:**
-```rust
-// In member_details.rs
-let is_admin = auth.is_authenticated() && auth.has_privilege("manage_members");
-// button wird nur angezeigt wenn is_admin
-```
-
-**REST-Endpoint-Security:**
-`genossi_rest/src/member_action.rs` — die neuen Endpoints erben das Permission-Gating vom Service:
-```rust
-#[post("/api/members/{member_id}/cancel")]
-pub async fn cancel_membership(
-    State(state): State<RestState>,
-    Path(member_id): Path<Uuid>,
-    Authentication(auth): Authentication,
-) -> Result<Json<MemberActionTO>> {
-    let result = state
-        .member_action_service()
-        .create_cancellation(member_id, auth)
-        .await?;
-    Ok(Json(MemberActionTO::from(&result)))
-}
-```
+**Why this order:** P1 is a low-risk pure refactor that establishes the one body-builder all later mail work reuses; doing it first prevents three divergent HTML implementations. P2 cannot precede P1 (it needs the helper). P3 needs P2's `body_html` field to exist. P4 shares nothing with the mail features and touches the audit-critical confirm cascade, so it is best isolated as its own slice with its own UAT.
 
 ---
 
-## 8. Audit-Pflicht & Hash-Chain-Konformität
+## Anti-Patterns (specific to this integration)
 
-### v1.2-Operationen = Audit-Einträge
+### Building HTML/8bit inline in each send path
+**Don't** add HTML/8bit logic separately in `worker.rs`, `service.rs`, and the digest. They will drift (they already have — the `.body()` charset bug). **Do** route every send through `mail_body.rs::build_mail_content`.
 
-**Alle 4 Operationen erzeugen Audit-Log-Einträge via bestehende Macros:**
+### Deriving plain text from rendered HTML
+**Don't** drop the authored text template and `html2text` the HTML. **Do** render both authored templates against the same context; `body` stays the authoritative text fallback.
 
-| Operation | Entity | Macro | Audit-Einträge |
-|---|---|---|---|
-| **Kündigung** | MemberAction (Austritt) | `audited_create!` | 1× MemberAction-Create; 0× Member-Update (exit_date ist Computed aus MemberAction) |
-| **Teil-Rückgabe** | RepaymentEntry | `audited_create!` | 1× RepaymentEntry-Create (später `audited_update!` auf PaidOut + `audited_create!` MemberAction::Verkauf) |
-| **Übertrag** | MemberAction (2×) + Member (2×) | `audited_create!` (2×) + `audited_update!` (2×) | 2× MemberAction-Create + 2× Member-Update |
-| **Aufstockung** | MemberAction + Member | `audited_create!` + `audited_update!` | 1× MemberAction-Create + 1× Member-Update |
+### Trusting the WYSIWYG HTML from the client
+**Don't** persist/send the editor's HTML unsanitized, and don't rely on WASM-side sanitization as the security boundary. **Do** sanitize server-side with an allow-list (ammonia, native-only) at `create_job` and template create/update — the email is sent to members, so the boundary is the backend.
 
-### Hash-Chain-Konformität
+### Interpolating member values into HTML without autoescape
+**Don't** reuse the non-autoescaping `render_template` for the HTML part. **Do** use an HTML-autoescaping env so `{{ first_name }}` etc. are escaped while template markup stays literal.
 
-**Status:** ✓ Fully compatible. Alle Macros verwenden bestehendes Audit-System:
+### Skipping audit macros on the carryover MemberDocument
+**Don't** call `member_document_dao.create()` directly in `confirm()`. **Do** use `audited_create!` with the shared `APPLICATION_SERVICE_PROCESS` + `user_id` + the confirm tx — MemberDocument is an audited entity and the cascade must stay forensically consistent.
 
-`genossi_service_impl/src/audit_macros.rs:L1-36` — `audited_create!`:
-```rust
-#[macro_export]
-macro_rules! audited_create {
-    ($self:expr, $dao:expr, $entity:expr, $process:expr, $user_id:expr, $tx:expr) => {{
-        // 1. DAO-create aufrufen
-        $dao.create($entity, $process, $tx.clone()).await?;
-        
-        // 2. Latest hash laden
-        let prev_hash = $self.audit_log_dao.get_latest_hash($tx.clone()).await?
-            .unwrap_or_default();
-        
-        // 3. Audit-Einträge bauen (build_create_entries)
-        let entries = $crate::audit_log::build_create_entries(
-            $entity,
-            $user_id,
-            $process,
-            &prev_hash,  // ← chaining mit vorherigem Hash
-            &mut || uuid::Uuid::new_v4(),
-        );
-        
-        // 4. Einträge schreiben
-        if !entries.is_empty() {
-            $self.audit_log_dao.create_entries(&entries, $tx.clone()).await?;
-        }
-    }};
-}
-```
-
-**Process-Strings für v1.2 (zur Audit-Log-Rückverfolgung):**
-```rust
-const PROCESS_CANCELLATION: &str = "membership-adjust.cancellation";
-const PROCESS_PARTIAL_REPAYMENT: &str = "membership-adjust.partial-repayment";
-const PROCESS_TRANSFER_OUT: &str = "membership-adjust.transfer-out";
-const PROCESS_TRANSFER_IN: &str = "membership-adjust.transfer-in";
-const PROCESS_INCREASE: &str = "membership-adjust.increase";
-```
-
-**Audit-Felder (MemberActionEntity):**
-`genossi_dao/src/member_action.rs:L76-96` — `audit_fields()`:
-```rust
-impl Auditable for MemberActionEntity {
-    fn audit_fields(&self) -> Vec<(&'static str, Option<String>)> {
-        vec![
-            ("member_id", Some(self.member_id.to_string())),
-            ("action_type", Some(self.action_type.as_str().to_string())),
-            ("date", Some(format_date(&self.date))),
-            ("shares_change", Some(self.shares_change.to_string())),
-            ("transfer_member_id", self.transfer_member_id.map(|u| u.to_string())),
-            ("effective_date", self.effective_date.as_ref().map(format_date)),
-            ("comment", self.comment.as_ref().map(|s| s.to_string())),
-        ]
-    }
-}
-```
-
-**Vorhanden, kein Change nötig:** ✓ Alle neuen v1.2-ActionTypes (`Aufstockung`, `UebertragungEmpfang/Abgabe`) werden bereits auditiert, weil `audit_fields()` unabhängig vom Type funktioniert.
-
-**Member-Updates (current_shares, exit_date):**
-`audited_update!` mapped auch hier: nur geänderte Felder werden geloggt.
-
-**RepaymentEntry-Updates:**
-`audited_create!` + `audited_update!` (für PaidOut-Toggle) — bereits v1.1-Pattern, kein Change für v1.2.
+### DB-write-before-file-copy in the cascade
+**Don't** `audited_create!` the MemberDocument and then copy the file — a copy failure leaves a DB row pointing at a missing file. **Do** copy (load+save) first, then `audited_create!` in the tx.
 
 ---
 
-## Zusammenfassung: Integrations-Checkliste v1.2
+## Integration Points
 
-- [x] **Service-Extension:** MemberActionService erweitern mit 4 neuen Methoden (Cancellation, PartialRepayment, Transfer, Increase)
-- [x] **ActionType-Check:** Alle nötigen Types existieren schon (`Aufstockung`, `UebertragungEmpfang/Abgabe`, `Austritt` mit effective_date)
-- [x] **H1/H2-Funktion:** Reine Funktion `compute_effective_date()` in `member_action.rs` (testbar, keine I/O)
-- [x] **Phase-Lookup:** Teil-Rückgabe braucht RepaymentPhase-Lookup; Fallback auf Fehler oder Auto-Create (discuss-phase)
-- [x] **Übertrag-Atomarität:** 2 MemberActions + 2 Member-Updates in 1 Tx (Pattern: `mark_paid_out()` Cascade)
-- [x] **Frontend-Modal:** Neue `MembershipAdjustModal` Component + Button in MemberDetails (Component-First)
-- [x] **Permission:** `MANAGE_MEMBERS_PRIVILEGE` (Vorstand-only) wie v1.1
-- [x] **Audit:** `audited_create!` / `audited_update!` für alle Operationen; Hash-Chain-compatible
-- [x] **Constraints:** v1.2 erzeugt **KEINE** `MemberAction::Verkauf` und reduziert **NICHT** `current_shares` bei Teil-Rückgabe (nur RepaymentEntry) — kein Doppelbuchen
+### External / infrastructure
+
+| Service | Integration | Notes / gotchas |
+|---------|-------------|-----------------|
+| SMTP relay (lettre 0.11) | `MultiPart::alternative()` of two 8bit `SinglePart`s; `ContentTransferEncoding::EightBit`, `ContentType … charset=utf-8` set manually | **Verify relay advertises 8BITMIME** before shipping P2 — 8bit on a 7bit-only relay risks rejection/mangling. `MultiPart::alternative_plain_html` exists but can't set 8bit. |
+| DocumentStorage (filesystem) | `save/load/delete(relative_path)` — non-transactional | Carryover must copy-before-commit; reuse `application_documents/<uuid>.<ext>` namespace convention. |
+| ammonia (NEW dep) | server-side HTML sanitization | Native-only (html5ever) — add to `genossi_mail`/server crate, **never** the WASM frontend. |
+
+### Internal boundaries
+
+| Boundary | Communication | Notes |
+|----------|---------------|-------|
+| worker / service / digest → `mail_body` | direct sync call | New single source of truth; pure + unit-testable without SMTP. |
+| `render.rs` → `template.rs` | `render_template` + NEW `render_html_template` | Same context object; HTML render adds autoescape only. |
+| `ApplicationService` → `MemberDocumentDao` + `DocumentStorage` | NEW deps via `gen_service_impl!` | Must be wired in `genossi_bin/src/lib.rs RestStateImpl::new()`. |
+| REST application docs → service | multipart, mirrors `member_document.rs:115` | Reuse `lookup_allowed_mime`/`allowed_extensions`/`DefaultBodyLimit`. |
 
 ---
 
-*Last updated: 2026-06-04 — Vorbereitung für `/gsd-discuss-phase 14`. Nächster Schritt: Klären von Auto-Create-Phase-Strategie (Option B empfohlen) und UI-Dialog-Form.*
+## Sources
+
+- Codebase (HIGH): `genossi_mail/src/{worker.rs:627,service.rs:415/447,render.rs:48,template.rs:67,digest.rs}`, `genossi_rest/src/{application.rs:479,member_document.rs:115/209/242}`, `genossi_service_impl/src/{application.rs:280,member_document.rs:53}`, `genossi_service/src/member_document.rs:49` (DocumentType), `genossi_dao/src/auditable.rs`, migration `20260601000000_extend_mail_job_template_phase.sql`.
+- lettre 0.11 docs (MEDIUM-HIGH, verified): `MultiPart::alternative_plain_html` and `ContentTransferEncoding::EightBit` confirmed on docs.rs (`/lettre/0.11/lettre/message/`).
+- Project context (HIGH): `.planning/PROJECT.md` (v1.4 goal, audit constraints, route-ordering lesson), `CLAUDE.md` (audit system, Component-First, layering).
+
+---
+*Architecture research for: Genossi v1.4 — Mail-Formatierung & Antrags-Dokumente*
+*Researched: 2026-06-29*
