@@ -2,6 +2,7 @@
 created: 2026-06-27T15:52:30.497Z
 title: Originalen Mitgliedsantrag als Datei-Attachment an Application hinterlegen
 area: general
+resolves_phase: 25
 files:
   - genossi_dao/src/ (Application-Entity)
   - genossi_service_impl/src/application.rs

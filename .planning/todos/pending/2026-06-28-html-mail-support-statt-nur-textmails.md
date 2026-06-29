@@ -2,6 +2,7 @@
 created: 2026-06-28T20:04:15.018Z
 title: HTML-Mail-Support statt nur Textmails
 area: general
+resolves_phase: 23
 files:
   - genossi_mail/src/lib.rs
   - genossi-frontend/src/component/
