@@ -17,9 +17,17 @@ Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachv
 - ✅ **v1.2 Mitgliedschaft-Anpassungen während des Geschäftsjahres** (2026-06-07) — `MembershipAdjustModal` als shared Component (1078 LOC, 4 Sub-Views Kündigung/Teil-Rückgabe/Übertrag/Aufstockung mit Live-Preview-Confirmation), `compute_effective_date` Pure-Function für H1/H2-Stichtag, atomare Single-Tx-Cascades für alle 4 Operationen, 5 neue REST-Endpoints unter `/api/members/{id}/{cancel|increase-shares|partial-repayment|transfer-shares}` + `/api/members/transfer-recipients`. Vorstand-UAT signed-off; Audit-Status `tech_debt` (alle 31 REQs satisfied, dokumentierte Carry-forward-Posten zu CR-02 Permission-Ordering + Phase-18-UX-Polish).
 - ✅ **v1.3 Posteingang-Benachrichtigung & Reply-Komfort** (2026-06-28) — Inbox-Anhänge persistieren/anzeigen/herunterladen (Phase 19), täglicher Inbox-Digest-Worker (`genossi_mail/src/digest.rs`: konfigurierbare Empfänger + Uhrzeit, Ein-Versand-pro-Kalendertag, Deep-Link auf `/inbox`, kein Versand bei leerem Posteingang/ohne Empfänger), und Reply im vollflächigen `Modal` (X-Header + «Abbrechen» + Dirty-Check-Confirm, Body-Editor unverändert `h-40`). Audit `passed` (11/11 REQs, Integration 8/8 sauber, E2E-Flow Digest→Inbox→Anhänge→Reply, Live-Browser-Smoke-Test bestanden). Phase-21-Code-Review fand+fixte 1 Critical (Footer-Load überschrieb getippten Reply-Body → Datenverlust).
 
-## Current Milestone: — (kein aktiver Milestone)
+## Current Milestone: v1.4 Mail-Formatierung & Antrags-Dokumente
 
-v1.3 ist abgeschlossen (2026-06-28, Audit `passed`). Der nächste Milestone wird via `/gsd-new-milestone` definiert (Questioning → Research → Requirements → Roadmap).
+**Goal:** Vorstände versenden professionell formatierte HTML-Mails (statt nur Rohtext) und können den originalen Mitgliedsantrag als Datei am Antrag hinterlegen, die beim Aktivieren automatisch ans Mitglied übergeht.
+
+**Target features:**
+- **8bit-Kodierung** — Mail-Text als 8bit statt quoted-printable; keine `=`-Soft-Breaks mehr (geteilter Helfer in `genossi_mail`, betrifft `worker.rs` + `service.rs`)
+- **HTML-Mail-Backend** — `multipart/alternative` (Text + HTML) in `genossi_mail`; Plain-Text-Fallback bleibt erhalten
+- **WYSIWYG-Editor (Frontend)** — Rich-Text-Editor (fett/kursiv/Links/Listen) als Dioxus-Component, damit Vorstände ohne HTML-Kenntnisse formatieren
+- **Original-Antrag als Attachment** — Datei-Upload an `Application` (Filesystem via `DocumentStorage`), automatische Übernahme als `MemberDocument` beim Aktivieren des Antrags (Audit-Macros, da `Application`/`MemberDocument` auditiert)
+
+Definiert via `/gsd-new-milestone` am 2026-06-29. Research → Requirements → Roadmap folgen.
 
 **Offene Backlog-Kandidaten** (siehe `.planning/ROADMAP.md` Backlog 999.x + `milestones/v1.2-MILESTONE-AUDIT.md`):
 - 999.1 mock_auth-Deploy-Footgun absichern · 999.2 MailRecipientsTable-Komponente extrahieren · 999.3 Service-Layer für audit_log-/backup-Handler · 999.4 Daten-Lade-Boilerplate in Hook bündeln · 999.5 In-App-Hilfe für Vorstände
@@ -310,4 +318,4 @@ bestehende admin-only Listing-Route `GET /api/assembly/{id}/helper-tokens`).
 
 ---
 
-*Last updated: 2026-06-27 — Phase 20 (Inbox-Digest-Worker) abgeschlossen: DIGEST-01…07 verifiziert, Worker + DB-Foundation + Config-UI live, 2 manuelle UAT-Items offen. Nächste: Phase 21 (Reply-im-Modal). Milestone v1.3 (Posteingang-Benachrichtigung & Reply-Komfort) gestartet: täglicher Inbox-Digest an konfigurierbare Empfänger + Reply-im-Modal. Phase 19 (E-Mail-Anhänge) lief als v1.3-Vorläufer; formelle Definition jetzt, Fortsetzung mit Phasen 20–21. Vorheriger Stand: 2026-06-07 nach v1.2-Milestone (Mitgliedschaft-Anpassungen, 5 Phasen/24 Pläne, Audit `tech_debt`, 31/31 REQs satisfied).*
+*Last updated: 2026-06-29 — Milestone v1.4 (Mail-Formatierung & Antrags-Dokumente) gestartet via `/gsd-new-milestone`: 8bit-Mail-Kodierung (`=`-Soft-Breaks weg), HTML-Mail-Backend (`multipart/alternative`), WYSIWYG-Rich-Text-Editor im Frontend, Original-Antrag als Datei-Attachment an Application mit Auto-Übernahme ans Mitglied. Research → Requirements → Roadmap folgen. Vorheriger Stand: 2026-06-28 nach v1.3-Milestone (Posteingang-Benachrichtigung & Reply-Komfort, 3 Phasen/11 Pläne, Audit `passed`, 11/11 REQs satisfied).*

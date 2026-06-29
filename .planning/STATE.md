@@ -1,19 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.3
-milestone_name: Posteingang-Benachrichtigung & Reply-Komfort
-current_phase: 3
-status: Awaiting next milestone
-stopped_at: Phase 21 UI-SPEC approved
-last_updated: "2026-06-28T05:43:22.509Z"
-last_activity: 2026-06-28
-last_activity_desc: Milestone v1.3 completed and archived
+milestone: v1.4
+milestone_name: Mail-Formatierung & Antrags-Dokumente
+status: planning
+last_updated: "2026-06-29T20:34:53.196Z"
+last_activity: 2026-06-29
 progress:
-  total_phases: 3
-  completed_phases: 3
-  total_plans: 11
-  completed_plans: 11
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # State: Genossi — Between Milestones (v1.2 shipped, v1.3 not yet defined)
@@ -31,10 +28,10 @@ See: `.planning/PROJECT.md` (updated 2026-06-07 after v1.2 close)
 
 ## Current Position
 
-Phase: Milestone v1.3 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-06-28 — Milestone v1.3 completed and archived
+Status: Defining requirements
+Last activity: 2026-06-29 — Milestone v1.4 started
 
 ### Decisions (Phase 21)
 
