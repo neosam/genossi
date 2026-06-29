@@ -67,9 +67,34 @@ Research: `.planning/research/SUMMARY.md` (+ STACK / FEATURES / ARCHITECTURE / P
 
 | REQ-ID | Phase | Status |
 |--------|-------|--------|
-| MAIL-01..05 | TBD (Roadmap) | pending |
-| HTML-01..05 | TBD (Roadmap) | pending |
-| EDIT-01..05 | TBD (Roadmap) | pending |
-| APDOC-01..05 | TBD (Roadmap) | pending |
+| MAIL-01 | Phase 22 | pending |
+| MAIL-02 | Phase 22 | pending |
+| MAIL-03 | Phase 22 | pending |
+| MAIL-04 | Phase 22 | pending |
+| MAIL-05 | Phase 22 | pending |
+| HTML-01 | Phase 23 | pending |
+| HTML-02 | Phase 23 | pending |
+| HTML-03 | Phase 23 | pending |
+| HTML-04 | Phase 23 | pending |
+| HTML-05 | Phase 23 | pending |
+| EDIT-01 | Phase 24 | pending |
+| EDIT-02 | Phase 24 | pending |
+| EDIT-03 | Phase 24 | pending |
+| EDIT-04 | Phase 24 | pending |
+| EDIT-05 | Phase 24 | pending |
+| APDOC-01 | Phase 25 | pending |
+| APDOC-02 | Phase 25 | pending |
+| APDOC-03 | Phase 25 | pending |
+| APDOC-04 | Phase 25 | pending |
+| APDOC-05 | Phase 25 | pending |
 
-_Wird vom Roadmapper befüllt._
+**Coverage:** 20/20 v1.4-Requirements gemappt (100%). Keine Orphans, keine Duplikate.
+
+**Phasen-Mapping:**
+
+- **Phase 22 — 8bit + Shared Mail-Body Helper:** MAIL-01..05 (Service-only, keine Schema-Änderung, kein Audit)
+- **Phase 23 — HTML Mail Backend:** HTML-01..05 (DAO→Service→REST, forward-only Migration `body_html`, ammonia-Gate, kein Audit)
+- **Phase 24 — WYSIWYG Frontend Editor:** EDIT-01..05 (Frontend, keine neuen Deps, kein Audit)
+- **Phase 25 — Application File Upload + Audited Carryover:** APDOC-01..05 (DAO→Service→REST→Frontend; `application_documents`-Tabelle NICHT auditiert, Carryover-`MemberDocument` IST auditiert; unabhängig/parallelisierbar zu 22→23→24)
+
+_Befüllt vom Roadmapper 2026-06-29._

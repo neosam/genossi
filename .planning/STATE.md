@@ -3,20 +3,20 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Mail-Formatierung & Antrags-Dokumente
 status: planning
-last_updated: "2026-06-29T20:34:53.196Z"
+last_updated: "2026-06-29T21:10:00.000Z"
 last_activity: 2026-06-29
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
   percent: 0
 ---
 
-# State: Genossi — Between Milestones (v1.2 shipped, v1.3 not yet defined)
+# State: Genossi — v1.4 Mail-Formatierung & Antrags-Dokumente (Roadmap erstellt)
 
 **Initialized:** 2026-05-02
-**Last Updated:** 2026-06-07 (v1.2 milestone close)
+**Last Updated:** 2026-06-29 (v1.4 Roadmap erstellt — Phases 22-25)
 
 ## Project Reference
 
@@ -24,14 +24,27 @@ See: `.planning/PROJECT.md` (updated 2026-06-07 after v1.2 close)
 
 **Core Value:** Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachvollziehbar (Audit-Hashchain), mit weniger manueller Arbeit.
 
-**Current Focus:** Phase 20 — inbox-digest-t-glicher-posteingangs-benachrichtigungs-worker
+**Current Focus:** Phase 22 — 8bit + Shared Mail-Body Helper (v1.4, erste Phase, noch nicht gestartet)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 22 (Not started) — first phase of v1.4
 Plan: —
-Status: Defining requirements
-Last activity: 2026-06-29 — Milestone v1.4 started
+Status: Roadmap created (4 phases, 20/20 requirements mapped, 100% coverage) — ready for `/gsd-plan-phase 22`
+Last activity: 2026-06-29 — v1.4 Roadmap erstellt (Phases 22-25, fortlaufend nach v1.3 Phase 21)
+
+### v1.4 Phase Structure (Phases 22-25, granularity: coarse)
+
+| Phase | Goal | Requirements | Depends on |
+|-------|------|--------------|------------|
+| 22. 8bit + Shared Mail-Body Helper | Single body-builder + opt-in 8bit (no `=` soft-breaks) | MAIL-01..05 | — |
+| 23. HTML Mail Backend | multipart/alternative + autoescape HTML render + ammonia gate | HTML-01..05 | Phase 22 |
+| 24. WYSIWYG Frontend Editor | contenteditable Dioxus component + live preview | EDIT-01..05 | Phase 23 |
+| 25. Application Upload + Audited Carryover | admin upload to Application, audited MemberDocument copy on confirm | APDOC-01..05 | — (parallel to 22→23→24) |
+
+**Build order:** 22 → 23 → 24 strictly sequential (shared helper, then `body_html`+ammonia wire, then editor). Phase 25 is dependency-independent and parallelizable. Hard constraint: ammonia gate (P23) lands before/with WYSIWYG (P24), never after.
+
+**Audit scope (v1.4):** Only the Phase-25 carryover `MemberDocument` is audited (`audited_create!` under `APPLICATION_SERVICE_PROCESS` in the confirm tx). The new `application_documents` table and all mail/editor work (Phases 22-24) need NO audit. New backend dependency: exactly one — `ammonia` (server-side only, never WASM).
 
 ### Decisions (Phase 21)
 

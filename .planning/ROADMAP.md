@@ -1,6 +1,6 @@
 # Roadmap: Genossi
 
-Mitgliederverwaltungs-Software für Genossenschaften. Aktiver Stand: vier ausgelieferte Milestones — v1.0 (GV-Anwesenheits-Erfassung), v1.1 (Anteile-Rückzahlungsphase), v1.2 (Mitgliedschaft-Anpassungen während des Geschäftsjahres), v1.3 (Posteingang-Benachrichtigung & Reply-Komfort). Kein aktiver Milestone — nächster via `/gsd-new-milestone`. Offene Kandidaten siehe Backlog (999.x).
+Mitgliederverwaltungs-Software für Genossenschaften. Aktiver Stand: vier ausgelieferte Milestones — v1.0 (GV-Anwesenheits-Erfassung), v1.1 (Anteile-Rückzahlungsphase), v1.2 (Mitgliedschaft-Anpassungen während des Geschäftsjahres), v1.3 (Posteingang-Benachrichtigung & Reply-Komfort). **Aktiver Milestone: v1.4 Mail-Formatierung & Antrags-Dokumente (Phases 22-25).** Offene Kandidaten siehe Backlog (999.x).
 
 ## Milestones
 
@@ -8,6 +8,7 @@ Mitgliederverwaltungs-Software für Genossenschaften. Aktiver Stand: vier ausgel
 - ✅ **v1.1 Anteile-Rückzahlungsphase** — Phases 7-13 (shipped 2026-06-02)
 - ✅ **v1.2 Mitgliedschaft-Anpassungen** — Phases 14-18 (shipped 2026-06-07)
 - ✅ **v1.3 Posteingang-Benachrichtigung & Reply-Komfort** — Phases 19-21 (shipped 2026-06-28)
+- 🚧 **v1.4 Mail-Formatierung & Antrags-Dokumente** — Phases 22-25 (active, defined 2026-06-29)
 
 ## Phases
 
@@ -66,6 +67,74 @@ Archive: `.planning/milestones/v1.3-ROADMAP.md` · `v1.3-REQUIREMENTS.md` · `v1
 
 </details>
 
+### 🚧 v1.4 Mail-Formatierung & Antrags-Dokumente (Phases 22-25) — ACTIVE
+
+**Goal:** Vorstände versenden professionell formatierte HTML-Mails (statt nur Rohtext) und können den originalen Mitgliedsantrag als Datei am Antrag hinterlegen, die beim Aktivieren automatisch ans Mitglied übergeht.
+
+- [ ] **Phase 22: 8bit + Shared Mail-Body Helper** - Ein geteilter Body-Bau-Helfer für alle Sendepfade; opt-in 8bit entfernt `=`-Soft-Breaks (MAIL-01..05)
+- [ ] **Phase 23: HTML Mail Backend** - `multipart/alternative` (Text+HTML) mit autoescapender HTML-Render-Env + serverseitiger ammonia-Sanitization (HTML-01..05)
+- [ ] **Phase 24: WYSIWYG Frontend Editor** - Wiederverwendbare Dioxus-`contenteditable`-Component ersetzt `body_editor`, mit Paste-Cleanup + Live-Vorschau (EDIT-01..05)
+- [ ] **Phase 25: Application File Upload + Audited Carryover** - Admin-Upload an `Application`, auditierte Kopie als `MemberDocument` beim `confirm` (APDOC-01..05)
+
+**Dependency-Reihenfolge:** Phase 22 → 23 → 24 ist strikt sequenziell (jede baut auf der vorherigen auf: der geteilte Body-Helfer aus 22 verhindert drei divergierende HTML-Implementierungen; der `body_html`-Wire + ammonia-Gate aus 23 müssen existieren, bevor der Editor in 24 HTML postet). **Phase 25 ist dependency-technisch unabhängig** von der Mail-Strecke und kann parallel zu 22→23→24 laufen — sie teilt keinen Code mit den Mail-Features und isoliert die audit-kritische `confirm()`-Cascade mit eigener UAT.
+
+**Harte Ordering-Constraint:** Das ammonia-Gate (Phase 23) MUSS strikt vor oder mit dem WYSIWYG-Editor (Phase 24) landen — niemals danach. Frontend-Sanitization ist keine Sicherheitsgrenze.
+
+## Phase Details
+
+### Phase 22: 8bit + Shared Mail-Body Helper
+**Goal**: Alle ausgehenden Mails laufen über einen einzigen Body-Bau-Helfer mit konsistentem `charset=utf-8`, und der Text-Teil kann (config-gated) als 8bit gesendet werden, sodass Empfänger keine sichtbaren `=`-Soft-Line-Breaks mehr sehen.
+**Depends on**: Nothing (erste Phase des Milestones; baut auf bestehendem `genossi_mail` auf, keine Schema-Änderungen)
+**Requirements**: MAIL-01, MAIL-02, MAIL-03, MAIL-04, MAIL-05
+**Success Criteria** (what must be TRUE):
+  1. Test-Mail, Massenmail und Digest laufen alle über denselben geteilten Body-Bau-Helfer in `genossi_mail` und erzeugen konsistent `charset=utf-8` (der bestehende Charset-Bug im Test-Mail-Pfad ist behoben). (MAIL-01)
+  2. Mit aktivierter 8bit-Kodierung enthalten empfangene Text-Mails keine sichtbaren `=`-Soft-Line-Breaks mehr (Umlaute und lange Zeilen kommen sauber an). (MAIL-02)
+  3. Die Kodierung ist per Konfiguration umschaltbar; der Default bleibt quoted-printable, sodass das Produktivverhalten unverändert ist, bis der Betreiber opt-in aktiviert. (MAIL-03)
+  4. Bestehende reine Text-Mails (Massenmail, Test-Mail, Digest) kommen mit Default-Config unverändert korrekt an (keine Regression). (MAIL-05)
+  5. Die `8BITMIME`-Unterstützung des Produktiv-Relays wird per EHLO-Capability-Check verifiziert, bevor 8bit in Produktion aktiviert wird — dokumentierter Verifikations-Schritt, aus der Dev-Umgebung nicht durchführbar (Relay nur über Produktiv-Netz erreichbar), also Verify-in-Prod statt automatisierter Test. (MAIL-04)
+**Plans**: TBD
+
+### Phase 23: HTML Mail Backend
+**Goal**: Eine Mail kann mit Text- UND HTML-Teil als `multipart/alternative` versendet werden, wobei mitglieds-/nutzergelieferte Werte sicher escaped und vom Vorstand verfasstes HTML serverseitig saniert werden.
+**Depends on**: Phase 22 (nutzt den geteilten `mail_body`-Helfer für die korrekte MIME-Verschachtelung; ohne ihn drohen drei divergierende HTML-Implementierungen)
+**Requirements**: HTML-01, HTML-02, HTML-03, HTML-04, HTML-05
+**Success Criteria** (what must be TRUE):
+  1. Eine mit Text- und HTML-Body gesendete Mail kommt als `multipart/alternative` an (Text zuerst, dann HTML); mit Anhang ist die Struktur korrekt als `mixed{ alternative{plain, html}, attachments }` verschachtelt. (HTML-01)
+  2. Der Plain-Text-Teil stammt aus dem bestehenden, vom Autor verfassten `body` — keine Ableitung aus dem HTML, keine zusätzliche Crate. (HTML-02)
+  3. Legacy-Templates/-Jobs ohne HTML (`body_html` NULL nach der forward-only `ADD COLUMN … NULL`-Migration) versenden weiterhin reine Text-Mails (backward-kompatibel). (HTML-03)
+  4. Template-Variablen werden in Text- UND HTML-Body interpoliert; ein Mitglied namens `<script> & Co` erscheint im HTML-Body HTML-escaped (`&lt;script&gt; &amp;`), während die vom Autor verfasste Markup-Struktur erhalten bleibt — die HTML-Render-Variante nutzt eine separate autoescapende minijinja-Env, `strict_env()` bleibt für Text und Subject unverändert. (HTML-04)
+  5. Vom Vorstand verfasstes HTML wird an allen Eintritts-Punkten (`create_job`, Template-Create/Update, Test-Mail-Pfad) serverseitig mit `ammonia` saniert (Whitelist fett/kursiv/Links/Listen/Absätze; `javascript:`/`data:`-Links und Event-Handler werden gestrippt), bevor es gespeichert/versendet wird. (HTML-05)
+**Plans**: TBD
+**UI hint**: no
+
+### Phase 24: WYSIWYG Frontend Editor
+**Goal**: Ein Vorstand ohne HTML-Kenntnisse verfasst formatierte Mails (fett/kursiv/Links/Listen) in einem wiederverwendbaren WYSIWYG-Editor, der sauberes, sanitisierbares HTML erzeugt und eine Live-Vorschau bietet.
+**Depends on**: Phase 23 (benötigt den `body_html`-API-Wire zum Posten; das ammonia-Gate muss existieren, bevor HTML aus dem Editor akzeptiert wird — harte Ordering-Constraint)
+**Requirements**: EDIT-01, EDIT-02, EDIT-03, EDIT-04, EDIT-05
+**Success Criteria** (what must be TRUE):
+  1. Ein Vorstand formatiert Mail-Text (fett, kursiv, Links, Aufzählungs- und nummerierte Listen) in einem WYSIWYG-Editor, der den bestehenden `body_editor`-Textarea ersetzt und als wiederverwendbare Dioxus-Component gebaut ist (keine neuen Frontend-Dependencies; `contenteditable` + `execCommand` über vorhandenes web-sys). (EDIT-01)
+  2. Der Editor erzeugt semantische `<b>/<i>`-Tags (`styleWithCSS=false` erzwungen), die die ammonia-Sanitization überleben — nicht inline-`style`-Spans, die gestrippt würden. (EDIT-02)
+  3. Der HTML-Inhalt des Editors wird beim Absenden zuverlässig aus dem contenteditable-DOM ausgelesen und mit dem Dioxus-State synchronisiert (kein Datenverlust beim Submit). (EDIT-03)
+  4. Eingefügter Inhalt (Paste, z. B. aus Word/Browser) wird beim Einfügen bereinigt, sodass kein verschmutztes Markup in den Mail-Body gelangt. (EDIT-04)
+  5. Eine Live-Vorschau zeigt dem Vorstand das gerenderte HTML vor dem Versand. (EDIT-05)
+**Plans**: TBD
+**UI hint**: yes
+
+### Phase 25: Application File Upload + Audited Carryover
+**Goal**: Ein Admin kann den originalen Mitgliedsantrag als Datei an eine `Application` hinterlegen; beim Aktivieren wird die Datei automatisch als auditiertes `MemberDocument` ans Mitglied kopiert. (Unabhängig — parallelisierbar zu 22→23→24.)
+**Depends on**: Nothing (dependency-technisch unabhängig von der Mail-Strecke; kann parallel zu Phase 22→23→24 laufen)
+**Requirements**: APDOC-01, APDOC-02, APDOC-03, APDOC-04, APDOC-05
+**Success Criteria** (what must be TRUE):
+  1. Ein Admin lädt eine Datei (z. B. eingescannter Original-Antrag als PDF) an eine `Application` hoch; sie wird über `DocumentStorage` im Filesystem gespeichert (nicht in der DB) und spiegelt das bestehende `member_document`-Upload-Muster (Multipart, `DefaultBodyLimit`, MIME-Allowlist, UUID-Pfad gegen Path-Traversal). (APDOC-01)
+  2. Der Upload-Endpunkt ist admin-only (der Antrags-Submit-Pfad bleibt `PUBLIC`); dabei wird die carry-forward CR-02 Permission-Check-Ordering an dieser Stelle korrekt umgesetzt (`check_permission()` vor `current_user_id()`). (APDOC-02)
+  3. Beim `confirm` einer `Application` wird ein hinterlegtes Antrags-Dokument **kopiert** (nicht verschoben) und als auditiertes `MemberDocument` am Mitglied angelegt — innerhalb derselben atomaren Aktivierungs-Transaktion, via `audited_create!` unter `APPLICATION_SERVICE_PROCESS` mit `DocumentType::Other` + beschreibender Bezeichnung. (APDOC-03)
+  4. Die Aktivierung ist robust gegen Edge-Cases: Antrag ohne Dokument übernimmt nichts (kein Fehler), Re-Aktivierung wird durch den bestehenden `Offen`-Status-Guard verhindert (keine Doppel-Übernahme), fehlende Datei auf dem Filesystem → Transaktion rollt zurück. (APDOC-04)
+  5. Das Antrags-Dokument ist im Frontend an der Application sichtbar und herunterladbar (admin-only). (APDOC-05)
+**Plans**: TBD
+**UI hint**: yes
+
+> **Audit-Hinweis (Phase 25):** Die neue `application_documents`-Tabelle ist **nicht** auditiert (gleiche Ausnahme wie die GV-Entitäten). Das beim `confirm` kopierte `MemberDocument` **ist** auditiert (`MemberDocument` ist eine auditierte Entität) und MUSS über `audited_create!` in derselben Aktivierungs-Transaktion mit dem `APPLICATION_SERVICE_PROCESS`-String erzeugt werden. Mail-/Editor-Arbeit (Phasen 22-24) benötigt keinerlei Audit.
+
 ## Progress
 
 | Phase                                              | Milestone | Plans Complete | Status      | Completed  |
@@ -91,6 +160,10 @@ Archive: `.planning/milestones/v1.3-ROADMAP.md` · `v1.3-REQUIREMENTS.md` · `v1
 | 19. E-Mail-Anhänge anzeigen                        | v1.3      | 7/7            | Complete    | 2026-06-09 |
 | 20. Inbox-Digest (täglicher Benachrichtigungs-Worker) | v1.3   | 3/3 | Complete    | 2026-06-27 |
 | 21. Reply-Komfort (Antwort im Modal)               | v1.3      | 1/1 | Complete   | 2026-06-27 |
+| 22. 8bit + Shared Mail-Body Helper                 | v1.4      | 0/?            | Not started | -          |
+| 23. HTML Mail Backend                              | v1.4      | 0/?            | Not started | -          |
+| 24. WYSIWYG Frontend Editor                        | v1.4      | 0/?            | Not started | -          |
+| 25. Application File Upload + Audited Carryover     | v1.4      | 0/?            | Not started | -          |
 
 ---
 
@@ -155,4 +228,4 @@ Archive: `.planning/milestones/v1.3-ROADMAP.md` · `v1.3-REQUIREMENTS.md` · `v1
 
 ---
 
-_Last updated: 2026-06-28 — v1.3 abgeschlossen (Phasen 19-21, 11 Plans): Inbox-Anhänge + täglicher Digest-Worker + Reply-Modal. Milestone-Audit `passed` (11/11 Reqs, Integration 8/8 sauber, Live-Smoke-Test); Phase-21-Code-Review fand+fixte 1 Critical. Archiviert nach `milestones/v1.3-*`. Kein aktiver Milestone — nächster via `/gsd-new-milestone`. Backlog 999.x offen._
+_Last updated: 2026-06-29 — v1.4 Mail-Formatierung & Antrags-Dokumente gestartet (Phases 22-25, fortlaufende Nummerierung nach v1.3 Phase 21). 20 REQs (MAIL/HTML/EDIT/APDOC je 5) auf 4 Phasen gemappt, 100% Coverage. Build-Order 22→23→24 sequenziell, Phase 25 parallelisierbar. v1.0-v1.3 Historie + Backlog 999.x unverändert erhalten._
