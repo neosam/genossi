@@ -4,23 +4,23 @@ milestone: v1.4
 milestone_name: Mail-Formatierung & Antrags-Dokumente
 current_phase: 24
 status: executing
-stopped_at: Completed 24-02-PLAN.md
-last_updated: "2026-07-03T00:30:00.000Z"
+stopped_at: Completed 24-03-PLAN.md
+last_updated: "2026-07-03T01:20:00.000Z"
 last_activity: 2026-07-03
-last_activity_desc: "Phase 24 Plan 02 abgeschlossen (Wave 2 component: WysiwygEditor + WysiwygToolbar + WysiwygLinkDialog + exec_command_bool/str/simple facade in js.rs; styleWithCSS=false onmounted; onpaste preventDefault + insertText plain; 13 ammonia-safe toolbar buttons alle r#type=button + prevent_default; In-App Modal für Link-Dialog, kein window.prompt; Selection Range preservation across modal; sync_from_dom nach jeder DOM-Mutation; web-sys Selection + Range Features; 3 is_valid_link_url tests grün; cargo check + cargo build clean; Plan 24-03 (Migration) unblocked)"
+last_activity_desc: "Phase 24 Plan 03 abgeschlossen (Wave 3 Migration: alle 3 MailBodyEditor-Verwender auf WysiwygEditor umgestellt — mail_page.rs (Massenmail-Compose) + reply_form.rs (Inbox-Reply) + mail_templates.rs (Template-Editor); body_html end-to-end verkabelt via send_bulk_mail + reply_inbox_mail + create/update_mail_template; Submit-Guard DOM-Read an jedem send/reply/save; empty→None Backward-Compat-Regel überall; TemplatePreview mit dangerous_inner_html HTML-Render-Block; TemplateTester body_html Prop; body_editor.rs gelöscht + mod.rs aufgeräumt; 3 neue serde-lock Tests + 284 Frontend-Tests grün; wasm32 + workspace-build clean; Plan 24-04 (UAT) unblocked)"
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 12
-  completed_plans: 10
-  percent: 58
+  completed_plans: 11
+  percent: 67
 current_phase_name: WYSIWYG Frontend Editor
 ---
 
 # State: Genossi — v1.4 Mail-Formatierung & Antrags-Dokumente (Roadmap erstellt)
 
 **Initialized:** 2026-05-02
-**Last Updated:** 2026-07-03 (Phase 24 Plan 02 executed — Wave 2 component set complete)
+**Last Updated:** 2026-07-03 (Phase 24 Plan 03 executed — Wave 3 Migration complete, all 3 call sites on WysiwygEditor)
 
 ## Project Reference
 
@@ -28,14 +28,14 @@ See: `.planning/PROJECT.md` (updated 2026-06-07 after v1.2 close)
 
 **Core Value:** Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachvollziehbar (Audit-Hashchain), mit weniger manueller Arbeit.
 
-**Current Focus:** Phase 24 — WYSIWYG Frontend Editor Wave 2 (WysiwygEditor + Toolbar + LinkDialog Komponenten) abgeschlossen; Plan 24-03 (Migration der 3 MailBodyEditor Call-Sites) als nächstes.
+**Current Focus:** Phase 24 — WYSIWYG Frontend Editor Wave 3 (Migration) abgeschlossen; Plan 24-04 (UAT + e2e Tests) als nächstes.
 
 ## Current Position
 
-Phase: 24 (in progress) — WYSIWYG Frontend Editor, Plan 02 of 4 executed
-Plan: 24-01 + 24-02 completed (Wave 1 + Wave 2); 24-03, 24-04 pending
-Status: Wave 2 Component-Set gelandet — WysiwygEditor + WysiwygToolbar + WysiwygLinkDialog + 3 exec_command_* helpers in js.rs. contenteditable + styleWithCSS=false onmounted + onpaste plain-text-only + 13 ammonia-safe toolbar buttons + In-App Modal für Link-URL (kein window.prompt) + Selection Range preservation across modal. cargo check + cargo build clean; 3 is_valid_link_url tests grün. Plan 24-03 (Wave 3, Migration) kann durch reines Import-Swap in 3 Call-Sites erfolgen.
-Last activity: 2026-07-03 — Phase 24 Plan 02 abgeschlossen (5 Tasks atomar committed; 3 neue Component-Files + js.rs execCommand-Facade + Cargo.toml Selection+Range Features + mod.rs pub use WysiwygEditor).
+Phase: 24 (in progress) — WYSIWYG Frontend Editor, Plan 03 of 4 executed
+Plan: 24-01 + 24-02 + 24-03 completed (Wave 1 + Wave 2 + Wave 3); 24-04 pending
+Status: Wave 3 Migration gelandet — alle 3 MailBodyEditor-Verwender (mail_page.rs Massenmail-Compose, reply_form.rs Inbox-Reply, mail_templates.rs Template-Editor) nutzen jetzt WysiwygEditor mit companion body_html-Signal; Submit-Guard DOM-Read an jedem send/reply/save-Button; empty→None Backward-Compat-Regel überall angewandt; TemplatePreview mit dangerous_inner_html HTML-Render-Block; TemplateTester body_html Prop; body_editor.rs gelöscht; 3 neue serde-lock Tests + 284 Frontend-Tests grün; cargo check + cargo build clean. Plan 24-04 (Wave 4, UAT + e2e Tests) unblocked.
+Last activity: 2026-07-03 — Phase 24 Plan 03 abgeschlossen (6 Tasks atomar committed; 7 Dateien modifiziert + 1 gelöscht; 3 neue Serialization-Tests; Submit-Guard-Muster etabliert).
 
 ### v1.4 Phase Structure (Phases 22-25, granularity: coarse)
 
@@ -55,6 +55,16 @@ Last activity: 2026-07-03 — Phase 24 Plan 02 abgeschlossen (5 Tasks atomar com
 - D-05-Falle umgesetzt: Dirty-Check-Baseline (subject+body) wird INNERHALB des Footer-use_effect NACH dem Body-Compose gesnapshottet — pure `is_draft_dirty`-Helfer mit 4 Unit-Tests.
 - D-07: nativer `web_sys::window().confirm_with_message` als Verwerfen-Bestätigung (kein verschachteltes In-App-Modal).
 - D-08: `MailBodyEditor` unverändert (h-40, von Compose geteilt); mehr Schreibfläche kommt aus dem breiten Modal-Kontext.
+
+### Decisions (Phase 24 Plan 03)
+
+- Submit-Guard-Muster: jeder send/reply/save Button liest vor dem API-Request nochmal innerHTML + innerText direkt aus dem contenteditable-DOM per `web_sys::HtmlElement::inner_text()` + `Element::inner_html()` (Pitfall 5 belt-and-suspenders, D-01) — Ausfallsicherheit gegen verpasste on_command-Sync-Events.
+- Empty→None Backward-Compat-Regel überall: `if body_html.trim().is_empty() { None } else { Some(...) }` an jedem send/reply/save-Entry-Point (mail_page + reply_form + mail_templates) — leere WysiwygEditor-Eingabe → legacy plaintext-only send/reply/save (Phase 23 HTML-03).
+- TemplatePreview.body_html + TemplateTester.body_html Props sind #[props(default)] — erlaubt inkrementellen intra-plan Migrations-Compile-Chain (Tasks 2/3/4 upgraden atomar); dangerous_inner_html-Render safe weil Backend via autoescape env (Phase 23 D-04) + ammonia (D-03) rendert, Frontend rendert nie roh User-HTML.
+- TemplateVarButtons.on_insert spiegelt eingefügte Variable (HTML-escaped) in body_html/reply_body_html/edit_body_html — signal-sync-adequat bis zum nächsten User-Keystroke (contenteditable resynct via oninput vom DOM zurück).
+- TemplateSelector.on_select löscht body_html/reply_body_html/edit_body_html — Templates liefern nur plain body; HTML entsteht danach im WysiwygEditor.
+- body_editor.rs gelöscht + mod.rs aufgeräumt — keine Historie-Kommentare in Consumer-Files nötig; Grep-Test bestätigt 0 MailBodyEditor-Referenzen außerhalb Kommentare.
+- footer/quote-Prepending bleibt plain-body only (mail_page.rs cached_footer + reply_form.rs quote_block) — body_html erst mit erstem User-Input im WysiwygEditor gefüllt; Wave 3 intentional UX-tradeoff.
 
 ### Decisions (Phase 24 Plan 02)
 
