@@ -42,6 +42,10 @@ Research: `.planning/research/SUMMARY.md` (+ STACK / FEATURES / ARCHITECTURE / P
 - [ ] **APDOC-04**: Aktivierung ist robust gegen Edge-Cases: Antrag ohne Dokument (übernimmt nichts, kein Fehler), Re-Aktivierung wird durch den bestehenden `Offen`-Status-Guard verhindert (keine Doppel-Übernahme), fehlende Datei auf dem Filesystem → Transaktion rollt zurück.
 - [ ] **APDOC-05**: Das Antrags-Dokument ist im Frontend an der Application sichtbar und herunterladbar (admin-only).
 
+### FMT — Mail-Datumsformatierung
+
+- [ ] **FMT-01**: Datums-Template-Variablen (`join_date`, `exit_date`, ggf. weitere) werden in Mails im deutschen Format `DD.MM.YYYY` (z. B. `02.07.2026`) gerendert statt im technischen `.to_string()`-Default — konsistent in Text- und HTML-Mails. Root-Cause: `genossi_mail/src/template.rs:17-18` nutzt `.to_string()`; Fix via `time::format_description`-Vorlage `"[day].[month].[year]"` (kleiner geteilter Helfer + Unit-Test analog `test_exit_date_null`).
+
 ---
 
 ## Future Requirements (deferred — nicht in v1.4)
@@ -77,6 +81,7 @@ Research: `.planning/research/SUMMARY.md` (+ STACK / FEATURES / ARCHITECTURE / P
 | HTML-03 | Phase 23 | pending |
 | HTML-04 | Phase 23 | pending |
 | HTML-05 | Phase 23 | pending |
+| FMT-01 | Phase 23 | pending |
 | EDIT-01 | Phase 24 | pending |
 | EDIT-02 | Phase 24 | pending |
 | EDIT-03 | Phase 24 | pending |
@@ -88,12 +93,12 @@ Research: `.planning/research/SUMMARY.md` (+ STACK / FEATURES / ARCHITECTURE / P
 | APDOC-04 | Phase 25 | pending |
 | APDOC-05 | Phase 25 | pending |
 
-**Coverage:** 20/20 v1.4-Requirements gemappt (100%). Keine Orphans, keine Duplikate.
+**Coverage:** 21/21 v1.4-Requirements gemappt (100%). Keine Orphans, keine Duplikate.
 
 **Phasen-Mapping:**
 
 - **Phase 22 — 8bit + Shared Mail-Body Helper:** MAIL-01..05 (Service-only, keine Schema-Änderung, kein Audit)
-- **Phase 23 — HTML Mail Backend:** HTML-01..05 (DAO→Service→REST, forward-only Migration `body_html`, ammonia-Gate, kein Audit)
+- **Phase 23 — HTML Mail Backend:** HTML-01..05 + FMT-01 (DAO→Service→REST, forward-only Migration `body_html`, ammonia-Gate, deutsches Datumsformat in Template-Variablen, kein Audit)
 - **Phase 24 — WYSIWYG Frontend Editor:** EDIT-01..05 (Frontend, keine neuen Deps, kein Audit)
 - **Phase 25 — Application File Upload + Audited Carryover:** APDOC-01..05 (DAO→Service→REST→Frontend; `application_documents`-Tabelle NICHT auditiert, Carryover-`MemberDocument` IST auditiert; unabhängig/parallelisierbar zu 22→23→24)
 

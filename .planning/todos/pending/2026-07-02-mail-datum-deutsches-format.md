@@ -2,6 +2,7 @@
 created: 2026-07-02T00:00:00.000Z
 title: Datums-Template-Variablen in Mails im deutschen Format (DD.MM.YYYY)
 area: general
+resolves_phase: 23
 files:
   - genossi_mail/src/template.rs:17-18
 ---

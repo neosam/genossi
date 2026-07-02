@@ -97,13 +97,14 @@ Archive: `.planning/milestones/v1.3-ROADMAP.md` · `v1.3-REQUIREMENTS.md` · `v1
 ### Phase 23: HTML Mail Backend
 **Goal**: Eine Mail kann mit Text- UND HTML-Teil als `multipart/alternative` versendet werden, wobei mitglieds-/nutzergelieferte Werte sicher escaped und vom Vorstand verfasstes HTML serverseitig saniert werden.
 **Depends on**: Phase 22 (nutzt den geteilten `mail_body`-Helfer für die korrekte MIME-Verschachtelung; ohne ihn drohen drei divergierende HTML-Implementierungen)
-**Requirements**: HTML-01, HTML-02, HTML-03, HTML-04, HTML-05
+**Requirements**: HTML-01, HTML-02, HTML-03, HTML-04, HTML-05, FMT-01
 **Success Criteria** (what must be TRUE):
   1. Eine mit Text- und HTML-Body gesendete Mail kommt als `multipart/alternative` an (Text zuerst, dann HTML); mit Anhang ist die Struktur korrekt als `mixed{ alternative{plain, html}, attachments }` verschachtelt. (HTML-01)
   2. Der Plain-Text-Teil stammt aus dem bestehenden, vom Autor verfassten `body` — keine Ableitung aus dem HTML, keine zusätzliche Crate. (HTML-02)
   3. Legacy-Templates/-Jobs ohne HTML (`body_html` NULL nach der forward-only `ADD COLUMN … NULL`-Migration) versenden weiterhin reine Text-Mails (backward-kompatibel). (HTML-03)
   4. Template-Variablen werden in Text- UND HTML-Body interpoliert; ein Mitglied namens `<script> & Co` erscheint im HTML-Body HTML-escaped (`&lt;script&gt; &amp;`), während die vom Autor verfasste Markup-Struktur erhalten bleibt — die HTML-Render-Variante nutzt eine separate autoescapende minijinja-Env, `strict_env()` bleibt für Text und Subject unverändert. (HTML-04)
   5. Vom Vorstand verfasstes HTML wird an allen Eintritts-Punkten (`create_job`, Template-Create/Update, Test-Mail-Pfad) serverseitig mit `ammonia` saniert (Whitelist fett/kursiv/Links/Listen/Absätze; `javascript:`/`data:`-Links und Event-Handler werden gestrippt), bevor es gespeichert/versendet wird. (HTML-05)
+  6. Datums-Template-Variablen (`join_date`, `exit_date`, ggf. weitere) werden im deutschen Format `DD.MM.YYYY` (z. B. `02.07.2026`) gerendert statt im technischen `.to_string()`-Default — konsistent in Text- und HTML-Mails (`genossi_mail/src/template.rs:17-18`). (FMT-01)
 **Plans**: TBD
 **UI hint**: no
 
