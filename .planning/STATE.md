@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Mail-Formatierung & Antrags-Dokumente
-current_phase: 24
+current_phase: 25
 status: executing
-stopped_at: Completed 24-04-PLAN.md
-last_updated: "2026-07-02T23:22:56.140Z"
+stopped_at: Completed 25-01-PLAN.md
+last_updated: "2026-07-02T23:58:00.000Z"
 last_activity: 2026-07-02
-last_activity_desc: Phase 24 Plan 04 abgeschlossen (3 code Tasks atomar committed via jj + 1 auto-approved checkpoint; 2 Dateien touchiert + 1 neu; 2 neue e2e Tests + 12-step UAT-Checklist; automated regression run bestätigt 0 neue Failures).
+last_activity_desc: Phase 25 Plan 01 abgeschlossen (Wave 1a doku-fix — APDOC-03 wording in REQUIREMENTS.md und ROADMAP.md auf Move / Ownership-Übergabe-Semantik synchronisiert; 3 scoped Edits; jj-Commit bc825850; SUMMARY erstellt).
 progress:
   total_phases: 4
   completed_phases: 3
-  total_plans: 11
-  completed_plans: 11
-  percent: 75
-current_phase_name: WYSIWYG Frontend Editor (complete)
+  total_plans: 16
+  completed_plans: 13
+  percent: 81
+current_phase_name: Application File Upload + Audited Carryover (in progress — 1/5 plans)
 ---
 
 # State: Genossi — v1.4 Mail-Formatierung & Antrags-Dokumente (Roadmap erstellt)
@@ -243,6 +243,7 @@ v1.0 Phasen (alle abgeschlossen, archiviert in .planning/milestones/v1.0-phases/
 | Phase 23 P03 | 8 | 1 tasks | 3 files |
 | Phase 24 P02 | ~35min | 5 tasks | 6 files |
 | Phase 24 P04 | ~28min | 4 tasks (1 checkpoint auto-approved) | 2 files (1 new + 1 mod) |
+| Phase 25 P01 | 2min | 1 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -440,7 +441,7 @@ Details siehe `.planning/milestones/v1.0-MILESTONE-AUDIT.md` und `.planning/MILE
 
 ## Session Continuity
 
-**Last session:** 2026-07-02T23:22:56.095Z
+**Last session:** 2026-07-02T23:57:27.660Z
 
 **Last action (2026-07-02, Phase 24 Plan 04 — Wave 4, e2e Tests + UAT):** Plan `24-04-PLAN.md` ausgeführt — 2 neue #[tokio::test] am Ende von `genossi_bin/tests/e2e_tests.rs` pinnen Plan 24-01 Backend-Seams: (1) `preview_body_html_round_trips_to_response` POSTet `/api/mail/preview` mit `body_html: "<p>Hallo <b>{{ first_name }}</b></p>"` gegen einen Member mit first_name="Max", assertet dass Response body_html `<b>Max</b>` enthält (autoescape env round-trip + member-variable interpolation in einem Test), und dass ein zweiter POST ohne body_html-Key keine body_html-Response im JSON emitted (skip_serializing_if backward-compat proof); (2) `inbox_reply_body_html_sanitized_and_persisted` seedet 2 InboundMails via `seed_inbound_mail`, POSTet `/api/inbox/{id}/reply` einmal mit `body_html: "<script>alert(1)</script><p>Reply <b>ok</b></p>"` und assertet auf dem persisted MailJob dass `<script>` gestrippt + `<p>`/`<b>ok</b>` preserved sind (ammonia-Gate am store boundary), und ein zweites Mal ohne body_html-Key mit MailJob.body_html.is_none() Assertion. Task 3 erstellt `.planning/phases/24-wysiwyg-frontend-editor/24-UAT-CHECKLIST.md` mit 12 nummerierten Checkbox-Verifikations-Steps über alle 3 Compose-Flows (Massenmail, Inbox-Reply, Mail-Template Editor), Setup-Sektion (backend cargo run --features mock_auth + dx serve + tailwindcss watch), 3 explizit als ⚠️ HARD FAIL GATES markierten Steps (3 styleWithCSS=false Bold produziert `<b>` nicht `<span style>`, 4 paste-from-Word yields plain-text only, 5 Link-Toolbar öffnet in-app Modal statt window.prompt), Known Limitations (execCommand deprecation, TemplateVarButtons signal-sync 1-render lag, TemplateSelector clears body_html, initial-body-with-footer paths leave body_html empty), Regression Check Commands, und Sign-off Block. Task 4 (checkpoint:human-verify) auto-mode-approved per Executor auto-approve-Directive; die browser-interactive UAT walkthrough deferred to Vorstand smoke-test session vor merge, aber der automated regression portion des Checkpoints ran: `cargo test --workspace --exclude genossi-frontend` → 305 pass, 1 fail (pre-existing Phase 22 `test_mail_preview_repayment_no_entries_does_not_default_to_one` per STATE.md dokumentiert, NICHT Phase 24), `cargo build` clean. Eine Deviation Rule-3 (Blocking): `.as_ref()` ambiguity auf `String` → dropped, `assert_eq!` compared direkt gegen &str (PartialEq<&str> for String handled it). Alle 3 code-Commits via `jj describe` (test, test, docs) — atomic mit inline decision-notes: `cfa37941cb24` (Task 1 test), `36defe925031` (Task 2 test), `db9d879c36d6` (Task 3 docs). EDIT-01, EDIT-02, EDIT-03, EDIT-04, EDIT-05 alle als Phase 24 komplett markiert. Nächster Schritt: Phase 25 (Application Upload + Audited Carryover) oder Vorstand-Smoke-Test der 24-UAT-CHECKLIST.
 
@@ -676,3 +677,4 @@ Details siehe `.planning/milestones/v1.0-MILESTONE-AUDIT.md` und `.planning/MILE
 - [Phase ?]: 22-01: MailEncoding declared as pub enum with two variants only (QuotedPrintable, EightBit); no Auto/SevenBit/Base64
 - [Phase ?]: 22-01: SmtpConfig continues NOT to derive Debug — pass field must not leak via tracing (T-22-02)
 - [Phase ?]: 22-01: smtp_encoding KV key is optional with tolerant fallback — unknown values log tracing::warn! and revert to QuotedPrintable (mirrors smtp_tls policy)
+- [Phase ?]: APDOC-03 wording aligned on Move / Ownership-Übergabe in REQUIREMENTS.md and ROADMAP.md (Phase 25 Plan 01)
