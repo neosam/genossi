@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use genossi_dao::member::MemberEntity;
 use minijinja::{context, Value};
 use mockall::automock;
+use time::macros::format_description;
 use uuid::Uuid;
 
 use crate::service::MailServiceError;
@@ -14,8 +15,11 @@ pub trait MemberResolver: Send + Sync + 'static {
 
 pub fn member_to_template_context(entity: &MemberEntity) -> Value {
     let salutation_str = entity.salutation.as_ref().map(|s| s.as_str().to_string());
-    let join_date_str = entity.join_date.to_string();
-    let exit_date_str = entity.exit_date.map(|d| d.to_string());
+    // FMT-01 (Phase 23, D-11): dates render as DD.MM.YYYY in both text AND html
+    // bodies — shared context feeds both envs, so wiring format_de here is the
+    // single source of truth.
+    let join_date_str = format_de(entity.join_date);
+    let exit_date_str = entity.exit_date.map(format_de);
     // Quick 260603-b43: masked_bank_account = bank_account maskiert (DSGVO-konforme
     // Anzeige in E-Mail-Templates). Bei None bleibt das Feld None — Templates können
     // mit `{% if masked_bank_account %}` darauf reagieren.
@@ -74,6 +78,52 @@ pub fn render_template(template_str: &str, context: &Value) -> Result<String, Te
     tmpl.render(context).map_err(|e| TemplateError {
         message: format!("Template render error: {}", e),
     })
+}
+
+/// Phase 23 D-04 (HTML-04): separate autoescaping minijinja env for the HTML
+/// body. Same strictness as [`strict_env`] plus a global HTML-autoescape
+/// callback — a member value like `<script>&Co` renders as
+/// `&lt;script&gt;&amp;Co` while the author's markup (`<p>Hallo</p>`) stays
+/// intact. Kept intentionally separate from `strict_env` so text bodies +
+/// subjects continue to render raw.
+pub fn html_env() -> minijinja::Environment<'static> {
+    let mut env = minijinja::Environment::new();
+    env.set_undefined_behavior(minijinja::UndefinedBehavior::Strict);
+    env.set_auto_escape_callback(|_name| minijinja::AutoEscape::Html);
+    env
+}
+
+/// Render an HTML body template through the autoescaping env ([`html_env`]).
+///
+/// Mirrors [`render_template`] but uses the HTML env; error messages prefix
+/// "HTML template …" so downstream error handling can distinguish the two
+/// paths.
+pub fn render_html_template(
+    template_str: &str,
+    context: &Value,
+) -> Result<String, TemplateError> {
+    let env = html_env();
+    let tmpl = env
+        .template_from_str(template_str)
+        .map_err(|e| TemplateError {
+            message: format!("HTML template syntax error: {}", e),
+        })?;
+    tmpl.render(context).map_err(|e| TemplateError {
+        message: format!("HTML template render error: {}", e),
+    })
+}
+
+/// FMT-01 (Phase 23, D-11): render a [`time::Date`] as `DD.MM.YYYY`. Applied
+/// in [`member_to_template_context`] to `join_date` and `exit_date` so both
+/// text and HTML bodies inherit the German format via the shared context.
+///
+/// Falls back to `date.to_string()` on the impossible formatting-error branch
+/// (a well-formed `Date` + fixed pattern cannot fail in practice, but the
+/// guard preserves the pre-existing render behavior on the pathological path).
+fn format_de(date: time::Date) -> String {
+    const FMT: &[time::format_description::BorrowedFormatItem<'static>] =
+        format_description!("[day].[month].[year]");
+    date.format(FMT).unwrap_or_else(|_| date.to_string())
 }
 
 pub fn validate_template(
@@ -471,10 +521,11 @@ mod tests {
 
     #[test]
     fn test_date_fields() {
+        // FMT-01 (Phase 23, D-11): join_date renders as DD.MM.YYYY (was 2025-01-15).
         let member = make_member("Max", "Mustermann");
         let ctx = member_to_template_context(&member);
         let result = render_template("Beitritt: {{ join_date }}", &ctx).unwrap();
-        assert_eq!(result, "Beitritt: 2025-01-15");
+        assert_eq!(result, "Beitritt: 15.01.2025");
     }
 
     #[test]
@@ -986,5 +1037,59 @@ mod tests {
             "Subject",
             "{% if payout_amount is defined %}Auszahlung: {{ payout_amount }}{% endif %}"
         ));
+    }
+
+    // ============================================================
+    // Phase 23 D-04 (HTML-04): html_env autoescape + strict_env
+    // regression pin + FMT-01 (D-11) date-format wiring
+    // ============================================================
+
+    #[test]
+    fn html_env_autoescapes_member_value() {
+        // Member value containing HTML reserved chars must be encoded when
+        // rendered through the autoescape env — this is the core HTML-04
+        // guarantee.
+        let mut member = make_member("Max", "Mustermann");
+        member.first_name = Arc::from("<script>&Co");
+        let ctx = member_to_template_context(&member);
+        let result = render_html_template("{{ first_name }}", &ctx).unwrap();
+        assert_eq!(result, "&lt;script&gt;&amp;Co");
+    }
+
+    #[test]
+    fn html_env_preserves_author_markup() {
+        // Author-supplied <p>-markup around a benign member value must survive
+        // — autoescape only touches the *interpolated value*, not the literal
+        // template markup.
+        let member = make_member("Max", "Mustermann");
+        let ctx = member_to_template_context(&member);
+        let result = render_html_template("<p>Hallo {{ first_name }}</p>", &ctx).unwrap();
+        assert_eq!(result, "<p>Hallo Max</p>");
+    }
+
+    #[test]
+    fn strict_env_does_not_escape_member_value() {
+        // Regression pin (Pitfall 3): if a future change accidentally enables
+        // autoescape on strict_env, text mails would ship with &amp;/&lt; —
+        // this test breaks first.
+        let mut member = make_member("Max", "Mustermann");
+        member.first_name = Arc::from("<script>&Co");
+        let ctx = member_to_template_context(&member);
+        let result = render_template("{{ first_name }}", &ctx).unwrap();
+        assert_eq!(result, "<script>&Co");
+    }
+
+    #[test]
+    fn test_date_fields_renders_german_format() {
+        // FMT-01 (D-11): join_date + exit_date rendered as DD.MM.YYYY via
+        // format_de, wired into the shared context builder so text and HTML
+        // bodies stay in sync.
+        let mut member = make_member("Max", "Mustermann");
+        member.join_date = time::Date::from_calendar_date(2026, time::Month::July, 2).unwrap();
+        member.exit_date =
+            Some(time::Date::from_calendar_date(2025, time::Month::December, 31).unwrap());
+        let ctx = member_to_template_context(&member);
+        let result = render_template("{{ join_date }} / {{ exit_date }}", &ctx).unwrap();
+        assert_eq!(result, "02.07.2026 / 31.12.2025");
     }
 }
