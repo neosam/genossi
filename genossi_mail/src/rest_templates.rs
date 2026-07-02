@@ -157,7 +157,8 @@ async fn create_template<S: MailTemplateRestState>(
         (async {
             let tpl = state
                 .mail_template_service()
-                .create(&body.name, &body.subject, &body.body)
+                // Phase 23 Plan 04 Task 3 wires body.body_html here.
+                .create(&body.name, &body.subject, &body.body, None)
                 .await?;
             let to = MailTemplateTO::from(&tpl);
             Ok(Response::builder()
@@ -227,7 +228,8 @@ async fn update_template<S: MailTemplateRestState>(
                 .map_err(|_| MailTemplateError::BadRequest(Arc::from("Invalid version UUID")))?;
             let tpl = state
                 .mail_template_service()
-                .update(uuid, &body.name, &body.subject, &body.body, version)
+                // Phase 23 Plan 04 Task 3 wires body.body_html here.
+                .update(uuid, &body.name, &body.subject, &body.body, None, version)
                 .await?;
             let to = MailTemplateTO::from(&tpl);
             Ok(Response::builder()

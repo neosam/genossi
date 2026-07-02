@@ -399,6 +399,8 @@ pub async fn send_mail<S: MailRestState>(
                 .create_job(
                     &body.subject,
                     &body.body,
+                    // Phase 23 Plan 04 Task 3 wires body.body_html here.
+                    None,
                     vec![RecipientInput {
                         address: body.to_address,
                         member_id: None,
@@ -566,6 +568,8 @@ pub async fn send_bulk_mail<S: MailRestState>(
                 .create_job(
                     &body.subject,
                     &body.body,
+                    // Phase 23 Plan 04 Task 3 wires body.body_html here.
+                    None,
                     recipients,
                     attachment_inputs,
                     static_document_ids,
@@ -872,7 +876,8 @@ pub async fn send_test_mail_with_template<S: MailRestState>(
             // template variables above.
             state
                 .mail_service()
-                .send_test_mail_with_body(&body.to_address, &rendered_subject, &rendered_body)
+                // Phase 23 Plan 04 Task 3 will render and forward body_html here.
+                .send_test_mail_with_body(&body.to_address, &rendered_subject, &rendered_body, None)
                 .await?;
 
             Ok(Response::builder()

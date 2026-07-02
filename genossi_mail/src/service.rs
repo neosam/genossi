@@ -68,10 +68,17 @@ pub trait MailService: Send + Sync + 'static {
     ///   and attaches the file in-memory before send. Recipients with 0 matching letters are
     ///   marked failed with `error="no_repayment_letter"`. REST-layer rejects `true` when
     ///   `repayment_phase_id` is `None` (400 BadRequest).
+    ///
+    /// Phase 23 (HTML-05, D-03 entry point 1):
+    /// - `body_html`: optional author HTML that becomes the `text/html`
+    ///   sibling of a `multipart/alternative` mail. Passed through
+    ///   [`crate::sanitize::sanitize_html`] before persistence — the value
+    ///   stored on `MailJob.body_html` is already ammonia-cleaned.
     async fn create_job(
         &self,
         subject: &str,
         body: &str,
+        body_html: Option<String>,
         recipients: Vec<RecipientInput>,
         attachment_inputs: Vec<AttachmentInput>,
         static_document_ids: Vec<Uuid>,
@@ -104,11 +111,22 @@ pub trait MailService: Send + Sync + 'static {
     /// **explicit** test-recipient address from the request body — NEVER the
     /// resolved Member's email (privacy defense, see
     /// `genossi_mail/src/rest.rs::send_test_mail_with_template`).
+    ///
+    /// Phase 23 (HTML-05, D-03 entry point 4):
+    /// - `body_html`: optional pre-rendered HTML sibling. Passed through
+    ///   [`crate::sanitize::sanitize_html`] and forwarded to
+    ///   [`crate::send::build_message`] as the alternative HTML part. `None`
+    ///   preserves the Phase-22 text-only shape byte-for-byte.
+    ///
+    /// Note: `Option<String>` here (not `Option<&str>`) because `#[automock]`
+    /// + `#[async_trait]` can't infer higher-ranked lifetimes on borrowed
+    /// nested references in trait methods.
     async fn send_test_mail_with_body(
         &self,
         to: &str,
         subject: &str,
         body: &str,
+        body_html: Option<String>,
     ) -> Result<(), MailServiceError>;
 
     /// Get member IDs that were successfully reached (status = "sent") for a given job.
@@ -243,6 +261,17 @@ pub fn build_transport(
     Ok(transport)
 }
 
+/// Phase 23 D-03 entry point 4 (helper for `send_test_mail_with_body`).
+///
+/// Extracted as a free function so the sanitize wire is testable in isolation
+/// without spinning up SMTP mocks. Mirrors the inline sanitize step used at
+/// the other three D-03 entry points (`create_job`, template create/update).
+///
+/// `None` in ⇒ `None` out (no `Some("")` sentinel; RESEARCH Pitfall 4).
+pub(crate) fn sanitize_body_html_opt(body_html: Option<&str>) -> Option<String> {
+    body_html.map(crate::sanitize::sanitize_html)
+}
+
 pub struct MailServiceImpl<
     C: ConfigService,
     J: MailJobDao,
@@ -301,6 +330,7 @@ impl<
         &self,
         subject: &str,
         body: &str,
+        body_html: Option<String>,
         recipients: Vec<RecipientInput>,
         attachment_inputs: Vec<AttachmentInput>,
         static_document_ids: Vec<Uuid>,
@@ -342,6 +372,13 @@ impl<
         let now = time::OffsetDateTime::now_utc();
         let now_primitive = time::PrimitiveDateTime::new(now.date(), now.time());
 
+        // Phase 23 D-03 entry point 1 (HTML-05): sanitize author HTML at the
+        // store boundary — the value that lands in the DAO is already
+        // ammonia-cleaned. Per D-05 the worker MUST NOT re-sanitize.
+        let body_html_sanitized: Option<Arc<str>> = body_html
+            .as_deref()
+            .map(|h| Arc::from(crate::sanitize::sanitize_html(h)));
+
         let job = MailJob {
             id: Uuid::new_v4(),
             created: now_primitive,
@@ -349,6 +386,8 @@ impl<
             version: Uuid::new_v4(),
             subject: Arc::from(subject),
             body: Arc::from(body),
+            // Phase 23 D-07: sanitized author HTML (or None for text-only jobs).
+            body_html: body_html_sanitized,
             status: Arc::from("running"),
             total_count: recipients.len() as i64,
             sent_count: 0,
@@ -359,8 +398,6 @@ impl<
             repayment_phase_id, // D-03: optional RepaymentPhase reference (job-wide)
             // Quick 260603-cz6: opt-in worker-side per-recipient RepaymentLetter attachment.
             attach_repayment_letter,
-            // Phase 23 D-07: HTML body wiring through create_job lands in a later plan.
-            body_html: None,
         };
 
         self.job_dao.create(&job).await?;
@@ -480,6 +517,7 @@ impl<
         to: &str,
         subject: &str,
         body: &str,
+        body_html: Option<String>,
     ) -> Result<(), MailServiceError> {
         // Quick 260603-jtf: This is the template-test sibling of `send_test_mail`.
         // The REST handler renders subject+body against a Member's template
@@ -491,14 +529,18 @@ impl<
         let smtp_config = load_smtp_config(self.config_service.as_ref()).await?;
         let transport = build_transport(&smtp_config)?;
 
+        // Phase 23 D-03 entry point 4 (HTML-05): sanitize the caller-rendered
+        // HTML sibling before it enters the MIME builder. Symmetric with the
+        // store-boundary sanitize on `create_job` / templates.
+        let sanitized_html = sanitize_body_html_opt(body_html.as_deref());
+
         let email = crate::send::build_message(
             &smtp_config.from,
             to,
             subject,
             body,
-            // Plan 04 (Phase 23) will replace this None with the rendered HTML body
-            // once send_test_mail_with_body carries body_html through.
-            None,
+            // Phase 23 Plan 04: rendered + sanitized HTML sibling (D-03 EP4).
+            sanitized_html.as_deref(),
             &[],
             None,
             smtp_config.encoding,
@@ -596,6 +638,7 @@ mod tests {
             .create_job(
                 "Test Subject",
                 "Test Body",
+                None, // Phase 23 Plan 04: body_html — legacy text-only path.
                 vec![
                     RecipientInput {
                         address: "a@example.com".into(),
@@ -637,7 +680,17 @@ mod tests {
             msa_mock,
         );
         let result = service
-            .create_job("Test", "Body", vec![], vec![], vec![], None, None, false)
+            .create_job(
+                "Test",
+                "Body",
+                None, // Phase 23 Plan 04: body_html.
+                vec![],
+                vec![],
+                vec![],
+                None,
+                None,
+                false,
+            )
             .await;
 
         assert!(matches!(result, Err(MailServiceError::DataAccess(_))));
@@ -883,7 +936,7 @@ mod tests {
             msa_mock,
         );
         let result = service
-            .send_test_mail_with_body("to@example.com", "Hallo Welt", "Body-Inhalt")
+            .send_test_mail_with_body("to@example.com", "Hallo Welt", "Body-Inhalt", None)
             .await;
         assert!(matches!(result, Err(MailServiceError::ConfigMissing(_))));
     }
@@ -921,6 +974,7 @@ mod tests {
                 "to@example.com",
                 "X-CUSTOM-SUBJECT",
                 "X-CUSTOM-BODY with template-rendered content {{ first_name }}",
+                None,
             )
             .await;
         // No real SMTP server reachable on the mocked localhost:587 — must surface
@@ -1036,6 +1090,7 @@ mod tests {
             .create_job(
                 "Subject",
                 "Body",
+                None, // Phase 23 Plan 04: body_html.
                 vec![RecipientInput {
                     address: "a@example.com".into(),
                     member_id: Some(Uuid::new_v4()),
@@ -1085,6 +1140,7 @@ mod tests {
             .create_job(
                 "Subject",
                 "Body",
+                None, // Phase 23 Plan 04: body_html.
                 vec![
                     RecipientInput {
                         address: "a@example.com".into(),
@@ -1157,6 +1213,7 @@ mod tests {
             .create_job(
                 "Subject",
                 "Body",
+                None, // Phase 23 Plan 04: body_html.
                 vec![RecipientInput {
                     address: "a@example.com".into(),
                     member_id: Some(Uuid::new_v4()),
@@ -1275,6 +1332,7 @@ mod tests {
             .create_job(
                 "Subject",
                 "Body",
+                None, // Phase 23 Plan 04: body_html.
                 vec![RecipientInput {
                     address: "a@example.com".into(),
                     member_id: Some(Uuid::new_v4()),
@@ -1290,5 +1348,112 @@ mod tests {
 
         assert_eq!(result.template_id, None);
         assert_eq!(result.repayment_phase_id, None);
+    }
+
+    // ── Phase 23 Plan 04 — HTML sanitize wiring (D-03 entry point 1 + 4) ──
+
+    /// Phase 23 Plan 04 (HTML-05, D-03 entry point 1): `create_job` sanitizes
+    /// the incoming `body_html` via `crate::sanitize::sanitize_html` before
+    /// persisting to the DAO. `<script>` is stripped; safe tags survive.
+    #[tokio::test]
+    async fn create_job_sanitizes_body_html() {
+        let config_mock = MockConfigService::new();
+        let mut job_dao = MockMailJobDao::new();
+        let mut recipient_dao = MockMailRecipientDao::new();
+
+        let captured_html = std::sync::Arc::new(std::sync::Mutex::new(None::<Option<Arc<str>>>));
+        let cap = captured_html.clone();
+        job_dao.expect_create().returning(move |job| {
+            *cap.lock().unwrap() = Some(job.body_html.clone());
+            Ok(())
+        });
+        recipient_dao.expect_create().times(1).returning(|_| Ok(()));
+
+        let (sd_mock, msa_mock) = empty_static_mocks();
+        let service = MailServiceImpl::new(
+            config_mock,
+            job_dao,
+            recipient_dao,
+            MockMailRecipientAttachmentDao::new(),
+            sd_mock,
+            msa_mock,
+        );
+
+        let malicious =
+            "<p>Hi</p><script>alert(1)</script><a href=\"javascript:evil()\">click</a>".to_string();
+
+        let job = service
+            .create_job(
+                "Subject",
+                "Body",
+                Some(malicious),
+                vec![RecipientInput {
+                    address: "a@example.com".into(),
+                    member_id: Some(Uuid::new_v4()),
+                }],
+                vec![],
+                vec![],
+                None,
+                None,
+                false,
+            )
+            .await
+            .unwrap();
+
+        // The persisted MailJob.body_html must have <script> stripped.
+        let persisted = captured_html
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("job.create was called")
+            .expect("body_html was Some on the persisted job");
+        let s = persisted.as_ref();
+        assert!(
+            s.contains("<p>"),
+            "safe tag <p> must survive sanitization, got: {}",
+            s
+        );
+        assert!(
+            !s.contains("<script>"),
+            "<script> must be stripped, got: {}",
+            s
+        );
+        assert!(
+            !s.contains("javascript:"),
+            "javascript: URL must be stripped, got: {}",
+            s
+        );
+
+        // Also assert on the returned job (same value as what was persisted).
+        let returned = job.body_html.as_deref().expect("body_html Some on return");
+        assert!(returned.contains("<p>"));
+        assert!(!returned.contains("<script>"));
+    }
+
+    /// Phase 23 Plan 04 (HTML-05, D-03 entry point 4): the free helper used
+    /// by `send_test_mail_with_body` strips `<script>` and preserves safe
+    /// tags. Testing the helper directly avoids the SMTP path.
+    #[tokio::test]
+    async fn send_test_mail_with_body_sanitizes_body_html_and_passes_to_build_message() {
+        // None in ⇒ None out (Pitfall 4: no Some("") sentinel).
+        assert!(sanitize_body_html_opt(None).is_none());
+
+        let sanitized = sanitize_body_html_opt(Some(
+            "<script>x</script><p>ok</p><a href=\"https://example.com\">link</a>",
+        ))
+        .expect("Some out for Some in");
+
+        assert!(sanitized.contains("<p>"), "safe tag <p> preserved");
+        assert!(sanitized.contains("ok"), "safe text content preserved");
+        assert!(
+            !sanitized.contains("<script>"),
+            "<script> stripped, got: {}",
+            sanitized
+        );
+        assert!(
+            sanitized.contains("https://example.com"),
+            "http(s) URL preserved, got: {}",
+            sanitized
+        );
     }
 }

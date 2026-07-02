@@ -132,6 +132,8 @@ impl<Deps: ApplicationServiceDeps> ApplicationServiceImpl<Deps> {
             .create_job(
                 &subject,
                 &body,
+                // Phase 23 Plan 04: application-confirmation mail is text-only.
+                None,
                 vec![recipient],
                 vec![],
                 vec![],

@@ -173,7 +173,7 @@ pub async fn start_digest_worker<C, I, M, S>(
                         // Einzelmail pro Empfänger (D-06), Fehler loggen+weiter (D-07).
                         for recipient in &recipients {
                             match mail_service
-                                .send_test_mail_with_body(recipient, &subject, &body)
+                                .send_test_mail_with_body(recipient, &subject, &body, None)
                                 .await
                             {
                                 Ok(()) => tracing::info!("Digest worker: sent to {}", recipient),

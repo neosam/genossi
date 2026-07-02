@@ -32,18 +32,30 @@ impl From<serde_json::Error> for MailTemplateError {
 #[automock]
 #[async_trait]
 pub trait MailTemplateService: Send + Sync + 'static {
+    /// Phase 23 (HTML-05, D-03 entry point 2):
+    /// - `body_html`: optional author HTML sanitized via
+    ///   [`crate::sanitize::sanitize_html`] before persistence.
+    ///
+    /// Note: `Option<String>` (not `Option<&str>`) because `#[automock]` +
+    /// `#[async_trait]` can't infer higher-ranked lifetimes on nested
+    /// borrowed references in trait methods.
     async fn create(
         &self,
         name: &str,
         subject: &str,
         body: &str,
+        body_html: Option<String>,
     ) -> Result<MailTemplate, MailTemplateError>;
+    /// Phase 23 (HTML-05, D-03 entry point 3):
+    /// - `body_html`: optional author HTML sanitized via
+    ///   [`crate::sanitize::sanitize_html`] before persistence.
     async fn update(
         &self,
         id: Uuid,
         name: &str,
         subject: &str,
         body: &str,
+        body_html: Option<String>,
         version: Uuid,
     ) -> Result<MailTemplate, MailTemplateError>;
     async fn delete(&self, id: Uuid) -> Result<(), MailTemplateError>;
@@ -68,6 +80,7 @@ impl<D: MailTemplateDao> MailTemplateService for MailTemplateServiceImpl<D> {
         name: &str,
         subject: &str,
         body: &str,
+        body_html: Option<String>,
     ) -> Result<MailTemplate, MailTemplateError> {
         if let Some(_existing) = self.dao.find_by_name(name).await? {
             return Err(MailTemplateError::DuplicateName(Arc::from(name)));
@@ -75,6 +88,12 @@ impl<D: MailTemplateDao> MailTemplateService for MailTemplateServiceImpl<D> {
 
         let now = time::OffsetDateTime::now_utc();
         let created = time::PrimitiveDateTime::new(now.date(), now.time());
+
+        // Phase 23 D-03 entry point 2 (HTML-05): sanitize before persistence.
+        let body_html_sanitized: Option<Arc<str>> = body_html
+            .as_deref()
+            .map(crate::sanitize::sanitize_html)
+            .map(Arc::from);
 
         let template = MailTemplate {
             id: Uuid::new_v4(),
@@ -84,9 +103,8 @@ impl<D: MailTemplateDao> MailTemplateService for MailTemplateServiceImpl<D> {
             name: Arc::from(name),
             subject: Arc::from(subject),
             body: Arc::from(body),
-            // Phase 23 D-06: HTML body wiring lands in a later plan (service + REST);
-            // create-through-this-path stays text-only until then.
-            body_html: None,
+            // Phase 23 D-06: sanitized author HTML (or None for text-only templates).
+            body_html: body_html_sanitized,
         };
 
         self.dao.create(&template).await?;
@@ -99,6 +117,7 @@ impl<D: MailTemplateDao> MailTemplateService for MailTemplateServiceImpl<D> {
         name: &str,
         subject: &str,
         body: &str,
+        body_html: Option<String>,
         version: Uuid,
     ) -> Result<MailTemplate, MailTemplateError> {
         let existing = self
@@ -118,6 +137,12 @@ impl<D: MailTemplateDao> MailTemplateService for MailTemplateServiceImpl<D> {
             }
         }
 
+        // Phase 23 D-03 entry point 3 (HTML-05): sanitize before persistence.
+        let body_html_sanitized: Option<Arc<str>> = body_html
+            .as_deref()
+            .map(crate::sanitize::sanitize_html)
+            .map(Arc::from);
+
         let updated = MailTemplate {
             id: existing.id,
             created: existing.created,
@@ -126,9 +151,10 @@ impl<D: MailTemplateDao> MailTemplateService for MailTemplateServiceImpl<D> {
             name: Arc::from(name),
             subject: Arc::from(subject),
             body: Arc::from(body),
-            // Phase 23 D-06: preserve prior body_html on update through this path
-            // until the service API takes an html param in a later plan.
-            body_html: existing.body_html,
+            // Phase 23 D-06: sanitized author HTML — explicit `None` clears the
+            // prior HTML sibling; `Some(...)` replaces it with the newly
+            // sanitized content. Update takes full ownership of body_html.
+            body_html: body_html_sanitized,
         };
 
         self.dao.update(&updated).await?;
@@ -179,7 +205,7 @@ mod tests {
         mock.expect_create().returning(|_| Ok(()));
 
         let service = MailTemplateServiceImpl::new(Arc::new(mock));
-        let result = service.create("Test", "Subject", "Body").await;
+        let result = service.create("Test", "Subject", "Body", None).await;
         assert!(result.is_ok());
         let tpl = result.unwrap();
         assert_eq!(tpl.name.as_ref(), "Test");
@@ -206,7 +232,7 @@ mod tests {
         });
 
         let service = MailTemplateServiceImpl::new(Arc::new(mock));
-        let result = service.create("Existing", "Sub", "Body").await;
+        let result = service.create("Existing", "Sub", "Body", None).await;
         assert!(matches!(result, Err(MailTemplateError::DuplicateName(_))));
     }
 
@@ -232,7 +258,7 @@ mod tests {
         let service = MailTemplateServiceImpl::new(Arc::new(mock));
         let wrong_version = Uuid::new_v4();
         let result = service
-            .update(Uuid::new_v4(), "Test", "Sub", "Body", wrong_version)
+            .update(Uuid::new_v4(), "Test", "Sub", "Body", None, wrong_version)
             .await;
         assert!(matches!(result, Err(MailTemplateError::VersionConflict)));
     }
@@ -266,5 +292,100 @@ mod tests {
             matches!(&svc_err, MailTemplateError::DataAccess(msg) if msg.as_ref().contains("serialize failed")),
             "expected MailTemplateError::DataAccess with 'serialize failed'"
         );
+    }
+
+    // ── Phase 23 Plan 04 — HTML sanitize wiring (D-03 entry points 2 + 3) ──
+
+    /// Phase 23 Plan 04 (HTML-05, D-03 entry point 2): `MailTemplateService::create`
+    /// sanitizes `body_html` via `crate::sanitize::sanitize_html` before
+    /// persisting to the DAO. `<script>` is stripped; safe tags survive.
+    #[tokio::test]
+    async fn create_sanitizes_body_html() {
+        let mut mock = MockMailTemplateDao::new();
+        mock.expect_find_by_name().returning(|_| Ok(None));
+
+        let captured = std::sync::Arc::new(std::sync::Mutex::new(None::<Option<Arc<str>>>));
+        let cap = captured.clone();
+        mock.expect_create().returning(move |tpl| {
+            *cap.lock().unwrap() = Some(tpl.body_html.clone());
+            Ok(())
+        });
+
+        let service = MailTemplateServiceImpl::new(Arc::new(mock));
+        let result = service
+            .create(
+                "sanitize-create",
+                "Sub",
+                "Body",
+                Some("<p>Hi</p><script>alert(1)</script>".to_string()),
+            )
+            .await;
+        assert!(result.is_ok());
+
+        let persisted = captured
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("dao.create was invoked")
+            .expect("body_html Some on persisted template");
+        let s = persisted.as_ref();
+        assert!(s.contains("<p>"), "safe <p> survives, got: {}", s);
+        assert!(!s.contains("<script>"), "<script> stripped, got: {}", s);
+    }
+
+    /// Phase 23 Plan 04 (HTML-05, D-03 entry point 3): `MailTemplateService::update`
+    /// sanitizes `body_html` via `crate::sanitize::sanitize_html` before
+    /// persisting. Update takes full ownership of `body_html`.
+    #[tokio::test]
+    async fn update_sanitizes_body_html() {
+        let existing_id = Uuid::new_v4();
+        let existing_version = Uuid::new_v4();
+
+        let mut mock = MockMailTemplateDao::new();
+        let now = time::OffsetDateTime::now_utc();
+        let created = time::PrimitiveDateTime::new(now.date(), now.time());
+        mock.expect_find_by_id().returning(move |_| {
+            Ok(Some(MailTemplate {
+                id: existing_id,
+                created,
+                deleted: None,
+                version: existing_version,
+                name: Arc::from("sanitize-update"),
+                subject: Arc::from("Sub"),
+                body: Arc::from("Body"),
+                body_html: None,
+            }))
+        });
+        mock.expect_find_by_name().returning(|_| Ok(None));
+
+        let captured = std::sync::Arc::new(std::sync::Mutex::new(None::<Option<Arc<str>>>));
+        let cap = captured.clone();
+        mock.expect_update().returning(move |tpl| {
+            *cap.lock().unwrap() = Some(tpl.body_html.clone());
+            Ok(())
+        });
+
+        let service = MailTemplateServiceImpl::new(Arc::new(mock));
+        let result = service
+            .update(
+                existing_id,
+                "sanitize-update",
+                "Sub",
+                "Body",
+                Some("<p>Hi</p><script>alert(1)</script>".to_string()),
+                existing_version,
+            )
+            .await;
+        assert!(result.is_ok());
+
+        let persisted = captured
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("dao.update was invoked")
+            .expect("body_html Some on persisted template");
+        let s = persisted.as_ref();
+        assert!(s.contains("<p>"), "safe <p> survives, got: {}", s);
+        assert!(!s.contains("<script>"), "<script> stripped, got: {}", s);
     }
 }
