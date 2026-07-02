@@ -115,6 +115,20 @@ pub trait MailService: Send + Sync + 'static {
     async fn get_reached_member_ids(&self, job_id: Uuid) -> Result<Arc<[Uuid]>, MailServiceError>;
 }
 
+/// Message-content transfer encoding for outgoing SMTP mail bodies.
+///
+/// Selected via the `smtp_encoding` KV config key (Phase 22, MAIL-03). Default
+/// (key absent, empty, or unknown value) is `QuotedPrintable` — production
+/// behavior is unchanged unless the operator opts in with `smtp_encoding=8bit`.
+///
+/// Plan 02 consumes this enum in `send.rs::build_message` to pin the
+/// Content-Transfer-Encoding header on outgoing messages.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum MailEncoding {
+    QuotedPrintable,
+    EightBit,
+}
+
 pub struct SmtpConfig {
     pub host: String,
     pub port: u16,
@@ -122,6 +136,7 @@ pub struct SmtpConfig {
     pub pass: String,
     pub from: String,
     pub tls: String,
+    pub encoding: MailEncoding,
 }
 
 pub async fn load_smtp_config<C: ConfigService>(
@@ -164,6 +179,22 @@ pub async fn load_smtp_config<C: ConfigService>(
         .map(|e| e.value.to_string())
         .unwrap_or_else(|| "starttls".to_string());
 
+    // MAIL-03 (Phase 22, D-07/D-08): tolerant fallback — unknown values log a
+    // warning and revert to QuotedPrintable. Mirrors the smtp_tls policy above
+    // (also NOT in `required_keys` — the key is optional). Do NOT hard-error on
+    // typos; a rogue value must not disable mail.
+    let encoding = match find("smtp_encoding").map(|e| e.value.as_ref()) {
+        Some("8bit") => MailEncoding::EightBit,
+        Some("quoted-printable") | Some("") | None => MailEncoding::QuotedPrintable,
+        Some(other) => {
+            tracing::warn!(
+                value = %other,
+                "Unknown smtp_encoding value — falling back to quoted-printable"
+            );
+            MailEncoding::QuotedPrintable
+        }
+    };
+
     let from_email = find("smtp_from").unwrap().value.to_string();
     let from = match find("smtp_from_name") {
         Some(name) if !name.value.is_empty() => format!("{} <{}>", name.value, from_email),
@@ -177,6 +208,7 @@ pub async fn load_smtp_config<C: ConfigService>(
         pass: find("smtp_pass").unwrap().value.to_string(),
         from,
         tls,
+        encoding,
     })
 }
 
