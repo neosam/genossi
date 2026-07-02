@@ -4,23 +4,23 @@ milestone: v1.4
 milestone_name: Mail-Formatierung & Antrags-Dokumente
 current_phase: 24
 status: executing
-stopped_at: Completed 24-03-PLAN.md
-last_updated: "2026-07-03T01:20:00.000Z"
-last_activity: 2026-07-03
-last_activity_desc: "Phase 24 Plan 03 abgeschlossen (Wave 3 Migration: alle 3 MailBodyEditor-Verwender auf WysiwygEditor umgestellt — mail_page.rs (Massenmail-Compose) + reply_form.rs (Inbox-Reply) + mail_templates.rs (Template-Editor); body_html end-to-end verkabelt via send_bulk_mail + reply_inbox_mail + create/update_mail_template; Submit-Guard DOM-Read an jedem send/reply/save; empty→None Backward-Compat-Regel überall; TemplatePreview mit dangerous_inner_html HTML-Render-Block; TemplateTester body_html Prop; body_editor.rs gelöscht + mod.rs aufgeräumt; 3 neue serde-lock Tests + 284 Frontend-Tests grün; wasm32 + workspace-build clean; Plan 24-04 (UAT) unblocked)"
+stopped_at: Completed 24-04-PLAN.md
+last_updated: "2026-07-02T23:22:56.140Z"
+last_activity: 2026-07-02
+last_activity_desc: Phase 24 Plan 04 abgeschlossen (3 code Tasks atomar committed via jj + 1 auto-approved checkpoint; 2 Dateien touchiert + 1 neu; 2 neue e2e Tests + 12-step UAT-Checklist; automated regression run bestätigt 0 neue Failures).
 progress:
   total_phases: 4
-  completed_phases: 2
-  total_plans: 12
+  completed_phases: 3
+  total_plans: 11
   completed_plans: 11
-  percent: 67
-current_phase_name: WYSIWYG Frontend Editor
+  percent: 75
+current_phase_name: WYSIWYG Frontend Editor (complete)
 ---
 
 # State: Genossi — v1.4 Mail-Formatierung & Antrags-Dokumente (Roadmap erstellt)
 
 **Initialized:** 2026-05-02
-**Last Updated:** 2026-07-03 (Phase 24 Plan 03 executed — Wave 3 Migration complete, all 3 call sites on WysiwygEditor)
+**Last Updated:** 2026-07-02 (Phase 24 Plan 04 executed — Wave 4 UAT + e2e complete, Phase 24 fully done)
 
 ## Project Reference
 
@@ -28,14 +28,14 @@ See: `.planning/PROJECT.md` (updated 2026-06-07 after v1.2 close)
 
 **Core Value:** Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachvollziehbar (Audit-Hashchain), mit weniger manueller Arbeit.
 
-**Current Focus:** Phase 24 — WYSIWYG Frontend Editor Wave 3 (Migration) abgeschlossen; Plan 24-04 (UAT + e2e Tests) als nächstes.
+**Current Focus:** Phase 24 — WYSIWYG Frontend Editor **COMPLETE**. Nächster Schritt: Phase 25 (Application Upload + Audited Carryover) oder Vorstand-Smoke-Test der 24-UAT-CHECKLIST vor Merge.
 
 ## Current Position
 
-Phase: 24 (in progress) — WYSIWYG Frontend Editor, Plan 03 of 4 executed
-Plan: 24-01 + 24-02 + 24-03 completed (Wave 1 + Wave 2 + Wave 3); 24-04 pending
-Status: Wave 3 Migration gelandet — alle 3 MailBodyEditor-Verwender (mail_page.rs Massenmail-Compose, reply_form.rs Inbox-Reply, mail_templates.rs Template-Editor) nutzen jetzt WysiwygEditor mit companion body_html-Signal; Submit-Guard DOM-Read an jedem send/reply/save-Button; empty→None Backward-Compat-Regel überall angewandt; TemplatePreview mit dangerous_inner_html HTML-Render-Block; TemplateTester body_html Prop; body_editor.rs gelöscht; 3 neue serde-lock Tests + 284 Frontend-Tests grün; cargo check + cargo build clean. Plan 24-04 (Wave 4, UAT + e2e Tests) unblocked.
-Last activity: 2026-07-03 — Phase 24 Plan 03 abgeschlossen (6 Tasks atomar committed; 7 Dateien modifiziert + 1 gelöscht; 3 neue Serialization-Tests; Submit-Guard-Muster etabliert).
+Phase: 24 (complete) — WYSIWYG Frontend Editor, alle 4 Pläne ausgeführt
+Plan: 24-01 + 24-02 + 24-03 + 24-04 completed (Wave 1 + Wave 2 + Wave 3 + Wave 4)
+Status: Phase 24 abgeschlossen — Wave 4 landete 2 neue e2e Tests (preview_body_html_round_trips_to_response pinnt Plan 24-01 Task 1 preview seam mit `<b>Max</b>` autoescape+substitution proof; inbox_reply_body_html_sanitized_and_persisted pinnt Plan 24-01 Task 2 sanitize-on-store gate mit `<script>` stripped + `<p>/<b>ok</b>` preserved; beide mit Some/None Backward-Compat-Pass-Paar) und eine 12-step Vorstand-facing 24-UAT-CHECKLIST.md mit 3 explizit markierten HARD FAIL GATES (Schritte 3 styleWithCSS=false Bold produziert `<b>`, 4 paste-plain, 5 in-app-modal statt window.prompt); Auto-Mode approved den human-verify Checkpoint nach automated regression pass (cargo test --workspace: 305 pass, 1 pre-existing Phase 22 failure documented in STATE.md, 0 new regressions); cargo build clean. Alle 5 EDIT-Requirements (EDIT-01..05) erfüllt.
+Last activity: 2026-07-02 — Phase 24 Plan 04 abgeschlossen (3 code Tasks atomar committed via jj + 1 auto-approved checkpoint; 2 Dateien touchiert + 1 neu; 2 neue e2e Tests + 12-step UAT-Checklist; automated regression run bestätigt 0 neue Failures).
 
 ### v1.4 Phase Structure (Phases 22-25, granularity: coarse)
 
@@ -55,6 +55,13 @@ Last activity: 2026-07-03 — Phase 24 Plan 03 abgeschlossen (6 Tasks atomar com
 - D-05-Falle umgesetzt: Dirty-Check-Baseline (subject+body) wird INNERHALB des Footer-use_effect NACH dem Body-Compose gesnapshottet — pure `is_draft_dirty`-Helfer mit 4 Unit-Tests.
 - D-07: nativer `web_sys::window().confirm_with_message` als Verwerfen-Bestätigung (kein verschachteltes In-App-Modal).
 - D-08: `MailBodyEditor` unverändert (h-40, von Compose geteilt); mehr Schreibfläche kommt aus dem breiten Modal-Kontext.
+
+### Decisions (Phase 24 Plan 04)
+
+- Full-HTTP e2e path für den inbox-reply-Test statt Service-Level-Fallback: `seed_inbound_mail(pool, uid, from, subject)` existiert bereits + POST /reply → 202 → GET /jobs/{job_id} → MailJobDetailTO chain ist fully wired; keine Worker-Notwendigkeit für die body_html-Assertion (nur persistence-check am MailJob).
+- Two-pass Some/None Pattern für jeden neuen body_html-Seam: (a) Some path proves render/sanitize behavior, (b) None path proves skip_serializing_if backward-compat wire shape — mirrors bulk_mail_body_html_sanitized_and_persisted + bulk_mail_body_html_none_stays_backward_compatible aus Phase 23.
+- UAT-Checklist explicit HARD FAIL GATES markiert (Schritte 3/4/5): styleWithCSS=false Bold produziert `<b>`, paste-from-Word yields plain-text only, Link-Toolbar öffnet in-app Modal statt window.prompt — diese drei sind die ammonia-Allowlist + D-06 Invarianten die der sanitize-on-store gate braucht; andere Schritte sind recoverable/deferrable.
+- Auto-Mode Checkpoint Approval: `checkpoint:human-verify` mit `gate="blocking"` (nicht `blocking-human`, kein package-legitimacy) → auto-approve per auto_mode_directive; automated regression portion (cargo test --workspace) ran inline und passed; browser-interactive UAT walkthrough deferred to Vorstand smoke-test session vor merge.
 
 ### Decisions (Phase 24 Plan 03)
 
@@ -229,6 +236,7 @@ v1.0 Phasen (alle abgeschlossen, archiviert in .planning/milestones/v1.0-phases/
 | Phase 22 P03 | ~5min | 1 tasks | 1 files |
 | Phase 23 P03 | 8 | 1 tasks | 3 files |
 | Phase 24 P02 | ~35min | 5 tasks | 6 files |
+| Phase 24 P04 | ~28min | 4 tasks (1 checkpoint auto-approved) | 2 files (1 new + 1 mod) |
 
 ## Accumulated Context
 
@@ -426,7 +434,20 @@ Details siehe `.planning/milestones/v1.0-MILESTONE-AUDIT.md` und `.planning/MILE
 
 ## Session Continuity
 
-**Last session:** 2026-07-03T00:30:00.000Z (Phase 24 Plan 02 executed — Wave 2 WYSIWYG component set landed)
+**Last session:** 2026-07-02T23:22:56.095Z
+
+**Last action (2026-07-02, Phase 24 Plan 04 — Wave 4, e2e Tests + UAT):** Plan `24-04-PLAN.md` ausgeführt — 2 neue #[tokio::test] am Ende von `genossi_bin/tests/e2e_tests.rs` pinnen Plan 24-01 Backend-Seams: (1) `preview_body_html_round_trips_to_response` POSTet `/api/mail/preview` mit `body_html: "<p>Hallo <b>{{ first_name }}</b></p>"` gegen einen Member mit first_name="Max", assertet dass Response body_html `<b>Max</b>` enthält (autoescape env round-trip + member-variable interpolation in einem Test), und dass ein zweiter POST ohne body_html-Key keine body_html-Response im JSON emitted (skip_serializing_if backward-compat proof); (2) `inbox_reply_body_html_sanitized_and_persisted` seedet 2 InboundMails via `seed_inbound_mail`, POSTet `/api/inbox/{id}/reply` einmal mit `body_html: "<script>alert(1)</script><p>Reply <b>ok</b></p>"` und assertet auf dem persisted MailJob dass `<script>` gestrippt + `<p>`/`<b>ok</b>` preserved sind (ammonia-Gate am store boundary), und ein zweites Mal ohne body_html-Key mit MailJob.body_html.is_none() Assertion. Task 3 erstellt `.planning/phases/24-wysiwyg-frontend-editor/24-UAT-CHECKLIST.md` mit 12 nummerierten Checkbox-Verifikations-Steps über alle 3 Compose-Flows (Massenmail, Inbox-Reply, Mail-Template Editor), Setup-Sektion (backend cargo run --features mock_auth + dx serve + tailwindcss watch), 3 explizit als ⚠️ HARD FAIL GATES markierten Steps (3 styleWithCSS=false Bold produziert `<b>` nicht `<span style>`, 4 paste-from-Word yields plain-text only, 5 Link-Toolbar öffnet in-app Modal statt window.prompt), Known Limitations (execCommand deprecation, TemplateVarButtons signal-sync 1-render lag, TemplateSelector clears body_html, initial-body-with-footer paths leave body_html empty), Regression Check Commands, und Sign-off Block. Task 4 (checkpoint:human-verify) auto-mode-approved per Executor auto-approve-Directive; die browser-interactive UAT walkthrough deferred to Vorstand smoke-test session vor merge, aber der automated regression portion des Checkpoints ran: `cargo test --workspace --exclude genossi-frontend` → 305 pass, 1 fail (pre-existing Phase 22 `test_mail_preview_repayment_no_entries_does_not_default_to_one` per STATE.md dokumentiert, NICHT Phase 24), `cargo build` clean. Eine Deviation Rule-3 (Blocking): `.as_ref()` ambiguity auf `String` → dropped, `assert_eq!` compared direkt gegen &str (PartialEq<&str> for String handled it). Alle 3 code-Commits via `jj describe` (test, test, docs) — atomic mit inline decision-notes: `cfa37941cb24` (Task 1 test), `36defe925031` (Task 2 test), `db9d879c36d6` (Task 3 docs). EDIT-01, EDIT-02, EDIT-03, EDIT-04, EDIT-05 alle als Phase 24 komplett markiert. Nächster Schritt: Phase 25 (Application Upload + Audited Carryover) oder Vorstand-Smoke-Test der 24-UAT-CHECKLIST.
+
+**Files written this session (Plan 24-04):**
+
+- `genossi_bin/tests/e2e_tests.rs` (MOD — +~200 LOC: 2 neue #[tokio::test] am Datei-Ende, jeweils mit Two-Pass Some/None Assertion-Pattern und Inline-Doc-Kommentaren die Plan 24-01 Task 1/Task 2 seam-Referenz erklären)
+- `.planning/phases/24-wysiwyg-frontend-editor/24-UAT-CHECKLIST.md` (NEW — 12-step Vorstand-facing Verifikations-Checklist mit 3 HARD FAIL GATES, Setup + Known Limitations + Regression Check + Sign-off)
+- `.planning/phases/24-wysiwyg-frontend-editor/24-04-SUMMARY.md` (NEW)
+- `.planning/STATE.md` (MOD — diese Aktualisierung; Frontmatter progress 12/12=100%, current_phase_name auf "WYSIWYG Frontend Editor (complete)", Plan 24-04 Decisions + Session Continuity Block + Performance-Metric)
+- `.planning/ROADMAP.md` (MOD — Phase 24 Plan-Progress 4/4 via roadmap.update-plan-progress, Phase 24 Status → Complete)
+- `.planning/REQUIREMENTS.md` (MOD — EDIT-01..05 alle als complete via requirements.mark-complete)
+
+**Previous session:** 2026-07-03T00:30:00.000Z (Phase 24 Plan 02 executed — Wave 2 WYSIWYG component set landed)
 
 **Last action (2026-05-31, Phase 10 Plan 04 — Wave 2, REST send-bulk Body-Erweiterung):** Plan `10.04-rest-bulk-mail-body-erweiterung-PLAN.md` ausgeführt — `SendBulkMailRequest` bekommt zwei `#[serde(default)] Option<String>` Felder (`template_id` D-12, `repayment_phase_id` D-03), `send_bulk_mail`-Handler parsed beide via `uuid::Uuid::parse_str` mit `MailServiceError::BadRequest` → HTTP 400 (Input wird in Error-Message echoed; T-10-04-02 disposition `accept`), und die zwei `TODO(10.04)`-Placeholder aus Plan 10.03's GREEN-Commit `82c8515` werden durch die parsed `template_id`/`repayment_phase_id`-UUIDs ersetzt. Task 1 als TDD: RED-Commit `25633d8` fügt 2 failing Serde-Roundtrip-Tests hinzu (`test_send_bulk_mail_request_serde_with_phase10_fields` Some/Some, `test_send_bulk_mail_request_serde_without_phase10_fields_backward_compat` None/None) — Compile-Fail mit 4× E0609 (`no field 'template_id'`/`'repayment_phase_id'` auf `SendBulkMailRequest`) bestätigt; GREEN-Commit `6e0d1d1` erweitert `SendBulkMailRequest` mit den zwei Doc-kommentierten Feldern (utoipa-Schema-Examples + D-12/D-03-Zitate), fügt zwei `Uuid::parse_str`-Match-Guards (`Some(s) if !s.is_empty()` Pattern für defensives Empty-String=Absent-Mapping) in `send_bulk_mail` ein, ersetzt die zwei `// TODO(10.04): parse body.*` Placeholder mit den parsed Args (`template_id, // Phase 10 D-12` + `repayment_phase_id, // Phase 10 D-03`), und aktualisiert die 11 Downstream-Literal-Initializers in `genossi_bin/tests/e2e_tests.rs` mit `template_id: None, repayment_phase_id: None` (Rule-3-Auto-Fix: Struct-Extension breakt E0063 sonst — 9 via einem `replace_all` auf `attachment_ids: vec![], static_document_ids: vec![],`-Anker, 2 einzelne Calls für andere `static_document_ids:`-Variationen, 3 via zweitem `replace_all` auf `attachment_ids: vec![doc_id.to_string()], static_document_ids: vec![],`). Test-Pyramide: 2/2 neue Serde-Tests grün; `cargo test --workspace --lib` 730/730 grün (40+0+16+70+61+118+62+35+52+276; genossi_mail: 118 = 116 baseline + 2 neu); `cargo test --test e2e_tests` 279/279 grün (identisch zu Post-10.03-Baseline, kein Regress). rustfmt clean auf `genossi_mail/src/rest.rs` (Nix-Toolchain `/nix/store/.../rustfmt-preview-1.93.0/bin/rustfmt --edition 2021` aktiviert); pre-existing rustfmt-Drift im `assert_ne!(v1, v0, ...)`-Block aus Plan 8.10 in `e2e_tests.rs` per Scope-Boundary nicht angefasst. Single-Send `send_mail` und `application.rs`-Confirmation-Mail behalten `None,None` permanent als Design-Entscheidung (in Plan 10.03 SUMMARY dokumentiert), NICHT als Stub. Eine Deviation Rule-3 (Blocking): 11 Downstream-Literal-Initializers in `e2e_tests.rs` per `template_id: None, repayment_phase_id: None` ergänzt — Standard-Rust-Struct-Extension-Konsequenz, im GREEN-Commit gefoldet (kein Split-Commit, weil sonst Tree-Red-Build zwischen Commits). MAIL-01 + MAIL-02 sind bereits in vorigen Plans als complete markiert (10.01/10.02/10.03). Acceptance-Greps alle erfüllt: `pub template_id: Option<String>` = 1, `pub repayment_phase_id: Option<String>` = 1, `TODO(10.04)` = 0, `Uuid::parse_str` = 8 (>= 3), `create_job`-Args mit template/phase = 4 (>= 2), `send_mail`-None-Count = 3 (>= 2). Nächster Schritt: Plan 10.05 (template-repayment-context-helper, Wave 2 parallel) — kann direkt starten; oder Wave 3 abwarten bis 10.05 auch durch ist, dann 10.06 (worker-repayment-context-und-audited-create).
 

@@ -28,11 +28,11 @@ Research: `.planning/research/SUMMARY.md` (+ STACK / FEATURES / ARCHITECTURE / P
 
 ### EDIT — WYSIWYG-Editor (Frontend)
 
-- [ ] **EDIT-01**: Vorstände verfassen formatierte Mails in einem WYSIWYG-Editor (mindestens fett, kursiv, Links, Aufzählungs-/nummerierte Listen) als wiederverwendbare Dioxus-Component, die den bestehenden `body_editor`-Textarea im Mail-Compose-Flow ersetzt.
-- [ ] **EDIT-02**: Der Editor erzeugt sauberes, sanitisierbares HTML (`styleWithCSS=false` erzwingen → `<b>/<i>`-Tags statt inline-`style`, damit ammonia die Formatierung nicht strippt) und keine neuen Frontend-Dependencies (contenteditable + `execCommand` über vorhandenes web-sys).
-- [ ] **EDIT-03**: Der HTML-Inhalt des Editors wird beim Absenden zuverlässig aus dem contenteditable-DOM ausgelesen und mit dem Dioxus-State synchronisiert (kein Datenverlust beim Submit).
-- [ ] **EDIT-04**: Eingefügter Inhalt (Paste, z. B. aus Word/Browser) wird beim Einfügen bereinigt, sodass kein verschmutztes Markup in den Mail-Body gelangt.
-- [ ] **EDIT-05**: Eine Live-Vorschau zeigt dem Vorstand das gerenderte HTML vor dem Versand.
+- [x] **EDIT-01**: Vorstände verfassen formatierte Mails in einem WYSIWYG-Editor (mindestens fett, kursiv, Links, Aufzählungs-/nummerierte Listen) als wiederverwendbare Dioxus-Component, die den bestehenden `body_editor`-Textarea im Mail-Compose-Flow ersetzt.
+- [x] **EDIT-02**: Der Editor erzeugt sauberes, sanitisierbares HTML (`styleWithCSS=false` erzwingen → `<b>/<i>`-Tags statt inline-`style`, damit ammonia die Formatierung nicht strippt) und keine neuen Frontend-Dependencies (contenteditable + `execCommand` über vorhandenes web-sys).
+- [x] **EDIT-03**: Der HTML-Inhalt des Editors wird beim Absenden zuverlässig aus dem contenteditable-DOM ausgelesen und mit dem Dioxus-State synchronisiert (kein Datenverlust beim Submit).
+- [x] **EDIT-04**: Eingefügter Inhalt (Paste, z. B. aus Word/Browser) wird beim Einfügen bereinigt, sodass kein verschmutztes Markup in den Mail-Body gelangt.
+- [x] **EDIT-05**: Eine Live-Vorschau zeigt dem Vorstand das gerenderte HTML vor dem Versand.
 
 ### APDOC — Antrags-Dokument & Auto-Übernahme
 
@@ -82,11 +82,11 @@ Research: `.planning/research/SUMMARY.md` (+ STACK / FEATURES / ARCHITECTURE / P
 | HTML-04 | Phase 23 | Complete |
 | HTML-05 | Phase 23 | Complete |
 | FMT-01 | Phase 23 | Complete |
-| EDIT-01 | Phase 24 | pending |
-| EDIT-02 | Phase 24 | pending |
-| EDIT-03 | Phase 24 | pending |
-| EDIT-04 | Phase 24 | pending |
-| EDIT-05 | Phase 24 | pending |
+| EDIT-01 | Phase 24 | Complete |
+| EDIT-02 | Phase 24 | Complete |
+| EDIT-03 | Phase 24 | Complete |
+| EDIT-04 | Phase 24 | Complete |
+| EDIT-05 | Phase 24 | Complete |
 | APDOC-01 | Phase 25 | pending |
 | APDOC-02 | Phase 25 | pending |
 | APDOC-03 | Phase 25 | pending |

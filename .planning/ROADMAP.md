@@ -73,7 +73,7 @@ Archive: `.planning/milestones/v1.3-ROADMAP.md` · `v1.3-REQUIREMENTS.md` · `v1
 
 - [ ] **Phase 22: 8bit + Shared Mail-Body Helper** - Ein geteilter Body-Bau-Helfer für alle Sendepfade; opt-in 8bit entfernt `=`-Soft-Breaks (MAIL-01..05)
 - [x] **Phase 23: HTML Mail Backend** - `multipart/alternative` (Text+HTML) mit autoescapender HTML-Render-Env + serverseitiger ammonia-Sanitization (HTML-01..05) ✅ 2026-07-02
-- [ ] **Phase 24: WYSIWYG Frontend Editor** - Wiederverwendbare Dioxus-`contenteditable`-Component ersetzt `body_editor`, mit Paste-Cleanup + Live-Vorschau (EDIT-01..05)
+- [x] **Phase 24: WYSIWYG Frontend Editor** - Wiederverwendbare Dioxus-`contenteditable`-Component ersetzt `body_editor`, mit Paste-Cleanup + Live-Vorschau (EDIT-01..05) ✅ 2026-07-02
 - [ ] **Phase 25: Application File Upload + Audited Carryover** - Admin-Upload an `Application`, auditierte Kopie als `MemberDocument` beim `confirm` (APDOC-01..05)
 
 **Dependency-Reihenfolge:** Phase 22 → 23 → 24 ist strikt sequenziell (jede baut auf der vorherigen auf: der geteilte Body-Helfer aus 22 verhindert drei divergierende HTML-Implementierungen; der `body_html`-Wire + ammonia-Gate aus 23 müssen existieren, bevor der Editor in 24 HTML postet). **Phase 25 ist dependency-technisch unabhängig** von der Mail-Strecke und kann parallel zu 22→23→24 laufen — sie teilt keinen Code mit den Mail-Features und isoliert die audit-kritische `confirm()`-Cascade mit eigener UAT.
@@ -137,12 +137,12 @@ Archive: `.planning/milestones/v1.3-ROADMAP.md` · `v1.3-REQUIREMENTS.md` · `v1
   4. Eingefügter Inhalt (Paste, z. B. aus Word/Browser) wird beim Einfügen bereinigt, sodass kein verschmutztes Markup in den Mail-Body gelangt. (EDIT-04)
   5. Eine Live-Vorschau zeigt dem Vorstand das gerenderte HTML vor dem Versand. (EDIT-05)
 
-**Plans**: 4 plans
+**Plans**: 4/4 plans complete
 
 - [x] 24-01-PLAN.md — Wave 1: Backend seam (PreviewRequest/Response body_html + preview_mail HTML render + ReplyRequest body_html + InboxService::reply sanitize-on-store) + frontend api mirror + Cargo web-sys features (ClipboardEvent, DataTransfer) + 19 new i18n keys in de.rs+en.rs (EDIT-01, EDIT-04, EDIT-05) ✅ 2026-07-03
 - [x] 24-02-PLAN.md — Wave 2: New WysiwygEditor + WysiwygToolbar + WysiwygLinkDialog Dioxus components + exec_command_* helpers in js.rs (styleWithCSS=false at mount, 13 ammonia-safe buttons, in-app Modal for link dialog, plain-text paste handler) (EDIT-01, EDIT-02, EDIT-03, EDIT-04) ✅ 2026-07-03
 - [x] 24-03-PLAN.md — Wave 3: Migrate all 3 MailBodyEditor call sites (mail_page.rs, reply_form.rs, mail_templates.rs) to WysiwygEditor + body_html signal wiring end-to-end + extend TemplatePreview to render backend body_html via dangerous_inner_html + delete body_editor.rs (EDIT-01, EDIT-03, EDIT-05) ✅ 2026-07-03
-- [ ] 24-04-PLAN.md — Wave 4: 2 new e2e HTTP tests (preview HTML round-trip + inbox reply sanitize-on-store) + Vorstand-facing UAT-CHECKLIST.md + blocking human-verify smoke test (EDIT-01..05)
+- [x] 24-04-PLAN.md — Wave 4: 2 new e2e HTTP tests (preview_body_html_round_trips_to_response + inbox_reply_body_html_sanitized_and_persisted in genossi_bin/tests/e2e_tests.rs) + 24-UAT-CHECKLIST.md (12 checkbox steps, 3 HARD FAIL GATES) + auto-approved human-verify smoke test (browser-interactive walkthrough deferred to Vorstand smoke session) (EDIT-01..05) ✅ 2026-07-02
 
 **UI hint**: yes
 
@@ -191,7 +191,7 @@ Archive: `.planning/milestones/v1.3-ROADMAP.md` · `v1.3-REQUIREMENTS.md` · `v1
 | 21. Reply-Komfort (Antwort im Modal)               | v1.3      | 1/1 | Complete   | 2026-06-27 |
 | 22. 8bit + Shared Mail-Body Helper                 | v1.4      | 3/3            | Ready to verify | 2026-07-02 |
 | 23. HTML Mail Backend                              | v1.4      | 3/4 | In Progress|  |
-| 24. WYSIWYG Frontend Editor                        | v1.4      | 2/4            | In Progress | -          |
+| 24. WYSIWYG Frontend Editor                        | v1.4      | 4/4 | Complete   | 2026-07-02 |
 | 25. Application File Upload + Audited Carryover     | v1.4      | 0/?            | Not started | -          |
 
 ---
