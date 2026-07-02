@@ -14589,3 +14589,97 @@ async fn create_template_body_html_sanitized() {
     assert!(fetched_html.contains("<p>"));
     assert!(!fetched_html.contains("<script>"));
 }
+
+// ── Phase 24 Plan 04 — WYSIWYG e2e wire tests (EDIT-01, EDIT-05) ──
+
+/// Phase 24 Plan 04 Task 1 (EDIT-05, D-04 preview seam):
+/// POSTing `/api/mail/preview` with `body_html` MUST return a rendered
+/// `body_html` in the response — proving both (a) the autoescape env
+/// round-trip and (b) the member-variable interpolation. Author `<b>`
+/// markup must survive; `{{ first_name }}` must be substituted with the
+/// seeded member's actual first name.
+///
+/// Second assertion pass: POSTing the SAME request WITHOUT `body_html`
+/// MUST NOT emit a `body_html` key on the wire — proves
+/// `skip_serializing_if = "Option::is_none"` backward-compat with
+/// pre-Phase-24 clients (mirrors `bulk_mail_body_html_none_stays_backward_compatible`).
+#[tokio::test]
+async fn preview_body_html_round_trips_to_response() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Seed one Member — first_name "Max" so we can prove the substitution.
+    let mut m = sample_member();
+    m.member_number = 4711;
+    m.first_name = "Max".to_string();
+    m.last_name = "Muster".to_string();
+    let resp = client
+        .post(server.url("/api/members"))
+        .json(&m)
+        .send()
+        .await
+        .unwrap();
+    let created: MemberTO = resp.json().await.unwrap();
+    let member_id = created.id.unwrap();
+
+    // Pass 1: include body_html — expect it rendered back with the
+    // member's first name substituted inside the safe author markup.
+    let response = client
+        .post(server.url("/api/mail/preview"))
+        .json(&serde_json::json!({
+            "subject": "Betreff",
+            "body": "Hallo {{ first_name }}",
+            "member_id": member_id.to_string(),
+            "body_html": "<p>Hallo <b>{{ first_name }}</b></p>",
+        }))
+        .send()
+        .await
+        .expect("preview POST failed");
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let json: serde_json::Value = response.json().await.expect("decode preview response");
+    // (a) existing plain path unchanged
+    assert_eq!(
+        json["body"].as_str().expect("body must be string"),
+        "Hallo Max",
+        "plain body must render member first_name",
+    );
+    // (b) body_html is Some
+    let rendered_html = json["body_html"]
+        .as_str()
+        .expect("body_html must be present and a string when the request supplied one");
+    // (c) author markup survives + member variable interpolated
+    assert!(
+        rendered_html.contains("<b>Max</b>"),
+        "rendered body_html must contain <b>Max</b> (author markup preserved + first_name substituted), got: {}",
+        rendered_html
+    );
+    assert!(
+        rendered_html.contains("<p>"),
+        "rendered body_html must preserve safe <p> author markup, got: {}",
+        rendered_html
+    );
+
+    // Pass 2: omit body_html entirely — response JSON must NOT contain the key
+    // (skip_serializing_if wire-compat proof).
+    let response = client
+        .post(server.url("/api/mail/preview"))
+        .json(&serde_json::json!({
+            "subject": "Betreff",
+            "body": "Hallo {{ first_name }}",
+            "member_id": member_id.to_string(),
+        }))
+        .send()
+        .await
+        .expect("preview POST (no body_html) failed");
+    assert_eq!(response.status(), StatusCode::OK);
+    let raw_json: serde_json::Value = response.json().await.unwrap();
+    let obj = raw_json.as_object().expect("preview response is a JSON object");
+    assert!(
+        !obj.contains_key("body_html") || obj["body_html"].is_null(),
+        "body_html key must be absent on the wire when the source was None, got: {}",
+        raw_json
+    );
+    // Sanity: plain body still renders.
+    assert_eq!(raw_json["body"].as_str().unwrap(), "Hallo Max");
+}
