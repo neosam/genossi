@@ -77,11 +77,14 @@ pub async fn run_rendered_backfill<R, J, M, RE, RP, TX, RCR>(
         )
         .await
         {
-            Ok((subject, body)) => {
+            Ok(rendered) => {
+                // Phase 23: destructure to the new RenderedContent shape;
+                // rendered_html_body persistence is a Plan 04 concern — this
+                // backfill only fills the legacy text fields.
                 let mut updated = recipient.clone();
                 updated.version = Uuid::new_v4();
-                updated.rendered_subject = Some(Arc::from(subject.as_str()));
-                updated.rendered_body = Some(Arc::from(body.as_str()));
+                updated.rendered_subject = Some(Arc::from(rendered.subject.as_str()));
+                updated.rendered_body = Some(Arc::from(rendered.body.as_str()));
                 updated.rendered_reconstructed = true;
                 if let Err(e) = recipient_dao.update(&updated).await {
                     tracing::warn!(

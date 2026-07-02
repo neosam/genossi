@@ -23,7 +23,10 @@ use genossi_service::repayment_context::RepaymentContextResolver;
 use genossi_service::ServiceError;
 
 use crate::dao::{MailJob, MailRecipient};
-use crate::template::{member_to_template_context, merge_repayment_context, render_template, MemberResolver};
+use crate::template::{
+    member_to_template_context, merge_repayment_context, render_html_template, render_template,
+    MemberResolver,
+};
 
 /// Failure cause from `resolve_rendered_content`. The caller (worker) maps the
 /// `message` onto `mark_recipient_failed`; the backfill logs it and skips the row.
@@ -40,10 +43,28 @@ impl RenderFailure {
     }
 }
 
-/// Render the subject + body a single recipient should receive.
+/// Phase 23 D-08/D-09: per-recipient render result. `body_html` is `Some(...)`
+/// iff the job carries a `body_html` template AND the recipient resolves to a
+/// member context; otherwise `None` (never `Some("")`, per Pitfall 4).
 ///
-/// Returns `Ok((subject, body))` on success, `Err(RenderFailure)` on
-/// member-resolution / repayment-aggregation / template-render errors.
+/// Plan 04 wires this into the worker: `body_html` is persisted verbatim in
+/// `mail_recipients.rendered_html_body`, and `body_html.as_deref()` is passed
+/// into `build_message` for the `multipart/alternative` branch.
+#[derive(Debug, Clone)]
+pub struct RenderedContent {
+    pub subject: String,
+    pub body: String,
+    pub body_html: Option<String>,
+}
+
+/// Render the subject + body + optional HTML body a single recipient should
+/// receive.
+///
+/// Returns `Ok(RenderedContent { subject, body, body_html })` on success —
+/// `body_html` is `Some(rendered)` iff `job.body_html.is_some()` AND the
+/// recipient has a member context; otherwise `None` (D-09, Pitfall 4).
+/// Returns `Err(RenderFailure)` on member-resolution / repayment-aggregation /
+/// template-render errors.
 #[allow(clippy::too_many_arguments)]
 pub async fn resolve_rendered_content<M, RE, RP, TX, RCR>(
     recipient: &MailRecipient,
@@ -53,7 +74,7 @@ pub async fn resolve_rendered_content<M, RE, RP, TX, RCR>(
     repayment_phase_dao: &RP,
     transaction_dao: &TX,
     repayment_context_resolver: &RCR,
-) -> Result<(String, String), RenderFailure>
+) -> Result<RenderedContent, RenderFailure>
 where
     M: MemberResolver,
     RE: genossi_dao::repayment_entry::RepaymentEntryDao + Send + Sync,
@@ -63,7 +84,13 @@ where
 {
     let Some(member_id) = recipient.member_id else {
         // No member_id — plain text passthrough (no template interpolation).
-        return Ok((job.subject.to_string(), job.body.to_string()));
+        // body_html stays None because we never render into an empty context
+        // (D-09: no member context ⇒ no HTML render).
+        return Ok(RenderedContent {
+            subject: job.subject.to_string(),
+            body: job.body.to_string(),
+            body_html: None,
+        });
     };
 
     let member = match member_resolver.find_member_by_id(member_id).await {
@@ -149,7 +176,21 @@ where
     let body = render_template(&job.body, &ctx)
         .map_err(|e| RenderFailure::new(format!("Template render error (body): {}", e.message)))?;
 
-    Ok((subject, body))
+    // D-09 / Pitfall 4: only render HTML when the job actually carries a
+    // body_html source — otherwise leave body_html as None (never Some("")).
+    let body_html = match job.body_html.as_deref() {
+        Some(html_src) => Some(
+            render_html_template(html_src, &ctx)
+                .map_err(|e| RenderFailure::new(format!("HTML render error: {}", e.message)))?,
+        ),
+        None => None,
+    };
+
+    Ok(RenderedContent {
+        subject,
+        body,
+        body_html,
+    })
 }
 
 #[cfg(test)]
@@ -276,14 +317,18 @@ mod tests {
         let tx_dao = MockTransactionDao::new();
         let rcr = MockRepaymentContextResolver::new();
 
-        let (subject, body) = resolve_rendered_content(
+        let rendered = resolve_rendered_content(
             &recipient, &job, &resolver, &entry_dao, &phase_dao, &tx_dao, &rcr,
         )
         .await
         .unwrap();
 
-        assert_eq!(subject, "Hallo Max");
-        assert_eq!(body, "Lieber Mustermann");
+        assert_eq!(rendered.subject, "Hallo Max");
+        assert_eq!(rendered.body, "Lieber Mustermann");
+        assert!(
+            rendered.body_html.is_none(),
+            "body_html must be None when job.body_html is None (D-09)"
+        );
     }
 
     #[tokio::test]
@@ -335,15 +380,15 @@ mod tests {
             })
         });
 
-        let (subject, body) = resolve_rendered_content(
+        let rendered = resolve_rendered_content(
             &recipient, &job, &resolver, &entry_dao, &phase_dao, &tx_dao, &rcr,
         )
         .await
         .unwrap();
 
-        assert_eq!(subject, "Auszahlung 60,00");
+        assert_eq!(rendered.subject, "Auszahlung 60,00");
         // share_value derived from phase.share_value=2000 → "20,00".
-        assert_eq!(body, "3 Anteile a 20,00 EUR GJ 2026");
+        assert_eq!(rendered.body, "3 Anteile a 20,00 EUR GJ 2026");
     }
 
     #[tokio::test]
@@ -357,14 +402,18 @@ mod tests {
         let tx_dao = MockTransactionDao::new();
         let rcr = MockRepaymentContextResolver::new();
 
-        let (subject, body) = resolve_rendered_content(
+        let rendered = resolve_rendered_content(
             &recipient, &job, &resolver, &entry_dao, &phase_dao, &tx_dao, &rcr,
         )
         .await
         .unwrap();
 
-        assert_eq!(subject, "Plain Subject");
-        assert_eq!(body, "Plain Body");
+        assert_eq!(rendered.subject, "Plain Subject");
+        assert_eq!(rendered.body, "Plain Body");
+        assert!(
+            rendered.body_html.is_none(),
+            "plain passthrough must yield body_html=None (D-09)"
+        );
     }
 
     #[tokio::test]
@@ -387,5 +436,70 @@ mod tests {
 
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("not found"));
+    }
+
+    // ============================================================
+    // Phase 23 (HTML-04, D-08/D-09): body_html wiring — Some when
+    // job.body_html is Some, None otherwise (Pitfall 4).
+    // ============================================================
+
+    #[tokio::test]
+    async fn resolve_rendered_content_renders_html_body() {
+        let member = make_member();
+        let member_id = member.id;
+        let recipient = make_recipient(Some(member_id));
+        let mut job = make_job("Hi", "Text body", None);
+        job.body_html = Some(Arc::from("<p>Hallo {{ first_name }}</p>"));
+
+        let mut resolver = MockMemberResolver::new();
+        resolver
+            .expect_find_member_by_id()
+            .returning(move |_| Ok(Some(member.clone())));
+
+        let entry_dao = MockRepaymentEntryDao::new();
+        let phase_dao = MockRepaymentPhaseDao::new();
+        let tx_dao = MockTransactionDao::new();
+        let rcr = MockRepaymentContextResolver::new();
+
+        let rendered = resolve_rendered_content(
+            &recipient, &job, &resolver, &entry_dao, &phase_dao, &tx_dao, &rcr,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(rendered.body_html.as_deref(), Some("<p>Hallo Max</p>"));
+    }
+
+    #[tokio::test]
+    async fn resolve_rendered_content_body_html_none_when_job_body_html_none() {
+        // D-09 wire: job.body_html = None ⇒ rendered.body_html = None,
+        // never Some(""). Pitfall 4 pin.
+        let member = make_member();
+        let member_id = member.id;
+        let recipient = make_recipient(Some(member_id));
+        let job = make_job("Hi", "Text body", None);
+        assert!(job.body_html.is_none(), "precondition: job.body_html None");
+
+        let mut resolver = MockMemberResolver::new();
+        resolver
+            .expect_find_member_by_id()
+            .returning(move |_| Ok(Some(member.clone())));
+
+        let entry_dao = MockRepaymentEntryDao::new();
+        let phase_dao = MockRepaymentPhaseDao::new();
+        let tx_dao = MockTransactionDao::new();
+        let rcr = MockRepaymentContextResolver::new();
+
+        let rendered = resolve_rendered_content(
+            &recipient, &job, &resolver, &entry_dao, &phase_dao, &tx_dao, &rcr,
+        )
+        .await
+        .unwrap();
+
+        assert!(
+            rendered.body_html.is_none(),
+            "body_html must be None (D-09), got: {:?}",
+            rendered.body_html
+        );
     }
 }

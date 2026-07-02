@@ -376,6 +376,9 @@ pub async fn start_mail_worker<C, J, R, A, SA, D, M, IB, MD, AL, MT, RE, RP, TX,
         // Source of Truth — the startup backfill calls the exact same function).
         // On any render/member/repayment failure, mark the recipient failed and
         // skip the send (same tracing/interval semantics as the old inline block).
+        // Phase 23: resolver now returns RenderedContent { subject, body,
+        // body_html }; Plan 04 wires body_html into build_message + persistence.
+        // Minimal destructure only here.
         let (rendered_subject, rendered_body) = match crate::render::resolve_rendered_content(
             &next,
             &job,
@@ -387,7 +390,7 @@ pub async fn start_mail_worker<C, J, R, A, SA, D, M, IB, MD, AL, MT, RE, RP, TX,
         )
         .await
         {
-            Ok(rendered) => rendered,
+            Ok(rendered) => (rendered.subject, rendered.body),
             Err(failure) => {
                 mark_recipient_failed(
                     recipient_dao.as_ref(),
