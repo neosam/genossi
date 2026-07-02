@@ -14,6 +14,11 @@ fn format_member_for_preview(m: &rest_types::MemberTO) -> String {
 fn trigger_preview(
     subject: &str,
     body: &str,
+    // Phase 24 Plan 03 Task 5 (EDIT-05, D-04): optional HTML template source.
+    // Empty-string sentinel converts to None so the backend renders only the
+    // plaintext preview (mirrors the empty→None backward-compat rule used at
+    // send/reply entry points in mail_page/reply_form).
+    body_html: &str,
     member_id: Uuid,
     repayment_phase_id: Option<Uuid>,
     mut preview_loading: Signal<bool>,
@@ -21,14 +26,28 @@ fn trigger_preview(
 ) {
     let subj = subject.to_string();
     let b = body.to_string();
+    let body_html_opt: Option<String> = if body_html.trim().is_empty() {
+        None
+    } else {
+        Some(body_html.to_string())
+    };
     let mid_str = member_id.to_string();
     spawn(async move {
         preview_loading.set(true);
         let config = CONFIG.read().clone();
-        // Phase 24 (EDIT-05, D-04): Wave 1 lands the api-layer body_html seam
-        // — Plan 24-03 will wire a real body_html Signal here. For now, pass
-        // None so the plaintext preview path stays identical.
-        match api::preview_mail(&config, &subj, &b, &mid_str, repayment_phase_id, None).await {
+        // Phase 24 Plan 03 Task 5 (EDIT-05, D-04): forward the caller's
+        // body_html to the backend so the response carries the rendered HTML
+        // preview.
+        match api::preview_mail(
+            &config,
+            &subj,
+            &b,
+            &mid_str,
+            repayment_phase_id,
+            body_html_opt.as_deref(),
+        )
+        .await
+        {
             Ok(result) => preview_result.set(Some(result)),
             Err(e) => preview_result.set(Some(PreviewResponse {
                 subject: String::new(),
@@ -49,6 +68,11 @@ fn trigger_preview(
 pub fn TemplatePreview(
     subject: ReadOnlySignal<String>,
     body: ReadOnlySignal<String>,
+    // Phase 24 Plan 03 Task 5 (EDIT-05, D-04): HTML sibling of `body` — the
+    // Wave 3 migration threads the WysiwygEditor's body_html signal in here
+    // so the backend preview can render the HTML preview. Defaults to an
+    // empty string when the caller does not supply it (dispatches as None).
+    #[props(default)] body_html: ReadOnlySignal<String>,
     member_ids: Vec<Uuid>,
     // UAT-Defekt #6: optional Repayment-Kontext, damit Live-Preview im
     // Phase-12-Flow `{{ payout_amount }}` etc. korrekt rendert.
@@ -74,7 +98,15 @@ pub fn TemplatePreview(
                             preview_result.set(None);
                         } else if let Ok(id) = val.parse::<Uuid>() {
                             preview_member_id.set(Some(id));
-                            trigger_preview(&subject.read(), &body.read(), id, repayment_phase_id, preview_loading, preview_result);
+                            trigger_preview(
+                                &subject.read(),
+                                &body.read(),
+                                &body_html.read(),
+                                id,
+                                repayment_phase_id,
+                                preview_loading,
+                                preview_result,
+                            );
                         }
                     },
                     option { value: "", {i18n.t(Key::MailTemplatePreviewSelect)} }
@@ -106,7 +138,15 @@ pub fn TemplatePreview(
                     disabled: *preview_loading.read(),
                     onclick: move |_| {
                         if let Some(mid) = *preview_member_id.read() {
-                            trigger_preview(&subject.read(), &body.read(), mid, repayment_phase_id, preview_loading, preview_result);
+                            trigger_preview(
+                                &subject.read(),
+                                &body.read(),
+                                &body_html.read(),
+                                mid,
+                                repayment_phase_id,
+                                preview_loading,
+                                preview_result,
+                            );
                         }
                     },
                     if *preview_loading.read() { "..." } else { {i18n.t(Key::MailTemplatePreview)} }

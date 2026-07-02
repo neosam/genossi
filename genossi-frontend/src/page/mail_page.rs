@@ -5,8 +5,8 @@ use uuid::Uuid;
 use crate::api::{self, BulkRecipient, MailJobDetailTO};
 use crate::auth::RequirePrivilege;
 use crate::component::mail_compose::{
-    MailAttachmentPicker, MailBodyEditor, MailSubjectInput, TemplatePreview, TemplateSelector,
-    TemplateVarButtons,
+    MailAttachmentPicker, MailSubjectInput, TemplatePreview, TemplateSelector, TemplateVarButtons,
+    WysiwygEditor,
 };
 // Quick 260614-ckn: status-Helper leben jetzt in der MailJobsList-Komponente
 // (DRY) und werden von MailJobDetail weiterhin genutzt.
@@ -57,6 +57,11 @@ pub fn MailPage() -> Element {
     });
     let mut subject = use_signal(|| String::new());
     let mut body = use_signal(|| String::new());
+    // Phase 24 (EDIT-01, D-01): companion HTML body pushed from the
+    // WysiwygEditor's DOM (innerHTML) alongside the plain-text body from
+    // innerText. Empty-string sentinel → send/reply path posts None so
+    // Phase 23 backend stores NULL and the mail stays legacy text-only.
+    let mut body_html = use_signal(|| String::new());
     let mut sending = use_signal(|| false);
     let mut cached_footer = use_signal(|| String::new());
 
@@ -391,6 +396,13 @@ pub fn MailPage() -> Element {
                                     } else {
                                         body.set(format!("{}\n{}", template_body, footer));
                                     }
+                                    // Phase 24 Plan 03 Task 2: TemplateSelector
+                                    // surfaces only plain-text template body,
+                                    // so wipe body_html on select — the user
+                                    // starts with a plain-text template and
+                                    // any HTML they add via the WysiwygEditor
+                                    // afterwards will be captured on submit.
+                                    body_html.set(String::new());
                                 },
                                 // Phase 12 D-18 / Issue #2 BLOCKER-Fix:
                                 // store selected template id so send_bulk_mail can use it.
@@ -398,13 +410,21 @@ pub fn MailPage() -> Element {
                                     selected_template_id.set(id);
                                 },
                             }
-                            MailBodyEditor {
-                                value: body.read().clone(),
-                                on_change: move |val: String| body.set(val),
+                            // Phase 24 (EDIT-01, D-01): WysiwygEditor is the
+                            // SINGLE input source. Its on_change tuple pushes
+                            // (innerText, innerHTML) into (body, body_html)
+                            // signals after every DOM mutation.
+                            WysiwygEditor {
+                                value: body_html.read().clone(),
+                                on_change: move |(plain, html): (String, String)| {
+                                    body.set(plain);
+                                    body_html.set(html);
+                                },
                             }
                             TemplatePreview {
                                 subject: subject,
                                 body: body,
+                                body_html: body_html,
                                 member_ids: selected_member_ids.read().clone(),
                                 // UAT-Defekt #6: Live-Preview soll Repayment-Vars rendern
                                 repayment_phase_id: *repayment_phase_id.read(),
@@ -458,8 +478,34 @@ pub fn MailPage() -> Element {
                                 class: "bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded disabled:opacity-50",
                                 disabled: *sending.read() || recipient_count == 0 || subject.read().is_empty(),
                                 onclick: move |_| {
+                                    // Phase 24 Plan 03 Task 2 Submit-Guard
+                                    // (Pitfall 5 of 24-RESEARCH.md, D-01
+                                    // belt-and-suspenders): re-read the
+                                    // contenteditable's innerHTML+innerText
+                                    // from the DOM BEFORE building the send
+                                    // request so any late toolbar-click that
+                                    // did not fire on_command is captured.
+                                    if let Some(doc) = web_sys::window()
+                                        .and_then(|w| w.document())
+                                    {
+                                        if let Some(el) = doc.get_element_by_id("wysiwyg-editor") {
+                                            let html = el.inner_html();
+                                            let plain = wasm_bindgen::JsCast::dyn_ref::<web_sys::HtmlElement>(&el)
+                                                .map(|he| he.inner_text())
+                                                .unwrap_or_default();
+                                            body.set(plain);
+                                            body_html.set(html);
+                                        }
+                                    }
                                     let subj = subject.read().clone();
                                     let b = body.read().clone();
+                                    // Phase 24 (EDIT-01, D-01): capture the
+                                    // body_html value + apply the empty→None
+                                    // backwards-compat rule (Phase 23 HTML-03):
+                                    // empty innerHTML means the user typed only
+                                    // plain text with zero formatting, so the
+                                    // send should stay legacy text-only.
+                                    let bh_value = body_html.read().clone();
                                     let att_ids: Vec<String> = selected_attachment_ids.read().iter().map(|id| id.to_string()).collect();
                                     let static_ids: Vec<String> = selected_static_document_ids.read().clone();
                                     let i18n = i18n.clone();
@@ -499,15 +545,23 @@ pub fn MailPage() -> Element {
                                         let config = CONFIG.read().clone();
                                         let template_id: Option<&str> =
                                             template_id_owned.as_deref();
-                                        // Phase 24 Plan 03 Task 1 seam: pass
-                                        // None for body_html here; Task 2
-                                        // wires the real body_html signal.
+                                        // Phase 24 Plan 03 Task 2 (D-01):
+                                        // apply the empty→None backward-compat
+                                        // rule — if the WYSIWYG editor emitted
+                                        // no HTML (user typed only plain text),
+                                        // treat as legacy plaintext send.
+                                        let body_html_opt: Option<&str> =
+                                            if bh_value.trim().is_empty() {
+                                                None
+                                            } else {
+                                                Some(bh_value.as_str())
+                                            };
                                         match api::send_bulk_mail(
                                             &config,
                                             &recipients,
                                             &subj,
                                             &b,
-                                            None,
+                                            body_html_opt,
                                             &att_ids,
                                             &static_ids,
                                             template_id,
@@ -523,6 +577,10 @@ pub fn MailPage() -> Element {
                                                 selected_static_document_ids.set(Vec::new());
                                                 subject.set(String::new());
                                                 body.set(String::new());
+                                                // Phase 24 Plan 03 Task 2:
+                                                // reset the WysiwygEditor's
+                                                // companion body_html signal.
+                                                body_html.set(String::new());
                                                 attach_repayment_letter.set(false);
                                             }
                                             Err(e) => {
