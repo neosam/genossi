@@ -5,6 +5,7 @@ pub mod template_preview;
 pub mod template_selector;
 pub mod template_tester;
 pub mod template_var_buttons;
+pub mod wysiwyg_editor;
 pub mod wysiwyg_link_dialog;
 pub mod wysiwyg_toolbar;
 
