@@ -270,12 +270,28 @@ pub struct PreviewRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schema(example = "29ae374c-9e60-4cc8-b0b4-ce51c28e7b6e")]
     pub repayment_phase_id: Option<String>,
+    /// Phase 24 (EDIT-05, D-04): optional author HTML template. When present,
+    /// the `preview_mail` handler renders it via `render_html_template`
+    /// (autoescape env — member values HTML-escaped) and echoes the rendered
+    /// HTML back in `PreviewResponse.body_html`. `None` ⇒ response.body_html
+    /// stays `None` (wire backward-compatible with pre-Phase-24 clients).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(example = "<p>Hallo {{ first_name }}</p>")]
+    pub body_html: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct PreviewResponse {
     pub subject: String,
     pub body: String,
+    /// Phase 24 (EDIT-05, D-04): the rendered HTML sibling — populated only
+    /// when the `PreviewRequest` carried a `body_html` template. Renders
+    /// through the autoescape env, so member-supplied values are escaped
+    /// while author markup passes through structurally. `None` when the
+    /// request omitted `body_html`; `#[serde(skip_serializing_if)]` keeps
+    /// the wire backward-compatible with older frontends.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body_html: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub errors: Vec<String>,
     /// Quick 260603-kon: signalisiert dem Frontend, dass Dummy-Repayment-Daten
@@ -747,9 +763,25 @@ pub async fn preview_mail<S: MailRestState>(
                 }
             };
 
+            // Phase 24 (EDIT-05, D-04): if the caller supplied an HTML sibling,
+            // render it through the autoescape env (member values escaped, author
+            // markup structurally preserved). Read-only preview — no sanitization
+            // here; ammonia guards the store boundary (Phase 23 D-03).
+            let rendered_body_html: Option<String> = match body.body_html.as_deref() {
+                Some(html_src) => match render_html_template(html_src, &ctx) {
+                    Ok(s) => Some(s),
+                    Err(e) => {
+                        errors.push(format!("HTML: {}", e.message));
+                        None
+                    }
+                },
+                None => None,
+            };
+
             let response = PreviewResponse {
                 subject: rendered_subject,
                 body: rendered_body,
+                body_html: rendered_body_html,
                 errors,
                 used_dummy_repayment,
             };
@@ -1258,6 +1290,7 @@ mod tests {
         let response = PreviewResponse {
             subject: "S".to_string(),
             body: "Auszahlung: 99,99 EUR fuer 99 Anteile".to_string(),
+            body_html: None,
             errors: vec![],
             used_dummy_repayment: true,
         };
@@ -1284,6 +1317,7 @@ mod tests {
         let response = PreviewResponse {
             subject: "S".to_string(),
             body: "B".to_string(),
+            body_html: None,
             errors: vec![],
             used_dummy_repayment: false,
         };
@@ -1314,6 +1348,7 @@ mod tests {
         let original = PreviewResponse {
             subject: "S".to_string(),
             body: "B".to_string(),
+            body_html: None,
             errors: vec![],
             used_dummy_repayment: true,
         };
@@ -1398,6 +1433,53 @@ mod tests {
         assert!(
             !template_uses_repayment_vars(subject, body),
             "pure member-var template must NOT trigger the dummy-merge fallback"
+        );
+    }
+
+    // ── Phase 24 (EDIT-05, D-04): PreviewResponse.body_html serde-lock ──
+    //
+    // Wire backward-compat: `skip_serializing_if = "Option::is_none"` MUST omit
+    // the `body_html` key when the field is None, so pre-Phase-24 frontends see
+    // no shape change on the response.
+
+    /// Phase 24: response with `body_html = None` MUST NOT serialize the key
+    /// (mirrors the pattern established in Phase 23 Plan 04 for the send-path
+    /// DTOs).
+    #[test]
+    fn preview_response_serializes_without_body_html_when_none() {
+        let response = PreviewResponse {
+            subject: "S".to_string(),
+            body: "B".to_string(),
+            body_html: None,
+            errors: Vec::new(),
+            used_dummy_repayment: false,
+        };
+        let json = serde_json::to_string(&response).expect("must serialize");
+        assert!(
+            !json.contains("body_html"),
+            "skip_serializing_if must omit body_html when None, got: {json}",
+        );
+    }
+
+    /// Phase 24: response with `body_html = Some(...)` MUST serialize the key
+    /// with the exact value the handler assigned.
+    #[test]
+    fn preview_response_serializes_with_body_html_when_some() {
+        let response = PreviewResponse {
+            subject: "S".to_string(),
+            body: "B".to_string(),
+            body_html: Some("<p>Hallo Max</p>".to_string()),
+            errors: Vec::new(),
+            used_dummy_repayment: false,
+        };
+        let json = serde_json::to_string(&response).expect("must serialize");
+        assert!(
+            json.contains("body_html"),
+            "body_html must be in JSON when Some, got: {json}",
+        );
+        assert!(
+            json.contains("<p>Hallo Max</p>"),
+            "rendered HTML must appear in the JSON output, got: {json}",
         );
     }
 }
