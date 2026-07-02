@@ -5,16 +5,16 @@ milestone_name: Mail-Formatierung & Antrags-Dokumente
 current_phase: 23
 current_phase_name: HTML Mail Backend
 status: executing
-stopped_at: Completed 23-01-PLAN.md
-last_updated: "2026-07-02T20:38:58.000Z"
+stopped_at: Completed 23-02-PLAN.md
+last_updated: "2026-07-02T22:55:00.000Z"
 last_activity: 2026-07-02
-last_activity_desc: Phase 23 Plan 01 abgeschlossen (body_html / rendered_html_body schema + DAO wire + 3 roundtrip tests)
+last_activity_desc: Phase 23 Plan 02 abgeschlossen (ammonia sanitize helper + html_env autoescape + render_html_template + format_de FMT-01 + RenderedContent struct; 237 lib-Tests grün)
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 3
-  completed_plans: 3
-  percent: 25
+  completed_plans: 4
+  percent: 30
 ---
 
 # State: Genossi — v1.4 Mail-Formatierung & Antrags-Dokumente (Roadmap erstellt)
@@ -32,10 +32,10 @@ See: `.planning/PROJECT.md` (updated 2026-06-07 after v1.2 close)
 
 ## Current Position
 
-Phase: 23 (executing) — HTML Mail Backend, first plan complete
-Plan: 23-01 completed (schema foundation: body_html / rendered_html_body); 23-02, 23-03, 23-04 pending
-Status: 1/4 plans complete; ready to execute 23-02 (HTML render env + separate autoescape minijinja)
-Last activity: 2026-07-02 — Phase 23 Plan 01 abgeschlossen (3 forward-only ADD COLUMN Migrationen für body_html/rendered_html_body + DAO-Wire in genossi_mail + 3 Roundtrip-Tests inkl. NULL-Legacy Pitfall-4-Guard; 227 lib-Tests grün)
+Phase: 23 (executing) — HTML Mail Backend, second plan complete
+Plan: 23-01, 23-02 completed; 23-03, 23-04 pending
+Status: 2/4 plans complete; ready to execute 23-03 (MIME `multipart/alternative` build_message extension)
+Last activity: 2026-07-02 — Phase 23 Plan 02 abgeschlossen (ammonia = 4 dep + genossi_mail::sanitize::sanitize_html + template::html_env autoescape + render_html_template + format_de FMT-01 in shared context builder + RenderedContent { subject, body, body_html } struct + Pitfall-3-Regression-Pin für strict_env + worker/backfill destructure-Updates; 237 lib-Tests grün, +10 gegenüber 23-01)
 
 ### v1.4 Phase Structure (Phases 22-25, granularity: coarse)
 
