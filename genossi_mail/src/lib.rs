@@ -10,6 +10,7 @@ pub mod mail_template_service;
 pub mod render;
 pub mod rest;
 pub mod rest_templates;
+pub mod sanitize;
 pub mod send;
 pub mod service;
 pub mod static_document_service;

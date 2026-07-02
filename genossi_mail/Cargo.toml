@@ -25,6 +25,10 @@ axum = { workspace = true }
 utoipa = { workspace = true }
 lettre = { workspace = true }
 minijinja = "2"
+# Phase 23 (HTML-05, D-01): Autor-HTML wird an allen Eintritts-Punkten mit
+# ammonia (permissiver Default-Filter) saniert. Siehe genossi_mail/src/sanitize.rs
+# und 23-CONTEXT.md D-01/D-03.
+ammonia = "4"
 sha2 = "0.10"
 async-imap = { version = "0.10", default-features = false, features = ["runtime-tokio"] }
 tokio-rustls = "0.26"
