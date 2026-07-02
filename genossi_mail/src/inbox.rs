@@ -468,6 +468,10 @@ pub trait InboxService: Send + Sync + 'static {
         body: &str,
         attachment_inputs: Vec<AttachmentInput>,
         static_document_ids: Vec<Uuid>,
+        // Phase 24 (EDIT-01, D-01): optional HTML sibling; sanitized at the
+        // store boundary (Phase 23 D-03 EP wire) before the MailJob is
+        // created. `None` ⇒ text-only reply (pre-Phase-24 behavior).
+        body_html: Option<String>,
     ) -> Result<MailJob, MailServiceError>;
 
     /// Phase 19: return one attachment if it belongs to `mail_id`. The DAO
@@ -651,6 +655,7 @@ where
         body: &str,
         attachment_inputs: Vec<AttachmentInput>,
         static_document_ids: Vec<Uuid>,
+        body_html: Option<String>,
     ) -> Result<MailJob, MailServiceError> {
         let mut mail = self.load_mail(id).await?;
 
@@ -687,8 +692,11 @@ where
             repayment_phase_id: None,
             // Quick 260603-cz6: inbox reply is not a repayment-bulk send.
             attach_repayment_letter: false,
-            // Phase 23 D-07: inbox reply is text-only (no HTML body).
-            body_html: None,
+            // Phase 24 (EDIT-01, D-01): sanitize the optional HTML sibling at
+            // the store boundary (Phase 23 D-03 EP wire). None ⇒ None out
+            // (text-only reply, pre-Phase-24 behavior).
+            body_html: crate::service::sanitize_body_html_opt(body_html.as_deref())
+                .map(Arc::from),
         };
         self.job_dao.create(&job).await?;
 
@@ -1422,7 +1430,7 @@ mod tests {
             Arc::new(MockStaticDocumentDao::new()),
         );
         let job = svc
-            .reply(mail_id, "Re: s", "My reply", vec![], vec![])
+            .reply(mail_id, "Re: s", "My reply", vec![], vec![], None)
             .await
             .unwrap();
         assert_eq!(job.subject.as_ref(), "Re: s");
@@ -1449,7 +1457,7 @@ mod tests {
             Arc::new(MockStaticDocumentDao::new()),
         );
         let result = svc
-            .reply(Uuid::new_v4(), "Re: x", "body", vec![], vec![])
+            .reply(Uuid::new_v4(), "Re: x", "body", vec![], vec![], None)
             .await;
         assert!(matches!(result, Err(MailServiceError::NotFound)));
     }
@@ -1531,7 +1539,7 @@ mod tests {
 
         let attachments = vec![sample_attachment_input(), sample_attachment_input()];
         let job = svc
-            .reply(mail_id, "Re: with att", "body", attachments, vec![])
+            .reply(mail_id, "Re: with att", "body", attachments, vec![], None)
             .await
             .unwrap();
         assert_eq!(job.reply_to_inbound_mail_id, Some(mail_id));
@@ -1623,7 +1631,7 @@ mod tests {
         );
 
         let job = svc
-            .reply(mail_id, "Re: static", "body", vec![], static_ids)
+            .reply(mail_id, "Re: static", "body", vec![], static_ids, None)
             .await
             .unwrap();
         assert_eq!(job.reply_to_inbound_mail_id, Some(mail_id));
@@ -1677,10 +1685,80 @@ mod tests {
         );
 
         let job = svc
-            .reply(mail_id, "Re: plain", "body", vec![], vec![])
+            .reply(mail_id, "Re: plain", "body", vec![], vec![], None)
             .await
             .unwrap();
         assert_eq!(job.reply_to_inbound_mail_id, Some(mail_id));
+    }
+
+    /// Phase 24 (EDIT-01, D-01): the sanitize-on-store gate MUST run at the
+    /// InboxService::reply entry point. `<script>` tags are stripped by ammonia,
+    /// safe markup (`<p>`) survives. Mirrors the pattern established in Phase
+    /// 23 Plan 04 for `create_job_sanitizes_body_html`.
+    #[tokio::test]
+    async fn reply_sanitizes_body_html_on_store() {
+        let mail = sample_mail();
+        let mail_id = mail.id;
+
+        let mut dao = MockInboundMailDao::new();
+        let returned = mail.clone();
+        dao.expect_find_by_id()
+            .returning(move |_| Ok(Some(returned.clone())));
+        dao.expect_update().returning(|_| Ok(()));
+
+        // Capture the persisted MailJob so we can assert on its body_html.
+        let captured_body_html: Arc<std::sync::Mutex<Option<Option<Arc<str>>>>> =
+            Arc::new(std::sync::Mutex::new(None));
+        let captured_for_job = captured_body_html.clone();
+        let mut job_dao = MockMailJobDao::new();
+        job_dao.expect_create().times(1).returning(move |j| {
+            *captured_for_job.lock().unwrap() = Some(j.body_html.clone());
+            Ok(())
+        });
+
+        let mut recipient_dao = MockMailRecipientDao::new();
+        recipient_dao.expect_create().times(1).returning(|_| Ok(()));
+
+        let cfg = MockConfigService::new();
+        let imap = MockInboxImapClient::new();
+        let svc = InboxServiceImpl::new(
+            Arc::new(cfg),
+            Arc::new(dao),
+            Arc::new(imap),
+            Arc::new(job_dao),
+            Arc::new(recipient_dao),
+            Arc::new(MockInboundMailAttachmentDao::new()),
+            Arc::new(MockDocumentStorage::new()),
+            Arc::new(MockMailRecipientAttachmentDao::new()),
+            Arc::new(MockMailJobStaticAttachmentDao::new()),
+            Arc::new(MockStaticDocumentDao::new()),
+        );
+
+        let malicious = "<script>alert(1)</script><p>ok</p>".to_string();
+        let _job = svc
+            .reply(mail_id, "s", "b", vec![], vec![], Some(malicious))
+            .await
+            .unwrap();
+
+        let persisted = captured_body_html
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("job_dao.create must have been called");
+        let persisted = persisted.expect("body_html MUST be Some after Some input");
+        let persisted_str: &str = persisted.as_ref();
+        assert!(
+            !persisted_str.contains("<script>"),
+            "sanitize gate MUST strip <script>, got: {persisted_str}",
+        );
+        assert!(
+            !persisted_str.contains("alert(1)"),
+            "sanitize gate MUST strip the script contents, got: {persisted_str}",
+        );
+        assert!(
+            persisted_str.contains("<p>ok</p>"),
+            "safe markup <p> MUST survive, got: {persisted_str}",
+        );
     }
 
     // ── Phase 19: Attachment pipeline tests ────────────────────────────

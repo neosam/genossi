@@ -84,6 +84,13 @@ pub struct ReplyRequest {
     /// attached job-level. Defaults to empty for backward compatibility.
     #[serde(default)]
     pub static_document_ids: Vec<String>,
+    /// Phase 24 (EDIT-01, EDIT-03, D-01): optional HTML sibling of `body`.
+    /// When present, sanitized once at the store boundary (Phase 23 D-03 EP
+    /// wire — `sanitize_body_html_opt`) and persisted on the MailJob so the
+    /// worker sends a multipart/alternative reply. `None` ⇒ text-only reply
+    /// (backward-compat with pre-Phase-24 frontends).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body_html: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
@@ -498,6 +505,9 @@ async fn reply_inbox<S: InboxRestState>(
             &req.body,
             attachment_inputs,
             static_doc_uuids,
+            // Phase 24 (EDIT-01, D-01): pass through the optional HTML sibling
+            // — the service sanitizes it at the store boundary.
+            req.body_html.clone(),
         )
         .await
     {
