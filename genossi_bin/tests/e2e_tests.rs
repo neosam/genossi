@@ -14393,3 +14393,199 @@ async fn test_mail_preview_repayment_no_entries_does_not_default_to_one() {
         errors
     );
 }
+
+// ── Phase 23 Plan 04 — HTML mail e2e wire tests (HTML-01, HTML-05, D-03) ──
+
+/// Phase 23 Plan 04 (HTML-05, D-03 EP1 — bulk-mail entry point):
+/// POSTing a bulk-mail with malicious HTML in `body_html` MUST be sanitized
+/// server-side before persistence. The returned MailJobTO exposes the
+/// sanitized value — `<script>` MUST be stripped; safe tags survive.
+#[tokio::test]
+async fn bulk_mail_body_html_sanitized_and_persisted() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Seed a member so the bulk-mail path validates.
+    let mut m = sample_member();
+    m.member_number = 1;
+    m.first_name = "Max".to_string();
+    m.email = Some("max@example.com".to_string());
+    let resp = client
+        .post(server.url("/api/members"))
+        .json(&m)
+        .send()
+        .await
+        .unwrap();
+    let created: MemberTO = resp.json().await.unwrap();
+    let member_id = created.id.unwrap();
+
+    // POST with malicious HTML in body_html.
+    let response = client
+        .post(server.url("/api/mail/send-bulk"))
+        .json(&serde_json::json!({
+            "to_addresses": [{
+                "address": "max@example.com",
+                "member_id": member_id.to_string(),
+            }],
+            "subject": "HTML Test",
+            "body": "Hallo {{ first_name }}",
+            "body_html": "<p>Hallo {{ first_name }}</p><script>alert(1)</script>",
+            "attachment_ids": [],
+            "static_document_ids": [],
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let job: MailJobTO = response.json().await.unwrap();
+    let job_id = job.id.clone();
+
+    // Fetch the job detail and inspect body_html.
+    let response = client
+        .get(server.url(&format!("/api/mail/jobs/{}", job_id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let detail: MailJobDetailTO = response.json().await.unwrap();
+
+    let stored_html = detail
+        .job
+        .body_html
+        .clone()
+        .expect("body_html was Some on the persisted job");
+    assert!(
+        stored_html.contains("<p>"),
+        "safe <p> must survive sanitize, got: {}",
+        stored_html
+    );
+    // Jinja placeholder `{{ first_name }}` MUST survive — sanitize does not
+    // render templates (RESEARCH Pitfall 1).
+    assert!(
+        stored_html.contains("{{ first_name }}") || stored_html.contains("first_name"),
+        "Jinja placeholder must be preserved through sanitize, got: {}",
+        stored_html
+    );
+    assert!(
+        !stored_html.contains("<script>"),
+        "<script> MUST be stripped (HTML-05), got: {}",
+        stored_html
+    );
+}
+
+/// Phase 23 Plan 04 (backward-compat proof): a bulk-mail POST WITHOUT
+/// `body_html` MUST land as body_html IS NULL on the persisted job and MUST
+/// NOT appear in the returned JSON (skip_serializing_if). Preserves the
+/// Phase-22 wire shape byte-for-byte for pre-Phase-24 clients.
+#[tokio::test]
+async fn bulk_mail_body_html_none_stays_backward_compatible() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let mut m = sample_member();
+    m.member_number = 1;
+    m.first_name = "Anna".to_string();
+    m.email = Some("anna@example.com".to_string());
+    let resp = client
+        .post(server.url("/api/members"))
+        .json(&m)
+        .send()
+        .await
+        .unwrap();
+    let created: MemberTO = resp.json().await.unwrap();
+    let member_id = created.id.unwrap();
+
+    // POST without a body_html key at all.
+    let response = client
+        .post(server.url("/api/mail/send-bulk"))
+        .json(&serde_json::json!({
+            "to_addresses": [{
+                "address": "anna@example.com",
+                "member_id": member_id.to_string(),
+            }],
+            "subject": "Text-only",
+            "body": "Hallo {{ first_name }}",
+            "attachment_ids": [],
+            "static_document_ids": [],
+        }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let job: MailJobTO = response.json().await.unwrap();
+    assert!(
+        job.body_html.is_none(),
+        "body_html must be None when omitted from request, got: {:?}",
+        job.body_html
+    );
+
+    // Fetch the raw JSON to verify the wire shape has NO body_html key.
+    let response = client
+        .get(server.url(&format!("/api/mail/jobs/{}", job.id)))
+        .send()
+        .await
+        .unwrap();
+    let raw_json: serde_json::Value = response.json().await.unwrap();
+    let obj = raw_json.as_object().expect("job detail is a JSON object");
+    // MailJobDetailTO flattens MailJobTO — body_html key would be at the top level.
+    assert!(
+        !obj.contains_key("body_html") || obj["body_html"].is_null(),
+        "body_html key must be absent or null on the wire when the source was None, got: {}",
+        raw_json
+    );
+    // Sanity: body still matches.
+    assert_eq!(job.body, "Hallo {{ first_name }}");
+}
+
+/// Phase 23 Plan 04 (HTML-05, D-03 EP2 — template entry point):
+/// POSTing a mail-template with malicious HTML in `body_html` MUST be
+/// sanitized server-side before persistence. GET returns the sanitized value.
+#[tokio::test]
+async fn create_template_body_html_sanitized() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Create with malicious HTML.
+    let response = client
+        .post(server.url("/api/mail/templates"))
+        .json(&serde_json::json!({
+            "name": "html-sanitize-test",
+            "subject": "Test",
+            "body": "Hallo {{ first_name }}",
+            "body_html": "<p>Hallo {{ first_name }}</p><script>alert(1)</script>",
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let created: MailTemplateTO = response.json().await.unwrap();
+
+    let stored_html = created
+        .body_html
+        .clone()
+        .expect("body_html Some on created template");
+    assert!(
+        stored_html.contains("<p>"),
+        "safe <p> preserved, got: {}",
+        stored_html
+    );
+    assert!(
+        !stored_html.contains("<script>"),
+        "<script> stripped, got: {}",
+        stored_html
+    );
+
+    // GET by id and verify the sanitized value is served back.
+    let response = client
+        .get(server.url(&format!("/api/mail/templates/{}", created.id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let fetched: MailTemplateTO = response.json().await.unwrap();
+    let fetched_html = fetched.body_html.expect("body_html Some on fetched");
+    assert!(fetched_html.contains("<p>"));
+    assert!(!fetched_html.contains("<script>"));
+}
