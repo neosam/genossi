@@ -4,8 +4,8 @@ use uuid::Uuid;
 
 use crate::api::{self, StaticDocumentTO};
 use crate::component::mail_compose::{
-    MailAttachmentPicker, MailBodyEditor, MailSubjectInput, TemplatePreview, TemplateSelector,
-    TemplateVarButtons,
+    MailAttachmentPicker, MailSubjectInput, TemplatePreview, TemplateSelector, TemplateVarButtons,
+    WysiwygEditor,
 };
 use crate::i18n::{use_i18n, Key};
 use crate::service::config::CONFIG;
@@ -51,6 +51,10 @@ pub fn InboxReplyForm(
         let b = initial_body.clone();
         move || b
     });
+    // Phase 24 Plan 03 Task 3 (EDIT-01, D-01): companion HTML body pushed
+    // from the WysiwygEditor's DOM alongside reply_body (innerText). Empty
+    // sentinel → reply_inbox_mail posts None → legacy plaintext reply.
+    let mut reply_body_html = use_signal(|| String::new());
     let cached_quote = use_signal({
         let q = quote_block.clone();
         move || q
@@ -191,16 +195,41 @@ pub fn InboxReplyForm(
                         body.push_str(&quote);
                     }
                     reply_body.set(body);
+                    // Phase 24 Plan 03 Task 3: TemplateSelector surfaces
+                    // only plain-text template body; wipe reply_body_html
+                    // on select. Any HTML the user adds via WysiwygEditor
+                    // afterwards is captured on submit.
+                    reply_body_html.set(String::new());
                 },
             }
             TemplateVarButtons {
                 on_insert: move |var_text: String| {
                     reply_body.write().push_str(&var_text);
+                    // Phase 24 Plan 03 Task 3 (Pitfall 5 partial-fix):
+                    // TemplateVarButtons injects text directly into the
+                    // reply_body signal, bypassing the WysiwygEditor DOM.
+                    // Mirror the same text — HTML-escaped — into
+                    // reply_body_html so the two signals stay in sync
+                    // until the next user keystroke re-syncs the DOM.
+                    // TODO: contenteditable does not re-sync from `value`
+                    // prop after mount; TemplateVarButtons inserts show up
+                    // in innerText/innerHTML on the next user keystroke
+                    // via oninput. UAT (Plan 24-04) will smoke-check this.
+                    let escaped = var_text
+                        .replace('&', "&amp;")
+                        .replace('<', "&lt;")
+                        .replace('>', "&gt;");
+                    reply_body_html.write().push_str(&escaped);
                 },
             }
-            MailBodyEditor {
-                value: reply_body.read().clone(),
-                on_change: move |val: String| reply_body.set(val),
+            // Phase 24 (EDIT-01, D-01): WysiwygEditor is the SINGLE input
+            // source. on_change tuple → (innerText, innerHTML) → signals.
+            WysiwygEditor {
+                value: reply_body_html.read().clone(),
+                on_change: move |(plain, html): (String, String)| {
+                    reply_body.set(plain);
+                    reply_body_html.set(html);
+                },
             }
             // Quick 260607-s0s: same picker the Compose-flow uses
             // (Component-First).
@@ -218,6 +247,7 @@ pub fn InboxReplyForm(
                         TemplatePreview {
                             subject: reply_subject,
                             body: reply_body,
+                            body_html: reply_body_html,
                             member_ids: member_ids,
                         }
                     }
@@ -229,19 +259,41 @@ pub fn InboxReplyForm(
                     class: "bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded disabled:opacity-50",
                     disabled: *sending.read() || reply_subject.read().is_empty(),
                     onclick: move |_| {
+                        // Phase 24 Plan 03 Task 3 Submit-Guard (Pitfall 5,
+                        // D-01 belt-and-suspenders): re-read the DOM's
+                        // innerHTML+innerText before building the reply so
+                        // any late toolbar-click that missed on_command is
+                        // still captured.
+                        if let Some(doc) = web_sys::window()
+                            .and_then(|w| w.document())
+                        {
+                            if let Some(el) = doc.get_element_by_id("wysiwyg-editor") {
+                                let html = el.inner_html();
+                                let plain = wasm_bindgen::JsCast::dyn_ref::<web_sys::HtmlElement>(&el)
+                                    .map(|he| he.inner_text())
+                                    .unwrap_or_default();
+                                reply_body.set(plain);
+                                reply_body_html.set(html);
+                            }
+                        }
                         let mid = mail_id.clone();
                         let subj = reply_subject.read().clone();
                         let b = reply_body.read().clone();
+                        // Phase 24 (EDIT-01, D-01): capture body_html + apply
+                        // empty→None backwards-compat rule.
+                        let bh_value = reply_body_html.read().clone();
                         let att_ids: Vec<Uuid> = selected_attachment_ids.read().clone();
                         let static_ids: Vec<String> = selected_static_document_ids.read().clone();
                         spawn(async move {
                             sending.set(true);
                             let cfg = CONFIG.read().clone();
-                            // Phase 24 (EDIT-01, D-01): Wave 1 lands the api-layer
-                            // body_html seam — Plan 24-03 will wire a real body_html
-                            // Signal here. For now, pass None so the plaintext reply
-                            // path stays identical.
-                            match api::reply_inbox_mail(&cfg, &mid, &subj, &b, &att_ids, &static_ids, None).await {
+                            let body_html_opt: Option<&str> =
+                                if bh_value.trim().is_empty() {
+                                    None
+                                } else {
+                                    Some(bh_value.as_str())
+                                };
+                            match api::reply_inbox_mail(&cfg, &mid, &subj, &b, &att_ids, &static_ids, body_html_opt).await {
                                 Ok(_) => on_sent.call(()),
                                 Err(e) => on_error.call(e.to_string()),
                             }
