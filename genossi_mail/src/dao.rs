@@ -32,6 +32,9 @@ pub struct MailJob {
     pub version: Uuid,
     pub subject: Arc<str>,
     pub body: Arc<str>,
+    // Phase 23 D-07: optional HTML body. NULL = text-only mail (legacy contract).
+    // Sanitized by ammonia at all entry points before it lands here.
+    pub body_html: Option<Arc<str>>,
     pub status: Arc<str>,
     pub total_count: i64,
     pub sent_count: i64,
@@ -65,6 +68,10 @@ pub struct MailRecipient {
     // after the template render. None for legacy rows and not-yet-rendered recipients.
     pub rendered_subject: Option<Arc<str>>,
     pub rendered_body: Option<Arc<str>>,
+    // Phase 23 D-08: per-recipient rendered HTML body, persisted by the worker at
+    // send time when the underlying job carries a body_html. None for text-only
+    // jobs and legacy rows (pre-migration).
+    pub rendered_html_body: Option<Arc<str>>,
     // Quick 260614-b1t: true when the rendered_subject/rendered_body were filled
     // retroactively by the startup backfill (reconstruction, not the byte-accurate
     // original from the send moment). false for live worker renders and not-yet-rendered
@@ -221,6 +228,9 @@ pub struct MailTemplate {
     pub name: Arc<str>,
     pub subject: Arc<str>,
     pub body: Arc<str>,
+    // Phase 23 D-06: optional HTML body. NULL = text-only template (legacy contract).
+    // Sanitized by ammonia at template create/update entry points before it lands here.
+    pub body_html: Option<Arc<str>>,
 }
 
 #[automock]
