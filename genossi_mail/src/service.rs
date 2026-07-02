@@ -1186,6 +1186,73 @@ mod tests {
         );
     }
 
+    // Phase 22 Plan 22-01 (MAIL-03, D-07/D-08): smtp_encoding tolerant-fallback tests.
+    // Test A: key absent -> QuotedPrintable (safe default, unchanged production behavior).
+    #[tokio::test]
+    async fn load_smtp_config_defaults_encoding_to_qp_when_key_missing() {
+        let mut config_mock = MockConfigService::new();
+        config_mock
+            .expect_get_all()
+            .returning(|| Ok(mock_smtp_config().into()));
+
+        let smtp = load_smtp_config(&config_mock)
+            .await
+            .expect("mock_smtp_config supplies all required keys");
+
+        assert!(
+            matches!(smtp.encoding, MailEncoding::QuotedPrintable),
+            "default (missing smtp_encoding) must yield QuotedPrintable"
+        );
+    }
+
+    // Test B: explicit "8bit" -> EightBit.
+    #[tokio::test]
+    async fn load_smtp_config_reads_encoding_8bit_when_set() {
+        let mut config_mock = MockConfigService::new();
+        let mut entries = mock_smtp_config();
+        entries.push(ConfigEntry {
+            key: Arc::from("smtp_encoding"),
+            value: Arc::from("8bit"),
+            value_type: Arc::from("string"),
+        });
+        config_mock
+            .expect_get_all()
+            .returning(move || Ok(entries.clone().into()));
+
+        let smtp = load_smtp_config(&config_mock)
+            .await
+            .expect("all required SMTP keys present");
+
+        assert!(
+            matches!(smtp.encoding, MailEncoding::EightBit),
+            "smtp_encoding=8bit must yield EightBit"
+        );
+    }
+
+    // Test C: unknown value -> falls back to QuotedPrintable (D-08 tolerant fallback).
+    #[tokio::test]
+    async fn load_smtp_config_falls_back_on_unknown_encoding_value() {
+        let mut config_mock = MockConfigService::new();
+        let mut entries = mock_smtp_config();
+        entries.push(ConfigEntry {
+            key: Arc::from("smtp_encoding"),
+            value: Arc::from("typo-nonsense"),
+            value_type: Arc::from("string"),
+        });
+        config_mock
+            .expect_get_all()
+            .returning(move || Ok(entries.clone().into()));
+
+        let smtp = load_smtp_config(&config_mock)
+            .await
+            .expect("all required SMTP keys present");
+
+        assert!(
+            matches!(smtp.encoding, MailEncoding::QuotedPrintable),
+            "unknown smtp_encoding value must fall back to QuotedPrintable"
+        );
+    }
+
     // Phase 10 Plan 10.03: create_job with None,None keeps fields NULL (D-03, D-12 edge case).
     #[tokio::test]
     async fn test_create_job_with_none_template_and_phase_keeps_null() {
