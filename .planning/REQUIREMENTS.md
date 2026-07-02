@@ -14,7 +14,7 @@ Research: `.planning/research/SUMMARY.md` (+ STACK / FEATURES / ARCHITECTURE / P
 
 - [ ] **MAIL-01**: Alle ausgehenden Mails werden über einen einzigen geteilten Body-Bau-Helfer in `genossi_mail` erzeugt, sodass die drei heute divergierenden Sendepfade (`worker.rs`, `service.rs` Test-Mail, `service.rs`/`digest.rs` Digest) konsistent denselben Content-Aufbau und `charset=utf-8` verwenden.
 - [ ] **MAIL-02**: Der Text-Teil ausgehender Mails kann als `8bit` statt `quoted-printable` kodiert werden, sodass keine sichtbaren `=`-Soft-Line-Breaks mehr entstehen.
-- [ ] **MAIL-03**: Die Kodierung (8bit vs quoted-printable) ist per Konfiguration umschaltbar; Default bleibt quoted-printable als sicherer Fallback, bis `8BITMIME` am Produktiv-Relay bestätigt ist.
+- [x] **MAIL-03**: Die Kodierung (8bit vs quoted-printable) ist per Konfiguration umschaltbar; Default bleibt quoted-printable als sicherer Fallback, bis `8BITMIME` am Produktiv-Relay bestätigt ist.
 - [ ] **MAIL-04**: Vor Aktivierung von 8bit in Produktion wird per EHLO/`8BITMIME`-Capability-Check am konfigurierten Relay verifiziert, dass der Server 8bit unterstützt (dokumentierter Verifikations-Schritt; aus der Dev-Umgebung nicht durchführbar, da Relay nur über Produktiv-Netz erreichbar).
 - [ ] **MAIL-05**: Bestehende reine Textmails (Massenmail, Test-Mail, Digest) funktionieren unverändert weiter (Backward-Compatibility).
 
@@ -73,7 +73,7 @@ Research: `.planning/research/SUMMARY.md` (+ STACK / FEATURES / ARCHITECTURE / P
 |--------|-------|--------|
 | MAIL-01 | Phase 22 | pending |
 | MAIL-02 | Phase 22 | pending |
-| MAIL-03 | Phase 22 | pending |
+| MAIL-03 | Phase 22 | Complete |
 | MAIL-04 | Phase 22 | pending |
 | MAIL-05 | Phase 22 | pending |
 | HTML-01 | Phase 23 | pending |
