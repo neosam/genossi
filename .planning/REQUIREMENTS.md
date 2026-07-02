@@ -38,7 +38,7 @@ Research: `.planning/research/SUMMARY.md` (+ STACK / FEATURES / ARCHITECTURE / P
 
 - [ ] **APDOC-01**: Ein Admin kann eine Datei (z. B. eingescannter Original-Antrag als PDF) an eine `Application` hochladen; die Datei wird über `DocumentStorage` im Filesystem gespeichert (nicht in der DB), Endpunkt spiegelt das bestehende `member_document`-Upload-Muster (Multipart, `DefaultBodyLimit`, MIME-Allowlist, UUID-Pfad gegen Path-Traversal).
 - [ ] **APDOC-02**: Der Upload-Endpunkt ist admin-only (der Antrags-Submit-Pfad bleibt `PUBLIC`); dabei wird die carry-forward CR-02 Permission-Check-Ordering an dieser Stelle korrekt umgesetzt.
-- [ ] **APDOC-03**: Beim Aktivieren (`confirm`) einer `Application` wird ein hinterlegtes Antrags-Dokument **kopiert** (nicht verschoben) und als `MemberDocument` am Mitglied angelegt — innerhalb derselben atomaren Aktivierungs-Transaktion, via `audited_create!` unter `APPLICATION_SERVICE_PROCESS`, mit `DocumentType::Other` + beschreibender Bezeichnung.
+- [ ] **APDOC-03**: Beim Aktivieren (`confirm`) einer `Application` wird ein hinterlegtes Antrags-Dokument **übernommen** (Ownership-Übergabe — Move-Semantik: die `application_documents`-Zeile wird soft-deleted und die Datei physisch an den Member-Pfad verschoben) und als auditiertes `MemberDocument` am Mitglied angelegt — innerhalb derselben atomaren Aktivierungs-Transaktion, via `audited_create!` unter `APPLICATION_SERVICE_PROCESS`, mit `DocumentType::Other` + beschreibender Bezeichnung („Original-Antrag (übernommen bei Bestätigung am DD.MM.YYYY)“).
 - [ ] **APDOC-04**: Aktivierung ist robust gegen Edge-Cases: Antrag ohne Dokument (übernimmt nichts, kein Fehler), Re-Aktivierung wird durch den bestehenden `Offen`-Status-Guard verhindert (keine Doppel-Übernahme), fehlende Datei auf dem Filesystem → Transaktion rollt zurück.
 - [ ] **APDOC-05**: Das Antrags-Dokument ist im Frontend an der Application sichtbar und herunterladbar (admin-only).
 
@@ -62,7 +62,6 @@ Research: `.planning/research/SUMMARY.md` (+ STACK / FEATURES / ARCHITECTURE / P
 - **JS-Editor-Bibliotheken (Quill/TipTap/Trix) via wasm-bindgen-Bundle**: Bewusst abgelehnt (Bundle-Größe, Interop-Komplexität) — contenteditable + execCommand reicht.
 - **Hand-verfasste duale Bodies**: Autor schreibt nicht separat Text + HTML von Hand; Text = bestehender body, HTML = Editor-Ausgabe.
 - **DB-BLOB-Speicherung von Anhängen/Dokumenten**: Bleibt beim Filesystem-`DocumentStorage`.
-- **Move-on-Activation**: Antrags-Dokument wird kopiert, nicht verschoben (Application behält seine Datei).
 - **`html2text`-Ableitung des Text-Teils**: Verworfen zugunsten des bestehenden body.
 
 ---
