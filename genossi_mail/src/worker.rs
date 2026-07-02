@@ -633,73 +633,41 @@ async fn send_mail_for_recipient<C: ConfigService, D: DocumentStorage>(
     document_storage: &D,
     in_reply_to: Option<&str>,
 ) -> Result<Option<String>, MailServiceError> {
-    use lettre::message::{Attachment, MultiPart, SinglePart};
-    use lettre::{AsyncTransport, Message};
+    use lettre::AsyncTransport;
 
     let smtp_config = load_smtp_config(config_service).await?;
     let transport = build_transport(&smtp_config)?;
 
-    let from = smtp_config
-        .from
-        .parse()
-        .map_err(|e: lettre::address::AddressError| {
-            MailServiceError::SmtpError(Arc::from(format!("Invalid from address: {}", e)))
-        })?;
-    let to_addr = to.parse().map_err(|e: lettre::address::AddressError| {
-        MailServiceError::SmtpError(Arc::from(format!("Invalid to address: {}", e)))
-    })?;
-
-    // Build the text body via SinglePart::plain in both paths so that
-    // Content-Type: text/plain; charset=utf-8 is always set. Without this,
-    // MessageBuilder::body() emits text/plain without a charset parameter,
-    // which causes clients like GMX Android to mis-decode umlauts.
-    let text_part = SinglePart::plain(body.to_string());
-
-    let mut builder = Message::builder()
-        .from(from)
-        .to(to_addr)
-        .subject(subject)
-        .message_id(None);
-
-    if let Some(ref_id) = in_reply_to {
-        let bracketed = format!("<{}>", ref_id);
-        builder = builder.in_reply_to(bracketed.clone()).references(bracketed);
+    // Attachment loading (async I/O) stays in the worker per 22-CONTEXT.md D-03;
+    // build_message is a pure sync factory that receives already-loaded bytes
+    // wrapped in `LoadedAttachment` (D-02).
+    let mut loaded: Vec<crate::send::LoadedAttachment> = Vec::with_capacity(attachments.len());
+    for att in attachments {
+        let file_bytes = document_storage
+            .load(&att.relative_path)
+            .await
+            .map_err(|e| {
+                MailServiceError::SmtpError(Arc::from(format!(
+                    "Failed to load attachment file '{}': {}",
+                    att.relative_path, e
+                )))
+            })?;
+        loaded.push(crate::send::LoadedAttachment {
+            file_name: att.file_name.clone(),
+            mime_type: att.mime_type.clone(),
+            bytes: file_bytes,
+        });
     }
 
-    let email = if attachments.is_empty() {
-        builder
-            .singlepart(text_part)
-            .map_err(|e| MailServiceError::SmtpError(Arc::from(e.to_string())))?
-    } else {
-        // Multipart mail with attachments
-        let mut multipart = MultiPart::mixed().singlepart(text_part);
-
-        for att in attachments {
-            let file_bytes = document_storage
-                .load(&att.relative_path)
-                .await
-                .map_err(|e| {
-                    MailServiceError::SmtpError(Arc::from(format!(
-                        "Failed to load attachment file '{}': {}",
-                        att.relative_path, e
-                    )))
-                })?;
-
-            let content_type = lettre::message::header::ContentType::parse(&att.mime_type)
-                .unwrap_or(
-                    lettre::message::header::ContentType::parse("application/octet-stream")
-                        .unwrap(),
-                );
-
-            let attachment =
-                Attachment::new(att.file_name.to_string()).body(file_bytes, content_type);
-            multipart = multipart.singlepart(attachment);
-        }
-
-        builder
-            .multipart(multipart)
-            .map_err(|e| MailServiceError::SmtpError(Arc::from(e.to_string())))?
-    };
+    let email = crate::send::build_message(
+        &smtp_config.from,
+        to,
+        subject,
+        body,
+        &loaded,
+        in_reply_to,
+        smtp_config.encoding,
+    )?;
 
     // Capture the Message-ID header before sending so it matches what is
     // transmitted. `lettre` auto-generates one during build.
@@ -968,44 +936,6 @@ mod tests {
         assert_eq!(call_count.load(std::sync::atomic::Ordering::SeqCst), 3);
     }
 
-    /// Build a mail without attachments and verify that the serialized bytes
-    /// carry `charset=utf-8` and the umlauts survive the round-trip.
-    ///
-    /// This mirrors the exact Message-building pattern used in
-    /// `send_mail_for_recipient` (no-attachments branch), so we don't need a
-    /// real SMTP transport.
-    #[test]
-    fn plain_mail_body_has_utf8_charset() {
-        use lettre::message::SinglePart;
-        use lettre::Message;
-
-        let body = "Hallo Jürgen, schöne Grüße! ä ö ü ß";
-        let text_part = SinglePart::plain(body.to_string());
-
-        let email = Message::builder()
-            .from("sender@example.com".parse().unwrap())
-            .to("recipient@example.com".parse().unwrap())
-            .subject("Test")
-            .singlepart(text_part)
-            .expect("build plain mail");
-
-        let formatted = email.formatted();
-        let text = String::from_utf8_lossy(&formatted);
-
-        assert!(
-            text.contains("charset=utf-8"),
-            "plain mail must declare charset=utf-8, got:\n{}",
-            text
-        );
-        // A transfer encoding must be declared so non-ASCII bytes survive SMTP.
-        assert!(
-            text.contains("Content-Transfer-Encoding: quoted-printable")
-                || text.contains("Content-Transfer-Encoding: base64"),
-            "plain mail must declare a non-7bit transfer encoding, got:\n{}",
-            text
-        );
-    }
-
     #[test]
     fn normalize_message_id_strips_angle_brackets() {
         use crate::dao::normalize_message_id;
@@ -1023,114 +953,6 @@ mod tests {
         );
         assert_eq!(normalize_message_id(""), None);
         assert_eq!(normalize_message_id("<>"), None);
-    }
-
-    /// Building a lettre Message auto-generates a Message-ID header, which we
-    /// must be able to read back before sending so we can persist it.
-    #[test]
-    fn built_message_exposes_message_id_header() {
-        use lettre::message::SinglePart;
-        use lettre::Message;
-
-        let email = Message::builder()
-            .from("sender@example.com".parse().unwrap())
-            .to("recipient@example.com".parse().unwrap())
-            .subject("Test")
-            .message_id(None)
-            .singlepart(SinglePart::plain("hi".to_string()))
-            .expect("build mail");
-
-        let raw = email
-            .headers()
-            .get_raw("Message-ID")
-            .expect("lettre should set a Message-ID");
-        let normalized = crate::dao::normalize_message_id(raw).expect("normalized Message-ID");
-        assert!(
-            !normalized.contains('<') && !normalized.contains('>'),
-            "normalized Message-ID must not contain angle brackets: {normalized}"
-        );
-        assert!(
-            normalized.contains('@'),
-            "Message-ID should have an at sign: {normalized}"
-        );
-    }
-
-    /// Build a mail with an attachment part and verify the text body still
-    /// declares charset=utf-8. This guards the multipart branch against
-    /// regressions.
-    #[test]
-    fn multipart_mail_body_has_utf8_charset() {
-        use lettre::message::header::ContentType;
-        use lettre::message::{Attachment, MultiPart, SinglePart};
-        use lettre::Message;
-
-        let body = "Anbei die Bescheinigung für Herrn Müller.";
-        let text_part = SinglePart::plain(body.to_string());
-
-        let attachment = Attachment::new("test.pdf".to_string()).body(
-            b"%PDF-fake".to_vec(),
-            ContentType::parse("application/pdf").unwrap(),
-        );
-
-        let multipart = MultiPart::mixed()
-            .singlepart(text_part)
-            .singlepart(attachment);
-
-        let email = Message::builder()
-            .from("sender@example.com".parse().unwrap())
-            .to("recipient@example.com".parse().unwrap())
-            .subject("Test")
-            .multipart(multipart)
-            .expect("build multipart mail");
-
-        let formatted = email.formatted();
-        let text = String::from_utf8_lossy(&formatted);
-
-        assert!(
-            text.contains("charset=utf-8"),
-            "multipart text part must declare charset=utf-8, got:\n{}",
-            text
-        );
-        assert!(
-            text.contains("Content-Transfer-Encoding: quoted-printable")
-                || text.contains("Content-Transfer-Encoding: base64"),
-            "text part must declare a non-7bit transfer encoding, got:\n{}",
-            text
-        );
-    }
-
-    /// Verify that building a reply mail includes In-Reply-To and References headers.
-    #[test]
-    fn reply_mail_includes_in_reply_to_header() {
-        use lettre::message::SinglePart;
-        use lettre::Message;
-
-        let ref_id = "abc.123@example.com";
-        let bracketed = format!("<{}>", ref_id);
-
-        let email = Message::builder()
-            .from("sender@example.com".parse().unwrap())
-            .to("recipient@example.com".parse().unwrap())
-            .subject("Re: Test")
-            .message_id(None)
-            .in_reply_to(bracketed.clone())
-            .references(bracketed)
-            .singlepart(SinglePart::plain("reply body".to_string()))
-            .expect("build reply mail");
-
-        let formatted = email.formatted();
-        let text = String::from_utf8_lossy(&formatted);
-
-        assert!(
-            text.contains("In-Reply-To: <abc.123@example.com>"),
-            "reply mail must contain In-Reply-To header, got:\n{}",
-            text
-        );
-        assert!(
-            text.contains("References: <abc.123@example.com>"),
-            "reply mail must contain References header, got:\n{}",
-            text
-        );
     }
 
     // -------------------------------------------------------------------------
@@ -1254,27 +1076,4 @@ mod tests {
         );
     }
 
-    /// Verify that a non-reply mail does NOT include In-Reply-To headers.
-    #[test]
-    fn non_reply_mail_has_no_in_reply_to_header() {
-        use lettre::message::SinglePart;
-        use lettre::Message;
-
-        let email = Message::builder()
-            .from("sender@example.com".parse().unwrap())
-            .to("recipient@example.com".parse().unwrap())
-            .subject("Test")
-            .message_id(None)
-            .singlepart(SinglePart::plain("body".to_string()))
-            .expect("build plain mail");
-
-        let formatted = email.formatted();
-        let text = String::from_utf8_lossy(&formatted);
-
-        assert!(
-            !text.contains("In-Reply-To:"),
-            "non-reply mail must not contain In-Reply-To header, got:\n{}",
-            text
-        );
-    }
 }
