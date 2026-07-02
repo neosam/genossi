@@ -164,7 +164,7 @@ Archive: `.planning/milestones/v1.3-ROADMAP.md` · `v1.3-REQUIREMENTS.md` · `v1
 | 19. E-Mail-Anhänge anzeigen                        | v1.3      | 7/7            | Complete    | 2026-06-09 |
 | 20. Inbox-Digest (täglicher Benachrichtigungs-Worker) | v1.3   | 3/3 | Complete    | 2026-06-27 |
 | 21. Reply-Komfort (Antwort im Modal)               | v1.3      | 1/1 | Complete   | 2026-06-27 |
-| 22. 8bit + Shared Mail-Body Helper                 | v1.4      | 1/3            | In progress | -          |
+| 22. 8bit + Shared Mail-Body Helper                 | v1.4      | 2/3            | In progress | -          |
 | 23. HTML Mail Backend                              | v1.4      | 0/?            | Not started | -          |
 | 24. WYSIWYG Frontend Editor                        | v1.4      | 0/?            | Not started | -          |
 | 25. Application File Upload + Audited Carryover     | v1.4      | 0/?            | Not started | -          |

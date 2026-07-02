@@ -4,15 +4,15 @@ milestone: v1.4
 milestone_name: Mail-Formatierung & Antrags-Dokumente
 current_phase: 22
 status: planning
-stopped_at: Completed 22-01-PLAN.md
-last_updated: "2026-07-02T19:32:05.005Z"
-last_activity: 2026-06-29
-last_activity_desc: v1.4 Roadmap erstellt (Phases 22-25, fortlaufend nach v1.3 Phase 21)
+stopped_at: Completed 22-03-PLAN.md
+last_updated: "2026-07-02T21:35:00.000Z"
+last_activity: 2026-07-02
+last_activity_desc: Phase 22 Plan 03 abgeschlossen — MAIL-04 Runbook in docs/OPERATIONS.md
 progress:
   total_phases: 4
   completed_phases: 0
   total_plans: 3
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -31,10 +31,10 @@ See: `.planning/PROJECT.md` (updated 2026-06-07 after v1.2 close)
 
 ## Current Position
 
-Phase: 22 (Not started) — first phase of v1.4
-Plan: —
-Status: Roadmap created (4 phases, 20/20 requirements mapped, 100% coverage) — ready for `/gsd-plan-phase 22`
-Last activity: 2026-06-29 — v1.4 Roadmap erstellt (Phases 22-25, fortlaufend nach v1.3 Phase 21)
+Phase: 22 (In progress) — first phase of v1.4
+Plan: 22-03 completed (MAIL-04 Runbook); Plan 22-02 (build_message extract + service rewire + tests) still pending
+Status: 2/3 plans complete; Plan 22-01 (SmtpConfig+enum plumbing) und Plan 22-03 (Operator-Runbook) sind fertig — Plan 22-02 (build_message-Extraktion + Service-Rewire + MIME-Byte-Tests) steht noch aus
+Last activity: 2026-07-02 — Phase 22 Plan 03 abgeschlossen (docs/OPERATIONS.md § SMTP-Encoding umschalten (MAIL-04))
 
 ### v1.4 Phase Structure (Phases 22-25, granularity: coarse)
 
@@ -198,6 +198,7 @@ v1.0 Phasen (alle abgeschlossen, archiviert in .planning/milestones/v1.0-phases/
 | Phase 20 P02 | 22min | 2 tasks | 5 files |
 | Phase 21 P01 | ~25m | 3 tasks | 5 files |
 | Phase 22 P01 | 7min | 2 tasks | 1 files |
+| Phase 22 P03 | ~5min | 1 tasks | 1 files |
 
 ## Accumulated Context
 
