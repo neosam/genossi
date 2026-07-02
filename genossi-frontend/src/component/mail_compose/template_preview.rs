@@ -166,8 +166,32 @@ pub fn TemplatePreview(
                             "{i18n.t(Key::MailSubject)}: "
                             span { class: "font-normal", "{preview.subject}" }
                         }
-                        pre { class: "whitespace-pre-wrap text-gray-600 mt-2",
+                        // Plain-text preview — always rendered. Labeled with
+                        // MailBody so the two preview blocks are visually
+                        // distinguishable when both HTML and text are present.
+                        p { class: "text-xs font-medium text-gray-500 mt-2 mb-1",
+                            {i18n.t(Key::MailBody)}
+                        }
+                        pre { class: "whitespace-pre-wrap text-gray-600",
                             "{preview.body}"
+                        }
+                        // Phase 24 Plan 03 Task 5 (EDIT-05, D-04): HTML preview
+                        // block. Renders the backend-rendered body_html via
+                        // Dioxus's `dangerous_inner_html`. This is safe because
+                        // the backend rendered via the autoescape env (Phase 23
+                        // D-04, member-supplied values HTML-escaped) AND passes
+                        // through the ammonia allow-list at the store boundary
+                        // when persisted (Phase 23 D-03). Author-supplied
+                        // markup remains as structured tags; nothing here
+                        // renders raw user input.
+                        if let Some(html) = preview.body_html.as_ref() {
+                            p { class: "text-xs font-medium text-gray-500 mt-3 mb-1",
+                                {i18n.t(Key::MailEditorPreviewHtml)}
+                            }
+                            div {
+                                class: "prose prose-sm max-w-none border rounded p-3 text-sm bg-gray-50",
+                                dangerous_inner_html: "{html}",
+                            }
                         }
                     }
                     // Quick 260603-kon: Dummy-Repayment-Hinweis. Inline-RSX
