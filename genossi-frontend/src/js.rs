@@ -154,6 +154,88 @@ fn copy_with_exec_command(text: &str) -> Result<(), JsValue> {
     }
 }
 
+// ─── Phase 24 Plan 02 ─── WYSIWYG editor execCommand facade ─────────────────
+//
+// The three `exec_command_*` helpers below are the contenteditable-execCommand
+// facade used by the WYSIWYG Mail editor (see
+// `component::mail_compose::wysiwyg_editor`). They mirror the
+// `copy_with_exec_command` pattern above: acquire `document.execCommand` via
+// `js_sys::Reflect` (no new JS bundle needed — see 24-RESEARCH.md Pattern 2
+// and EDIT-02: "no new frontend deps").
+//
+// IMPORTANT — Pitfall 1 of 24-RESEARCH.md: the editor MUST call
+// `exec_command_bool(&doc, "styleWithCSS", false)` exactly once at mount so
+// bold/italic emit semantic <b>/<i> tags (ammonia-safe) instead of
+// <span style="…"> (ammonia-stripped). Callers land in `wysiwyg_editor.rs`
+// and `wysiwyg_toolbar.rs` within the same plan boundary — until then the
+// helpers may show `dead_code` warnings, which is expected.
+
+#[allow(dead_code)]
+pub fn exec_command_bool(
+    doc: &web_sys::Document,
+    cmd: &str,
+    arg: bool,
+) -> Result<bool, wasm_bindgen::JsValue> {
+    use js_sys::Reflect;
+    use wasm_bindgen::JsCast;
+
+    let exec_command = Reflect::get(doc, &JsValue::from_str("execCommand"))
+        .map_err(|_| JsValue::from_str("execCommand not available"))?;
+    let exec_command_fn = exec_command
+        .dyn_ref::<js_sys::Function>()
+        .ok_or(JsValue::from_str("execCommand is not a function"))?;
+
+    let returned = exec_command_fn.call3(
+        doc,
+        &JsValue::from_str(cmd),
+        &JsValue::from_bool(false),
+        &JsValue::from_bool(arg),
+    )?;
+    Ok(returned.as_bool().unwrap_or(false))
+}
+
+#[allow(dead_code)]
+pub fn exec_command_str(
+    doc: &web_sys::Document,
+    cmd: &str,
+    arg: &str,
+) -> Result<bool, wasm_bindgen::JsValue> {
+    use js_sys::Reflect;
+    use wasm_bindgen::JsCast;
+
+    let exec_command = Reflect::get(doc, &JsValue::from_str("execCommand"))
+        .map_err(|_| JsValue::from_str("execCommand not available"))?;
+    let exec_command_fn = exec_command
+        .dyn_ref::<js_sys::Function>()
+        .ok_or(JsValue::from_str("execCommand is not a function"))?;
+
+    let returned = exec_command_fn.call3(
+        doc,
+        &JsValue::from_str(cmd),
+        &JsValue::from_bool(false),
+        &JsValue::from_str(arg),
+    )?;
+    Ok(returned.as_bool().unwrap_or(false))
+}
+
+#[allow(dead_code)]
+pub fn exec_command_simple(
+    doc: &web_sys::Document,
+    cmd: &str,
+) -> Result<bool, wasm_bindgen::JsValue> {
+    use js_sys::Reflect;
+    use wasm_bindgen::JsCast;
+
+    let exec_command = Reflect::get(doc, &JsValue::from_str("execCommand"))
+        .map_err(|_| JsValue::from_str("execCommand not available"))?;
+    let exec_command_fn = exec_command
+        .dyn_ref::<js_sys::Function>()
+        .ok_or(JsValue::from_str("execCommand is not a function"))?;
+
+    let returned = exec_command_fn.call1(doc, &JsValue::from_str(cmd))?;
+    Ok(returned.as_bool().unwrap_or(false))
+}
+
 // ─── Phase 4 Plan 02 ─── BarcodeDetector + ZXing-Polyfill bridge ─────────────
 
 /// Browser-native Barcode/QR detection.
