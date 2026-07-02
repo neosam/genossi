@@ -22,6 +22,12 @@ pub struct MailTemplateTO {
     pub name: String,
     pub subject: String,
     pub body: String,
+    /// Phase 23 (HTML-01, HTML-05): read-only exposure of the persisted
+    /// (ammonia-sanitized) `MailTemplate.body_html`. Backward-compatible:
+    /// pre-Phase-24 clients see the same wire shape when this is `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(example = "<p>Hallo</p>")]
+    pub body_html: Option<String>,
     pub version: String,
 }
 
@@ -30,6 +36,11 @@ pub struct CreateMailTemplateRequest {
     pub name: String,
     pub subject: String,
     pub body: String,
+    /// Phase 23 (HTML-01, HTML-05, D-03 EP2): optional author HTML.
+    /// Sanitized server-side (ammonia) before persistence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(example = "<p>Hallo</p>")]
+    pub body_html: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
@@ -37,6 +48,12 @@ pub struct UpdateMailTemplateRequest {
     pub name: String,
     pub subject: String,
     pub body: String,
+    /// Phase 23 (HTML-01, HTML-05, D-03 EP3): optional author HTML.
+    /// Sanitized server-side (ammonia) before persistence. `None` clears
+    /// the prior HTML sibling.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(example = "<p>Hallo</p>")]
+    pub body_html: Option<String>,
     pub version: String,
 }
 
@@ -47,6 +64,8 @@ impl From<&MailTemplate> for MailTemplateTO {
             name: t.name.to_string(),
             subject: t.subject.to_string(),
             body: t.body.to_string(),
+            // Phase 23 Plan 04 (HTML-01): expose the sanitized HTML sibling.
+            body_html: t.body_html.as_deref().map(String::from),
             version: t.version.to_string(),
         }
     }
@@ -157,8 +176,14 @@ async fn create_template<S: MailTemplateRestState>(
         (async {
             let tpl = state
                 .mail_template_service()
-                // Phase 23 Plan 04 Task 3 wires body.body_html here.
-                .create(&body.name, &body.subject, &body.body, None)
+                // Phase 23 Plan 04 (HTML-05, D-03 EP2): forward body.body_html
+                // — service layer sanitizes before persist.
+                .create(
+                    &body.name,
+                    &body.subject,
+                    &body.body,
+                    body.body_html.clone(),
+                )
                 .await?;
             let to = MailTemplateTO::from(&tpl);
             Ok(Response::builder()
@@ -228,8 +253,17 @@ async fn update_template<S: MailTemplateRestState>(
                 .map_err(|_| MailTemplateError::BadRequest(Arc::from("Invalid version UUID")))?;
             let tpl = state
                 .mail_template_service()
-                // Phase 23 Plan 04 Task 3 wires body.body_html here.
-                .update(uuid, &body.name, &body.subject, &body.body, None, version)
+                // Phase 23 Plan 04 (HTML-05, D-03 EP3): forward body.body_html
+                // — service layer sanitizes before persist. Update takes full
+                // ownership of body_html; None clears the prior HTML.
+                .update(
+                    uuid,
+                    &body.name,
+                    &body.subject,
+                    &body.body,
+                    body.body_html.clone(),
+                    version,
+                )
                 .await?;
             let to = MailTemplateTO::from(&tpl);
             Ok(Response::builder()
@@ -266,4 +300,42 @@ async fn delete_template<S: MailTemplateRestState>(
         })
         .await,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Phase 23 Plan 04: MailTemplateTO with `body_html: None` MUST omit the
+    /// key entirely (backward-compat contract for pre-Phase-24 clients).
+    /// Locks the `skip_serializing_if = "Option::is_none"` attribute.
+    #[test]
+    fn mail_template_to_serializes_without_body_html_when_none() {
+        let to = MailTemplateTO {
+            id: "abc".to_string(),
+            name: "T".to_string(),
+            subject: "S".to_string(),
+            body: "B".to_string(),
+            body_html: None,
+            version: "v1".to_string(),
+        };
+        let json = serde_json::to_string(&to).unwrap();
+        assert!(
+            !json.contains("body_html"),
+            "None body_html must be omitted from wire (skip_serializing_if), got: {}",
+            json
+        );
+
+        // Positive control: Some(...) DOES appear on the wire.
+        let to_html = MailTemplateTO {
+            body_html: Some("<p>hi</p>".to_string()),
+            ..to
+        };
+        let json_html = serde_json::to_string(&to_html).unwrap();
+        assert!(
+            json_html.contains("body_html"),
+            "Some body_html must appear on wire, got: {}",
+            json_html
+        );
+    }
 }

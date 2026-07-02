@@ -3368,6 +3368,7 @@ async fn test_mail_create_bulk_job() {
             template_id: None,
             repayment_phase_id: None,
             attach_repayment_letter: false,
+            body_html: None,
         })
         .send()
         .await
@@ -3416,6 +3417,7 @@ async fn test_mail_create_single_job() {
             to_address: "user@example.com".to_string(),
             subject: "Single Test".to_string(),
             body: "Hello".to_string(),
+            body_html: None,
         })
         .send()
         .await
@@ -3443,6 +3445,7 @@ async fn test_mail_send_bulk_empty_list() {
             template_id: None,
             repayment_phase_id: None,
             attach_repayment_letter: false,
+            body_html: None,
         })
         .send()
         .await
@@ -3503,6 +3506,7 @@ async fn test_mail_retry_job() {
             template_id: None,
             repayment_phase_id: None,
             attach_repayment_letter: false,
+            body_html: None,
         })
         .send()
         .await
@@ -3684,6 +3688,7 @@ async fn test_members_not_reached_by_job() {
             template_id: None,
             repayment_phase_id: None,
             attach_repayment_letter: false,
+            body_html: None,
         })
         .send()
         .await
@@ -3766,6 +3771,7 @@ async fn test_members_not_reached_sent_excluded() {
             template_id: None,
             repayment_phase_id: None,
             attach_repayment_letter: false,
+            body_html: None,
         })
         .send()
         .await
@@ -4071,6 +4077,7 @@ async fn test_mail_send_with_attachment() {
             template_id: None,
             repayment_phase_id: None,
             attach_repayment_letter: false,
+            body_html: None,
         })
         .send()
         .await
@@ -4132,6 +4139,7 @@ async fn test_mail_attachment_wrong_member() {
             template_id: None,
             repayment_phase_id: None,
             attach_repayment_letter: false,
+            body_html: None,
         })
         .send()
         .await
@@ -4183,6 +4191,7 @@ async fn test_mail_attachments_rejected_for_multiple_recipients() {
             template_id: None,
             repayment_phase_id: None,
             attach_repayment_letter: false,
+            body_html: None,
         })
         .send()
         .await
@@ -4243,6 +4252,7 @@ async fn test_mail_without_attachment_unchanged() {
             template_id: None,
             repayment_phase_id: None,
             attach_repayment_letter: false,
+            body_html: None,
         })
         .send()
         .await
@@ -4730,6 +4740,7 @@ async fn test_bulk_mail_with_static_document_ids_succeeds() {
             template_id: None,
             repayment_phase_id: None,
             attach_repayment_letter: false,
+            body_html: None,
         })
         .send()
         .await
@@ -4769,6 +4780,7 @@ async fn test_bulk_mail_with_unknown_static_document_id_fails() {
             template_id: None,
             repayment_phase_id: None,
             attach_repayment_letter: false,
+            body_html: None,
         })
         .send()
         .await

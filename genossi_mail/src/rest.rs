@@ -10,7 +10,7 @@ use utoipa::{OpenApi, ToSchema};
 
 use crate::dao::{MailJob, MailRecipient};
 use crate::service::{AttachmentInput, MailService, MailServiceError, RecipientInput};
-use crate::template::{member_to_template_context, render_template};
+use crate::template::{member_to_template_context, render_html_template, render_template};
 use genossi_dao::member::MemberEntity;
 
 /// Resolved document info for attachment validation.
@@ -73,6 +73,13 @@ pub struct MailJobTO {
     pub created: String,
     pub subject: String,
     pub body: String,
+    /// Phase 23 (HTML-01): read-only exposure of the persisted
+    /// (ammonia-sanitized) `MailJob.body_html` — the multipart/alternative
+    /// HTML sibling. Additive + backward-compatible per the same pattern
+    /// as `repayment_phase_id` below.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(example = "<p>Hallo</p>")]
+    pub body_html: Option<String>,
     #[schema(example = "running")]
     pub status: String,
     pub total_count: i64,
@@ -120,6 +127,12 @@ pub struct MailRecipientTO {
     pub rendered_subject: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rendered_body: Option<String>,
+    /// Phase 23 (HTML-01, D-08): per-recipient rendered HTML sibling —
+    /// byte-accurate copy of the `text/html` part actually sent, or `None`
+    /// for text-only jobs. Backward-compatible via `skip_serializing_if`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(example = "<p>Hallo Max</p>")]
+    pub rendered_html_body: Option<String>,
     // Quick 260614-b1t: true when rendered_subject/body were reconstructed by the
     // startup backfill (not the byte-accurate original send). Always serialized
     // (DB NOT NULL DEFAULT 0 guarantees a value); #[serde(default)] for input robustness.
@@ -144,6 +157,13 @@ pub struct SendMailRequest {
     pub subject: String,
     #[schema(example = "Hello, this is a test email.")]
     pub body: String,
+    /// Phase 23 (HTML-01, HTML-05, D-03 entry point 1): optional author HTML.
+    /// Sanitized server-side (ammonia) before persistence — the value on the
+    /// wire is untrusted; the stored value is safe. Backward-compatible:
+    /// pre-Phase-24 clients that omit this key continue to work unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(example = "<p>Hallo</p>")]
+    pub body_html: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
@@ -161,6 +181,12 @@ pub struct SendBulkMailRequest {
     pub subject: String,
     #[schema(example = "Hello, this is a test email.")]
     pub body: String,
+    /// Phase 23 (HTML-01, HTML-05, D-03 entry point 1): optional author HTML
+    /// forwarded to `MailService::create_job` for sanitize + persist.
+    /// Backward-compatible via `#[serde(default)]`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(example = "<p>Hallo {{ first_name }}</p>")]
+    pub body_html: Option<String>,
     #[serde(default)]
     pub attachment_ids: Vec<String>,
     #[serde(default)]
@@ -218,6 +244,14 @@ pub struct TestMailWithTemplateRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schema(example = "29ae374c-9e60-4cc8-b0b4-ce51c28e7b6e")]
     pub repayment_phase_id: Option<String>,
+    /// Phase 23 (HTML-01, HTML-05, D-03 entry point 4): optional author HTML
+    /// template. The handler renders it against the resolved Member's
+    /// variables (via `render_html_template`), then hands the rendered value
+    /// to `MailService::send_test_mail_with_body` which sanitizes it and
+    /// forwards to `build_message` as the multipart/alternative HTML part.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(example = "<p>Hallo {{ first_name }}</p>")]
+    pub body_html: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
@@ -274,6 +308,10 @@ impl From<&MailJob> for MailJobTO {
             created: format_datetime(&job.created),
             subject: job.subject.to_string(),
             body: job.body.to_string(),
+            // Phase 23 Plan 04 (HTML-01): expose the sanitized HTML sibling
+            // read-only. Sanitized at the store boundary (D-03) — safe to
+            // return verbatim.
+            body_html: job.body_html.as_deref().map(String::from),
             status: job.status.to_string(),
             total_count: job.total_count,
             sent_count: job.sent_count,
@@ -297,6 +335,9 @@ impl From<&MailRecipient> for MailRecipientTO {
             sent_at: r.sent_at.as_ref().map(format_datetime),
             rendered_subject: r.rendered_subject.as_deref().map(String::from),
             rendered_body: r.rendered_body.as_deref().map(String::from),
+            // Phase 23 Plan 04 (HTML-01, D-08): expose the per-recipient
+            // byte-accurate rendered HTML sibling.
+            rendered_html_body: r.rendered_html_body.as_deref().map(String::from),
             rendered_reconstructed: r.rendered_reconstructed,
             attachments: vec![],
         }
@@ -399,8 +440,7 @@ pub async fn send_mail<S: MailRestState>(
                 .create_job(
                     &body.subject,
                     &body.body,
-                    // Phase 23 Plan 04 Task 3 wires body.body_html here.
-                    None,
+                    body.body_html.clone(), // Phase 23 Plan 04 (HTML-01, D-03 EP1)
                     vec![RecipientInput {
                         address: body.to_address,
                         member_id: None,
@@ -568,8 +608,7 @@ pub async fn send_bulk_mail<S: MailRestState>(
                 .create_job(
                     &body.subject,
                     &body.body,
-                    // Phase 23 Plan 04 Task 3 wires body.body_html here.
-                    None,
+                    body.body_html.clone(), // Phase 23 Plan 04 (HTML-01, D-03 EP1)
                     recipients,
                     attachment_inputs,
                     static_document_ids,
@@ -871,13 +910,34 @@ pub async fn send_test_mail_with_template<S: MailRestState>(
                 MailServiceError::TemplateValidation(Arc::from(format!("Body: {}", e.message)))
             })?;
 
+            // Phase 23 Plan 04 (HTML-01, D-03 EP4, D-04): render the optional
+            // HTML sibling through the HTML env (autoescaping — member values
+            // are escaped so `<script>` in a first_name renders as
+            // `&lt;script&gt;`). None ⇒ pass None straight through so the
+            // service's sanitize helper preserves None (Pitfall 4).
+            let rendered_body_html: Option<String> = match body.body_html.as_deref() {
+                Some(tmpl) => Some(render_html_template(tmpl, &ctx).map_err(|e| {
+                    MailServiceError::TemplateValidation(Arc::from(format!(
+                        "BodyHtml: {}",
+                        e.message
+                    )))
+                })?),
+                None => None,
+            };
+
             // PRIVACY: `body.to_address` MUST be the recipient — NEVER any
             // member-derived address. The resolved Member contributed only
             // template variables above.
             state
                 .mail_service()
-                // Phase 23 Plan 04 Task 3 will render and forward body_html here.
-                .send_test_mail_with_body(&body.to_address, &rendered_subject, &rendered_body, None)
+                .send_test_mail_with_body(
+                    &body.to_address,
+                    &rendered_subject,
+                    &rendered_body,
+                    // Phase 23 Plan 04 (HTML-01, D-03 EP4): forward the
+                    // rendered HTML — service layer sanitizes it (D-03).
+                    rendered_body_html,
+                )
                 .await?;
 
             Ok(Response::builder()
