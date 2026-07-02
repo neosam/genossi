@@ -499,11 +499,15 @@ pub fn MailPage() -> Element {
                                         let config = CONFIG.read().clone();
                                         let template_id: Option<&str> =
                                             template_id_owned.as_deref();
+                                        // Phase 24 Plan 03 Task 1 seam: pass
+                                        // None for body_html here; Task 2
+                                        // wires the real body_html signal.
                                         match api::send_bulk_mail(
                                             &config,
                                             &recipients,
                                             &subj,
                                             &b,
+                                            None,
                                             &att_ids,
                                             &static_ids,
                                             template_id,

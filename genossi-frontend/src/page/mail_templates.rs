@@ -78,12 +78,17 @@ pub fn MailTemplatesPage() -> Element {
             saving.set(true);
             error.set(None);
             let config = CONFIG.read().clone();
+            // Phase 24 Plan 03 Task 1 seam: pass None for body_html here;
+            // Task 4 wires the real edit_body_html signal.
             let result = match &mode {
                 EditorMode::Create => {
-                    api::create_mail_template(&config, &name, &subject, &body).await
+                    api::create_mail_template(&config, &name, &subject, &body, None).await
                 }
                 EditorMode::Edit(id) => {
-                    api::update_mail_template(&config, id, &name, &subject, &body, &version).await
+                    api::update_mail_template(
+                        &config, id, &name, &subject, &body, None, &version,
+                    )
+                    .await
                 }
                 EditorMode::None => return,
             };

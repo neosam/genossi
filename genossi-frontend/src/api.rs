@@ -868,6 +868,12 @@ pub struct SendMailRequest {
     pub to_address: String,
     pub subject: String,
     pub body: String,
+    /// Phase 24 (EDIT-01, D-01): optional HTML sibling of `body`. Mirrors the
+    /// Phase-23 backend DTO so the frontend can produce multipart/alternative
+    /// requests. `skip_serializing_if = "Option::is_none"` preserves wire
+    /// backward-compat with pre-Phase-24 backends.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body_html: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -881,6 +887,13 @@ pub struct SendBulkMailRequest {
     pub to_addresses: Vec<BulkRecipient>,
     pub subject: String,
     pub body: String,
+    /// Phase 24 (EDIT-01, D-01): optional HTML sibling of `body`. When Some,
+    /// the backend stores it on `MailJob.body_html` (after ammonia sanitize)
+    /// and the worker emits a multipart/alternative mail (Phase 23 D-03 EP1).
+    /// When None, the send stays plaintext-only (legacy backward-compat rule
+    /// documented in Phase 24 RESEARCH.md §"Migration Plan for 3 Verwender").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body_html: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub attachment_ids: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -908,6 +921,11 @@ pub async fn send_bulk_mail(
     recipients: &[BulkRecipient],
     subject: &str,
     body: &str,
+    // Phase 24 (EDIT-01, D-01): optional HTML sibling of `body`. Positioned
+    // after `body` and before `attachment_ids` so call sites read as
+    // (recipients, subject, body, body_html, attachments…) — mirroring the
+    // shape of the backend DTO.
+    body_html: Option<&str>,
     attachment_ids: &[String],
     static_document_ids: &[String],
     template_id: Option<&str>,
@@ -920,6 +938,7 @@ pub async fn send_bulk_mail(
         to_addresses: recipients.to_vec(),
         subject: subject.to_string(),
         body: body.to_string(),
+        body_html: body_html.map(String::from),
         attachment_ids: attachment_ids.to_vec(),
         static_document_ids: static_document_ids.to_vec(),
         template_id: template_id.map(String::from),
@@ -1315,6 +1334,12 @@ pub struct MailTemplateTO {
     pub name: String,
     pub subject: String,
     pub body: String,
+    /// Phase 24 (EDIT-01, D-01): optional HTML sibling of `body`. Backend
+    /// stores it under the same sanitize gate as MailJob.body_html
+    /// (Phase 23 D-03 EP2/EP3). `#[serde(default)]` for backward-compat with
+    /// legacy responses that lack the field.
+    #[serde(default)]
+    pub body_html: Option<String>,
     pub version: String,
 }
 
@@ -1330,14 +1355,20 @@ pub async fn create_mail_template(
     name: &str,
     subject: &str,
     body: &str,
+    // Phase 24 (EDIT-01, D-01): optional HTML sibling. Injected into the JSON
+    // payload only when Some so pre-Phase-24 backends see no wire change.
+    body_html: Option<&str>,
 ) -> Result<MailTemplateTO, AppError> {
     info!("Creating mail template: {name}");
     let url = format!("{}/api/mail/templates", config.backend);
-    let req = serde_json::json!({
+    let mut req = serde_json::json!({
         "name": name,
         "subject": subject,
         "body": body,
     });
+    if let Some(html) = body_html {
+        req["body_html"] = serde_json::Value::String(html.to_string());
+    }
     let response = reqwest::Client::new().post(url).json(&req).send().await?;
     let response = check_response(response).await?;
     Ok(response.json().await?)
@@ -1349,16 +1380,22 @@ pub async fn update_mail_template(
     name: &str,
     subject: &str,
     body: &str,
+    // Phase 24 (EDIT-01, D-01): optional HTML sibling — same conditional-inject
+    // rule as create_mail_template so the wire stays backward-compatible.
+    body_html: Option<&str>,
     version: &str,
 ) -> Result<MailTemplateTO, AppError> {
     info!("Updating mail template: {id}");
     let url = format!("{}/api/mail/templates/{id}", config.backend);
-    let req = serde_json::json!({
+    let mut req = serde_json::json!({
         "name": name,
         "subject": subject,
         "body": body,
         "version": version,
     });
+    if let Some(html) = body_html {
+        req["body_html"] = serde_json::Value::String(html.to_string());
+    }
     let response = reqwest::Client::new().put(url).json(&req).send().await?;
     let response = check_response(response).await?;
     Ok(response.json().await?)
@@ -2673,6 +2710,7 @@ mod tests {
             to_addresses: vec![],
             subject: "s".into(),
             body: "b".into(),
+            body_html: None,
             attachment_ids: vec![],
             static_document_ids: vec![],
             template_id: Some("tpl-1".into()),
@@ -2695,6 +2733,7 @@ mod tests {
             to_addresses: vec![],
             subject: "s".into(),
             body: "b".into(),
+            body_html: None,
             attachment_ids: vec![],
             static_document_ids: vec![],
             template_id: None,
@@ -2728,6 +2767,7 @@ mod tests {
             to_addresses: vec![],
             subject: "s".into(),
             body: "b".into(),
+            body_html: None,
             attachment_ids: vec![],
             static_document_ids: vec![],
             template_id: None,
@@ -2964,6 +3004,81 @@ mod tests {
         assert!(
             json.contains("Hallo"),
             "body_html value must appear when Some, got: {json}",
+        );
+    }
+
+    // ── Phase 24 Plan 03 (EDIT-01, D-01) — SendBulkMailRequest.body_html ──
+    //
+    // Mirrors the wire-lock we added for PreviewRequest.body_html. The bulk
+    // mail request is the mass-send path used by the Massenmail-Compose UI;
+    // when the caller omits body_html (legacy plain-text send) the key must
+    // NOT appear on the wire. When Some it must ship the exact value.
+
+    /// Phase 24 Plan 03: bulk request with body_html=None MUST omit the key.
+    #[test]
+    fn send_bulk_mail_request_serializes_without_body_html_when_none() {
+        let req = SendBulkMailRequest {
+            to_addresses: vec![],
+            subject: "S".to_string(),
+            body: "B".to_string(),
+            body_html: None,
+            attachment_ids: vec![],
+            static_document_ids: vec![],
+            template_id: None,
+            repayment_phase_id: None,
+            attach_repayment_letter: false,
+        };
+        let json = serde_json::to_string(&req).expect("must serialize");
+        assert!(
+            !json.contains("body_html"),
+            "skip_serializing_if must omit body_html when None, got: {json}",
+        );
+    }
+
+    /// Phase 24 Plan 03: bulk request with body_html=Some(...) MUST ship the
+    /// key and the exact value.
+    #[test]
+    fn send_bulk_mail_request_serializes_with_body_html_when_some() {
+        let req = SendBulkMailRequest {
+            to_addresses: vec![],
+            subject: "S".to_string(),
+            body: "B".to_string(),
+            body_html: Some("<p>Grüße vom Vorstand</p>".to_string()),
+            attachment_ids: vec![],
+            static_document_ids: vec![],
+            template_id: None,
+            repayment_phase_id: None,
+            attach_repayment_letter: false,
+        };
+        let json = serde_json::to_string(&req).expect("must serialize");
+        assert!(
+            json.contains("body_html"),
+            "body_html key must appear when Some, got: {json}",
+        );
+        assert!(
+            json.contains("Grüße"),
+            "body_html value must appear when Some, got: {json}",
+        );
+    }
+
+    // ── Phase 24 Plan 03: SendMailRequest.body_html symmetry check ──
+    //
+    // The single-recipient send_mail path is currently unused in the frontend
+    // but we mirrored body_html for API symmetry with the backend DTO. The
+    // wire lock guarantees the field stays skip-when-None so adding it never
+    // breaks a legacy backend.
+    #[test]
+    fn send_mail_request_serializes_without_body_html_when_none() {
+        let req = SendMailRequest {
+            to_address: "a@b.c".to_string(),
+            subject: "S".to_string(),
+            body: "B".to_string(),
+            body_html: None,
+        };
+        let json = serde_json::to_string(&req).expect("must serialize");
+        assert!(
+            !json.contains("body_html"),
+            "skip_serializing_if must omit body_html when None, got: {json}",
         );
     }
 }
