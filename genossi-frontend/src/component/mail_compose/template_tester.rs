@@ -42,7 +42,16 @@ pub(crate) fn is_valid_test_address(addr: &str) -> bool {
 }
 
 #[component]
-pub fn TemplateTester(subject: ReadOnlySignal<String>, body: ReadOnlySignal<String>) -> Element {
+pub fn TemplateTester(
+    subject: ReadOnlySignal<String>,
+    body: ReadOnlySignal<String>,
+    // Phase 24 Plan 03 Task 4 (EDIT-01, D-01): HTML sibling of `body` —
+    // forwarded to TemplatePreview so the Live-Preview renders the
+    // backend's HTML sibling (Phase 24 Plan 01 Task 1 extended preview_mail).
+    // Defaults to an empty ReadOnlySignal via #[props(default)] so existing
+    // callers stay source-compat.
+    #[props(default)] body_html: ReadOnlySignal<String>,
+) -> Element {
     let i18n = use_i18n();
     let mut selected_member_id = use_signal(|| None::<Uuid>);
     let mut test_address = use_signal(String::new);
@@ -87,6 +96,7 @@ pub fn TemplateTester(subject: ReadOnlySignal<String>, body: ReadOnlySignal<Stri
                 TemplatePreview {
                     subject: subject,
                     body: body,
+                    body_html: body_html,
                     member_ids: vec![mid],
                 }
             }

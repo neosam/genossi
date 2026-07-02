@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 
 use crate::api::{self, MailTemplateTO};
 use crate::auth::RequirePrivilege;
-use crate::component::mail_compose::{TemplateTester, TemplateVarButtons};
+use crate::component::mail_compose::{TemplateTester, TemplateVarButtons, WysiwygEditor};
 use crate::component::{ErrorAlert, TopBar};
 use crate::i18n::{use_i18n, Key};
 use crate::page::AccessDeniedPage;
@@ -25,6 +25,11 @@ pub fn MailTemplatesPage() -> Element {
     let mut edit_name = use_signal(String::new);
     let mut edit_subject = use_signal(String::new);
     let mut edit_body = use_signal(String::new);
+    // Phase 24 Plan 03 Task 4 (EDIT-01, D-01): companion HTML body pushed
+    // from WysiwygEditor DOM. Initialized from template.body_html on Edit;
+    // empty on Create. On save, forwarded to create/update_mail_template
+    // via the empty→None backwards-compat rule.
+    let mut edit_body_html = use_signal(String::new);
     let mut edit_version = use_signal(String::new);
     let mut saving = use_signal(|| false);
     let mut confirm_delete = use_signal(|| false);
@@ -52,6 +57,10 @@ pub fn MailTemplatesPage() -> Element {
         edit_name.set(tpl.name.clone());
         edit_subject.set(tpl.subject.clone());
         edit_body.set(tpl.body.clone());
+        // Phase 24 Plan 03 Task 4: seed edit_body_html from the loaded
+        // template's body_html field (may be None for legacy templates
+        // created before Phase 24).
+        edit_body_html.set(tpl.body_html.clone().unwrap_or_default());
         edit_version.set(tpl.version.clone());
         editor_mode.set(EditorMode::Edit(tpl.id.clone()));
         confirm_delete.set(false);
@@ -62,6 +71,7 @@ pub fn MailTemplatesPage() -> Element {
         edit_name.set(String::new());
         edit_subject.set(String::new());
         edit_body.set(String::new());
+        edit_body_html.set(String::new());
         edit_version.set(String::new());
         editor_mode.set(EditorMode::Create);
         confirm_delete.set(false);
@@ -69,24 +79,51 @@ pub fn MailTemplatesPage() -> Element {
     };
 
     let on_save = move |_| {
+        // Phase 24 Plan 03 Task 4 Submit-Guard (Pitfall 5, D-01
+        // belt-and-suspenders): re-read the DOM's innerHTML+innerText
+        // before Save so a late toolbar-click that missed on_command is
+        // still captured on write.
+        if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
+            if let Some(el) = doc.get_element_by_id("wysiwyg-editor") {
+                let html = el.inner_html();
+                let plain = wasm_bindgen::JsCast::dyn_ref::<web_sys::HtmlElement>(&el)
+                    .map(|he| he.inner_text())
+                    .unwrap_or_default();
+                edit_body.set(plain);
+                edit_body_html.set(html);
+            }
+        }
         let name = edit_name.read().clone();
         let subject = edit_subject.read().clone();
         let body = edit_body.read().clone();
+        let body_html_value = edit_body_html.read().clone();
         let version = edit_version.read().clone();
         let mode = editor_mode.read().clone();
         spawn(async move {
             saving.set(true);
             error.set(None);
             let config = CONFIG.read().clone();
-            // Phase 24 Plan 03 Task 1 seam: pass None for body_html here;
-            // Task 4 wires the real edit_body_html signal.
+            // Phase 24 Plan 03 Task 4 (D-01): empty→None backwards-compat
+            // rule — templates saved without any HTML markup stay legacy
+            // plaintext-only templates.
+            let body_html_opt: Option<&str> = if body_html_value.trim().is_empty() {
+                None
+            } else {
+                Some(body_html_value.as_str())
+            };
             let result = match &mode {
                 EditorMode::Create => {
-                    api::create_mail_template(&config, &name, &subject, &body, None).await
+                    api::create_mail_template(&config, &name, &subject, &body, body_html_opt).await
                 }
                 EditorMode::Edit(id) => {
                     api::update_mail_template(
-                        &config, id, &name, &subject, &body, None, &version,
+                        &config,
+                        id,
+                        &name,
+                        &subject,
+                        &body,
+                        body_html_opt,
+                        &version,
                     )
                     .await
                 }
@@ -123,6 +160,7 @@ pub fn MailTemplatesPage() -> Element {
                         edit_name.set(String::new());
                         edit_subject.set(String::new());
                         edit_body.set(String::new());
+                        edit_body_html.set(String::new());
                         edit_version.set(String::new());
                         confirm_delete.set(false);
                         reload();
@@ -242,20 +280,40 @@ pub fn MailTemplatesPage() -> Element {
                                         TemplateVarButtons {
                                             on_insert: move |var_text: String| {
                                                 edit_body.write().push_str(&var_text);
+                                                // Phase 24 Plan 03 Task 4:
+                                                // mirror the inserted var
+                                                // (HTML-escaped) into
+                                                // edit_body_html so both
+                                                // signals stay in sync until
+                                                // the next user keystroke
+                                                // resyncs from the DOM.
+                                                let escaped = var_text
+                                                    .replace('&', "&amp;")
+                                                    .replace('<', "&lt;")
+                                                    .replace('>', "&gt;");
+                                                edit_body_html.write().push_str(&escaped);
                                             },
                                             show_repayment_vars: true,
                                         }
 
-                                        // Body
+                                        // Body — Phase 24 Plan 03 Task 4:
+                                        // migrated from a plain textarea to
+                                        // the WysiwygEditor (Component-First).
+                                        // The editor owns both edit_body
+                                        // (innerText → plain-text template)
+                                        // and edit_body_html (innerHTML → HTML
+                                        // template rendered by the backend's
+                                        // autoescape env in Phase 23 D-04).
                                         div {
                                             label { class: "block text-sm font-medium text-gray-700 mb-1",
                                                 {i18n.t(Key::MailTemplateBody)}
                                             }
-                                            textarea {
-                                                class: "w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 font-mono text-sm",
-                                                rows: "12",
-                                                value: "{edit_body}",
-                                                oninput: move |e| edit_body.set(e.value()),
+                                            WysiwygEditor {
+                                                value: edit_body_html.read().clone(),
+                                                on_change: move |(plain, html): (String, String)| {
+                                                    edit_body.set(plain);
+                                                    edit_body_html.set(html);
+                                                },
                                             }
                                         }
 
@@ -263,9 +321,13 @@ pub fn MailTemplatesPage() -> Element {
                                         // Component-First — Member-Selector,
                                         // Preview und Send-Button werden hier
                                         // bewusst NICHT inline implementiert.
+                                        // Phase 24 Plan 03 Task 4: forwards
+                                        // edit_body_html to TemplatePreview
+                                        // via the new body_html prop.
                                         TemplateTester {
                                             subject: edit_subject,
                                             body: edit_body,
+                                            body_html: edit_body_html,
                                         }
 
                                         // Action buttons
