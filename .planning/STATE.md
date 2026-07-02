@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Mail-Formatierung & Antrags-Dokumente
-current_phase: 22
-current_phase_name: Ready to verify
-status: ready_to_verify
-stopped_at: Completed 22-02-PLAN.md
-last_updated: "2026-07-02T21:55:00.000Z"
+current_phase: 23
+current_phase_name: HTML Mail Backend
+status: executing
+stopped_at: Completed 23-01-PLAN.md
+last_updated: "2026-07-02T20:38:58.000Z"
 last_activity: 2026-07-02
-last_activity_desc: Phase 22 Plan 02 abgeschlossen (build_message-Extract + Worker/Service-Rewire + 7 MIME-Byte-Tests)
+last_activity_desc: Phase 23 Plan 01 abgeschlossen (body_html / rendered_html_body schema + DAO wire + 3 roundtrip tests)
 progress:
   total_phases: 4
   completed_phases: 1
@@ -28,14 +28,14 @@ See: `.planning/PROJECT.md` (updated 2026-06-07 after v1.2 close)
 
 **Core Value:** Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachvollziehbar (Audit-Hashchain), mit weniger manueller Arbeit.
 
-**Current Focus:** Phase 22 — 8bit + Shared Mail-Body Helper (v1.4, erste Phase, noch nicht gestartet)
+**Current Focus:** Phase 23 — HTML Mail Backend (v1.4, zweite Phase, executing)
 
 ## Current Position
 
-Phase: 22 (Ready to verify) — first phase of v1.4, all three plans complete
-Plan: 22-01, 22-02, 22-03 all completed
-Status: 3/3 plans complete; ready for `/gsd-verify-work` on Phase 22
-Last activity: 2026-07-02 — Phase 22 Plan 02 abgeschlossen (build_message-Extract in genossi_mail::send + Worker/Service-Rewire; digest.rs erbt Charset-Fix transitiv)
+Phase: 23 (executing) — HTML Mail Backend, first plan complete
+Plan: 23-01 completed (schema foundation: body_html / rendered_html_body); 23-02, 23-03, 23-04 pending
+Status: 1/4 plans complete; ready to execute 23-02 (HTML render env + separate autoescape minijinja)
+Last activity: 2026-07-02 — Phase 23 Plan 01 abgeschlossen (3 forward-only ADD COLUMN Migrationen für body_html/rendered_html_body + DAO-Wire in genossi_mail + 3 Roundtrip-Tests inkl. NULL-Legacy Pitfall-4-Guard; 227 lib-Tests grün)
 
 ### v1.4 Phase Structure (Phases 22-25, granularity: coarse)
 
@@ -397,7 +397,7 @@ Details siehe `.planning/milestones/v1.0-MILESTONE-AUDIT.md` und `.planning/MILE
 
 ## Session Continuity
 
-**Last session:** 2026-07-02T19:57:18.726Z
+**Last session:** 2026-07-02T20:38:58.000Z (Phase 23 Plan 01 executed — HTML mail schema foundation)
 
 **Last action (2026-05-31, Phase 10 Plan 04 — Wave 2, REST send-bulk Body-Erweiterung):** Plan `10.04-rest-bulk-mail-body-erweiterung-PLAN.md` ausgeführt — `SendBulkMailRequest` bekommt zwei `#[serde(default)] Option<String>` Felder (`template_id` D-12, `repayment_phase_id` D-03), `send_bulk_mail`-Handler parsed beide via `uuid::Uuid::parse_str` mit `MailServiceError::BadRequest` → HTTP 400 (Input wird in Error-Message echoed; T-10-04-02 disposition `accept`), und die zwei `TODO(10.04)`-Placeholder aus Plan 10.03's GREEN-Commit `82c8515` werden durch die parsed `template_id`/`repayment_phase_id`-UUIDs ersetzt. Task 1 als TDD: RED-Commit `25633d8` fügt 2 failing Serde-Roundtrip-Tests hinzu (`test_send_bulk_mail_request_serde_with_phase10_fields` Some/Some, `test_send_bulk_mail_request_serde_without_phase10_fields_backward_compat` None/None) — Compile-Fail mit 4× E0609 (`no field 'template_id'`/`'repayment_phase_id'` auf `SendBulkMailRequest`) bestätigt; GREEN-Commit `6e0d1d1` erweitert `SendBulkMailRequest` mit den zwei Doc-kommentierten Feldern (utoipa-Schema-Examples + D-12/D-03-Zitate), fügt zwei `Uuid::parse_str`-Match-Guards (`Some(s) if !s.is_empty()` Pattern für defensives Empty-String=Absent-Mapping) in `send_bulk_mail` ein, ersetzt die zwei `// TODO(10.04): parse body.*` Placeholder mit den parsed Args (`template_id, // Phase 10 D-12` + `repayment_phase_id, // Phase 10 D-03`), und aktualisiert die 11 Downstream-Literal-Initializers in `genossi_bin/tests/e2e_tests.rs` mit `template_id: None, repayment_phase_id: None` (Rule-3-Auto-Fix: Struct-Extension breakt E0063 sonst — 9 via einem `replace_all` auf `attachment_ids: vec![], static_document_ids: vec![],`-Anker, 2 einzelne Calls für andere `static_document_ids:`-Variationen, 3 via zweitem `replace_all` auf `attachment_ids: vec![doc_id.to_string()], static_document_ids: vec![],`). Test-Pyramide: 2/2 neue Serde-Tests grün; `cargo test --workspace --lib` 730/730 grün (40+0+16+70+61+118+62+35+52+276; genossi_mail: 118 = 116 baseline + 2 neu); `cargo test --test e2e_tests` 279/279 grün (identisch zu Post-10.03-Baseline, kein Regress). rustfmt clean auf `genossi_mail/src/rest.rs` (Nix-Toolchain `/nix/store/.../rustfmt-preview-1.93.0/bin/rustfmt --edition 2021` aktiviert); pre-existing rustfmt-Drift im `assert_ne!(v1, v0, ...)`-Block aus Plan 8.10 in `e2e_tests.rs` per Scope-Boundary nicht angefasst. Single-Send `send_mail` und `application.rs`-Confirmation-Mail behalten `None,None` permanent als Design-Entscheidung (in Plan 10.03 SUMMARY dokumentiert), NICHT als Stub. Eine Deviation Rule-3 (Blocking): 11 Downstream-Literal-Initializers in `e2e_tests.rs` per `template_id: None, repayment_phase_id: None` ergänzt — Standard-Rust-Struct-Extension-Konsequenz, im GREEN-Commit gefoldet (kein Split-Commit, weil sonst Tree-Red-Build zwischen Commits). MAIL-01 + MAIL-02 sind bereits in vorigen Plans als complete markiert (10.01/10.02/10.03). Acceptance-Greps alle erfüllt: `pub template_id: Option<String>` = 1, `pub repayment_phase_id: Option<String>` = 1, `TODO(10.04)` = 0, `Uuid::parse_str` = 8 (>= 3), `create_job`-Args mit template/phase = 4 (>= 2), `send_mail`-None-Count = 3 (>= 2). Nächster Schritt: Plan 10.05 (template-repayment-context-helper, Wave 2 parallel) — kann direkt starten; oder Wave 3 abwarten bis 10.05 auch durch ist, dann 10.06 (worker-repayment-context-und-audited-create).
 
