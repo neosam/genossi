@@ -14683,3 +14683,104 @@ async fn preview_body_html_round_trips_to_response() {
     // Sanity: plain body still renders.
     assert_eq!(raw_json["body"].as_str().unwrap(), "Hallo Max");
 }
+
+/// Phase 24 Plan 04 Task 2 (EDIT-01, D-01 — inbox reply sanitize-on-store):
+/// POSTing `/api/inbox/{id}/reply` with a `body_html` containing malicious
+/// script MUST be sanitized at the store boundary (Phase 23 D-03 pattern,
+/// Plan 24-01 Task 2 seam). The persisted MailJob's `body_html`:
+///   (a) MUST NOT contain `<script>`
+///   (b) MUST preserve safe author markup like `<p>Reply <b>ok</b></p>`
+///
+/// Second pass: replying without a `body_html` key MUST leave
+/// MailJob.body_html = None on the persisted job (backward-compat with
+/// pre-Phase-24 frontends). We use the full e2e HTTP path because the
+/// existing `seed_inbound_mail` helper + reqwest client + `/reply` route
+/// already cover the wire; no service-level fallback needed.
+#[tokio::test]
+async fn inbox_reply_body_html_sanitized_and_persisted() {
+    let (server, pool) = setup_with_pool().await;
+    let client = reqwest::Client::new();
+
+    // Seed an inbound mail directly (bypasses IMAP).
+    let mail_id = seed_inbound_mail(&pool, 42, "customer@example.com", "Anfrage").await;
+
+    // Pass 1: reply WITH malicious body_html.
+    let response = client
+        .post(server.url(&format!("/api/inbox/{}/reply", mail_id)))
+        .json(&serde_json::json!({
+            "subject": "Re: Anfrage",
+            "body": "Danke für Ihre Nachricht.",
+            "body_html": "<script>alert(1)</script><p>Reply <b>ok</b></p>",
+        }))
+        .send()
+        .await
+        .expect("reply POST failed");
+    assert_eq!(
+        response.status(),
+        StatusCode::ACCEPTED,
+        "reply endpoint returns 202 (per inbox_rest.rs::reply_inbox)"
+    );
+
+    // ReplyResponseTO is { job_id, status } — extract job_id and fetch the job.
+    let reply_json: serde_json::Value = response.json().await.unwrap();
+    let job_id = reply_json["job_id"]
+        .as_str()
+        .expect("job_id must be present on the reply response")
+        .to_string();
+
+    let response = client
+        .get(server.url(&format!("/api/mail/jobs/{}", job_id)))
+        .send()
+        .await
+        .expect("job GET failed");
+    assert_eq!(response.status(), StatusCode::OK);
+    let detail: MailJobDetailTO = response.json().await.unwrap();
+
+    let stored_html = detail
+        .job
+        .body_html
+        .clone()
+        .expect("body_html was Some on the reply job");
+    // (a) script stripped
+    assert!(
+        !stored_html.contains("<script>"),
+        "ammonia MUST strip <script> at the reply store boundary, got: {}",
+        stored_html
+    );
+    // (b) safe author markup preserved
+    assert!(
+        stored_html.contains("<p>") && stored_html.contains("<b>ok</b>"),
+        "safe <p>/<b> author markup MUST survive sanitize, got: {}",
+        stored_html
+    );
+
+    // Pass 2: reply WITHOUT body_html — persisted job must have None.
+    let mail_id_2 = seed_inbound_mail(&pool, 43, "another@example.com", "Frage").await;
+    let response = client
+        .post(server.url(&format!("/api/inbox/{}/reply", mail_id_2)))
+        .json(&serde_json::json!({
+            "subject": "Re: Frage",
+            "body": "Text-only reply.",
+        }))
+        .send()
+        .await
+        .expect("reply POST (no body_html) failed");
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let reply_json: serde_json::Value = response.json().await.unwrap();
+    let job_id_2 = reply_json["job_id"].as_str().unwrap().to_string();
+
+    let response = client
+        .get(server.url(&format!("/api/mail/jobs/{}", job_id_2)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let detail: MailJobDetailTO = response.json().await.unwrap();
+    assert!(
+        detail.job.body_html.is_none(),
+        "body_html must be None when omitted from reply request, got: {:?}",
+        detail.job.body_html
+    );
+    // Sanity: plain body preserved.
+    assert_eq!(detail.job.body, "Text-only reply.");
+}
