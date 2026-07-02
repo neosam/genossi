@@ -25,11 +25,16 @@ fn trigger_preview(
     spawn(async move {
         preview_loading.set(true);
         let config = CONFIG.read().clone();
-        match api::preview_mail(&config, &subj, &b, &mid_str, repayment_phase_id).await {
+        // Phase 24 (EDIT-05, D-04): Wave 1 lands the api-layer body_html seam
+        // — Plan 24-03 will wire a real body_html Signal here. For now, pass
+        // None so the plaintext preview path stays identical.
+        match api::preview_mail(&config, &subj, &b, &mid_str, repayment_phase_id, None).await {
             Ok(result) => preview_result.set(Some(result)),
             Err(e) => preview_result.set(Some(PreviewResponse {
                 subject: String::new(),
                 body: String::new(),
+                // Phase 24 (EDIT-05, D-04): Render-Fehler ⇒ kein HTML-Preview.
+                body_html: None,
                 errors: vec![e.to_string()],
                 // Quick 260603-kon: Frontend-Default — Render-Fehler haben
                 // keinen Dummy-Banner-Bezug.

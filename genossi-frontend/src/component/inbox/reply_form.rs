@@ -237,7 +237,11 @@ pub fn InboxReplyForm(
                         spawn(async move {
                             sending.set(true);
                             let cfg = CONFIG.read().clone();
-                            match api::reply_inbox_mail(&cfg, &mid, &subj, &b, &att_ids, &static_ids).await {
+                            // Phase 24 (EDIT-01, D-01): Wave 1 lands the api-layer
+                            // body_html seam — Plan 24-03 will wire a real body_html
+                            // Signal here. For now, pass None so the plaintext reply
+                            // path stays identical.
+                            match api::reply_inbox_mail(&cfg, &mid, &subj, &b, &att_ids, &static_ids, None).await {
                                 Ok(_) => on_sent.call(()),
                                 Err(e) => on_error.call(e.to_string()),
                             }

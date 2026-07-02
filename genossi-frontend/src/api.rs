@@ -939,12 +939,25 @@ pub struct PreviewRequest {
     // UAT-Defekt #6 (Phase-12): optional Repayment-Kontext für Live-Preview.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repayment_phase_id: Option<Uuid>,
+    /// Phase 24 (EDIT-05, D-04): optional HTML sibling of `body`. When
+    /// present, the backend renders it via `render_html_template` (autoescape
+    /// env) and echoes the rendered HTML back in `PreviewResponse.body_html`.
+    /// `skip_serializing_if = "Option::is_none"` keeps the wire backward-
+    /// compatible with pre-Phase-24 backends.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body_html: Option<String>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct PreviewResponse {
     pub subject: String,
     pub body: String,
+    /// Phase 24 (EDIT-05, D-04): rendered HTML sibling — populated only when
+    /// the request carried a `body_html` template. `#[serde(default)]` makes
+    /// the field backward-compatible with older backend responses that do not
+    /// deliver it.
+    #[serde(default)]
+    pub body_html: Option<String>,
     #[serde(default)]
     pub errors: Vec<String>,
     /// Quick 260603-kon: Backend liefert dieses Feld nur wenn `true` —
@@ -962,6 +975,10 @@ pub async fn preview_mail(
     body: &str,
     member_id: &str,
     repayment_phase_id: Option<Uuid>,
+    // Phase 24 (EDIT-05, D-04): optional HTML template source; forwarded to
+    // the backend so it renders `PreviewResponse.body_html`. Callers that only
+    // need the plaintext preview pass `None`.
+    body_html: Option<&str>,
 ) -> Result<PreviewResponse, AppError> {
     let url = format!("{}/api/mail/preview", config.backend);
     let req = PreviewRequest {
@@ -969,6 +986,7 @@ pub async fn preview_mail(
         body: body.to_string(),
         member_id: member_id.to_string(),
         repayment_phase_id,
+        body_html: body_html.map(String::from),
     };
     let response = reqwest::Client::new().post(url).json(&req).send().await?;
     let response = check_response(response).await?;
@@ -1473,16 +1491,25 @@ pub async fn reply_inbox_mail(
     body: &str,
     attachment_ids: &[Uuid],
     static_document_ids: &[String],
+    // Phase 24 (EDIT-01, D-01): optional HTML sibling to post alongside the
+    // plaintext body. Injected into the JSON payload only when Some so
+    // pre-Phase-24 backends see no wire change.
+    body_html: Option<&str>,
 ) -> Result<(), AppError> {
     let url = format!("{}/api/inbox/{}/reply", config.backend, id);
     let attachment_id_strs: Vec<String> =
         attachment_ids.iter().map(|u| u.to_string()).collect();
-    let payload = serde_json::json!({
+    let mut payload = serde_json::json!({
         "subject": subject,
         "body": body,
         "attachment_ids": attachment_id_strs,
         "static_document_ids": static_document_ids,
     });
+    if let Some(html) = body_html {
+        if let Some(obj) = payload.as_object_mut() {
+            obj.insert("body_html".to_string(), serde_json::Value::String(html.to_string()));
+        }
+    }
     let response = reqwest::Client::new()
         .post(url)
         .json(&payload)
@@ -2892,6 +2919,51 @@ mod tests {
         assert!(
             !response.used_dummy_repayment,
             "missing field MUST default to false"
+        );
+    }
+
+    // ── Phase 24 (EDIT-05, D-04) — PreviewRequest.body_html wire-lock ──
+    //
+    // Mirrors the backend serde-lock on PreviewResponse.body_html. Ensures a
+    // request with body_html=None does NOT put the key on the wire (backward
+    // compat with pre-Phase-24 backends), and a Some request DOES.
+
+    /// Phase 24: request with `body_html = None` MUST NOT serialize the key.
+    #[test]
+    fn preview_request_serializes_without_body_html_when_none() {
+        let req = PreviewRequest {
+            subject: "S".to_string(),
+            body: "B".to_string(),
+            member_id: "m".to_string(),
+            repayment_phase_id: None,
+            body_html: None,
+        };
+        let json = serde_json::to_string(&req).expect("must serialize");
+        assert!(
+            !json.contains("body_html"),
+            "skip_serializing_if must omit body_html when None, got: {json}",
+        );
+    }
+
+    /// Phase 24: request with `body_html = Some(...)` MUST serialize the key
+    /// with the exact value provided.
+    #[test]
+    fn preview_request_serializes_with_body_html_when_some() {
+        let req = PreviewRequest {
+            subject: "S".to_string(),
+            body: "B".to_string(),
+            member_id: "m".to_string(),
+            repayment_phase_id: None,
+            body_html: Some("<p>Hallo {{ first_name }}</p>".to_string()),
+        };
+        let json = serde_json::to_string(&req).expect("must serialize");
+        assert!(
+            json.contains("body_html"),
+            "body_html key must appear when Some, got: {json}",
+        );
+        assert!(
+            json.contains("Hallo"),
+            "body_html value must appear when Some, got: {json}",
         );
     }
 }
