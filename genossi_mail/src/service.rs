@@ -445,28 +445,22 @@ impl<
     }
 
     async fn send_test_mail(&self, to: &str) -> Result<(), MailServiceError> {
-        use lettre::{AsyncTransport, Message};
+        use lettre::AsyncTransport;
 
         let smtp_config = load_smtp_config(self.config_service.as_ref()).await?;
         let transport = build_transport(&smtp_config)?;
 
-        let email = Message::builder()
-            .from(
-                smtp_config
-                    .from
-                    .parse()
-                    .map_err(|e: lettre::address::AddressError| {
-                        MailServiceError::SmtpError(Arc::from(format!("Invalid from address: {}", e)))
-                    })?,
-            )
-            .to(to
-                .parse()
-                .map_err(|e: lettre::address::AddressError| {
-                    MailServiceError::SmtpError(Arc::from(format!("Invalid to address: {}", e)))
-                })?)
-            .subject("Genossi Test-E-Mail")
-            .body("Diese E-Mail bestätigt, dass die SMTP-Konfiguration korrekt ist.\n\nThis email confirms that the SMTP configuration is working correctly.".to_string())
-            .map_err(|e| MailServiceError::SmtpError(Arc::from(e.to_string())))?;
+        let body = "Diese E-Mail bestätigt, dass die SMTP-Konfiguration korrekt ist.\n\nThis email confirms that the SMTP configuration is working correctly.";
+
+        let email = crate::send::build_message(
+            &smtp_config.from,
+            to,
+            "Genossi Test-E-Mail",
+            body,
+            &[],
+            None,
+            smtp_config.encoding,
+        )?;
 
         transport
             .send(email)
@@ -487,29 +481,20 @@ impl<
         // variables and forwards them here; `to` is ALWAYS the explicit
         // test-recipient address from the request body (NEVER the Member's
         // email — privacy defense).
-        use lettre::{AsyncTransport, Message};
+        use lettre::AsyncTransport;
 
         let smtp_config = load_smtp_config(self.config_service.as_ref()).await?;
         let transport = build_transport(&smtp_config)?;
 
-        let email = Message::builder()
-            .from(
-                smtp_config
-                    .from
-                    .parse()
-                    .map_err(|e: lettre::address::AddressError| {
-                        MailServiceError::SmtpError(Arc::from(format!(
-                            "Invalid from address: {}",
-                            e
-                        )))
-                    })?,
-            )
-            .to(to.parse().map_err(|e: lettre::address::AddressError| {
-                MailServiceError::SmtpError(Arc::from(format!("Invalid to address: {}", e)))
-            })?)
-            .subject(subject.to_string())
-            .body(body.to_string())
-            .map_err(|e| MailServiceError::SmtpError(Arc::from(e.to_string())))?;
+        let email = crate::send::build_message(
+            &smtp_config.from,
+            to,
+            subject,
+            body,
+            &[],
+            None,
+            smtp_config.encoding,
+        )?;
 
         transport
             .send(email)
