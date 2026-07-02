@@ -6,6 +6,7 @@ pub mod template_selector;
 pub mod template_tester;
 pub mod template_var_buttons;
 pub mod wysiwyg_link_dialog;
+pub mod wysiwyg_toolbar;
 
 pub use attachment_picker::MailAttachmentPicker;
 pub use body_editor::MailBodyEditor;
