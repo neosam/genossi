@@ -68,6 +68,8 @@ features = [
     "HtmlVideoElement",
     # ADR-2026-05-06: clipboard.writeText() for the QrCard magic-link copy button.
     "Clipboard",
+    "ClipboardEvent",   # Phase 24: onpaste handler for WysiwygEditor
+    "DataTransfer",     # Phase 24: onpaste handler for WysiwygEditor
     # Phase 12 D-18: parse window.location().search() in mail_page.rs use_effect
     "Location",
 ]
