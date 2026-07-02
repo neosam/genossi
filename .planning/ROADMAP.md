@@ -92,7 +92,10 @@ Archive: `.planning/milestones/v1.3-ROADMAP.md` · `v1.3-REQUIREMENTS.md` · `v1
   3. Die Kodierung ist per Konfiguration umschaltbar; der Default bleibt quoted-printable, sodass das Produktivverhalten unverändert ist, bis der Betreiber opt-in aktiviert. (MAIL-03)
   4. Bestehende reine Text-Mails (Massenmail, Test-Mail, Digest) kommen mit Default-Config unverändert korrekt an (keine Regression). (MAIL-05)
   5. Die `8BITMIME`-Unterstützung des Produktiv-Relays wird per EHLO-Capability-Check verifiziert, bevor 8bit in Produktion aktiviert wird — dokumentierter Verifikations-Schritt, aus der Dev-Umgebung nicht durchführbar (Relay nur über Produktiv-Netz erreichbar), also Verify-in-Prod statt automatisierter Test. (MAIL-04)
-**Plans**: TBD
+**Plans**: 3 plans
+- [ ] 22-01-PLAN.md — Wave 1: `MailEncoding` enum + `SmtpConfig.encoding` + `smtp_encoding` KV parsing (MAIL-03)
+- [ ] 22-02-PLAN.md — Wave 2: Extract `build_message` into `genossi_mail::send`, rewire worker + test-mail paths, MIME-byte tests (MAIL-01, MAIL-02, MAIL-05)
+- [ ] 22-03-PLAN.md — Wave 1 (parallel): `docs/OPERATIONS.md` runbook for the 8BITMIME EHLO check (MAIL-04)
 
 ### Phase 23: HTML Mail Backend
 **Goal**: Eine Mail kann mit Text- UND HTML-Teil als `multipart/alternative` versendet werden, wobei mitglieds-/nutzergelieferte Werte sicher escaped und vom Vorstand verfasstes HTML serverseitig saniert werden.
@@ -161,7 +164,7 @@ Archive: `.planning/milestones/v1.3-ROADMAP.md` · `v1.3-REQUIREMENTS.md` · `v1
 | 19. E-Mail-Anhänge anzeigen                        | v1.3      | 7/7            | Complete    | 2026-06-09 |
 | 20. Inbox-Digest (täglicher Benachrichtigungs-Worker) | v1.3   | 3/3 | Complete    | 2026-06-27 |
 | 21. Reply-Komfort (Antwort im Modal)               | v1.3      | 1/1 | Complete   | 2026-06-27 |
-| 22. 8bit + Shared Mail-Body Helper                 | v1.4      | 0/?            | Not started | -          |
+| 22. 8bit + Shared Mail-Body Helper                 | v1.4      | 0/3            | Not started | -          |
 | 23. HTML Mail Backend                              | v1.4      | 0/?            | Not started | -          |
 | 24. WYSIWYG Frontend Editor                        | v1.4      | 0/?            | Not started | -          |
 | 25. Application File Upload + Audited Carryover     | v1.4      | 0/?            | Not started | -          |
