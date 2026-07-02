@@ -22,9 +22,9 @@ Research: `.planning/research/SUMMARY.md` (+ STACK / FEATURES / ARCHITECTURE / P
 
 - [x] **HTML-01**: Eine Mail kann mit Text- UND HTML-Teil als `multipart/alternative` versendet werden (Text zuerst, niemals HTML-only), inklusive korrekter Verschachtelung mit Anhängen (`mixed{ alternative{plain, html}, attachments }`).
 - [x] **HTML-02**: Der Plain-Text-Teil stammt aus dem bestehenden, vom Autor verfassten `body` (keine Ableitung aus HTML, keine zusätzliche Crate).
-- [ ] **HTML-03**: Mail-Templates und Mail-Jobs können einen optionalen HTML-Body (`body_html`) speichern; Migration ist forward-only `ALTER TABLE … ADD COLUMN … NULL`. Legacy-Zeilen (NULL) ergeben weiterhin reine Textmails.
-- [ ] **HTML-04**: Template-Variablen werden sowohl in den Text- als auch in den HTML-Body interpoliert; die HTML-Render-Variante nutzt eine separate autoescapende minijinja-Env, sodass mitglieds-/nutzergelieferte Werte HTML-escaped werden, während die vom Autor verfasste Markup-Struktur erhalten bleibt. Die bestehende `strict_env()` bleibt für Text und Subject unverändert.
-- [ ] **HTML-05**: Vom Vorstand verfasstes HTML wird serverseitig mit `ammonia` saniert (Whitelist: fett/kursiv/Links/Listen/Absätze), bevor es gespeichert/versendet wird — angewendet an allen Eintritts-Punkten (`create_job`, Template-Create/Update, Test-Mail-Pfad). Frontend-Sanitization gilt nicht als Sicherheitsgrenze.
+- [x] **HTML-03**: Mail-Templates und Mail-Jobs können einen optionalen HTML-Body (`body_html`) speichern; Migration ist forward-only `ALTER TABLE … ADD COLUMN … NULL`. Legacy-Zeilen (NULL) ergeben weiterhin reine Textmails.
+- [x] **HTML-04**: Template-Variablen werden sowohl in den Text- als auch in den HTML-Body interpoliert; die HTML-Render-Variante nutzt eine separate autoescapende minijinja-Env, sodass mitglieds-/nutzergelieferte Werte HTML-escaped werden, während die vom Autor verfasste Markup-Struktur erhalten bleibt. Die bestehende `strict_env()` bleibt für Text und Subject unverändert.
+- [x] **HTML-05**: Vom Vorstand verfasstes HTML wird serverseitig mit `ammonia` saniert (Whitelist: fett/kursiv/Links/Listen/Absätze), bevor es gespeichert/versendet wird — angewendet an allen Eintritts-Punkten (`create_job`, Template-Create/Update, Test-Mail-Pfad). Frontend-Sanitization gilt nicht als Sicherheitsgrenze.
 
 ### EDIT — WYSIWYG-Editor (Frontend)
 
@@ -44,7 +44,7 @@ Research: `.planning/research/SUMMARY.md` (+ STACK / FEATURES / ARCHITECTURE / P
 
 ### FMT — Mail-Datumsformatierung
 
-- [ ] **FMT-01**: Datums-Template-Variablen (`join_date`, `exit_date`, ggf. weitere) werden in Mails im deutschen Format `DD.MM.YYYY` (z. B. `02.07.2026`) gerendert statt im technischen `.to_string()`-Default — konsistent in Text- und HTML-Mails. Root-Cause: `genossi_mail/src/template.rs:17-18` nutzt `.to_string()`; Fix via `time::format_description`-Vorlage `"[day].[month].[year]"` (kleiner geteilter Helfer + Unit-Test analog `test_exit_date_null`).
+- [x] **FMT-01**: Datums-Template-Variablen (`join_date`, `exit_date`, ggf. weitere) werden in Mails im deutschen Format `DD.MM.YYYY` (z. B. `02.07.2026`) gerendert statt im technischen `.to_string()`-Default — konsistent in Text- und HTML-Mails. Root-Cause: `genossi_mail/src/template.rs:17-18` nutzt `.to_string()`; Fix via `time::format_description`-Vorlage `"[day].[month].[year]"` (kleiner geteilter Helfer + Unit-Test analog `test_exit_date_null`).
 
 ---
 
@@ -78,10 +78,10 @@ Research: `.planning/research/SUMMARY.md` (+ STACK / FEATURES / ARCHITECTURE / P
 | MAIL-05 | Phase 22 | Complete |
 | HTML-01 | Phase 23 | Complete |
 | HTML-02 | Phase 23 | Complete |
-| HTML-03 | Phase 23 | pending |
-| HTML-04 | Phase 23 | pending |
-| HTML-05 | Phase 23 | pending |
-| FMT-01 | Phase 23 | pending |
+| HTML-03 | Phase 23 | Complete |
+| HTML-04 | Phase 23 | Complete |
+| HTML-05 | Phase 23 | Complete |
+| FMT-01 | Phase 23 | Complete |
 | EDIT-01 | Phase 24 | pending |
 | EDIT-02 | Phase 24 | pending |
 | EDIT-03 | Phase 24 | pending |

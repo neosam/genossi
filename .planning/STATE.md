@@ -4,16 +4,16 @@ milestone: v1.4
 milestone_name: Mail-Formatierung & Antrags-Dokumente
 current_phase: 23
 status: executing
-stopped_at: Completed 23-03-PLAN.md
-last_updated: "2026-07-02T22:59:10.000Z"
+stopped_at: Completed 23-04-PLAN.md
+last_updated: "2026-07-02T23:59:59.000Z"
 last_activity: 2026-07-02
-last_activity_desc: "Phase 23 Plan 03 abgeschlossen (build_message erweitert um html_body: Option<&str>; 4-Zweig-Match (html_body, attachments) für multipart/alternative + verschachteltes mixed{alternative,attachments}; Text-first-Reihenfolge byte-offset-pinned per RFC 2046 §5.1.4 / RESEARCH Pitfall 5; 5 neue MIME-byte-Tests + 7 Phase-22-Tests mit mechanischem None-Argument grün; 3 Non-Test-Callsites (worker.rs, service.rs::send_test_mail, send_test_mail_with_body) mit None-Insertion für Build-Grün bis Plan 04; 242 lib-Tests grün, +5 gegenüber 23-02)"
+last_activity_desc: "Phase 23 Plan 04 abgeschlossen (End-to-End-Wire: sanitize_html an allen 4 D-03 Eintritts-Punkten (create_job, template create/update, send_test_mail_with_body); Worker persistiert rendered_html_body und leitet an build_message weiter (D-08); REST DTOs (SendMailRequest, SendBulkMailRequest, TestMailWithTemplateRequest, MailJobTO, MailRecipientTO + MailTemplateTO/Create/Update) haben body_html mit skip_serializing_if=None für Backward-Kompat; send_test_mail_with_template Handler rendert body_html via render_html_template; 249 mail lib-Tests + 303/304 e2e-Tests grün (1 vorbestehender Fail test_mail_preview_repayment_no_entries_does_not_default_to_one bleibt aus Phase 22 SUMMARY dokumentiert); HTML-01/03/04/05/FMT-01 vollständig; Phase 23 komplett)"
 progress:
   total_phases: 4
-  completed_phases: 1
-  total_plans: 7
-  completed_plans: 7
-  percent: 25
+  completed_phases: 2
+  total_plans: 8
+  completed_plans: 8
+  percent: 50
 current_phase_name: HTML Mail Backend
 ---
 
@@ -28,14 +28,14 @@ See: `.planning/PROJECT.md` (updated 2026-06-07 after v1.2 close)
 
 **Core Value:** Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachvollziehbar (Audit-Hashchain), mit weniger manueller Arbeit.
 
-**Current Focus:** Phase 23 — HTML Mail Backend (v1.4, zweite Phase, executing)
+**Current Focus:** Phase 23 — HTML Mail Backend abgeschlossen; Phase 24 (WYSIWYG Frontend Editor) als nächstes.
 
 ## Current Position
 
-Phase: 23 (executing) — HTML Mail Backend, third plan complete
-Plan: 23-01, 23-02, 23-03 completed; 23-04 pending
-Status: 3/4 plans complete; ready to execute 23-04 (worker + service wiring: replace the three `None`s from Plan 03 with real rendered HTML bodies, wire rendered_html_body persistence, sanitize-on-store at all 4 entry points)
-Last activity: 2026-07-02 — Phase 23 Plan 03 abgeschlossen (build_message erweitert um html_body: Option<&str>; 4-Zweig-Match (html_body, attachments) für multipart/alternative + verschachteltes mixed{alternative,attachments}; Text-first-Reihenfolge byte-offset-pinned per RFC 2046 §5.1.4 / RESEARCH Pitfall 5; 5 neue MIME-byte-Tests + 7 Phase-22-Tests mit mechanischem None-Argument grün; 3 Non-Test-Callsites (worker.rs, service.rs::send_test_mail, send_test_mail_with_body) mit None-Insertion für Build-Grün bis Plan 04; 242 lib-Tests grün, +5 gegenüber 23-02)
+Phase: 23 (complete) — HTML Mail Backend, all 4 plans executed
+Plan: 23-01, 23-02, 23-03, 23-04 completed
+Status: Phase 23 komplett; ready to verify or advance to Phase 24 (WYSIWYG Frontend Editor — Depends on Phase 23)
+Last activity: 2026-07-02 — Phase 23 Plan 04 abgeschlossen (End-to-End-Wire: sanitize_html an 4 D-03 Eintritts-Punkten, Worker rendered_html_body Persistenz, REST DTOs body_html mit skip_serializing_if, e2e HTTP Tests HTML-05 wire proof; HTML-01/03/04/05/FMT-01 vollständig)
 
 ### v1.4 Phase Structure (Phases 22-25, granularity: coarse)
 
