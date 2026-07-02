@@ -460,6 +460,8 @@ impl<
             to,
             "Genossi Test-E-Mail",
             body,
+            // send_test_mail is smoke-test only — never HTML (Plan 03 mechanical None).
+            None,
             &[],
             None,
             smtp_config.encoding,
@@ -494,6 +496,9 @@ impl<
             to,
             subject,
             body,
+            // Plan 04 (Phase 23) will replace this None with the rendered HTML body
+            // once send_test_mail_with_body carries body_html through.
+            None,
             &[],
             None,
             smtp_config.encoding,

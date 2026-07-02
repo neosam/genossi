@@ -35,19 +35,26 @@ pub struct LoadedAttachment {
 /// * `from` / `to` are `&str` — this function centralises the three `.parse()`
 ///   sites that used to live in the worker and the two test-mail paths
 ///   (22-CONTEXT.md D-06).
+/// * `body` is the raw plain-text body (never derived from `html_body` per
+///   HTML-02).
+/// * `html_body` — optional HTML sibling; when `Some`, produces a
+///   `multipart/alternative` with text first, then HTML, per HTML-01/D-09.
 /// * `attachments` may be empty — the resulting message is then a `SinglePart`
-///   text message. Otherwise the text part becomes the first slot of a
-///   `multipart/mixed` message.
+///   text message (or `multipart/alternative` if `html_body` is `Some`).
+///   Otherwise the text part becomes the first slot of a `multipart/mixed`
+///   message (or a nested `multipart/alternative` if `html_body` is `Some`).
 /// * `in_reply_to` is the *bare* Message-ID (no angle brackets); when present,
 ///   both `In-Reply-To` and `References` are populated with the bracketed form.
 /// * `encoding` decides between quoted-printable (default, MAIL-05
 ///   backward-compat) and 8bit (opt-in, MAIL-02) — the ONE place in the crate
 ///   where the Content-Transfer-Encoding is chosen (22-CONTEXT.md D-07/D-09).
+///   Applies uniformly to text AND HTML part (D-01).
 pub fn build_message(
     from: &str,
     to: &str,
     subject: &str,
     body: &str,
+    html_body: Option<&str>,
     attachments: &[LoadedAttachment],
     in_reply_to: Option<&str>,
     encoding: MailEncoding,
@@ -78,6 +85,15 @@ pub fn build_message(
         .header(cte)
         .body(body.to_string());
 
+    // HTML sibling — same CTE choice as the text part (D-01: encoding config
+    // applies uniformly to both parts of an alternative message).
+    let html_part_opt: Option<SinglePart> = html_body.map(|html| {
+        SinglePart::builder()
+            .header(ContentType::TEXT_HTML)
+            .header(cte)
+            .body(html.to_string())
+    });
+
     // `message_id(None)` asks lettre to auto-generate a Message-ID; the worker
     // reads it back via `email.headers().get_raw("Message-ID")` before sending.
     let mut builder = Message::builder()
@@ -91,24 +107,59 @@ pub fn build_message(
         builder = builder.in_reply_to(bracketed.clone()).references(bracketed);
     }
 
-    if attachments.is_empty() {
-        builder
+    // 4-branch decision tree — (html_body, attachments) matrix per HTML-01/D-10.
+    // Text-FIRST ordering in the alternative wrapper is pinned by RFC 2046 §5.1.4
+    // and RESEARCH Pitfall 5: the LAST part is the "richest"; HTML must come
+    // second so HTML-capable clients render HTML.
+    match (html_part_opt, attachments.is_empty()) {
+        // (None, true) — Phase-22 legacy singlepart text (byte-identical).
+        (None, true) => builder
             .singlepart(text_part)
-            .map_err(|e| MailServiceError::SmtpError(Arc::from(e.to_string())))
-    } else {
-        let mut multipart = MultiPart::mixed().singlepart(text_part);
-        for att in attachments {
-            let content_type = ContentType::parse(&att.mime_type).unwrap_or_else(|_| {
-                ContentType::parse("application/octet-stream")
-                    .expect("application/octet-stream is a valid MIME type")
-            });
-            let attachment =
-                Attachment::new(att.file_name.to_string()).body(att.bytes.clone(), content_type);
-            multipart = multipart.singlepart(attachment);
+            .map_err(|e| MailServiceError::SmtpError(Arc::from(e.to_string()))),
+        // (None, false) — Phase-22 legacy multipart/mixed{text, attachments}.
+        (None, false) => {
+            let mut multipart = MultiPart::mixed().singlepart(text_part);
+            for att in attachments {
+                let content_type = ContentType::parse(&att.mime_type).unwrap_or_else(|_| {
+                    ContentType::parse("application/octet-stream")
+                        .expect("application/octet-stream is a valid MIME type")
+                });
+                let attachment = Attachment::new(att.file_name.to_string())
+                    .body(att.bytes.clone(), content_type);
+                multipart = multipart.singlepart(attachment);
+            }
+            builder
+                .multipart(multipart)
+                .map_err(|e| MailServiceError::SmtpError(Arc::from(e.to_string())))
         }
-        builder
-            .multipart(multipart)
-            .map_err(|e| MailServiceError::SmtpError(Arc::from(e.to_string())))
+        // (Some, true) — multipart/alternative{text-first, html-second}.
+        (Some(html_part), true) => {
+            let alternative = MultiPart::alternative()
+                .singlepart(text_part)
+                .singlepart(html_part);
+            builder
+                .multipart(alternative)
+                .map_err(|e| MailServiceError::SmtpError(Arc::from(e.to_string())))
+        }
+        // (Some, false) — multipart/mixed{ multipart/alternative{text, html}, attachments }.
+        (Some(html_part), false) => {
+            let alternative = MultiPart::alternative()
+                .singlepart(text_part)
+                .singlepart(html_part);
+            let mut multipart = MultiPart::mixed().multipart(alternative);
+            for att in attachments {
+                let content_type = ContentType::parse(&att.mime_type).unwrap_or_else(|_| {
+                    ContentType::parse("application/octet-stream")
+                        .expect("application/octet-stream is a valid MIME type")
+                });
+                let attachment = Attachment::new(att.file_name.to_string())
+                    .body(att.bytes.clone(), content_type);
+                multipart = multipart.singlepart(attachment);
+            }
+            builder
+                .multipart(multipart)
+                .map_err(|e| MailServiceError::SmtpError(Arc::from(e.to_string())))
+        }
     }
 }
 
@@ -127,6 +178,7 @@ mod tests {
             "recipient@example.com",
             "Test",
             "Hallo Jürgen, schöne Grüße! ä ö ü ß",
+            None,
             &[],
             None,
             MailEncoding::QuotedPrintable,
@@ -160,6 +212,7 @@ mod tests {
             "recipient@example.com",
             "Test",
             "Hallo Jürgen, schöne Grüße! ä ö ü ß",
+            None,
             &[],
             None,
             MailEncoding::EightBit,
@@ -206,6 +259,7 @@ mod tests {
             "recipient@example.com",
             "Test",
             "Anbei die Bescheinigung für Herrn Müller.",
+            None,
             std::slice::from_ref(&attachment),
             None,
             MailEncoding::QuotedPrintable,
@@ -239,6 +293,7 @@ mod tests {
             "recipient@example.com",
             "Re: Test",
             "reply body",
+            None,
             &[],
             Some("abc.123@example.com"),
             MailEncoding::QuotedPrintable,
@@ -266,6 +321,7 @@ mod tests {
             "recipient@example.com",
             "Test",
             "body",
+            None,
             &[],
             None,
             MailEncoding::QuotedPrintable,
@@ -288,6 +344,7 @@ mod tests {
             "recipient@example.com",
             "Test",
             "hi",
+            None,
             &[],
             None,
             MailEncoding::QuotedPrintable,
@@ -318,6 +375,7 @@ mod tests {
             "recipient@example.com",
             "s",
             "b",
+            None,
             &[],
             None,
             MailEncoding::QuotedPrintable,
@@ -333,6 +391,208 @@ mod tests {
             err_str.contains("Invalid from address"),
             "error must mention 'Invalid from address', got: {}",
             err_str
+        );
+    }
+
+    // ---- Phase 23 Plan 03: multipart/alternative and mixed{alternative,attach} ----
+
+    #[test]
+    fn build_message_alternative_text_then_html_no_attachments() {
+        let email = build_message(
+            "sender@example.com",
+            "recipient@example.com",
+            "Test",
+            "Hallo Jürgen (plain).",
+            Some("<p>Hallo Jürgen (html).</p>"),
+            &[],
+            None,
+            MailEncoding::QuotedPrintable,
+        )
+        .expect("build alternative mail");
+
+        let text = formatted(&email);
+
+        assert!(
+            text.contains("multipart/alternative"),
+            "alternative mail must declare multipart/alternative, got:\n{}",
+            text
+        );
+        assert!(
+            !text.contains("multipart/mixed"),
+            "no-attachment alternative must NOT be wrapped in multipart/mixed, got:\n{}",
+            text
+        );
+        // Pitfall 5 — text FIRST, HTML SECOND (byte-offset assertion).
+        let text_pos = text
+            .find("text/plain")
+            .expect("text/plain must appear in alternative output");
+        let html_pos = text
+            .find("text/html")
+            .expect("text/html must appear in alternative output");
+        assert!(
+            text_pos < html_pos,
+            "text/plain (offset {}) must appear BEFORE text/html (offset {}) — RFC 2046 §5.1.4 preference order.\nfull output:\n{}",
+            text_pos,
+            html_pos,
+            text
+        );
+    }
+
+    #[test]
+    fn build_message_alternative_text_part_is_verbatim_body() {
+        // HTML-02: the plain-text part is the raw `body`, NOT derived from HTML.
+        // Two distinct strings prove no derivation happens — the text part
+        // carries "plain-verbatim-marker", the HTML part carries the HTML.
+        let email = build_message(
+            "sender@example.com",
+            "recipient@example.com",
+            "Test",
+            "plain-verbatim-marker",
+            Some("<p>totally-different-html-marker</p>"),
+            &[],
+            None,
+            MailEncoding::QuotedPrintable,
+        )
+        .expect("build alternative mail");
+
+        let text = formatted(&email);
+
+        assert!(
+            text.contains("plain-verbatim-marker"),
+            "text part must contain the verbatim body string, got:\n{}",
+            text
+        );
+        assert!(
+            text.contains("totally-different-html-marker"),
+            "html part must contain the HTML body string, got:\n{}",
+            text
+        );
+        // The text part must not appear inside the HTML tag content — i.e. the
+        // body is NOT derived by round-tripping the HTML. Assert the plain marker
+        // is not inside the <p>…</p> HTML wrapper.
+        assert!(
+            !text.contains("<p>plain-verbatim-marker</p>"),
+            "plain body must not be embedded in HTML wrapper — no derivation (HTML-02), got:\n{}",
+            text
+        );
+    }
+
+    #[test]
+    fn build_message_mixed_wraps_alternative_when_attach() {
+        let attachment = LoadedAttachment {
+            file_name: Arc::from("test.pdf"),
+            mime_type: Arc::from("application/pdf"),
+            bytes: b"%PDF-fake".to_vec(),
+        };
+
+        let email = build_message(
+            "sender@example.com",
+            "recipient@example.com",
+            "Test",
+            "plain body",
+            Some("<p>html body</p>"),
+            std::slice::from_ref(&attachment),
+            None,
+            MailEncoding::QuotedPrintable,
+        )
+        .expect("build mixed alternative mail");
+
+        let text = formatted(&email);
+
+        assert!(
+            text.contains("multipart/mixed"),
+            "attach + html must be multipart/mixed at the outer layer, got:\n{}",
+            text
+        );
+        assert!(
+            text.contains("multipart/alternative"),
+            "attach + html must nest a multipart/alternative, got:\n{}",
+            text
+        );
+        // Outer wrapper is mixed: the top-level Content-Type header must be
+        // multipart/mixed, and multipart/alternative appears LATER in the body.
+        let mixed_pos = text
+            .find("multipart/mixed")
+            .expect("multipart/mixed must appear");
+        let alt_pos = text
+            .find("multipart/alternative")
+            .expect("multipart/alternative must appear");
+        assert!(
+            mixed_pos < alt_pos,
+            "multipart/mixed (outer, offset {}) must appear before multipart/alternative (nested, offset {}), got:\n{}",
+            mixed_pos,
+            alt_pos,
+            text
+        );
+        // Attachment payload present too.
+        assert!(
+            text.contains("application/pdf") || text.contains("test.pdf"),
+            "attachment must be present, got:\n{}",
+            text
+        );
+    }
+
+    #[test]
+    fn build_message_legacy_singlepart_text_unchanged() {
+        // HTML-01 regression: html_body=None + no attachments -> legacy singlepart.
+        let email = build_message(
+            "sender@example.com",
+            "recipient@example.com",
+            "Test",
+            "just text",
+            None,
+            &[],
+            None,
+            MailEncoding::QuotedPrintable,
+        )
+        .expect("build legacy singlepart");
+
+        let text = formatted(&email);
+
+        assert!(
+            !text.contains("multipart/"),
+            "legacy singlepart must NOT contain any multipart/ declarations, got:\n{}",
+            text
+        );
+        assert!(
+            text.contains("Content-Type: text/plain"),
+            "legacy singlepart must declare Content-Type: text/plain at the top, got:\n{}",
+            text
+        );
+    }
+
+    #[test]
+    fn build_message_html_part_declares_text_html_charset_utf8() {
+        let email = build_message(
+            "sender@example.com",
+            "recipient@example.com",
+            "Test",
+            "plain",
+            Some("<p>Hallo Jürgen — Umlaute ä ö ü ß</p>"),
+            &[],
+            None,
+            MailEncoding::QuotedPrintable,
+        )
+        .expect("build alternative mail");
+
+        let text = formatted(&email);
+
+        assert!(
+            text.contains("text/html"),
+            "html part must declare Content-Type: text/html, got:\n{}",
+            text
+        );
+        // MAIL-01 style regression: charset=utf-8 must apply on the HTML part.
+        // Assert charset=utf-8 appears somewhere AFTER the text/html declaration
+        // so we know the charset attaches to the HTML part (not just the text part).
+        let html_pos = text
+            .find("text/html")
+            .expect("text/html must appear");
+        let after_html = &text[html_pos..];
+        assert!(
+            after_html.contains("charset=utf-8"),
+            "html part must declare charset=utf-8 next to text/html, got (from html-pos):\n{}",
+            after_html
         );
     }
 }

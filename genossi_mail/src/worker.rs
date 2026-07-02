@@ -667,6 +667,9 @@ async fn send_mail_for_recipient<C: ConfigService, D: DocumentStorage>(
         to,
         subject,
         body,
+        // Plan 04 (Phase 23) will replace this None with `rendered.body_html.as_deref()`
+        // once the render layer wires HTML through the worker path.
+        None,
         &loaded,
         in_reply_to,
         smtp_config.encoding,
