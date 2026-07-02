@@ -191,7 +191,7 @@ Archive: `.planning/milestones/v1.3-ROADMAP.md` · `v1.3-REQUIREMENTS.md` · `v1
 | 21. Reply-Komfort (Antwort im Modal)               | v1.3      | 1/1 | Complete   | 2026-06-27 |
 | 22. 8bit + Shared Mail-Body Helper                 | v1.4      | 3/3            | Ready to verify | 2026-07-02 |
 | 23. HTML Mail Backend                              | v1.4      | 3/4 | In Progress|  |
-| 24. WYSIWYG Frontend Editor                        | v1.4      | 0/4            | Planned     | -          |
+| 24. WYSIWYG Frontend Editor                        | v1.4      | 1/4            | In Progress | -          |
 | 25. Application File Upload + Audited Carryover     | v1.4      | 0/?            | Not started | -          |
 
 ---

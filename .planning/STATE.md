@@ -2,25 +2,25 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Mail-Formatierung & Antrags-Dokumente
-current_phase: 23
+current_phase: 24
 status: executing
-stopped_at: Completed 23-04-PLAN.md
-last_updated: "2026-07-02T23:59:59.000Z"
-last_activity: 2026-07-02
-last_activity_desc: "Phase 23 Plan 04 abgeschlossen (End-to-End-Wire: sanitize_html an allen 4 D-03 Eintritts-Punkten (create_job, template create/update, send_test_mail_with_body); Worker persistiert rendered_html_body und leitet an build_message weiter (D-08); REST DTOs (SendMailRequest, SendBulkMailRequest, TestMailWithTemplateRequest, MailJobTO, MailRecipientTO + MailTemplateTO/Create/Update) haben body_html mit skip_serializing_if=None für Backward-Kompat; send_test_mail_with_template Handler rendert body_html via render_html_template; 249 mail lib-Tests + 303/304 e2e-Tests grün (1 vorbestehender Fail test_mail_preview_repayment_no_entries_does_not_default_to_one bleibt aus Phase 22 SUMMARY dokumentiert); HTML-01/03/04/05/FMT-01 vollständig; Phase 23 komplett)"
+stopped_at: Completed 24-01-PLAN.md
+last_updated: "2026-07-03T00:00:00.000Z"
+last_activity: 2026-07-03
+last_activity_desc: "Phase 24 Plan 01 abgeschlossen (Wave 1 seam: PreviewRequest/Response body_html + preview_mail HTML render via autoescape env; ReplyRequest.body_html + InboxService::reply body_html signature + sanitize-on-store gate at inbox reply EP; api::preview_mail und api::reply_inbox_mail helpers threading body_html end-to-end; web-sys Features ClipboardEvent + DataTransfer für Plan 24-02 onpaste handler; 19 Key::MailEditor* i18n Variants + de.rs + en.rs Übersetzungen; 252 mail lib-Tests + 2 frontend serde tests grün; Plan 24-02/24-03 unblocked)"
 progress:
   total_phases: 4
   completed_phases: 2
-  total_plans: 8
-  completed_plans: 8
+  total_plans: 12
+  completed_plans: 9
   percent: 50
-current_phase_name: HTML Mail Backend
+current_phase_name: WYSIWYG Frontend Editor
 ---
 
 # State: Genossi — v1.4 Mail-Formatierung & Antrags-Dokumente (Roadmap erstellt)
 
 **Initialized:** 2026-05-02
-**Last Updated:** 2026-06-29 (v1.4 Roadmap erstellt — Phases 22-25)
+**Last Updated:** 2026-07-03 (Phase 24 Plan 01 executed — Wave 1 seam complete)
 
 ## Project Reference
 
@@ -28,14 +28,14 @@ See: `.planning/PROJECT.md` (updated 2026-06-07 after v1.2 close)
 
 **Core Value:** Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachvollziehbar (Audit-Hashchain), mit weniger manueller Arbeit.
 
-**Current Focus:** Phase 23 — HTML Mail Backend abgeschlossen; Phase 24 (WYSIWYG Frontend Editor) als nächstes.
+**Current Focus:** Phase 24 — WYSIWYG Frontend Editor Wave 1 (backend/frontend seams) abgeschlossen; Plan 24-02 (WysiwygEditor Component) als nächstes.
 
 ## Current Position
 
-Phase: 23 (complete) — HTML Mail Backend, all 4 plans executed
-Plan: 23-01, 23-02, 23-03, 23-04 completed
-Status: Phase 23 komplett; ready to verify or advance to Phase 24 (WYSIWYG Frontend Editor — Depends on Phase 23)
-Last activity: 2026-07-02 — Phase 23 Plan 04 abgeschlossen (End-to-End-Wire: sanitize_html an 4 D-03 Eintritts-Punkten, Worker rendered_html_body Persistenz, REST DTOs body_html mit skip_serializing_if, e2e HTTP Tests HTML-05 wire proof; HTML-01/03/04/05/FMT-01 vollständig)
+Phase: 24 (in progress) — WYSIWYG Frontend Editor, Plan 01 of 4 executed
+Plan: 24-01 completed (Wave 1); 24-02, 24-03, 24-04 pending
+Status: Wave 1 seam gelandet — backend body_html echo, inbox reply sanitize gate, frontend api mirror, web-sys ClipboardEvent+DataTransfer, 19 MailEditor* i18n Keys. Plan 24-02 (Wave 2, WysiwygEditor Component) kann isoliert kompilieren.
+Last activity: 2026-07-03 — Phase 24 Plan 01 abgeschlossen (PreviewRequest/Response body_html Wire-Kompat; preview_mail rendert body_html via render_html_template autoescape env; ReplyRequest.body_html + InboxService::reply body_html + sanitize-on-store gate am reply EP; api::preview_mail / api::reply_inbox_mail helpers threading body_html; web-sys ClipboardEvent + DataTransfer für onpaste; 19 MailEditor* i18n Keys mit de+en Translations; 252 mail lib-Tests + 2 frontend serde tests grün)
 
 ### v1.4 Phase Structure (Phases 22-25, granularity: coarse)
 
@@ -55,6 +55,14 @@ Last activity: 2026-07-02 — Phase 23 Plan 04 abgeschlossen (End-to-End-Wire: s
 - D-05-Falle umgesetzt: Dirty-Check-Baseline (subject+body) wird INNERHALB des Footer-use_effect NACH dem Body-Compose gesnapshottet — pure `is_draft_dirty`-Helfer mit 4 Unit-Tests.
 - D-07: nativer `web_sys::window().confirm_with_message` als Verwerfen-Bestätigung (kein verschachteltes In-App-Modal).
 - D-08: `MailBodyEditor` unverändert (h-40, von Compose geteilt); mehr Schreibfläche kommt aus dem breiten Modal-Kontext.
+
+### Decisions (Phase 24 Plan 01)
+
+- Wire-seam-first Wave 1: backend body_html echo + inbox reply body_html + frontend api mirror + web-sys features + i18n keys land atomisch, damit Plan 24-02 (WysiwygEditor Component) isoliert kompiliert ohne cross-cutting Edits.
+- preview_mail HTML render errors sind soft failures (push in errors vec mit `HTML:` prefix, analog `Subject:`/`Body:`) — kein Break der Plaintext-Preview.
+- InboxService::reply body_html wird via `sanitize_body_html_opt` an der Store-Boundary sanitisiert (Phase 23 D-03 EP wire) und mit `Arc::from` gewrappt für `MailJob.body_html: Option<Arc<str>>`; sanitize helper Signatur unverändert.
+- Wave 1 Frontend-Caller (template_preview, reply_form) übergeben `None` für body_html; echte Signal-Verkabelung ist Plan 24-03.
+- Beide Locales (de.rs + en.rs) bekommen alle 19 MailEditor* Arms im selben Commit — kein Locale-Drift (Vermeidung Locale::En-Fallback-Bug).
 
 ## Deferred Items
 
