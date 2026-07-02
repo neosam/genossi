@@ -16,3 +16,4 @@ pub use template_preview::TemplatePreview;
 pub use template_selector::TemplateSelector;
 pub use template_tester::TemplateTester;
 pub use template_var_buttons::TemplateVarButtons;
+pub use wysiwyg_editor::WysiwygEditor;
