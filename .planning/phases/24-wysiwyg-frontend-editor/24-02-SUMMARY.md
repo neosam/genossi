@@ -62,13 +62,14 @@ Reusable Dioxus WYSIWYG editor component set — contenteditable host + 13-butto
 
 ## Tasks Completed
 
-| Task | Name | Commit | Files |
-|------|------|--------|-------|
-| 1 | Add exec_command_{bool,str,simple} helpers to js.rs | 7344d179 | genossi-frontend/src/js.rs |
-| 2 | Create wysiwyg_link_dialog.rs (in-app link URL modal) | 34ddebda | wysiwyg_link_dialog.rs + mod.rs |
-| 3 | Create wysiwyg_toolbar.rs (13 ammonia-safe buttons) | f4b04ee7 | wysiwyg_toolbar.rs + mod.rs |
-| 4 | Create wysiwyg_editor.rs (contenteditable host) | b411c8fa | wysiwyg_editor.rs + Cargo.toml + mod.rs |
-| 5 | Export WysiwygEditor from mod.rs | f2a3adb7 | mod.rs |
+| Task | Name | Commit (jj change → git hash) | Files |
+|------|------|------------------------------|-------|
+| 1 | Add exec_command_{bool,str,simple} helpers to js.rs | wzxmkwuk → 7344d179 | genossi-frontend/src/js.rs |
+| 2 | Create wysiwyg_link_dialog.rs (in-app link URL modal) | ssomlwrr → 34ddebda | wysiwyg_link_dialog.rs + mod.rs |
+| 3 | Create wysiwyg_toolbar.rs (13 ammonia-safe buttons) | ozwwmnox → bf323561 | wysiwyg_toolbar.rs + mod.rs |
+| 4 | Create wysiwyg_editor.rs (contenteditable host) | qwnnmrkm → f4b04ee7 | wysiwyg_editor.rs + Cargo.toml + mod.rs |
+| 5 | Export WysiwygEditor from mod.rs | ymuupnpq → b411c8fa | mod.rs |
+| — | Docs: SUMMARY + STATE + ROADMAP | rqmzvmpp → 00bf6993 | .planning/… |
 
 ## Contract Guarantees (must_haves cross-check)
 
@@ -99,21 +100,21 @@ Reusable Dioxus WYSIWYG editor component set — contenteditable host + 13-butto
 - **Issue:** The plan's `<action>` block flagged the exact `ClipboardData::get_data` shape as `[ASSUMED]` per Open Question §3 of 24-RESEARCH.md and instructed a probe. Confirmed via source inspection of `~/.cargo/registry/…/dioxus-html-0.6.3/src/events/clipboard.rs`: `ClipboardData` only exposes `.downcast::<T>()` — no `.get_data()`, no `.data()` method.
 - **Fix:** Took the web-sys fallback path baked into the plan: `evt.downcast::<web_sys::Event>().cloned()` (dioxus-web's `HasClipboardData` impl stores the browser Event as its any) → cast to `web_sys::ClipboardEvent` → `clipboard_data()` → `get_data("text/plain")`. No new deps.
 - **Files modified:** genossi-frontend/src/component/mail_compose/wysiwyg_editor.rs
-- **Commit:** b411c8fa (Task 4)
+- **Commit:** f4b04ee7 (Task 4)
 
 **2. [Rule 2 — Missing critical functionality] web-sys Selection + Range features missing**
 
 - **Found during:** Task 4
 - **Issue:** Selection Range preservation (Pitfall 6) requires `web_sys::Range`, which is behind the `Range` cargo feature. `get_selection()`/`add_range()` require `Selection`. Neither was on the existing feature list; without them the link-dialog Insert flow could not restore the caret.
 - **Fix:** Added `"Selection"` and `"Range"` to `[dependencies.web-sys].features` in `genossi-frontend/Cargo.toml` (in-scope per Task 4 action — legitimate scope call-out).
-- **Commit:** b411c8fa (Task 4)
+- **Commit:** f4b04ee7 (Task 4)
 
 **3. [Rule 1 — Bug] `title` attribute type coercion**
 
 - **Found during:** Task 3
 - **Issue:** `i18n.t(Key::…)` returns `Rc<str>`, which the Dioxus rsx `title:` attribute rejects with `trait bound Rc<str>: IntoAttributeValue<AnyFmtMarker> is not satisfied` on all 13 buttons.
 - **Fix:** Wrap in Dioxus format-string syntax: `title: "{i18n.t(Key::…)}"` (matches existing pattern in `component/editable_share_count_cell.rs`).
-- **Commit:** f4b04ee7 (Task 3)
+- **Commit:** bf323561 (Task 3)
 
 ### Scope Adjustments
 
@@ -161,11 +162,12 @@ Files exist:
 - `[FOUND] genossi-frontend/src/component/mail_compose/wysiwyg_link_dialog.rs`
 
 Commits exist in jj log:
-- `[FOUND] 7344d179` (Task 1)
-- `[FOUND] 34ddebda` (Task 2)
-- `[FOUND] f4b04ee7` (Task 3)
-- `[FOUND] b411c8fa` (Task 4)
-- `[FOUND] f2a3adb7` (Task 5)
+- `[FOUND] 7344d179` (Task 1 — feat exec_command_* helpers)
+- `[FOUND] 34ddebda` (Task 2 — feat WysiwygLinkDialog)
+- `[FOUND] bf323561` (Task 3 — feat WysiwygToolbar)
+- `[FOUND] f4b04ee7` (Task 4 — feat WysiwygEditor)
+- `[FOUND] b411c8fa` (Task 5 — feat mod.rs re-export)
+- `[FOUND] 00bf6993` (docs — SUMMARY + STATE + ROADMAP)
 
 ## Plan 24-03 Handoff
 
