@@ -4,23 +4,23 @@ milestone: v1.4
 milestone_name: Mail-Formatierung & Antrags-Dokumente
 current_phase: 24
 status: executing
-stopped_at: Completed 24-01-PLAN.md
-last_updated: "2026-07-03T00:00:00.000Z"
+stopped_at: Completed 24-02-PLAN.md
+last_updated: "2026-07-03T00:30:00.000Z"
 last_activity: 2026-07-03
-last_activity_desc: "Phase 24 Plan 01 abgeschlossen (Wave 1 seam: PreviewRequest/Response body_html + preview_mail HTML render via autoescape env; ReplyRequest.body_html + InboxService::reply body_html signature + sanitize-on-store gate at inbox reply EP; api::preview_mail und api::reply_inbox_mail helpers threading body_html end-to-end; web-sys Features ClipboardEvent + DataTransfer für Plan 24-02 onpaste handler; 19 Key::MailEditor* i18n Variants + de.rs + en.rs Übersetzungen; 252 mail lib-Tests + 2 frontend serde tests grün; Plan 24-02/24-03 unblocked)"
+last_activity_desc: "Phase 24 Plan 02 abgeschlossen (Wave 2 component: WysiwygEditor + WysiwygToolbar + WysiwygLinkDialog + exec_command_bool/str/simple facade in js.rs; styleWithCSS=false onmounted; onpaste preventDefault + insertText plain; 13 ammonia-safe toolbar buttons alle r#type=button + prevent_default; In-App Modal für Link-Dialog, kein window.prompt; Selection Range preservation across modal; sync_from_dom nach jeder DOM-Mutation; web-sys Selection + Range Features; 3 is_valid_link_url tests grün; cargo check + cargo build clean; Plan 24-03 (Migration) unblocked)"
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 12
-  completed_plans: 9
-  percent: 50
+  completed_plans: 10
+  percent: 58
 current_phase_name: WYSIWYG Frontend Editor
 ---
 
 # State: Genossi — v1.4 Mail-Formatierung & Antrags-Dokumente (Roadmap erstellt)
 
 **Initialized:** 2026-05-02
-**Last Updated:** 2026-07-03 (Phase 24 Plan 01 executed — Wave 1 seam complete)
+**Last Updated:** 2026-07-03 (Phase 24 Plan 02 executed — Wave 2 component set complete)
 
 ## Project Reference
 
@@ -28,14 +28,14 @@ See: `.planning/PROJECT.md` (updated 2026-06-07 after v1.2 close)
 
 **Core Value:** Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachvollziehbar (Audit-Hashchain), mit weniger manueller Arbeit.
 
-**Current Focus:** Phase 24 — WYSIWYG Frontend Editor Wave 1 (backend/frontend seams) abgeschlossen; Plan 24-02 (WysiwygEditor Component) als nächstes.
+**Current Focus:** Phase 24 — WYSIWYG Frontend Editor Wave 2 (WysiwygEditor + Toolbar + LinkDialog Komponenten) abgeschlossen; Plan 24-03 (Migration der 3 MailBodyEditor Call-Sites) als nächstes.
 
 ## Current Position
 
-Phase: 24 (in progress) — WYSIWYG Frontend Editor, Plan 01 of 4 executed
-Plan: 24-01 completed (Wave 1); 24-02, 24-03, 24-04 pending
-Status: Wave 1 seam gelandet — backend body_html echo, inbox reply sanitize gate, frontend api mirror, web-sys ClipboardEvent+DataTransfer, 19 MailEditor* i18n Keys. Plan 24-02 (Wave 2, WysiwygEditor Component) kann isoliert kompilieren.
-Last activity: 2026-07-03 — Phase 24 Plan 01 abgeschlossen (PreviewRequest/Response body_html Wire-Kompat; preview_mail rendert body_html via render_html_template autoescape env; ReplyRequest.body_html + InboxService::reply body_html + sanitize-on-store gate am reply EP; api::preview_mail / api::reply_inbox_mail helpers threading body_html; web-sys ClipboardEvent + DataTransfer für onpaste; 19 MailEditor* i18n Keys mit de+en Translations; 252 mail lib-Tests + 2 frontend serde tests grün)
+Phase: 24 (in progress) — WYSIWYG Frontend Editor, Plan 02 of 4 executed
+Plan: 24-01 + 24-02 completed (Wave 1 + Wave 2); 24-03, 24-04 pending
+Status: Wave 2 Component-Set gelandet — WysiwygEditor + WysiwygToolbar + WysiwygLinkDialog + 3 exec_command_* helpers in js.rs. contenteditable + styleWithCSS=false onmounted + onpaste plain-text-only + 13 ammonia-safe toolbar buttons + In-App Modal für Link-URL (kein window.prompt) + Selection Range preservation across modal. cargo check + cargo build clean; 3 is_valid_link_url tests grün. Plan 24-03 (Wave 3, Migration) kann durch reines Import-Swap in 3 Call-Sites erfolgen.
+Last activity: 2026-07-03 — Phase 24 Plan 02 abgeschlossen (5 Tasks atomar committed; 3 neue Component-Files + js.rs execCommand-Facade + Cargo.toml Selection+Range Features + mod.rs pub use WysiwygEditor).
 
 ### v1.4 Phase Structure (Phases 22-25, granularity: coarse)
 
@@ -55,6 +55,15 @@ Last activity: 2026-07-03 — Phase 24 Plan 01 abgeschlossen (PreviewRequest/Res
 - D-05-Falle umgesetzt: Dirty-Check-Baseline (subject+body) wird INNERHALB des Footer-use_effect NACH dem Body-Compose gesnapshottet — pure `is_draft_dirty`-Helfer mit 4 Unit-Tests.
 - D-07: nativer `web_sys::window().confirm_with_message` als Verwerfen-Bestätigung (kein verschachteltes In-App-Modal).
 - D-08: `MailBodyEditor` unverändert (h-40, von Compose geteilt); mehr Schreibfläche kommt aus dem breiten Modal-Kontext.
+
+### Decisions (Phase 24 Plan 02)
+
+- execCommand-Facade via js_sys::Reflect (mirror des vorhandenen copy_with_exec_command patterns) — kein neues JS-Bundle, kein extern "C"-Binding; EDIT-02 (no new frontend deps) eingehalten.
+- styleWithCSS=false wird EXAKT einmal onmounted aufgerufen (Pitfall 1 von 24-RESEARCH.md) — bold/italic emittieren semantische <b>/<i> statt <span style=…>; persistiert für die Document-Lebenszeit.
+- Dioxus 0.6.3 ClipboardData hat KEINE get_data()-Methode (Open Question §3 verified) — onpaste nutzt evt.downcast::<web_sys::Event>() → dyn_into::<ClipboardEvent> → clipboard_data() → get_data("text/plain") → exec_command_str("insertText", …). preventDefault ist die erste Zeile (Pitfall 3).
+- Selection Range preservation über den Link-Modal: Toolbar Link-Button captured die Range VOR dem Modal-Open (Pitfall 6), on Insert restore focus + range vor createLink. Erfordert web-sys Selection + Range Features (added).
+- Nur WysiwygEditor wird re-exportiert; WysiwygToolbar + WysiwygLinkDialog bleiben internal (Composed-by-Editor). Plan 24-03 rewires die 3 MailBodyEditor Call-Sites durch pure Import-Swap.
+- Alle 13 Toolbar-Buttons + 2 Link-Dialog-Buttons haben r#type="button" + evt.prevent_default() als erste onclick-Zeile (feedback_dioxus_button_type.md).
 
 ### Decisions (Phase 24 Plan 01)
 
@@ -209,6 +218,7 @@ v1.0 Phasen (alle abgeschlossen, archiviert in .planning/milestones/v1.0-phases/
 | Phase 22 P01 | 7min | 2 tasks | 1 files |
 | Phase 22 P03 | ~5min | 1 tasks | 1 files |
 | Phase 23 P03 | 8 | 1 tasks | 3 files |
+| Phase 24 P02 | ~35min | 5 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -406,7 +416,7 @@ Details siehe `.planning/milestones/v1.0-MILESTONE-AUDIT.md` und `.planning/MILE
 
 ## Session Continuity
 
-**Last session:** 2026-07-02T21:00:33.244Z
+**Last session:** 2026-07-03T00:30:00.000Z (Phase 24 Plan 02 executed — Wave 2 WYSIWYG component set landed)
 
 **Last action (2026-05-31, Phase 10 Plan 04 — Wave 2, REST send-bulk Body-Erweiterung):** Plan `10.04-rest-bulk-mail-body-erweiterung-PLAN.md` ausgeführt — `SendBulkMailRequest` bekommt zwei `#[serde(default)] Option<String>` Felder (`template_id` D-12, `repayment_phase_id` D-03), `send_bulk_mail`-Handler parsed beide via `uuid::Uuid::parse_str` mit `MailServiceError::BadRequest` → HTTP 400 (Input wird in Error-Message echoed; T-10-04-02 disposition `accept`), und die zwei `TODO(10.04)`-Placeholder aus Plan 10.03's GREEN-Commit `82c8515` werden durch die parsed `template_id`/`repayment_phase_id`-UUIDs ersetzt. Task 1 als TDD: RED-Commit `25633d8` fügt 2 failing Serde-Roundtrip-Tests hinzu (`test_send_bulk_mail_request_serde_with_phase10_fields` Some/Some, `test_send_bulk_mail_request_serde_without_phase10_fields_backward_compat` None/None) — Compile-Fail mit 4× E0609 (`no field 'template_id'`/`'repayment_phase_id'` auf `SendBulkMailRequest`) bestätigt; GREEN-Commit `6e0d1d1` erweitert `SendBulkMailRequest` mit den zwei Doc-kommentierten Feldern (utoipa-Schema-Examples + D-12/D-03-Zitate), fügt zwei `Uuid::parse_str`-Match-Guards (`Some(s) if !s.is_empty()` Pattern für defensives Empty-String=Absent-Mapping) in `send_bulk_mail` ein, ersetzt die zwei `// TODO(10.04): parse body.*` Placeholder mit den parsed Args (`template_id, // Phase 10 D-12` + `repayment_phase_id, // Phase 10 D-03`), und aktualisiert die 11 Downstream-Literal-Initializers in `genossi_bin/tests/e2e_tests.rs` mit `template_id: None, repayment_phase_id: None` (Rule-3-Auto-Fix: Struct-Extension breakt E0063 sonst — 9 via einem `replace_all` auf `attachment_ids: vec![], static_document_ids: vec![],`-Anker, 2 einzelne Calls für andere `static_document_ids:`-Variationen, 3 via zweitem `replace_all` auf `attachment_ids: vec![doc_id.to_string()], static_document_ids: vec![],`). Test-Pyramide: 2/2 neue Serde-Tests grün; `cargo test --workspace --lib` 730/730 grün (40+0+16+70+61+118+62+35+52+276; genossi_mail: 118 = 116 baseline + 2 neu); `cargo test --test e2e_tests` 279/279 grün (identisch zu Post-10.03-Baseline, kein Regress). rustfmt clean auf `genossi_mail/src/rest.rs` (Nix-Toolchain `/nix/store/.../rustfmt-preview-1.93.0/bin/rustfmt --edition 2021` aktiviert); pre-existing rustfmt-Drift im `assert_ne!(v1, v0, ...)`-Block aus Plan 8.10 in `e2e_tests.rs` per Scope-Boundary nicht angefasst. Single-Send `send_mail` und `application.rs`-Confirmation-Mail behalten `None,None` permanent als Design-Entscheidung (in Plan 10.03 SUMMARY dokumentiert), NICHT als Stub. Eine Deviation Rule-3 (Blocking): 11 Downstream-Literal-Initializers in `e2e_tests.rs` per `template_id: None, repayment_phase_id: None` ergänzt — Standard-Rust-Struct-Extension-Konsequenz, im GREEN-Commit gefoldet (kein Split-Commit, weil sonst Tree-Red-Build zwischen Commits). MAIL-01 + MAIL-02 sind bereits in vorigen Plans als complete markiert (10.01/10.02/10.03). Acceptance-Greps alle erfüllt: `pub template_id: Option<String>` = 1, `pub repayment_phase_id: Option<String>` = 1, `TODO(10.04)` = 0, `Uuid::parse_str` = 8 (>= 3), `create_job`-Args mit template/phase = 4 (>= 2), `send_mail`-None-Count = 3 (>= 2). Nächster Schritt: Plan 10.05 (template-repayment-context-helper, Wave 2 parallel) — kann direkt starten; oder Wave 3 abwarten bis 10.05 auch durch ist, dann 10.06 (worker-repayment-context-und-audited-create).
 
@@ -519,7 +529,8 @@ Details siehe `.planning/milestones/v1.0-MILESTONE-AUDIT.md` und `.planning/MILE
 
 **Last action (2026-05-29, Phase 07 Plan 02):** Plan `07-02-PLAN.md` ausgeführt — `RepaymentPhaseDaoImpl` (SQLite-Impl des Plan-01-Traits) angelegt mit `RepaymentPhaseDb`-Row, `TryFrom` mit guarded i32-Cast (T-07-02-05), `dump_all`/`create`/`update` inkl. Pre-Exists-Check + Optimistic-Locking via `rows_affected == 0 → ConflictError("Version mismatch")`. ORDER BY ist `fiscal_year DESC, created DESC` (Phase-7-spezifisch). `parse_datetime` via `use crate::assembly::parse_datetime` reused (kein Duplikat). 4 grüne Tokio-Integrationstests gegen in-memory SQLite. Modul-Decl in `genossi_dao_impl_sqlite/src/lib.rs` alphabetisch eingefügt. Commit `6f6bf0f` (feat: 367 LOC added).
 
-**Stopped At:** Completed 22-01-PLAN.md
+**Stopped At:** Completed 24-02-PLAN.md
+**Resume File:** None
 **Resume File:** None
 
 **Last action (2026-06-01, Phase 11 Plan 06):** Plan `11-06-PLAN.md` ausgeführt — 8 E2E-Tests + 1 Helper-Funktion in `genossi_bin/tests/e2e_tests.rs` (+554 LOC) gegen real-running Server mit In-Memory-SQLite hinzugefügt: (1) `test_export_repayment_pdf_open_happy_path` mit Umlaut-Member `Hans Müller` (REVISION-Fix W6 D-05-E2E-Beweis), (2) `test_export_repayment_pdf_closed_phase_returns_200` (EXPO-01 + D-10), (3) `test_export_repayment_unknown_format_returns_400` mit 4 Negative-Formaten csv/xlsx/json/html (D-12 + Pitfall #3), (4) `test_export_repayment_preparation_phase_returns_409` (D-10 Status-Gate), (5) `test_export_repayment_unknown_phase_id_returns_404`, (6) `test_export_repayment_does_not_break_audit_chain` (EXPO-05 + D-11 + REVISION-Fix W7), (7) `test_export_repayment_include_filter_smoke_all_three_variants` Smoke-Test für open/all/paid mit Filename-Assertion (REVISION-Fix W1/W4), (8) `test_export_repayment_empty_iban_renders_empty_column` (D-06 mit Helper). REVISION-Fix W4 (Filename-Schema-Assertion in 5 PDF-Tests), REVISION-Fix W6 (Umlaut-Hans-Müller), REVISION-Fix W7 (Audit-Chain auf valid:true reduziert), REVISION-Fix B2 (KEIN E2E-403-Test — mock_auth-Middleware injiziert immer admin; Pitfall #2 ist durch Plan 11.03 Service-Layer-Mock vollständig abgedeckt). Alle 8 Tests grün on first run (Regression-Lock-In-Pattern aus Plan 08.10); 292 E2E-Tests pass insgesamt (vorher 284, +8, 0 Regression). Plan-11.03-Grep-Gate (`no_audit_macros_used`) und Pitfall-#2-Mock-Test bleiben grün. Eine Deviation (Rule 3): rustfmt-Drift in Plan-Snippets via Nix-Store-rustfmt automatisch korrigiert (Memory-Lektion "Nix-Toolchain nicht sofort aufgeben"). 2 Task-Commits: `67f6957` (test Task 1: 6 Tests + Helper), `33f7e16` (test Task 2: 2 weitere Tests). Phase 11 komplett (6/6 plans). Nächster Schritt: `/gsd-verify-phase 11` oder direkt `/gsd-discuss-phase 12` für das Frontend.

@@ -139,8 +139,8 @@ Archive: `.planning/milestones/v1.3-ROADMAP.md` · `v1.3-REQUIREMENTS.md` · `v1
 
 **Plans**: 4 plans
 
-- [ ] 24-01-PLAN.md — Wave 1: Backend seam (PreviewRequest/Response body_html + preview_mail HTML render + ReplyRequest body_html + InboxService::reply sanitize-on-store) + frontend api mirror + Cargo web-sys features (ClipboardEvent, DataTransfer) + 19 new i18n keys in de.rs+en.rs (EDIT-01, EDIT-04, EDIT-05)
-- [ ] 24-02-PLAN.md — Wave 2: New WysiwygEditor + WysiwygToolbar + WysiwygLinkDialog Dioxus components + exec_command_* helpers in js.rs (styleWithCSS=false at mount, 13 ammonia-safe buttons, in-app Modal for link dialog, plain-text paste handler) (EDIT-01, EDIT-02, EDIT-03, EDIT-04)
+- [x] 24-01-PLAN.md — Wave 1: Backend seam (PreviewRequest/Response body_html + preview_mail HTML render + ReplyRequest body_html + InboxService::reply sanitize-on-store) + frontend api mirror + Cargo web-sys features (ClipboardEvent, DataTransfer) + 19 new i18n keys in de.rs+en.rs (EDIT-01, EDIT-04, EDIT-05) ✅ 2026-07-03
+- [x] 24-02-PLAN.md — Wave 2: New WysiwygEditor + WysiwygToolbar + WysiwygLinkDialog Dioxus components + exec_command_* helpers in js.rs (styleWithCSS=false at mount, 13 ammonia-safe buttons, in-app Modal for link dialog, plain-text paste handler) (EDIT-01, EDIT-02, EDIT-03, EDIT-04) ✅ 2026-07-03
 - [ ] 24-03-PLAN.md — Wave 3: Migrate all 3 MailBodyEditor call sites (mail_page.rs, reply_form.rs, mail_templates.rs) to WysiwygEditor + body_html signal wiring end-to-end + extend TemplatePreview to render backend body_html via dangerous_inner_html + delete body_editor.rs (EDIT-01, EDIT-03, EDIT-05)
 - [ ] 24-04-PLAN.md — Wave 4: 2 new e2e HTTP tests (preview HTML round-trip + inbox reply sanitize-on-store) + Vorstand-facing UAT-CHECKLIST.md + blocking human-verify smoke test (EDIT-01..05)
 
@@ -191,7 +191,7 @@ Archive: `.planning/milestones/v1.3-ROADMAP.md` · `v1.3-REQUIREMENTS.md` · `v1
 | 21. Reply-Komfort (Antwort im Modal)               | v1.3      | 1/1 | Complete   | 2026-06-27 |
 | 22. 8bit + Shared Mail-Body Helper                 | v1.4      | 3/3            | Ready to verify | 2026-07-02 |
 | 23. HTML Mail Backend                              | v1.4      | 3/4 | In Progress|  |
-| 24. WYSIWYG Frontend Editor                        | v1.4      | 1/4            | In Progress | -          |
+| 24. WYSIWYG Frontend Editor                        | v1.4      | 2/4            | In Progress | -          |
 | 25. Application File Upload + Audited Carryover     | v1.4      | 0/?            | Not started | -          |
 
 ---
