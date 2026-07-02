@@ -220,6 +220,7 @@ mod tests {
             message_id: None,
             rendered_subject: None,
             rendered_body: None,
+            rendered_html_body: None,
             rendered_reconstructed: false,
         }
     }
@@ -240,6 +241,7 @@ mod tests {
             template_id: None,
             repayment_phase_id,
             attach_repayment_letter: false,
+            body_html: None,
         }
     }
 

@@ -895,6 +895,7 @@ mod tests {
             template_id: None,
             repayment_phase_id: None,
             attach_repayment_letter: false,
+            body_html: None,
         }
     }
 
@@ -976,6 +977,7 @@ mod tests {
             template_id,
             repayment_phase_id: None,
             attach_repayment_letter: false,
+            body_html: None,
         }
     }
 

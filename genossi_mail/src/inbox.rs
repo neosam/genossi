@@ -687,6 +687,8 @@ where
             repayment_phase_id: None,
             // Quick 260603-cz6: inbox reply is not a repayment-bulk send.
             attach_repayment_letter: false,
+            // Phase 23 D-07: inbox reply is text-only (no HTML body).
+            body_html: None,
         };
         self.job_dao.create(&job).await?;
 
@@ -704,6 +706,7 @@ where
             message_id: None,
             rendered_subject: None,
             rendered_body: None,
+            rendered_html_body: None,
             rendered_reconstructed: false,
         };
         self.recipient_dao.create(&recipient).await?;

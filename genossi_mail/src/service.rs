@@ -359,6 +359,8 @@ impl<
             repayment_phase_id, // D-03: optional RepaymentPhase reference (job-wide)
             // Quick 260603-cz6: opt-in worker-side per-recipient RepaymentLetter attachment.
             attach_repayment_letter,
+            // Phase 23 D-07: HTML body wiring through create_job lands in a later plan.
+            body_html: None,
         };
 
         self.job_dao.create(&job).await?;
@@ -378,6 +380,7 @@ impl<
                 message_id: None,
                 rendered_subject: None,
                 rendered_body: None,
+                rendered_html_body: None,
                 rendered_reconstructed: false,
             };
             self.recipient_dao.create(&recipient).await?;
@@ -685,6 +688,7 @@ mod tests {
             template_id: None,
             repayment_phase_id: None,
             attach_repayment_letter: false,
+            body_html: None,
         };
         let job_clone = job.clone();
 
@@ -737,6 +741,7 @@ mod tests {
             template_id: None,
             repayment_phase_id: None,
             attach_repayment_letter: false,
+            body_html: None,
         };
         let job_clone = job.clone();
 
@@ -754,6 +759,7 @@ mod tests {
             message_id: None,
             rendered_subject: None,
             rendered_body: None,
+            rendered_html_body: None,
             rendered_reconstructed: false,
         };
         let sent_recipient = MailRecipient {
@@ -770,6 +776,7 @@ mod tests {
             message_id: Some(Arc::from("abc@example.com")),
             rendered_subject: None,
             rendered_body: None,
+            rendered_html_body: None,
             rendered_reconstructed: false,
         };
         let recipients: Arc<[MailRecipient]> = vec![failed_recipient, sent_recipient].into();
@@ -943,6 +950,7 @@ mod tests {
             template_id: None,
             repayment_phase_id: None,
             attach_repayment_letter: false,
+            body_html: None,
         };
         let job_clone = job.clone();
 

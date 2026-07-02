@@ -76,6 +76,8 @@ struct MailJobDb {
     repayment_phase_id: Option<Vec<u8>>,
     // Quick 260603-cz6: opt-in bool flag (SQLite INTEGER 0/1)
     attach_repayment_letter: i64,
+    // Phase 23 D-07: optional HTML body
+    body_html: Option<String>,
 }
 
 impl TryFrom<&MailJobDb> for MailJob {
@@ -98,6 +100,7 @@ impl TryFrom<&MailJobDb> for MailJob {
             template_id: parse_optional_uuid(&db.template_id)?,
             repayment_phase_id: parse_optional_uuid(&db.repayment_phase_id)?,
             attach_repayment_letter: db.attach_repayment_letter != 0,
+            body_html: db.body_html.as_deref().map(Arc::from),
         })
     }
 }
@@ -125,8 +128,8 @@ impl MailJobDao for MailJobDaoSqlite {
         let attach_repayment_letter: i64 = if job.attach_repayment_letter { 1 } else { 0 };
 
         sqlx::query(
-            "INSERT INTO mail_jobs (id, created, deleted, version, subject, body, status, total_count, sent_count, failed_count, reply_to_inbound_mail_id, template_id, repayment_phase_id, attach_repayment_letter) \
-             VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO mail_jobs (id, created, deleted, version, subject, body, status, total_count, sent_count, failed_count, reply_to_inbound_mail_id, template_id, repayment_phase_id, attach_repayment_letter, body_html) \
+             VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(id)
         .bind(created)
@@ -141,6 +144,7 @@ impl MailJobDao for MailJobDaoSqlite {
         .bind(template_id)
         .bind(repayment_phase_id)
         .bind(attach_repayment_letter)
+        .bind(job.body_html.as_deref())
         .execute(self.pool.as_ref())
         .await
         .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
@@ -151,7 +155,7 @@ impl MailJobDao for MailJobDaoSqlite {
     async fn find_by_id(&self, id: Uuid) -> Result<MailJob, MailDaoError> {
         let id_bytes = id.as_bytes().to_vec();
         let row = sqlx::query_as::<_, MailJobDb>(
-            "SELECT id, created, deleted, version, subject, body, status, total_count, sent_count, failed_count, reply_to_inbound_mail_id, template_id, repayment_phase_id, attach_repayment_letter \
+            "SELECT id, created, deleted, version, subject, body, status, total_count, sent_count, failed_count, reply_to_inbound_mail_id, template_id, repayment_phase_id, attach_repayment_letter, body_html \
              FROM mail_jobs WHERE id = ?",
         )
         .bind(id_bytes)
@@ -165,7 +169,7 @@ impl MailJobDao for MailJobDaoSqlite {
 
     async fn all(&self) -> Result<Arc<[MailJob]>, MailDaoError> {
         let rows = sqlx::query_as::<_, MailJobDb>(
-            "SELECT id, created, deleted, version, subject, body, status, total_count, sent_count, failed_count, reply_to_inbound_mail_id, template_id, repayment_phase_id, attach_repayment_letter \
+            "SELECT id, created, deleted, version, subject, body, status, total_count, sent_count, failed_count, reply_to_inbound_mail_id, template_id, repayment_phase_id, attach_repayment_letter, body_html \
              FROM mail_jobs ORDER BY created DESC",
         )
         .fetch_all(self.pool.as_ref())
@@ -216,6 +220,8 @@ struct MailRecipientDb {
     rendered_subject: Option<String>,
     rendered_body: Option<String>,
     rendered_reconstructed: i64,
+    // Phase 23 D-08: optional per-recipient rendered HTML body
+    rendered_html_body: Option<String>,
 }
 
 impl TryFrom<&MailRecipientDb> for MailRecipient {
@@ -237,6 +243,7 @@ impl TryFrom<&MailRecipientDb> for MailRecipient {
             message_id: db.message_id.as_deref().map(Arc::from),
             rendered_subject: db.rendered_subject.as_deref().map(Arc::from),
             rendered_body: db.rendered_body.as_deref().map(Arc::from),
+            rendered_html_body: db.rendered_html_body.as_deref().map(Arc::from),
             rendered_reconstructed: db.rendered_reconstructed != 0,
         })
     }
@@ -262,8 +269,8 @@ impl MailRecipientDao for MailRecipientDaoSqlite {
         let member_id = recipient.member_id.map(|m| m.as_bytes().to_vec());
 
         sqlx::query(
-            "INSERT INTO mail_recipients (id, created, deleted, version, mail_job_id, to_address, member_id, status, error, sent_at, message_id, rendered_subject, rendered_body, rendered_reconstructed) \
-             VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?)",
+            "INSERT INTO mail_recipients (id, created, deleted, version, mail_job_id, to_address, member_id, status, error, sent_at, message_id, rendered_subject, rendered_body, rendered_reconstructed, rendered_html_body) \
+             VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, NULL)",
         )
         .bind(id)
         .bind(created)
@@ -285,7 +292,7 @@ impl MailRecipientDao for MailRecipientDaoSqlite {
     async fn find_by_job_id(&self, job_id: Uuid) -> Result<Arc<[MailRecipient]>, MailDaoError> {
         let job_id_bytes = job_id.as_bytes().to_vec();
         let rows = sqlx::query_as::<_, MailRecipientDb>(
-            "SELECT id, created, deleted, version, mail_job_id, to_address, member_id, status, error, sent_at, message_id, rendered_subject, rendered_body, rendered_reconstructed \
+            "SELECT id, created, deleted, version, mail_job_id, to_address, member_id, status, error, sent_at, message_id, rendered_subject, rendered_body, rendered_reconstructed, rendered_html_body \
              FROM mail_recipients WHERE mail_job_id = ? ORDER BY created ASC",
         )
         .bind(job_id_bytes)
@@ -301,7 +308,7 @@ impl MailRecipientDao for MailRecipientDaoSqlite {
 
     async fn next_pending(&self) -> Result<Option<MailRecipient>, MailDaoError> {
         let row = sqlx::query_as::<_, MailRecipientDb>(
-            "SELECT r.id, r.created, r.deleted, r.version, r.mail_job_id, r.to_address, r.member_id, r.status, r.error, r.sent_at, r.message_id, r.rendered_subject, r.rendered_body, r.rendered_reconstructed \
+            "SELECT r.id, r.created, r.deleted, r.version, r.mail_job_id, r.to_address, r.member_id, r.status, r.error, r.sent_at, r.message_id, r.rendered_subject, r.rendered_body, r.rendered_reconstructed, r.rendered_html_body \
              FROM mail_recipients r \
              INNER JOIN mail_jobs j ON r.mail_job_id = j.id \
              WHERE r.status = 'pending' AND j.status = 'running' \
@@ -328,7 +335,7 @@ impl MailRecipientDao for MailRecipientDaoSqlite {
             .transpose()?;
 
         sqlx::query(
-            "UPDATE mail_recipients SET status = ?, error = ?, sent_at = ?, message_id = ?, rendered_subject = ?, rendered_body = ?, rendered_reconstructed = ?, version = ? WHERE id = ?",
+            "UPDATE mail_recipients SET status = ?, error = ?, sent_at = ?, message_id = ?, rendered_subject = ?, rendered_body = ?, rendered_html_body = ?, rendered_reconstructed = ?, version = ? WHERE id = ?",
         )
         .bind(recipient.status.as_ref())
         .bind(recipient.error.as_deref())
@@ -336,6 +343,7 @@ impl MailRecipientDao for MailRecipientDaoSqlite {
         .bind(recipient.message_id.as_deref())
         .bind(recipient.rendered_subject.as_deref())
         .bind(recipient.rendered_body.as_deref())
+        .bind(recipient.rendered_html_body.as_deref())
         .bind(if recipient.rendered_reconstructed { 1i64 } else { 0i64 })
         .bind(version)
         .bind(id)
@@ -368,7 +376,7 @@ impl MailRecipientDao for MailRecipientDaoSqlite {
 
     async fn find_recipients_without_rendered(&self) -> Result<Arc<[MailRecipient]>, MailDaoError> {
         let rows = sqlx::query_as::<_, MailRecipientDb>(
-            "SELECT id, created, deleted, version, mail_job_id, to_address, member_id, status, error, sent_at, message_id, rendered_subject, rendered_body, rendered_reconstructed \
+            "SELECT id, created, deleted, version, mail_job_id, to_address, member_id, status, error, sent_at, message_id, rendered_subject, rendered_body, rendered_reconstructed, rendered_html_body \
              FROM mail_recipients \
              WHERE rendered_subject IS NULL AND rendered_body IS NULL AND deleted IS NULL \
              ORDER BY created ASC",
@@ -1102,6 +1110,8 @@ struct MailTemplateDb {
     name: String,
     subject: String,
     body: String,
+    // Phase 23 D-06: optional HTML body
+    body_html: Option<String>,
 }
 
 impl TryFrom<&MailTemplateDb> for MailTemplate {
@@ -1117,6 +1127,7 @@ impl TryFrom<&MailTemplateDb> for MailTemplate {
             name: Arc::from(db.name.as_str()),
             subject: Arc::from(db.subject.as_str()),
             body: Arc::from(db.body.as_str()),
+            body_html: db.body_html.as_deref().map(Arc::from),
         })
     }
 }
@@ -1139,8 +1150,8 @@ impl MailTemplateDao for MailTemplateDaoSqlite {
         let created = format_datetime(&template.created)?;
 
         sqlx::query(
-            "INSERT INTO mail_templates (id, created, deleted, version, name, subject, body) \
-             VALUES (?, ?, NULL, ?, ?, ?, ?)",
+            "INSERT INTO mail_templates (id, created, deleted, version, name, subject, body, body_html) \
+             VALUES (?, ?, NULL, ?, ?, ?, ?, ?)",
         )
         .bind(id)
         .bind(created)
@@ -1148,6 +1159,7 @@ impl MailTemplateDao for MailTemplateDaoSqlite {
         .bind(template.name.as_ref())
         .bind(template.subject.as_ref())
         .bind(template.body.as_ref())
+        .bind(template.body_html.as_deref())
         .execute(self.pool.as_ref())
         .await
         .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
@@ -1161,11 +1173,12 @@ impl MailTemplateDao for MailTemplateDaoSqlite {
         let deleted = template.deleted.as_ref().map(format_datetime).transpose()?;
 
         sqlx::query(
-            "UPDATE mail_templates SET name = ?, subject = ?, body = ?, version = ?, deleted = ? WHERE id = ?",
+            "UPDATE mail_templates SET name = ?, subject = ?, body = ?, body_html = ?, version = ?, deleted = ? WHERE id = ?",
         )
         .bind(template.name.as_ref())
         .bind(template.subject.as_ref())
         .bind(template.body.as_ref())
+        .bind(template.body_html.as_deref())
         .bind(version)
         .bind(deleted)
         .bind(id)
@@ -1178,7 +1191,7 @@ impl MailTemplateDao for MailTemplateDaoSqlite {
 
     async fn dump_all(&self) -> Result<Arc<[MailTemplate]>, MailDaoError> {
         let rows = sqlx::query_as::<_, MailTemplateDb>(
-            "SELECT id, created, deleted, version, name, subject, body FROM mail_templates",
+            "SELECT id, created, deleted, version, name, subject, body, body_html FROM mail_templates",
         )
         .fetch_all(self.pool.as_ref())
         .await
@@ -1193,7 +1206,7 @@ impl MailTemplateDao for MailTemplateDaoSqlite {
     async fn find_by_id(&self, id: Uuid) -> Result<Option<MailTemplate>, MailDaoError> {
         let id_bytes = id.as_bytes().to_vec();
         let row = sqlx::query_as::<_, MailTemplateDb>(
-            "SELECT id, created, deleted, version, name, subject, body \
+            "SELECT id, created, deleted, version, name, subject, body, body_html \
              FROM mail_templates WHERE id = ? AND deleted IS NULL",
         )
         .bind(id_bytes)
@@ -1206,7 +1219,7 @@ impl MailTemplateDao for MailTemplateDaoSqlite {
 
     async fn all(&self) -> Result<Arc<[MailTemplate]>, MailDaoError> {
         let rows = sqlx::query_as::<_, MailTemplateDb>(
-            "SELECT id, created, deleted, version, name, subject, body \
+            "SELECT id, created, deleted, version, name, subject, body, body_html \
              FROM mail_templates WHERE deleted IS NULL ORDER BY name ASC",
         )
         .fetch_all(self.pool.as_ref())
@@ -1221,7 +1234,7 @@ impl MailTemplateDao for MailTemplateDaoSqlite {
 
     async fn find_by_name(&self, name: &str) -> Result<Option<MailTemplate>, MailDaoError> {
         let row = sqlx::query_as::<_, MailTemplateDb>(
-            "SELECT id, created, deleted, version, name, subject, body \
+            "SELECT id, created, deleted, version, name, subject, body, body_html \
              FROM mail_templates WHERE name = ? AND deleted IS NULL",
         )
         .bind(name)
@@ -1317,7 +1330,8 @@ mod tests {
                 reply_to_inbound_mail_id BLOB,
                 template_id BLOB,
                 repayment_phase_id BLOB,
-                attach_repayment_letter INTEGER NOT NULL DEFAULT 0
+                attach_repayment_letter INTEGER NOT NULL DEFAULT 0,
+                body_html TEXT
             )",
         )
         .execute(&pool)
@@ -1338,7 +1352,8 @@ mod tests {
                 message_id TEXT,
                 rendered_subject TEXT,
                 rendered_body TEXT,
-                rendered_reconstructed INTEGER NOT NULL DEFAULT 0
+                rendered_reconstructed INTEGER NOT NULL DEFAULT 0,
+                rendered_html_body TEXT
             )",
         )
         .execute(&pool)
@@ -1449,6 +1464,7 @@ mod tests {
             template_id: None,
             repayment_phase_id: None,
             attach_repayment_letter: false,
+            body_html: None,
         }
     }
 
@@ -1467,6 +1483,7 @@ mod tests {
             message_id: None,
             rendered_subject: None,
             rendered_body: None,
+            rendered_html_body: None,
             rendered_reconstructed: false,
         }
     }
@@ -2453,6 +2470,81 @@ mod tests {
 
         // count_for_mail returns 2
         assert_eq!(dao.count_for_mail(parent_mail_id).await.unwrap(), 2);
+    }
+
+    // Phase 23 D-07: MailJob.body_html roundtrip — Some(...) persists byte-identically.
+    #[tokio::test]
+    async fn mail_job_body_html_roundtrip() {
+        let pool = setup_db().await;
+        let dao = MailJobDaoSqlite::new(pool);
+
+        let mut job = sample_job();
+        job.body_html = Some(Arc::from("<b>Hallo</b>"));
+        dao.create(&job).await.unwrap();
+
+        let found = dao.find_by_id(job.id).await.unwrap();
+        assert_eq!(
+            found.body_html.as_deref(),
+            Some("<b>Hallo</b>"),
+            "body_html must roundtrip byte-identically"
+        );
+    }
+
+    // Phase 23 D-09 / RESEARCH Pitfall 4: NULL body_html must NOT coerce to Some("").
+    #[tokio::test]
+    async fn mail_job_body_html_null_roundtrip() {
+        let pool = setup_db().await;
+        let dao = MailJobDaoSqlite::new(pool);
+
+        let job = sample_job();
+        assert!(job.body_html.is_none(), "sample default must be None");
+        dao.create(&job).await.unwrap();
+
+        let found = dao.find_by_id(job.id).await.unwrap();
+        assert!(
+            found.body_html.is_none(),
+            "legacy NULL body_html must read back as None, not Some(\"\")"
+        );
+    }
+
+    // Phase 23 D-08: MailRecipient.rendered_html_body UPDATE persists per-recipient HTML.
+    #[tokio::test]
+    async fn mail_recipient_update_persists_rendered_html_body() {
+        let pool = setup_db().await;
+        let job_dao = MailJobDaoSqlite::new(pool.clone());
+        let recipient_dao = MailRecipientDaoSqlite::new(pool);
+
+        let job = sample_job();
+        job_dao.create(&job).await.unwrap();
+
+        let r = sample_recipient(job.id);
+        recipient_dao.create(&r).await.unwrap();
+
+        // Fresh recipient has no rendered HTML.
+        let found = recipient_dao.find_by_job_id(job.id).await.unwrap();
+        assert!(found[0].rendered_html_body.is_none());
+
+        // Worker persists the rendered HTML body alongside the plain-text render.
+        let mut updated = r.clone();
+        updated.status = Arc::from("sent");
+        updated.sent_at = Some(sample_datetime());
+        updated.message_id = Some(Arc::from("html.777@example.com"));
+        updated.rendered_subject = Some(Arc::from("Hallo Max"));
+        updated.rendered_body = Some(Arc::from("Text für Max"));
+        updated.rendered_html_body = Some(Arc::from("<p>Rendered</p>"));
+        updated.version = Uuid::new_v4();
+        recipient_dao.update(&updated).await.unwrap();
+
+        let found = recipient_dao.find_by_job_id(job.id).await.unwrap();
+        assert_eq!(
+            found[0].rendered_html_body.as_deref(),
+            Some("<p>Rendered</p>"),
+            "rendered_html_body must roundtrip byte-identically"
+        );
+        // Existing rendered fields preserved alongside the HTML variant.
+        assert_eq!(found[0].rendered_subject.as_deref(), Some("Hallo Max"));
+        assert_eq!(found[0].rendered_body.as_deref(), Some("Text für Max"));
+        assert_eq!(found[0].status.as_ref(), "sent");
     }
 
     #[tokio::test]

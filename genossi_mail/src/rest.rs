@@ -1070,6 +1070,7 @@ mod tests {
             template_id: None,
             repayment_phase_id,
             attach_repayment_letter: false,
+            body_html: None,
         }
     }
 

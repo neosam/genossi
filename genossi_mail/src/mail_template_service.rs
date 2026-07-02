@@ -84,6 +84,9 @@ impl<D: MailTemplateDao> MailTemplateService for MailTemplateServiceImpl<D> {
             name: Arc::from(name),
             subject: Arc::from(subject),
             body: Arc::from(body),
+            // Phase 23 D-06: HTML body wiring lands in a later plan (service + REST);
+            // create-through-this-path stays text-only until then.
+            body_html: None,
         };
 
         self.dao.create(&template).await?;
@@ -123,6 +126,9 @@ impl<D: MailTemplateDao> MailTemplateService for MailTemplateServiceImpl<D> {
             name: Arc::from(name),
             subject: Arc::from(subject),
             body: Arc::from(body),
+            // Phase 23 D-06: preserve prior body_html on update through this path
+            // until the service API takes an html param in a later plan.
+            body_html: existing.body_html,
         };
 
         self.dao.update(&updated).await?;
@@ -195,6 +201,7 @@ mod tests {
                 name: Arc::from("Existing"),
                 subject: Arc::from(""),
                 body: Arc::from(""),
+                body_html: None,
             }))
         });
 
@@ -218,6 +225,7 @@ mod tests {
                 name: Arc::from("Test"),
                 subject: Arc::from(""),
                 body: Arc::from(""),
+                body_html: None,
             }))
         });
 
