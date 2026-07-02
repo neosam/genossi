@@ -481,15 +481,17 @@ let exit_date_str = entity.exit_date.map(format_de);
 
 **All claims verified or cited — no user confirmation needed.**
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Should `send_test_mail_with_body` accept an optional `body_html` argument now?**
    - What we know: CONTEXT.md D-03 requires sanitizing at this entry point. Today the function takes `(to, subject, body)`. Phase 24 will want to preview HTML in a test-mail.
    - What's unclear: Whether Phase 23 adds the arg now (defensive; requires REST wire change too) or Phase 24 adds it when needed.
    - Recommendation: **Add `body_html: Option<&str>` to the signature now** (Claude's discretion per CONTEXT.md line 45). Sanitize the input identically to `create_job`; pass through `build_message`. This closes D-03 cleanly and unblocks Phase 24's live-preview without a second signature change. Cost: ~10 LOC + one REST DTO field extension.
+   - **RESOLVED:** Plan 23-04 Task 1 extends `send_test_mail_with_body` with `body_html: Option<&str>` per this recommendation.
 
 2. **Where does `sanitize_html()` live?**
    - Recommendation: Own module `genossi_mail/src/sanitize.rs` with the single pub fn. Small enough not to clutter but named enough to be found by grep. Alternative: put it in `service.rs` as a free function. Either works; a dedicated file makes future policy tweaks (e.g. adding `Builder` customizations) easier.
+   - **RESOLVED:** Plan 23-02 Task 1 creates `genossi_mail/src/sanitize.rs` per this recommendation.
 
 3. **Migration filenames.**
    - Highest existing: `20260626000000_create_digest_state_table.sql`. Next timestamp for Phase 23: **`20260702…`**. Recommended filenames:
@@ -497,9 +499,11 @@ let exit_date_str = entity.exit_date.map(format_de);
      - `20260702000001_mail_jobs_add_body_html.sql`
      - `20260702000002_mail_recipients_add_rendered_html_body.sql`
    - Each contains a single `ALTER TABLE … ADD COLUMN … TEXT NULL;` statement plus a comment header analog to `20260603100000_mail_job_attach_repayment_letter.sql`.
+   - **RESOLVED:** Plan 23-01 Task 1 uses exactly these three filenames.
 
 4. **After migrations: `cargo sqlx prepare` regeneration.**
    - The DAO adds new columns to INSERT/UPDATE/SELECT statements in `dao_sqlite.rs`. Compile-time query check requires refreshed `.sqlx/` metadata: `DATABASE_URL=sqlite:genossi.db cargo sqlx prepare` — this is standard and documented in CLAUDE.md.
+   - **RESOLVED:** Plan 23-01 Task 3 documents this operator step in the action; no code change needed beyond the standard workflow.
 
 ## Environment Availability
 

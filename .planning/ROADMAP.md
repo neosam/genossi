@@ -108,7 +108,11 @@ Archive: `.planning/milestones/v1.3-ROADMAP.md` · `v1.3-REQUIREMENTS.md` · `v1
   4. Template-Variablen werden in Text- UND HTML-Body interpoliert; ein Mitglied namens `<script> & Co` erscheint im HTML-Body HTML-escaped (`&lt;script&gt; &amp;`), während die vom Autor verfasste Markup-Struktur erhalten bleibt — die HTML-Render-Variante nutzt eine separate autoescapende minijinja-Env, `strict_env()` bleibt für Text und Subject unverändert. (HTML-04)
   5. Vom Vorstand verfasstes HTML wird an allen Eintritts-Punkten (`create_job`, Template-Create/Update, Test-Mail-Pfad) serverseitig mit `ammonia` saniert (Whitelist fett/kursiv/Links/Listen/Absätze; `javascript:`/`data:`-Links und Event-Handler werden gestrippt), bevor es gespeichert/versendet wird. (HTML-05)
   6. Datums-Template-Variablen (`join_date`, `exit_date`, ggf. weitere) werden im deutschen Format `DD.MM.YYYY` (z. B. `02.07.2026`) gerendert statt im technischen `.to_string()`-Default — konsistent in Text- und HTML-Mails (`genossi_mail/src/template.rs:17-18`). (FMT-01)
-**Plans**: TBD
+**Plans**: 4 plans
+- [ ] 23-01-PLAN.md — Wave 1: 3 forward-only migrations + DAO structs (body_html, rendered_html_body) + dao_sqlite roundtrip tests (HTML-03)
+- [ ] 23-02-PLAN.md — Wave 2: ammonia dep + `sanitize.rs` helper + `html_env()` + `render_html_template()` + `format_de()` + `RenderedContent` struct in render.rs (HTML-04, HTML-05, FMT-01)
+- [ ] 23-03-PLAN.md — Wave 3: `build_message` 4-branch decision tree (singlepart/mixed/alternative/mixed-wrapping-alternative) + 5 MIME-byte tests (HTML-01, HTML-02)
+- [ ] 23-04-PLAN.md — Wave 4: Wire sanitize at 4 D-03 entry points (create_job, template create/update, send_test_mail_with_body) + worker persists rendered_html_body + REST DTOs (body_html) + e2e HTTP tests (HTML-01, HTML-03, HTML-05)
 **UI hint**: no
 
 ### Phase 24: WYSIWYG Frontend Editor
@@ -165,7 +169,7 @@ Archive: `.planning/milestones/v1.3-ROADMAP.md` · `v1.3-REQUIREMENTS.md` · `v1
 | 20. Inbox-Digest (täglicher Benachrichtigungs-Worker) | v1.3   | 3/3 | Complete    | 2026-06-27 |
 | 21. Reply-Komfort (Antwort im Modal)               | v1.3      | 1/1 | Complete   | 2026-06-27 |
 | 22. 8bit + Shared Mail-Body Helper                 | v1.4      | 3/3            | Ready to verify | 2026-07-02 |
-| 23. HTML Mail Backend                              | v1.4      | 0/?            | Not started | -          |
+| 23. HTML Mail Backend                              | v1.4      | 0/4            | Not started | -          |
 | 24. WYSIWYG Frontend Editor                        | v1.4      | 0/?            | Not started | -          |
 | 25. Application File Upload + Audited Carryover     | v1.4      | 0/?            | Not started | -          |
 
