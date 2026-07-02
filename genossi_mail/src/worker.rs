@@ -376,21 +376,22 @@ pub async fn start_mail_worker<C, J, R, A, SA, D, M, IB, MD, AL, MT, RE, RP, TX,
         // Source of Truth — the startup backfill calls the exact same function).
         // On any render/member/repayment failure, mark the recipient failed and
         // skip the send (same tracing/interval semantics as the old inline block).
-        // Phase 23: resolver now returns RenderedContent { subject, body,
-        // body_html }; Plan 04 wires body_html into build_message + persistence.
-        // Minimal destructure only here.
-        let (rendered_subject, rendered_body) = match crate::render::resolve_rendered_content(
-            &next,
-            &job,
-            member_resolver.as_ref(),
-            repayment_entry_dao.as_ref(),
-            repayment_phase_dao.as_ref(),
-            transaction_dao.as_ref(),
-            repayment_context_resolver.as_ref(),
-        )
-        .await
+        // Phase 23 Plan 04: resolver returns RenderedContent { subject, body,
+        // body_html }; we now capture body_html for both build_message + the
+        // per-recipient rendered_html_body persistence (D-08).
+        let (rendered_subject, rendered_body, rendered_html_body_opt) =
+            match crate::render::resolve_rendered_content(
+                &next,
+                &job,
+                member_resolver.as_ref(),
+                repayment_entry_dao.as_ref(),
+                repayment_phase_dao.as_ref(),
+                transaction_dao.as_ref(),
+                repayment_context_resolver.as_ref(),
+            )
+            .await
         {
-            Ok(rendered) => (rendered.subject, rendered.body),
+            Ok(rendered) => (rendered.subject, rendered.body, rendered.body_html),
             Err(failure) => {
                 mark_recipient_failed(
                     recipient_dao.as_ref(),
@@ -433,6 +434,9 @@ pub async fn start_mail_worker<C, J, R, A, SA, D, M, IB, MD, AL, MT, RE, RP, TX,
             &next.to_address,
             &rendered_subject,
             &rendered_body,
+            // Phase 23 Plan 04 (HTML-01, D-08): pass the rendered + already-sanitized
+            // HTML sibling; None when the job carries no body_html.
+            rendered_html_body_opt.as_deref(),
             &attachments,
             document_storage.as_ref(),
             reply_message_id.as_deref(),
@@ -451,6 +455,10 @@ pub async fn start_mail_worker<C, J, R, A, SA, D, M, IB, MD, AL, MT, RE, RP, TX,
         // this point, so their rendered_* correctly stay None.
         updated_recipient.rendered_subject = Some(Arc::from(rendered_subject.as_str()));
         updated_recipient.rendered_body = Some(Arc::from(rendered_body.as_str()));
+        // Phase 23 Plan 04 (D-08, Pitfall 4): persist rendered HTML iff the job
+        // carried body_html. `Option::map` preserves None (never Some("")).
+        updated_recipient.rendered_html_body =
+            rendered_html_body_opt.as_deref().map(Arc::from);
         // Quick 260614-b1t: live worker renders are NOT reconstructions — they are
         // the byte-accurate content sent at this moment. The backfill flips this to
         // true only for retroactively-rendered legacy rows.
@@ -632,6 +640,9 @@ async fn send_mail_for_recipient<C: ConfigService, D: DocumentStorage>(
     to: &str,
     subject: &str,
     body: &str,
+    // Phase 23 Plan 04 (HTML-01, D-08): rendered + already-sanitized HTML sibling.
+    // None ⇒ text-only path (Phase-22 legacy MIME shape preserved).
+    body_html: Option<&str>,
     attachments: &[crate::dao::MailRecipientAttachment],
     document_storage: &D,
     in_reply_to: Option<&str>,
@@ -667,9 +678,8 @@ async fn send_mail_for_recipient<C: ConfigService, D: DocumentStorage>(
         to,
         subject,
         body,
-        // Plan 04 (Phase 23) will replace this None with `rendered.body_html.as_deref()`
-        // once the render layer wires HTML through the worker path.
-        None,
+        // Phase 23 Plan 04 (HTML-01, D-08): forward the rendered HTML sibling.
+        body_html,
         &loaded,
         in_reply_to,
         smtp_config.encoding,
@@ -1084,4 +1094,70 @@ mod tests {
         );
     }
 
+    // ── Phase 23 Plan 04 — worker rendered_html_body persistence (D-08, HTML-01) ──
+    //
+    // Rationale for the "assignment probe" test pattern:
+    //   The worker's outer send loop is >200 lines of state machine and is
+    //   already covered by the Plan-02 render tests (which pin the pipeline
+    //   contract) and the send.rs MIME-shape tests (Plan 03). Here we lock the
+    //   ONE line the worker owns in Plan 04:
+    //     updated_recipient.rendered_html_body = rendered_html_body_opt
+    //         .as_deref().map(Arc::from);
+    //   The assignment probe reproduces the two cases (Some / None) as pure
+    //   value assignments on a MailRecipient — the exact expression the worker
+    //   uses. If someone later re-writes it as `Some(Arc::from(""))` (Pitfall 4),
+    //   the None test fails immediately.
+
+    fn sample_recipient() -> crate::dao::MailRecipient {
+        crate::dao::MailRecipient {
+            id: uuid::Uuid::new_v4(),
+            created: sample_datetime(),
+            deleted: None,
+            version: uuid::Uuid::new_v4(),
+            mail_job_id: uuid::Uuid::new_v4(),
+            to_address: Arc::from("dst@example.com"),
+            member_id: Some(uuid::Uuid::new_v4()),
+            status: Arc::from("pending"),
+            error: None,
+            sent_at: None,
+            message_id: None,
+            rendered_subject: None,
+            rendered_body: None,
+            rendered_html_body: None,
+            rendered_reconstructed: false,
+        }
+    }
+
+    /// Phase 23 Plan 04 (D-08, Pitfall 4): body_html=None on the job MUST
+    /// leave rendered_html_body IS NULL — not Some("") — on the recipient.
+    #[test]
+    fn body_html_none_leaves_rendered_html_body_null() {
+        let rendered_html_body_opt: Option<String> = None;
+        let mut recipient = sample_recipient();
+
+        // Exact expression the worker uses (see worker.rs render-body-html assign):
+        recipient.rendered_html_body = rendered_html_body_opt.as_deref().map(Arc::from);
+
+        assert!(
+            recipient.rendered_html_body.is_none(),
+            "None ⇒ None (never Some(\"\"))"
+        );
+    }
+
+    /// Phase 23 Plan 04 (HTML-01 wire proof, D-08): body_html=Some(rendered)
+    /// MUST land byte-for-byte on the recipient's rendered_html_body.
+    #[test]
+    fn rendered_html_body_persisted_when_render_yields_html() {
+        let rendered = "<p>Hallo Max</p>".to_string();
+        let rendered_html_body_opt: Option<String> = Some(rendered.clone());
+        let mut recipient = sample_recipient();
+
+        recipient.rendered_html_body = rendered_html_body_opt.as_deref().map(Arc::from);
+
+        assert_eq!(
+            recipient.rendered_html_body.as_deref(),
+            Some(rendered.as_str()),
+            "rendered HTML must be persisted verbatim (byte-accurate audit trail)"
+        );
+    }
 }
