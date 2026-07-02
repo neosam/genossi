@@ -275,6 +275,26 @@ pub enum Key {
     // Repayment-Phase). Sentinel-Werte (99,99 / 99 / 2099) sind im Text
     // sichtbar, damit User die Dummy-Daten visuell erkennt.
     MailTemplateTestDummyRepaymentHint,
+    // Phase 24: WYSIWYG editor labels (Toolbar buttons, Link dialog, Preview)
+    MailEditorBold,
+    MailEditorItalic,
+    MailEditorUnderline,
+    MailEditorStrike,
+    MailEditorUnorderedList,
+    MailEditorOrderedList,
+    MailEditorHeading1,
+    MailEditorHeading2,
+    MailEditorHeading3,
+    MailEditorParagraph,
+    MailEditorBlockquote,
+    MailEditorLink,
+    MailEditorUnlink,
+    MailEditorLinkDialogTitle,
+    MailEditorLinkUrlLabel,
+    MailEditorLinkTextLabel,
+    MailEditorLinkInsert,
+    MailEditorLinkCancel,
+    MailEditorPreviewHtml,
     // Quick 260603-e6p: opt-in checkbox to auto-attach the per-recipient
     // DocumentType::RepaymentLetter PDF in the bulk-mail compose flow.
     MailAttachRepaymentLetter,

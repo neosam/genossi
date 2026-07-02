@@ -216,6 +216,26 @@ pub fn translate(key: Key) -> Rc<str> {
              rendered with dummy values (99.99 EUR, 99 shares, year 2099)."
                 .into()
         }
+        // Phase 24: WYSIWYG editor labels
+        Key::MailEditorBold => "Bold".into(),
+        Key::MailEditorItalic => "Italic".into(),
+        Key::MailEditorUnderline => "Underline".into(),
+        Key::MailEditorStrike => "Strikethrough".into(),
+        Key::MailEditorUnorderedList => "Bulleted list".into(),
+        Key::MailEditorOrderedList => "Numbered list".into(),
+        Key::MailEditorHeading1 => "Heading 1".into(),
+        Key::MailEditorHeading2 => "Heading 2".into(),
+        Key::MailEditorHeading3 => "Heading 3".into(),
+        Key::MailEditorParagraph => "Paragraph".into(),
+        Key::MailEditorBlockquote => "Blockquote".into(),
+        Key::MailEditorLink => "Link".into(),
+        Key::MailEditorUnlink => "Remove link".into(),
+        Key::MailEditorLinkDialogTitle => "Insert link".into(),
+        Key::MailEditorLinkUrlLabel => "URL".into(),
+        Key::MailEditorLinkTextLabel => "Display text (optional)".into(),
+        Key::MailEditorLinkInsert => "Insert".into(),
+        Key::MailEditorLinkCancel => "Cancel".into(),
+        Key::MailEditorPreviewHtml => "HTML preview".into(),
         Key::MailAttachRepaymentLetter => {
             "Attach RepaymentLetter (cover letter) as personal PDF".into()
         }

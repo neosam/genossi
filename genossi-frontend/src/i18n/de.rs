@@ -216,6 +216,26 @@ pub fn translate(key: Key) -> Rc<str> {
              werden mit Dummy-Werten gefüllt (99,99 EUR, 99 Anteile, Jahr 2099)."
                 .into()
         }
+        // Phase 24: WYSIWYG editor labels
+        Key::MailEditorBold => "Fett".into(),
+        Key::MailEditorItalic => "Kursiv".into(),
+        Key::MailEditorUnderline => "Unterstrichen".into(),
+        Key::MailEditorStrike => "Durchgestrichen".into(),
+        Key::MailEditorUnorderedList => "Aufzählung".into(),
+        Key::MailEditorOrderedList => "Nummerierte Liste".into(),
+        Key::MailEditorHeading1 => "Überschrift 1".into(),
+        Key::MailEditorHeading2 => "Überschrift 2".into(),
+        Key::MailEditorHeading3 => "Überschrift 3".into(),
+        Key::MailEditorParagraph => "Absatz".into(),
+        Key::MailEditorBlockquote => "Zitat".into(),
+        Key::MailEditorLink => "Link".into(),
+        Key::MailEditorUnlink => "Link entfernen".into(),
+        Key::MailEditorLinkDialogTitle => "Link einfügen".into(),
+        Key::MailEditorLinkUrlLabel => "URL".into(),
+        Key::MailEditorLinkTextLabel => "Anzeige-Text (optional)".into(),
+        Key::MailEditorLinkInsert => "Einfügen".into(),
+        Key::MailEditorLinkCancel => "Abbrechen".into(),
+        Key::MailEditorPreviewHtml => "HTML-Vorschau".into(),
         Key::MailAttachRepaymentLetter => {
             "RepaymentLetter (Anschreiben) als persönliches PDF anhängen".into()
         }
