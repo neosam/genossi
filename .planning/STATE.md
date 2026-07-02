@@ -90,6 +90,12 @@ Last activity: 2026-07-02 — Phase 24 Plan 04 abgeschlossen (3 code Tasks atoma
 - Wave 1 Frontend-Caller (template_preview, reply_form) übergeben `None` für body_html; echte Signal-Verkabelung ist Plan 24-03.
 - Beide Locales (de.rs + en.rs) bekommen alle 19 MailEditor* Arms im selben Commit — kein Locale-Drift (Vermeidung Locale::En-Fallback-Bug).
 
+## Deferred Verification
+
+| Phase | State | Resume |
+|-------|-------|--------|
+| 24 | verification_deferred_human — live browser UAT (styleWithCSS=false Bold, paste-plain, in-app modal link, live preview render, template save/reload, multipart delivery) | Run 24-UAT-CHECKLIST.md in `dx serve` browser session before production merge |
+
 ## Deferred Items
 
 Items acknowledged and deferred at v1.2 milestone close on 2026-06-07:
