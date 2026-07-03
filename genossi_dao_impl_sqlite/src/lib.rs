@@ -1,4 +1,5 @@
 pub mod application;
+pub mod application_document;
 pub mod assembly;
 pub mod assembly_member_snapshot;
 pub mod attendance;
