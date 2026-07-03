@@ -4,17 +4,17 @@ milestone: v1.4
 milestone_name: Mail-Formatierung & Antrags-Dokumente
 current_phase: 25
 status: executing
-stopped_at: Completed 25-01-PLAN.md
-last_updated: "2026-07-02T23:58:00.000Z"
-last_activity: 2026-07-02
-last_activity_desc: Phase 25 Plan 01 abgeschlossen (Wave 1a doku-fix — APDOC-03 wording in REQUIREMENTS.md und ROADMAP.md auf Move / Ownership-Übergabe-Semantik synchronisiert; 3 scoped Edits; jj-Commit bc825850; SUMMARY erstellt).
+stopped_at: Completed 25-02-PLAN.md
+last_updated: "2026-07-03T00:08:33.000Z"
+last_activity: 2026-07-03
+last_activity_desc: Phase 25 Plan 02 abgeschlossen (Wave 1b backend foundation — SQLx migration `application_documents` mit single-slot partial unique index + `ApplicationDocumentDao` trait/entity (kein Auditable, kein document_type/description) + SQLite impl mit optimistic-locking update + 6 tokio tests; 3 atomare jj commits 38fd1094, 183076c8, 97331396; SUMMARY erstellt).
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 16
-  completed_plans: 13
-  percent: 81
-current_phase_name: Application File Upload + Audited Carryover (in progress — 1/5 plans)
+  completed_plans: 14
+  percent: 87
+current_phase_name: Application File Upload + Audited Carryover (in progress — 2/5 plans)
 ---
 
 # State: Genossi — v1.4 Mail-Formatierung & Antrags-Dokumente (Roadmap erstellt)
@@ -55,6 +55,13 @@ Last activity: 2026-07-02 — Phase 24 Plan 04 abgeschlossen (3 code Tasks atoma
 - D-05-Falle umgesetzt: Dirty-Check-Baseline (subject+body) wird INNERHALB des Footer-use_effect NACH dem Body-Compose gesnapshottet — pure `is_draft_dirty`-Helfer mit 4 Unit-Tests.
 - D-07: nativer `web_sys::window().confirm_with_message` als Verwerfen-Bestätigung (kein verschachteltes In-App-Modal).
 - D-08: `MailBodyEditor` unverändert (h-40, von Compose geteilt); mehr Schreibfläche kommt aus dem breiten Modal-Kontext.
+
+### Decisions (Phase 25 Plan 02)
+
+- Test-Fixtures für Default-Trait-Methoden nutzen inline `impl ApplicationDocumentDao for FixtureDao` (nur `dump_all` real, alles andere delegated an Trait-Defaults) statt mockall — weil `#[automock]` die Default-Methoden nicht überschreibt und daher `find_active_by_application_id`/`all` nicht testet. Pattern reusable für andere narrow-Schema-DAOs.
+- SQLite-Test-Setup embedded die Migration via `include_str!` und splittet auf `;` — divergiert die Migration von der Schema-Erwartung des DAO, schlägt der Roundtrip-Test sofort fehl. Kein separates Test-DDL, keine Schema-Drift.
+- Test benötigt Stub-`application(id BLOB PRIMARY KEY)`-Parent-Tabelle und einen `seed_application`-Helper, weil SQLite die FK-Ziel-Existenz beim INSERT prüft (auch mit default-off pragma). Alternativ FK-Check auszuschalten würde eine Klasse von Produktions-Bugs verstecken.
+- `application_documents.update` verwendet `WHERE id = ? AND version = ?` mit `rows_affected() == 0` → `ConflictError` — mirrored MemberDocument-Update. Entity.version = OLD version, neue v4 wird intern generiert und geschrieben.
 
 ### Decisions (Phase 24 Plan 04)
 
