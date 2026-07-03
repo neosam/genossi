@@ -499,6 +499,27 @@ pub struct MemberDocumentTO {
     pub version: Option<Uuid>,
 }
 
+// Phase 25 (APDOC-05): Single-slot Application document (Original-Antrag).
+// Intentionally omits `document_type` / `description` (CONTEXT decision #5) — at
+// most one active row per application, so the purpose is implicit.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ApplicationDocumentTO {
+    pub id: Option<Uuid>,
+    pub application_id: Uuid,
+    pub file_name: String,
+    pub mime_type: String,
+    pub size: i64,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    pub created: Option<time::PrimitiveDateTime>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<Uuid>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MigrationStatusTO {
     pub member_id: Uuid,

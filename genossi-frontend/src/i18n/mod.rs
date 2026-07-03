@@ -433,6 +433,14 @@ pub enum Key {
     EditApplication,
     SendConfirmationMail,
 
+    // Phase 25 (APDOC-05) — Application document slot
+    ApplicationDocumentUpload,
+    ApplicationDocumentReplace,
+    ApplicationDocumentDownload,
+    ApplicationDocumentDelete,
+    ApplicationDocumentEmptyState,
+    ApplicationDocumentDeleteConfirm,
+
     // WordPress Integration
     WordPressIntegration,
     WordPressIntegrationDesc,

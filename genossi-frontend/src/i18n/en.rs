@@ -362,6 +362,14 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::EditApplication => "Edit application".into(),
         Key::SendConfirmationMail => "Send confirmation mail".into(),
 
+        // Phase 25 (APDOC-05) — Application document slot
+        Key::ApplicationDocumentUpload => "Upload application".into(),
+        Key::ApplicationDocumentReplace => "Replace".into(),
+        Key::ApplicationDocumentDownload => "Download".into(),
+        Key::ApplicationDocumentDelete => "Delete".into(),
+        Key::ApplicationDocumentEmptyState => "No application document attached.".into(),
+        Key::ApplicationDocumentDeleteConfirm => "Really delete this application document?".into(),
+
         // WordPress Integration
         Key::WordPressIntegration => "WordPress Integration".into(),
         Key::WordPressIntegrationDesc => "Settings for the membership application form via WordPress".into(),

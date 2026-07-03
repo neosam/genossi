@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 
 use crate::api::{self, ApplicationStatusTO, ApplicationTO};
-use crate::component::Modal;
+use crate::component::{ApplicationDocumentSlot, Modal};
 use crate::i18n::{use_i18n, Key};
 use crate::service::config::CONFIG;
 
@@ -112,6 +112,16 @@ pub fn ApplicationDetail(
                                 .unwrap_or_else(|| "-".to_string())
                         }
                     }
+                }
+            }
+
+            // Phase 25 (APDOC-05): Single-slot Application document. Only rendered
+            // for Offen applications — after confirm() the document is moved to
+            // the newly-created Member and the row is soft-deleted.
+            if is_open {
+                ApplicationDocumentSlot {
+                    application_id: app_id,
+                    on_changed: move |_| on_changed.call(()),
                 }
             }
 

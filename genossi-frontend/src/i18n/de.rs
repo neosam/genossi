@@ -364,6 +364,14 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::EditApplication => "Antrag bearbeiten".into(),
         Key::SendConfirmationMail => "Bestätigungs-Mail senden".into(),
 
+        // Phase 25 (APDOC-05) — Antrags-Dokument Slot
+        Key::ApplicationDocumentUpload => "Antrag hochladen".into(),
+        Key::ApplicationDocumentReplace => "Ersetzen".into(),
+        Key::ApplicationDocumentDownload => "Herunterladen".into(),
+        Key::ApplicationDocumentDelete => "Löschen".into(),
+        Key::ApplicationDocumentEmptyState => "Kein Antrags-Dokument hinterlegt.".into(),
+        Key::ApplicationDocumentDeleteConfirm => "Dieses Antrags-Dokument wirklich löschen?".into(),
+
         // WordPress Integration
         Key::WordPressIntegration => "WordPress-Integration".into(),
         Key::WordPressIntegrationDesc => "Einstellungen für die Beitrittserklärungs-Anbindung über WordPress".into(),

@@ -1,5 +1,6 @@
 pub mod application_create_form;
 pub mod application_detail;
+pub mod application_document_slot;
 pub mod application_form;
 pub mod application_list;
 pub mod application_search;
@@ -27,6 +28,7 @@ pub mod wordpress_integration;
 
 pub use application_create_form::ApplicationCreateForm;
 pub use application_detail::ApplicationDetail;
+pub use application_document_slot::ApplicationDocumentSlot;
 pub use application_form::{ApplicationForm, ApplicationFormMode};
 pub use application_list::ApplicationList;
 pub use application_search::ApplicationSearch;

@@ -2,7 +2,8 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use rest_types::{
-    MemberActionTO, MemberDocumentTO, MemberTO, MigrationStatusTO, UserTO, ValidationResultTO,
+    ApplicationDocumentTO, MemberActionTO, MemberDocumentTO, MemberTO, MigrationStatusTO, UserTO,
+    ValidationResultTO,
     // ─── Phase 18 ─── Membership-Adjust DTOs ─────────────────────────
     MemberSlimTO,
     CancelMembershipRequestTO, IncreaseSharesRequestTO, MembershipAdjustResponseTO,
@@ -812,6 +813,103 @@ pub async fn reject_application(config: &Config, id: Uuid) -> Result<Application
     let response = reqwest::Client::new().post(url).send().await?;
     let response = check_response(response).await?;
     Ok(response.json().await?)
+}
+
+// ── Application Document API (Phase 25 APDOC-05) ────────────────────
+// Single-slot Original-Antrag file per Application. Mirrors the MemberDocument
+// upload pattern (web_sys::FormData + fetch) so the same wasm-bindgen plumbing
+// path is exercised. GET uses `?meta=1` to fetch metadata without transferring
+// the file bytes — the byte-stream URL (without `?meta=1`) is used as the
+// `<a href>` for the Download button.
+
+pub async fn upload_application_document(
+    config: &Config,
+    application_id: Uuid,
+    file: web_sys::File,
+) -> Result<ApplicationDocumentTO, AppError> {
+    use wasm_bindgen::JsCast;
+    use wasm_bindgen_futures::JsFuture;
+
+    let url = format!(
+        "{}/api/applications/{}/document",
+        config.backend, application_id
+    );
+
+    let form_data = web_sys::FormData::new()
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
+    form_data
+        .append_with_blob_and_filename("file", &file, &file.name())
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
+
+    let mut opts = web_sys::RequestInit::new();
+    opts.method("POST");
+    opts.body(Some(&form_data));
+
+    let request = web_sys::Request::new_with_str_and_init(&url, &opts)
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
+
+    let window = web_sys::window().ok_or_else(|| AppError::new(None, "Verbindungsfehler", None))?;
+    let resp_value = JsFuture::from(window.fetch_with_request(&request))
+        .await
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
+
+    let resp: web_sys::Response = resp_value
+        .dyn_into()
+        .map_err(|_| AppError::new(None, "Verbindungsfehler", None))?;
+
+    if !resp.ok() {
+        return Err(map_web_response_error(&resp).await);
+    }
+
+    let json = JsFuture::from(resp.json().unwrap())
+        .await
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
+
+    let doc: ApplicationDocumentTO = serde_wasm_bindgen::from_value(json)
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
+
+    Ok(doc)
+}
+
+pub async fn get_application_document(
+    config: &Config,
+    application_id: Uuid,
+) -> Result<Option<ApplicationDocumentTO>, AppError> {
+    info!("Fetching application document metadata for {application_id}");
+    let url = format!(
+        "{}/api/applications/{}/document?meta=1",
+        config.backend, application_id
+    );
+    let response = reqwest::get(url).await?;
+    if response.status().as_u16() == 404 {
+        return Ok(None);
+    }
+    let response = check_response(response).await?;
+    let doc: ApplicationDocumentTO = response.json().await?;
+    Ok(Some(doc))
+}
+
+pub async fn delete_application_document(
+    config: &Config,
+    application_id: Uuid,
+) -> Result<(), AppError> {
+    info!("Deleting application document for {application_id}");
+    let url = format!(
+        "{}/api/applications/{}/document",
+        config.backend, application_id
+    );
+    let response = reqwest::Client::new().delete(url).send().await?;
+    check_response(response).await?;
+    Ok(())
+}
+
+pub fn application_document_download_url(config: &Config, application_id: Uuid) -> String {
+    // No `?meta=1` — this URL streams the file bytes and is used as the
+    // `<a href>` target for the Download button.
+    format!(
+        "{}/api/applications/{}/document",
+        config.backend, application_id
+    )
 }
 
 // Mail API
