@@ -37,7 +37,7 @@ Research: `.planning/research/SUMMARY.md` (+ STACK / FEATURES / ARCHITECTURE / P
 ### APDOC — Antrags-Dokument & Auto-Übernahme
 
 - [ ] **APDOC-01**: Ein Admin kann eine Datei (z. B. eingescannter Original-Antrag als PDF) an eine `Application` hochladen; die Datei wird über `DocumentStorage` im Filesystem gespeichert (nicht in der DB), Endpunkt spiegelt das bestehende `member_document`-Upload-Muster (Multipart, `DefaultBodyLimit`, MIME-Allowlist, UUID-Pfad gegen Path-Traversal).
-- [ ] **APDOC-02**: Der Upload-Endpunkt ist admin-only (der Antrags-Submit-Pfad bleibt `PUBLIC`); dabei wird die carry-forward CR-02 Permission-Check-Ordering an dieser Stelle korrekt umgesetzt.
+- [x] **APDOC-02**: Der Upload-Endpunkt ist admin-only (der Antrags-Submit-Pfad bleibt `PUBLIC`); dabei wird die carry-forward CR-02 Permission-Check-Ordering an dieser Stelle korrekt umgesetzt.
 - [ ] **APDOC-03**: Beim Aktivieren (`confirm`) einer `Application` wird ein hinterlegtes Antrags-Dokument **übernommen** (Ownership-Übergabe — Move-Semantik: die `application_documents`-Zeile wird soft-deleted und die Datei physisch an den Member-Pfad verschoben) und als auditiertes `MemberDocument` am Mitglied angelegt — innerhalb derselben atomaren Aktivierungs-Transaktion, via `audited_create!` unter `APPLICATION_SERVICE_PROCESS`, mit `DocumentType::Other` + beschreibender Bezeichnung („Original-Antrag (übernommen bei Bestätigung am DD.MM.YYYY)“).
 - [ ] **APDOC-04**: Aktivierung ist robust gegen Edge-Cases: Antrag ohne Dokument (übernimmt nichts, kein Fehler), Re-Aktivierung wird durch den bestehenden `Offen`-Status-Guard verhindert (keine Doppel-Übernahme), fehlende Datei auf dem Filesystem → Transaktion rollt zurück.
 - [ ] **APDOC-05**: Das Antrags-Dokument ist im Frontend an der Application sichtbar und herunterladbar (admin-only).
@@ -87,7 +87,7 @@ Research: `.planning/research/SUMMARY.md` (+ STACK / FEATURES / ARCHITECTURE / P
 | EDIT-04 | Phase 24 | Complete |
 | EDIT-05 | Phase 24 | Complete |
 | APDOC-01 | Phase 25 | pending |
-| APDOC-02 | Phase 25 | pending |
+| APDOC-02 | Phase 25 | Complete |
 | APDOC-03 | Phase 25 | pending |
 | APDOC-04 | Phase 25 | pending |
 | APDOC-05 | Phase 25 | pending |

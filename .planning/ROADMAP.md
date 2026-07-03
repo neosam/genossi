@@ -159,11 +159,11 @@ Archive: `.planning/milestones/v1.3-ROADMAP.md` · `v1.3-REQUIREMENTS.md` · `v1
   4. Die Aktivierung ist robust gegen Edge-Cases: Antrag ohne Dokument übernimmt nichts (kein Fehler), Re-Aktivierung wird durch den bestehenden `Offen`-Status-Guard verhindert (keine Doppel-Übernahme), fehlende Datei auf dem Filesystem → Transaktion rollt zurück. (APDOC-04)
   5. Das Antrags-Dokument ist im Frontend an der Application sichtbar und herunterladbar (admin-only). (APDOC-05)
 
-**Plans**: 1/5 plans executed
+**Plans**: 3/5 plans executed
 
 - [x] 25-01-PLAN.md — Wave 1 (parallel doku-fix): APDOC-03 wording sync in REQUIREMENTS.md + ROADMAP.md + remove contradicting Out-of-Scope bullet (APDOC-03)
 - [x] 25-02-PLAN.md — Wave 1 (parallel): SQLx migration `application_documents` (single-slot partial unique index) + `ApplicationDocumentDao` trait/entity + SQLite impl (APDOC-01)
-- [ ] 25-03-PLAN.md — Wave 2: `ApplicationDocumentService` trait + impl with CR-02 permission-check ordering + replace-in-place + 6 unit tests (APDOC-01, APDOC-02)
+- [x] 25-03-PLAN.md — Wave 2: `ApplicationDocumentService` trait + impl with CR-02 permission-check ordering + replace-in-place + 6 unit tests (APDOC-01, APDOC-02)
 - [ ] 25-04-PLAN.md — Wave 3: `ApplicationDocumentTO` + 3 REST endpoints (POST/GET/DELETE `/api/applications/{id}/document`) + `confirm()` CR-02 fix + audited Move-transfer to `MemberDocument` + genossi_bin DI wiring (APDOC-01..04)
 - [ ] 25-05-PLAN.md — Wave 4: Frontend `ApplicationDocumentSlot` component + api.rs helpers + i18n keys (De+En) + backend `?meta=1` metadata branch + 3 e2e HTTP tests + 25-UAT-CHECKLIST.md (APDOC-02, APDOC-04, APDOC-05)
 
@@ -199,7 +199,7 @@ Archive: `.planning/milestones/v1.3-ROADMAP.md` · `v1.3-REQUIREMENTS.md` · `v1
 | 22. 8bit + Shared Mail-Body Helper                 | v1.4      | 3/3            | Ready to verify | 2026-07-02 |
 | 23. HTML Mail Backend                              | v1.4      | 3/4 | In Progress|  |
 | 24. WYSIWYG Frontend Editor                        | v1.4      | 4/4 | Complete   | 2026-07-02 |
-| 25. Application File Upload + Audited Carryover     | v1.4      | 2/5 | In Progress|  |
+| 25. Application File Upload + Audited Carryover     | v1.4      | 3/5 | In Progress|  |
 
 ---
 
