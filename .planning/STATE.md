@@ -4,17 +4,17 @@ milestone: v1.4
 milestone_name: Mail-Formatierung & Antrags-Dokumente
 current_phase: 25
 status: executing
-stopped_at: Completed 25-03-PLAN.md
-last_updated: "2026-07-03T00:32:03.640Z"
+stopped_at: Completed 25-04-PLAN.md
+last_updated: "2026-07-03T01:07:53Z"
 last_activity: 2026-07-03
-last_activity_desc: Phase 25 Plan 03 abgeschlossen (Wave 2 service layer — ApplicationDocumentService trait + Impl mit CR-02 ordering enforcement in allen 4 Methoden, single-slot upload branching create-new vs replace-in-place mit mockall::Sequence-pinnedem save-new → update-DB → best-effort delete-old, MAX_FILE_SIZE 50MB gate, storage-layout applications/{app_id}/{doc_id}.{ext}, 7 tokio Tests inkl. CR-02 Regression-Guard; 2 atomare jj commits f5e65d90, 4f83ed04; SUMMARY erstellt).
+last_activity_desc: Phase 25 Plan 04 abgeschlossen (Wave 3 REST + confirm() carryover — 3 admin-only endpoints POST/GET/DELETE /api/applications/{id}/document unter reuse von lookup_allowed_mime + DefaultBodyLimit(50 MB) aus MemberDocument; GET ?meta=1 liefert TO-JSON statt Bytes für frontend slot; ApplicationServiceImpl::confirm() fixed CR-02 an existing site + Move-transfer zum audited MemberDocument mit DE-formatted description "Original-Antrag (übernommen bei Bestätigung am DD.MM.YYYY)" in derselben use_transaction; missing-file rollback (APDOC-04) durch Test D gepinnt mit tx_dao.expect_commit().times(0); best-effort storage.delete AFTER commit warn-log only; 4 neue unit tests + 428 workspace tests grün; genossi_bin DI extended — ApplicationDocumentDao alias + ApplicationServiceDeps extension + ApplicationDocumentServiceDependencies + RestStateImpl field; 3 atomare jj commits 45aa3620, e4c959d6, b3345772; SUMMARY erstellt).
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 16
-  completed_plans: 15
-  percent: 88
-current_phase_name: Application File Upload + Audited Carryover (in progress — 3/5 plans)
+  completed_plans: 16
+  percent: 94
+current_phase_name: Application File Upload + Audited Carryover (in progress — 4/5 plans)
 ---
 
 # State: Genossi — v1.4 Mail-Formatierung & Antrags-Dokumente (Roadmap erstellt)
