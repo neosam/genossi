@@ -16,23 +16,21 @@ Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachv
 - ✅ **v1.1 Anteile-Rückzahlungsphase** (2026-06-02) — RepaymentPhase-Lifecycle, atomare Auszahlungs-Buchung, Massenmail mit Auszahlungs-Variablen, PDF-Export für Banking, Bulk-Briefe für Nicht-Email-Mitglieder
 - ✅ **v1.2 Mitgliedschaft-Anpassungen während des Geschäftsjahres** (2026-06-07) — `MembershipAdjustModal` als shared Component (1078 LOC, 4 Sub-Views Kündigung/Teil-Rückgabe/Übertrag/Aufstockung mit Live-Preview-Confirmation), `compute_effective_date` Pure-Function für H1/H2-Stichtag, atomare Single-Tx-Cascades für alle 4 Operationen, 5 neue REST-Endpoints unter `/api/members/{id}/{cancel|increase-shares|partial-repayment|transfer-shares}` + `/api/members/transfer-recipients`. Vorstand-UAT signed-off; Audit-Status `tech_debt` (alle 31 REQs satisfied, dokumentierte Carry-forward-Posten zu CR-02 Permission-Ordering + Phase-18-UX-Polish).
 - ✅ **v1.3 Posteingang-Benachrichtigung & Reply-Komfort** (2026-06-28) — Inbox-Anhänge persistieren/anzeigen/herunterladen (Phase 19), täglicher Inbox-Digest-Worker (`genossi_mail/src/digest.rs`: konfigurierbare Empfänger + Uhrzeit, Ein-Versand-pro-Kalendertag, Deep-Link auf `/inbox`, kein Versand bei leerem Posteingang/ohne Empfänger), und Reply im vollflächigen `Modal` (X-Header + «Abbrechen» + Dirty-Check-Confirm, Body-Editor unverändert `h-40`). Audit `passed` (11/11 REQs, Integration 8/8 sauber, E2E-Flow Digest→Inbox→Anhänge→Reply, Live-Browser-Smoke-Test bestanden). Phase-21-Code-Review fand+fixte 1 Critical (Footer-Load überschrieb getippten Reply-Body → Datenverlust).
+- ✅ **v1.4 Mail-Formatierung & Antrags-Dokumente** (2026-07-03) — `build_message`-Factory in `genossi_mail::send` + opt-in 8bit-Encoding (MAIL-01..05); `multipart/alternative` mit `ammonia`-Sanitization + autoescape-`html_env` + FMT-01 deutsches Datumsformat (HTML-01..05, FMT-01); wiederverwendbare Dioxus-`WysiwygEditor`-Component mit ammonia-safer Toolbar (styleWithCSS=false), In-App-Modal-Link-Dialog + plain-text-Paste, ersetzt alle 3 `MailBodyEditor`-Verwender (EDIT-01..05); `application_documents`-Single-Slot mit auditiertem Carryover-`MemberDocument` bei `confirm()` inkl. CR-02-Fix (APDOC-01..05). Audit `passed` (20/21 REQs — MAIL-04 by design als Verify-in-Prod-Runbook). Live-Browser-UAT (Phase 24 + 25) deferred zu Vorstand-Smoke-Session.
 
-## Current Milestone: v1.4 Mail-Formatierung & Antrags-Dokumente
+## Current Milestone: TBD
 
-**Goal:** Vorstände versenden professionell formatierte HTML-Mails (statt nur Rohtext) und können den originalen Mitgliedsantrag als Datei am Antrag hinterlegen, die beim Aktivieren automatisch ans Mitglied übergeht.
+Der nächste Milestone ist noch nicht definiert. Verwende `/gsd-new-milestone`, um das nächste Ziel zu klären.
 
-**Target features:**
-- **8bit-Kodierung** — Mail-Text als 8bit statt quoted-printable; keine `=`-Soft-Breaks mehr (geteilter Helfer in `genossi_mail`, betrifft `worker.rs` + `service.rs`)
-- **HTML-Mail-Backend** — `multipart/alternative` (Text + HTML) in `genossi_mail`; Plain-Text-Fallback bleibt erhalten
-- **WYSIWYG-Editor (Frontend)** — Rich-Text-Editor (fett/kursiv/Links/Listen) als Dioxus-Component, damit Vorstände ohne HTML-Kenntnisse formatieren
-- **Original-Antrag als Attachment** — Datei-Upload an `Application` (Filesystem via `DocumentStorage`), automatische Übernahme als `MemberDocument` beim Aktivieren des Antrags (Audit-Macros, da `Application`/`MemberDocument` auditiert)
+**Deferred UAT vor Produktions-Merge:**
+- Phase 24 UAT-Checklist (`.planning/milestones/v1.4-phases/24-wysiwyg-frontend-editor/24-UAT-CHECKLIST.md` — noch nicht archiviert, siehe `.planning/phases/24-.../`): 3 HARD FAIL GATES (styleWithCSS=false-Bold, Paste-Plain, In-App-Modal statt window.prompt) + Live-Preview + Template-Save/Reload + multipart/alternative-Delivery
+- Phase 25 UAT-Checklist: 6 HARD FAIL GATES (Upload/Replace/Delete-Flow, Confirm→Carryover→Member-Detail-Sichtbarkeit, Audit-Chain-Grün, CR-02-Regressionstest)
+- MAIL-04: EHLO-`250-8BITMIME`-Check am Produktiv-Relay per Runbook `docs/OPERATIONS.md` VOR `smtp_encoding=8bit`-Aktivierung
 
-Definiert via `/gsd-new-milestone` am 2026-06-29. Research → Requirements → Roadmap folgen.
-
-**Offene Backlog-Kandidaten** (siehe `.planning/ROADMAP.md` Backlog 999.x + `milestones/v1.2-MILESTONE-AUDIT.md`):
+**Offene Backlog-Kandidaten** (siehe `.planning/ROADMAP.md` Backlog 999.x):
 - 999.1 mock_auth-Deploy-Footgun absichern · 999.2 MailRecipientsTable-Komponente extrahieren · 999.3 Service-Layer für audit_log-/backup-Handler · 999.4 Daten-Lade-Boilerplate in Hook bündeln · 999.5 In-App-Hilfe für Vorstände
-- Carry-forward v1.2-Tech-Debt: CR-02 Permission-Check-Ordering (`gen_auth_admin!`-Helper), Phase-18 UX-Polish, Mail-Subsystem-Triage, 16 deferred v1.1-Quick-Tasks
-- Aus v1.3: Phase-21 IN-02 (trivial — `cached_quote`-Signal-Redundanz)
+- Carry-forward: CR-02 Permission-Check-Ordering (`gen_auth_admin!`-Helper), Phase-18 UX-Polish, Mail-Subsystem-Triage, deferred Quick-Tasks
+- Housekeeping-Job für verwaiste Application-Files (v1.5+)
 
 ## Requirements
 

@@ -1,5 +1,29 @@
 # Milestones
 
+## v1.4 Mail-Formatierung & Antrags-Dokumente (Shipped: 2026-07-03)
+
+**Phases completed:** 4 phases, 16 plans, 43 tasks
+
+**Key accomplishments:**
+
+- Adds `pub enum MailEncoding { QuotedPrintable, EightBit }` and threads a new `SmtpConfig.encoding` field through `load_smtp_config`, driven by the optional `smtp_encoding` KV key with tolerant fallback — production default `quoted-printable` is preserved.
+- Extracts MIME construction from `worker.rs::send_mail_for_recipient` into a new pure, synchronous `genossi_mail::send::build_message`; rewires both `service.rs::send_test_mail` paths (which the digest inherits) through it; fixes the historic missing-charset bug at all three sites and threads the `MailEncoding` opt-in from `SmtpConfig.encoding` to the ONE place where the Content-Transfer-Encoding is decided.
+- Three forward-only ADD COLUMN … TEXT NULL migrations plus DAO wiring add body_html (mail_templates + mail_jobs) and rendered_html_body (mail_recipients) with byte-identical NULL-legacy roundtrip guarantees
+- Add ammonia-backed `sanitize_html`, autoescaping `html_env`/`render_html_template`, FMT-01 `format_de` German date helper, and a `RenderedContent` return struct — the three Service-layer primitives Plans 03 and 04 will consume.
+- Extend `build_message` in `genossi_mail::send` with an optional `html_body: Option<&str>` and a 4-branch decision tree producing `multipart/alternative{text, html}` (nested inside `mixed{…, attachments}` when attachments are present), with text-first ordering pinned by byte-offset assertion.
+- Wire the Plan-02 sanitize helper and the Plan-03 MIME extension through the entire mail send stack — 4 D-03 entry points now sanitize author HTML at the store boundary; the worker persists `rendered_html_body` and forwards it to `build_message`; every REST DTO on the compose/detail path carries the new `body_html` field with backward-compatible wire shape.
+- 1. [Rule 3 - Blocking] `MailJob.body_html` expects `Arc<str>`, not `String`
+- 1. [Rule 3 — Blocker] Dioxus 0.6.3 ClipboardData has no `.get_data()` method
+- All three MailBodyEditor call sites migrated to WysiwygEditor with body_html signal wiring end-to-end; TemplatePreview renders backend HTML preview via dangerous_inner_html; body_editor.rs deleted.
+- Two new e2e tests pin Plan 24-01's backend seams (preview HTML round-trip + inbox reply sanitize-on-store), and a 12-step Vorstand-facing UAT checklist covers the browser-side behaviors automated tests cannot reach. Auto-mode approved the human-verify checkpoint after confirming the automated regression portion (cargo test --workspace: 305 pass, 1 pre-existing Phase 22 failure, 0 new regressions).
+- REQUIREMENTS.md and ROADMAP.md aligned on Move / Ownership-Übergabe semantics for APDOC-03 with the verbatim MemberDocument description format „Original-Antrag (übernommen bei Bestätigung am DD.MM.YYYY)".
+- SQLite `application_documents` table with single-slot partial unique index, plus a narrow-schema `ApplicationDocumentDao` trait (no Auditable, no document_type/description) and its SQLite implementation with optimistic-locking update.
+- Wave 2: `ApplicationDocumentService` trait in `genossi_service` and `ApplicationDocumentServiceImpl` in `genossi_service_impl`. Four methods (upload/get/download/delete) all enforce CR-02 ordering; upload branches into create-new OR replace-in-place with a mockall-Sequence-pinned save→update→delete-old flow. Seven unit tests including a dedicated CR-02 regression guard.
+- Wave 3 shipped the outward-facing surface for the single-slot ApplicationDocument.
+- 1. [Rule 1 — Bug] Plan-04 confirm() passed a fresh v4 UUID as the "old_version" for the app_doc soft-delete WHERE clause.
+
+---
+
 ## v1.3 Posteingang-Benachrichtigung & Reply-Komfort (Shipped: 2026-06-28)
 
 **Phases completed:** 3 phases, 11 plans, 18 tasks

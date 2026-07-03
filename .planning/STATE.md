@@ -2,17 +2,17 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Mail-Formatierung & Antrags-Dokumente
-current_phase: 25
-status: complete
-stopped_at: Completed 25-05-PLAN.md
-last_updated: "2026-07-03T01:40:00Z"
+current_phase: 4
+status: Awaiting next milestone
+stopped_at: Completed 25-03-PLAN.md
+last_updated: "2026-07-03T02:00:00.271Z"
 last_activity: 2026-07-03
-last_activity_desc: Phase 25 Plan 05 abgeschlossen (Wave 4 Frontend Slot + e2e + UAT — ApplicationDocumentSlot component in genossi-frontend/src/component/ zeigt zwei Zustände empty/filled mit r#type=\"button\" auf allen 5 interaktiven buttons; api.rs bekommt 4 neue helpers upload/get/delete/download_url mirroring MemberDocument pattern; ApplicationDocumentTO in frontend rest-types dupliziert; 6 i18n keys ApplicationDocument{Upload/Replace/Download/Delete/EmptyState/DeleteConfirm} in BEIDEN Locales de.rs + en.rs; Application-Detail komponiert slot nur wenn status=Offen; 3 e2e HTTP tests in genossi_bin/tests/e2e_tests.rs pinnen (E2E-1) audited carryover mit VerifyResponseTO.valid=true assertion, (E2E-2) missing-file rollback mit application status bleibt Offen + no member created, (E2E-3) replace-in-place mit unterschiedlicher version UUID; 2 Rule-1 auto-fixes in confirm() und upload() replace-Pfad — beide setzten `version: uuid_service.new_v4()` statt `version: old.version` was WHERE-clause der optimistic-lock update fehlschlagen ließ + service.upload() re-fetched jetzt nach update um fresh DB-generated version zurückzugeben; 3 atomare jj commits 02bb5353 (feat frontend), 5239c740 (test e2e + fixes), + docs commit; 25-UAT-CHECKLIST.md mit 12 Steps + 6 HARD FAIL GATES erstellt, Steps 1-3 auto-approved (308 passed + 1 pre-existing failure documented in 25-04 SUMMARY); APDOC-05 als complete markiert; ROADMAP zeigt Phase 25 5/5 Complete.
+last_activity_desc: Milestone v1.4 completed and archived
 progress:
   total_phases: 4
   completed_phases: 4
-  total_plans: 17
-  completed_plans: 17
+  total_plans: 16
+  completed_plans: 16
   percent: 100
 current_phase_name: Application File Upload + Audited Carryover (complete — 5/5 plans)
 ---
@@ -32,10 +32,10 @@ See: `.planning/PROJECT.md` (updated 2026-06-07 after v1.2 close)
 
 ## Current Position
 
-Phase: 24 (complete) — WYSIWYG Frontend Editor, alle 4 Pläne ausgeführt
-Plan: 24-01 + 24-02 + 24-03 + 24-04 completed (Wave 1 + Wave 2 + Wave 3 + Wave 4)
-Status: Phase 24 abgeschlossen — Wave 4 landete 2 neue e2e Tests (preview_body_html_round_trips_to_response pinnt Plan 24-01 Task 1 preview seam mit `<b>Max</b>` autoescape+substitution proof; inbox_reply_body_html_sanitized_and_persisted pinnt Plan 24-01 Task 2 sanitize-on-store gate mit `<script>` stripped + `<p>/<b>ok</b>` preserved; beide mit Some/None Backward-Compat-Pass-Paar) und eine 12-step Vorstand-facing 24-UAT-CHECKLIST.md mit 3 explizit markierten HARD FAIL GATES (Schritte 3 styleWithCSS=false Bold produziert `<b>`, 4 paste-plain, 5 in-app-modal statt window.prompt); Auto-Mode approved den human-verify Checkpoint nach automated regression pass (cargo test --workspace: 305 pass, 1 pre-existing Phase 22 failure documented in STATE.md, 0 new regressions); cargo build clean. Alle 5 EDIT-Requirements (EDIT-01..05) erfüllt.
-Last activity: 2026-07-02 — Phase 24 Plan 04 abgeschlossen (3 code Tasks atomar committed via jj + 1 auto-approved checkpoint; 2 Dateien touchiert + 1 neu; 2 neue e2e Tests + 12-step UAT-Checklist; automated regression run bestätigt 0 neue Failures).
+Phase: Milestone v1.4 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-07-03 — Milestone v1.4 completed and archived
 
 ### v1.4 Phase Structure (Phases 22-25, granularity: coarse)
 
