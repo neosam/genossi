@@ -3,18 +3,18 @@ gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Mail-Formatierung & Antrags-Dokumente
 current_phase: 25
-status: executing
-stopped_at: Completed 25-04-PLAN.md
-last_updated: "2026-07-03T01:07:53Z"
+status: complete
+stopped_at: Completed 25-05-PLAN.md
+last_updated: "2026-07-03T01:40:00Z"
 last_activity: 2026-07-03
-last_activity_desc: Phase 25 Plan 04 abgeschlossen (Wave 3 REST + confirm() carryover — 3 admin-only endpoints POST/GET/DELETE /api/applications/{id}/document unter reuse von lookup_allowed_mime + DefaultBodyLimit(50 MB) aus MemberDocument; GET ?meta=1 liefert TO-JSON statt Bytes für frontend slot; ApplicationServiceImpl::confirm() fixed CR-02 an existing site + Move-transfer zum audited MemberDocument mit DE-formatted description "Original-Antrag (übernommen bei Bestätigung am DD.MM.YYYY)" in derselben use_transaction; missing-file rollback (APDOC-04) durch Test D gepinnt mit tx_dao.expect_commit().times(0); best-effort storage.delete AFTER commit warn-log only; 4 neue unit tests + 428 workspace tests grün; genossi_bin DI extended — ApplicationDocumentDao alias + ApplicationServiceDeps extension + ApplicationDocumentServiceDependencies + RestStateImpl field; 3 atomare jj commits 45aa3620, e4c959d6, b3345772; SUMMARY erstellt).
+last_activity_desc: Phase 25 Plan 05 abgeschlossen (Wave 4 Frontend Slot + e2e + UAT — ApplicationDocumentSlot component in genossi-frontend/src/component/ zeigt zwei Zustände empty/filled mit r#type=\"button\" auf allen 5 interaktiven buttons; api.rs bekommt 4 neue helpers upload/get/delete/download_url mirroring MemberDocument pattern; ApplicationDocumentTO in frontend rest-types dupliziert; 6 i18n keys ApplicationDocument{Upload/Replace/Download/Delete/EmptyState/DeleteConfirm} in BEIDEN Locales de.rs + en.rs; Application-Detail komponiert slot nur wenn status=Offen; 3 e2e HTTP tests in genossi_bin/tests/e2e_tests.rs pinnen (E2E-1) audited carryover mit VerifyResponseTO.valid=true assertion, (E2E-2) missing-file rollback mit application status bleibt Offen + no member created, (E2E-3) replace-in-place mit unterschiedlicher version UUID; 2 Rule-1 auto-fixes in confirm() und upload() replace-Pfad — beide setzten `version: uuid_service.new_v4()` statt `version: old.version` was WHERE-clause der optimistic-lock update fehlschlagen ließ + service.upload() re-fetched jetzt nach update um fresh DB-generated version zurückzugeben; 3 atomare jj commits 02bb5353 (feat frontend), 5239c740 (test e2e + fixes), + docs commit; 25-UAT-CHECKLIST.md mit 12 Steps + 6 HARD FAIL GATES erstellt, Steps 1-3 auto-approved (308 passed + 1 pre-existing failure documented in 25-04 SUMMARY); APDOC-05 als complete markiert; ROADMAP zeigt Phase 25 5/5 Complete.
 progress:
   total_phases: 4
-  completed_phases: 3
-  total_plans: 16
-  completed_plans: 16
-  percent: 94
-current_phase_name: Application File Upload + Audited Carryover (in progress — 4/5 plans)
+  completed_phases: 4
+  total_plans: 17
+  completed_plans: 17
+  percent: 100
+current_phase_name: Application File Upload + Audited Carryover (complete — 5/5 plans)
 ---
 
 # State: Genossi — v1.4 Mail-Formatierung & Antrags-Dokumente (Roadmap erstellt)
@@ -28,7 +28,7 @@ See: `.planning/PROJECT.md` (updated 2026-06-07 after v1.2 close)
 
 **Core Value:** Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachvollziehbar (Audit-Hashchain), mit weniger manueller Arbeit.
 
-**Current Focus:** Phase 24 — WYSIWYG Frontend Editor **COMPLETE**. Nächster Schritt: Phase 25 (Application Upload + Audited Carryover) oder Vorstand-Smoke-Test der 24-UAT-CHECKLIST vor Merge.
+**Current Focus:** Phase 25 — Application File Upload + Audited Carryover **COMPLETE**. Nächster Schritt: Vorstand-Smoke-Test der 25-UAT-CHECKLIST (Steps 4-12) vor Merge, dann Milestone v1.4 abschluss-audit (Phase 22+23 sind noch Ready to verify / In Progress).
 
 ## Current Position
 
@@ -252,6 +252,7 @@ v1.0 Phasen (alle abgeschlossen, archiviert in .planning/milestones/v1.0-phases/
 | Phase 24 P04 | ~28min | 4 tasks (1 checkpoint auto-approved) | 2 files (1 new + 1 mod) |
 | Phase 25 P01 | 2min | 1 tasks | 2 files |
 | Phase 25 P03 | 16min | 2 tasks tasks | 4 files (2 new + 2 mod) files |
+| Phase 25 P05 | ~24min | 3 tasks (1 checkpoint auto-approved) | 13 files (2 new + 11 mod) |
 
 ## Accumulated Context
 
