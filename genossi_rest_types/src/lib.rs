@@ -716,6 +716,47 @@ impl From<&genossi_service::member_document::MemberDocument> for MemberDocumentT
     }
 }
 
+/// Phase 25 (APDOC-02): Transfer object for the single-slot application document
+/// (Original-Antrag). Intentionally omits the classifier and free-form descriptor
+/// (CONTEXT decision #5) — the row's purpose is implicit because at most one
+/// active row exists per application.
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct ApplicationDocumentTO {
+    #[schema(example = "123e4567-e89b-12d3-a456-426614174000")]
+    pub id: Option<Uuid>,
+    #[schema(example = "123e4567-e89b-12d3-a456-426614174001")]
+    pub application_id: Uuid,
+    #[schema(example = "antrag_mueller_max.pdf")]
+    pub file_name: String,
+    #[schema(example = "application/pdf")]
+    pub mime_type: String,
+    #[schema(example = 12345)]
+    pub size: i64,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    pub created: Option<time::PrimitiveDateTime>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<Uuid>,
+}
+
+impl From<&genossi_service::application_document::ApplicationDocument> for ApplicationDocumentTO {
+    fn from(d: &genossi_service::application_document::ApplicationDocument) -> Self {
+        Self {
+            id: Some(d.id),
+            application_id: d.application_id,
+            file_name: d.file_name.to_string(),
+            mime_type: d.mime_type.to_string(),
+            size: d.size,
+            created: Some(d.created),
+            version: Some(d.version),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct ValidationResultTO {
     pub member_number_gaps: Vec<i64>,

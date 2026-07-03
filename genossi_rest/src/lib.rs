@@ -1,4 +1,5 @@
 pub mod application;
+pub mod application_document;
 pub mod assembly;
 pub mod attendance;
 pub mod attendance_export;
@@ -224,6 +225,11 @@ pub trait RestStateDef:
         + Send
         + Sync
         + 'static;
+    // Phase 25 Wave 3 (Plan 25-04): single-slot Application-document service.
+    type ApplicationDocumentService: genossi_service::application_document::ApplicationDocumentService<Context = ContextType>
+        + Send
+        + Sync
+        + 'static;
     // Phase 15 v1.2 (D-15-16): MembershipAdjustService — Foundation fuer
     // cancel_membership + increase_shares (Phase 16-17 erweitern um
     // partial_repayment + transfer_shares).
@@ -252,6 +258,7 @@ pub trait RestStateDef:
     fn member_import_service(&self) -> Arc<Self::MemberImportService>;
     fn member_action_service(&self) -> Arc<Self::MemberActionService>;
     fn member_document_service(&self) -> Arc<Self::MemberDocumentService>;
+    fn application_document_service(&self) -> Arc<Self::ApplicationDocumentService>;
     fn membership_adjust_service(&self) -> Arc<Self::MembershipAdjustService>;
     fn document_storage(&self) -> Arc<Self::DocumentStorage>;
     fn validation_service(&self) -> Arc<Self::ValidationService>;
@@ -282,6 +289,7 @@ pub trait RestStateDef:
         (path = "/api/mail/footer", api = mail_footer::ApiDoc),
         (path = "/api/member-documents", api = member_document::CountsApiDoc),
         (path = "/api/applications", api = application::ApiDoc),
+        (path = "/api/applications/{application_id}/document", api = application_document::ApiDoc),
         (path = "/api/assembly", api = assembly::ApiDoc),
         (path = "/api/repayment-phase", api = repayment_phase::ApiDoc),
         (path = "/api/repayment-entry", api = repayment_entry::ApiDoc),
@@ -644,6 +652,10 @@ pub async fn create_app<
         .nest(
             "/api/applications",
             application::generate_route::<RestState>(),
+        )
+        .nest(
+            "/api/applications/{application_id}/document",
+            application_document::generate_route::<RestState>(),
         )
         .nest("/api/assembly", assembly::generate_route::<RestState>())
         .nest(
