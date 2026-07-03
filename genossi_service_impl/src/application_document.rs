@@ -167,6 +167,12 @@ impl<Deps: ApplicationDocumentServiceDeps> ApplicationDocumentService
             Some(old) => {
                 // Replace-in-place: save-new → update-DB → best-effort
                 // delete-old (Decision #2).
+                //
+                // IMPORTANT: pass `old.version` here (NOT a fresh v4). The
+                // ApplicationDocumentDao::update contract uses `entity.version`
+                // as the OLD version for the optimistic-lock WHERE clause; the
+                // DAO generates the NEW version internally. Discovered via
+                // Plan 25-05 Test E2E-3 (Rule 1 auto-fix during Wave 4).
                 self.document_storage
                     .save(&new_relative_path, &upload.data)
                     .await
@@ -181,12 +187,21 @@ impl<Deps: ApplicationDocumentServiceDeps> ApplicationDocumentService
                     size,
                     created: old.created,
                     deleted: None,
-                    version: new_version,
+                    version: old.version,
                 };
 
                 self.application_document_dao
                     .update(&updated_entity, APPLICATION_DOCUMENT_PROCESS, tx.clone())
                     .await?;
+
+                // Re-fetch to expose the fresh DB-generated version on the
+                // returned TO. Callers rely on `version != previous.version`
+                // to detect replace-in-place (Plan 25-05 Test E2E-3).
+                let refreshed = self
+                    .application_document_dao
+                    .find_active_by_application_id(upload.application_id, tx.clone())
+                    .await?
+                    .unwrap_or_else(|| updated_entity.clone());
 
                 self.transaction_dao.commit(tx).await?;
 
@@ -201,7 +216,7 @@ impl<Deps: ApplicationDocumentServiceDeps> ApplicationDocumentService
                     );
                 }
 
-                Ok(ApplicationDocument::from(&updated_entity))
+                Ok(ApplicationDocument::from(&refreshed))
             }
         }
     }
@@ -706,9 +721,17 @@ mod tests {
     }
 
     /// Test 2: Replace-in-place — existing row triggers save-new → update →
-    /// delete-old sequence. Sequence-enforced via `mockall::Sequence`.
+    /// refetch → delete-old sequence. Sequence-enforced via `mockall::Sequence`.
+    ///
+    /// The refetch after update reads the fresh DB-generated `version` so the
+    /// returned TO reflects the replace (Plan 25-05 auto-fix). The mock now
+    /// distinguishes the pre-update result (returns `existing` with the OLD
+    /// filename) from the post-update result (returns a synthesised row that
+    /// carries the NEW filename).
     #[tokio::test]
     async fn test_upload_replace_in_place_calls_save_then_update_then_delete() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
         let app_id = Uuid::new_v4();
         let existing = make_existing_doc(app_id);
         let old_path = existing.relative_path.clone();
@@ -718,9 +741,27 @@ mod tests {
         let mut app_doc_dao = MockTestAppDocDao::new();
         {
             let existing_clone = existing.clone();
+            let call_count = Arc::new(AtomicUsize::new(0));
             app_doc_dao
                 .expect_find_active_by_application_id()
-                .returning(move |_, _| Ok(Some(existing_clone.clone())));
+                .returning(move |aid, _| {
+                    let n = call_count.fetch_add(1, Ordering::SeqCst);
+                    if n == 0 {
+                        // Pre-update lookup: return the existing row.
+                        Ok(Some(existing_clone.clone()))
+                    } else {
+                        // Post-update refetch: return a fresh row with the
+                        // NEW filename, updated path, and a fresh version UUID.
+                        let mut fresh = existing_clone.clone();
+                        fresh.file_name = Arc::from("new.pdf");
+                        fresh.relative_path = Arc::from(
+                            format!("applications/{}/{}.pdf", aid, Uuid::new_v4()).as_str(),
+                        );
+                        fresh.application_id = aid;
+                        fresh.version = Uuid::new_v4();
+                        Ok(Some(fresh))
+                    }
+                });
         }
 
         let mut storage = MockTestStorage::new();

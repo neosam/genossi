@@ -493,6 +493,13 @@ impl<Deps: ApplicationServiceDeps> ApplicationService for ApplicationServiceImpl
             );
 
             // 6. Soft-delete the application_document row (NOT audited).
+            //    IMPORTANT: `entity.version` on ApplicationDocumentDao::update
+            //    is the OLD version for the optimistic-lock WHERE clause; the
+            //    DAO generates a fresh v4 internally as the NEW version. Passing
+            //    a new UUID here (as an earlier draft did) makes every soft-
+            //    delete blow up with `ConflictError("Version mismatch")` and
+            //    cascades to a 409 out of confirm(). Discovered via e2e Plan
+            //    25-05 Test E2E-1 (Rule 1 auto-fix during Wave 4).
             let old_relative_path = app_doc.relative_path.to_string();
             let now_dt = time::OffsetDateTime::now_utc();
             let soft_deleted_app_doc =
@@ -505,10 +512,14 @@ impl<Deps: ApplicationServiceDeps> ApplicationService for ApplicationServiceImpl
                     size: app_doc.size,
                     created: app_doc.created,
                     deleted: Some(time::PrimitiveDateTime::new(now_dt.date(), now_dt.time())),
-                    version: self.uuid_service.new_v4().await,
+                    version: app_doc.version,
                 };
             self.application_document_dao
-                .update(&soft_deleted_app_doc, APPLICATION_SERVICE_PROCESS, tx.clone())
+                .update(
+                    &soft_deleted_app_doc,
+                    APPLICATION_SERVICE_PROCESS,
+                    tx.clone(),
+                )
                 .await?;
 
             // 7. Remember old path for best-effort delete AFTER commit.
@@ -1095,18 +1106,22 @@ mod tests {
             member_doc_dao
                 .expect_create()
                 .times(1)
-                .withf(move |entity: &MemberDocumentEntity, _p: &str, _tx: &TestTx| {
-                    let ok = entity
-                        .description
-                        .as_ref()
-                        .map(|d| d.starts_with("Original-Antrag (übernommen bei Bestätigung am "))
-                        .unwrap_or(false)
-                        && entity.document_type.as_ref() == "other";
-                    if ok {
-                        flag.store(true, Ordering::SeqCst);
-                    }
-                    ok
-                })
+                .withf(
+                    move |entity: &MemberDocumentEntity, _p: &str, _tx: &TestTx| {
+                        let ok = entity
+                            .description
+                            .as_ref()
+                            .map(|d| {
+                                d.starts_with("Original-Antrag (übernommen bei Bestätigung am ")
+                            })
+                            .unwrap_or(false)
+                            && entity.document_type.as_ref() == "other";
+                        if ok {
+                            flag.store(true, Ordering::SeqCst);
+                        }
+                        ok
+                    },
+                )
                 .returning(|_, _, _| Ok(()));
         }
 
@@ -1130,10 +1145,7 @@ mod tests {
             .expect_load()
             .times(1)
             .returning(|_| Ok(b"pdfbytes".to_vec()));
-        storage
-            .expect_save()
-            .times(1)
-            .returning(|_, _| Ok(()));
+        storage.expect_save().times(1).returning(|_, _| Ok(()));
         // Best-effort delete of old path AFTER commit.
         {
             let expected = old_path.to_string();
@@ -1187,10 +1199,7 @@ mod tests {
                 .expect_find_by_id()
                 .returning(move |_, _| Ok(Some(app.clone())));
         }
-        app_dao
-            .expect_update()
-            .times(1)
-            .returning(|_, _, _| Ok(()));
+        app_dao.expect_update().times(1).returning(|_, _, _| Ok(()));
 
         let mut app_doc_dao = MockAppDocDao::new();
         app_doc_dao
@@ -1287,9 +1296,7 @@ mod tests {
         // MemberEntity create is called BEFORE the carryover branch; that's
         // fine — the rollback will undo it. We accept any number of calls
         // here; the semantic invariant is that tx.commit is never reached.
-        member_dao
-            .expect_create()
-            .returning(|_, _, _| Ok(()));
+        member_dao.expect_create().returning(|_, _, _| Ok(()));
 
         let mut action_dao = MockMemActionDao::new();
         action_dao.expect_create().returning(|_, _, _| Ok(()));

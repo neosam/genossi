@@ -10,14 +10,14 @@ use genossi_mail::rest_templates::MailTemplateTO;
 use genossi_rest::mail_footer::FooterResponse;
 use genossi_rest::test_server::test_support::start_test_server;
 use genossi_rest_types::{
-    ActionTypeTO, AdminCreateApplicationRequest, ApplicationStatusTO, ApplicationTO,
-    AssemblyDetailTO, AssemblyStatusTO, AssemblyTO, AttendanceMemberTO, AttendanceStatsTO,
-    AuditLogEntryTO, BatchStatusRequest, CreateRepaymentEntryRequest, HelperSessionTO,
-    MemberActionTO, MemberDocumentTO, MemberImportResultTO, MemberTO, MigrationStatusTO,
-    PublicJoinRequest, PublicJoinResponse, RepaymentEntryStatusTO, RepaymentEntryTO,
-    RepaymentPhaseStatusTO, RepaymentPhaseTO, SalutationTO, SessionRevokeResponse,
-    UpdateApplicationRequest, UpdateRepaymentEntryRequest, UserPreferenceTO, ValidationResultTO,
-    VerifyResponseTO,
+    ActionTypeTO, AdminCreateApplicationRequest, ApplicationDocumentTO, ApplicationStatusTO,
+    ApplicationTO, AssemblyDetailTO, AssemblyStatusTO, AssemblyTO, AttendanceMemberTO,
+    AttendanceStatsTO, AuditLogEntryTO, BatchStatusRequest, CreateRepaymentEntryRequest,
+    HelperSessionTO, MemberActionTO, MemberDocumentTO, MemberImportResultTO, MemberTO,
+    MigrationStatusTO, PublicJoinRequest, PublicJoinResponse, RepaymentEntryStatusTO,
+    RepaymentEntryTO, RepaymentPhaseStatusTO, RepaymentPhaseTO, SalutationTO,
+    SessionRevokeResponse, UpdateApplicationRequest, UpdateRepaymentEntryRequest, UserPreferenceTO,
+    ValidationResultTO, VerifyResponseTO,
 };
 use reqwest::StatusCode;
 use sqlx::SqlitePool;
@@ -1747,7 +1747,10 @@ async fn test_confirm_migration_writes_audit_entry() {
         .unwrap();
     assert_eq!(verify.status(), StatusCode::OK);
     let result: genossi_rest_types::VerifyResponseTO = verify.json().await.unwrap();
-    assert!(result.valid, "Audit-Hashchain muss nach confirm valide sein");
+    assert!(
+        result.valid,
+        "Audit-Hashchain muss nach confirm valide sein"
+    );
 }
 
 #[tokio::test]
@@ -5078,10 +5081,7 @@ async fn test_download_attachment_default_disposition_is_attachment() {
     .await;
     let client = reqwest::Client::new();
     let response = client
-        .get(server.url(&format!(
-            "/api/inbox/{}/attachments/{}",
-            mail_id, att_id
-        )))
+        .get(server.url(&format!("/api/inbox/{}/attachments/{}", mail_id, att_id)))
         .send()
         .await
         .unwrap();
@@ -5163,10 +5163,7 @@ async fn test_download_attachment_cross_mail_returns_404() {
 
     // Cross-mail request — must 404.
     let cross = client
-        .get(server.url(&format!(
-            "/api/inbox/{}/attachments/{}",
-            mail_b, a1
-        )))
+        .get(server.url(&format!("/api/inbox/{}/attachments/{}", mail_b, a1)))
         .send()
         .await
         .unwrap();
@@ -5178,10 +5175,7 @@ async fn test_download_attachment_cross_mail_returns_404() {
 
     // Positive control — correct (mail_A, attachment_A1) must 200.
     let ok = client
-        .get(server.url(&format!(
-            "/api/inbox/{}/attachments/{}",
-            mail_a, a1
-        )))
+        .get(server.url(&format!("/api/inbox/{}/attachments/{}", mail_a, a1)))
         .send()
         .await
         .unwrap();
@@ -5203,10 +5197,7 @@ async fn test_download_attachment_oversized_returns_410() {
     .await;
     let client = reqwest::Client::new();
     let response = client
-        .get(server.url(&format!(
-            "/api/inbox/{}/attachments/{}",
-            mail_id, att_id
-        )))
+        .get(server.url(&format!("/api/inbox/{}/attachments/{}", mail_id, att_id)))
         .send()
         .await
         .unwrap();
@@ -6790,6 +6781,266 @@ async fn test_confirm_application_creates_member() {
     assert_eq!(members[0].last_name, "Mustermann");
     assert_eq!(members[0].shares_at_joining, 2);
     assert!(members[0].email.as_deref() == Some("max@example.com"));
+}
+
+// ============================================================================
+// Phase 25 (APDOC-05) — E2E tests for the single-slot Application document
+// cascade. Three tests pin the audit-critical behavior end-to-end:
+//   E2E-1: Upload → confirm → audited MemberDocument on Member + soft-delete +
+//          audit hashchain valid.
+//   E2E-2: Missing storage file at confirm time → full transaction rollback,
+//          Application status stays "Offen", audit hashchain still valid.
+//   E2E-3: Second upload replaces the row in place; the row's `version` UUID
+//          changes.
+// ============================================================================
+
+/// Helper: submit a public join application and return its ID.
+async fn seed_application(
+    server: &genossi_rest::test_server::test_support::TestServer,
+    client: &reqwest::Client,
+) -> uuid::Uuid {
+    let api_key = setup_api_key(server, client).await;
+    let resp = client
+        .post(server.url("/api/public/join"))
+        .header("X-Api-Key", &api_key)
+        .json(&sample_join_request())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED);
+    let resp = client
+        .get(server.url("/api/applications"))
+        .send()
+        .await
+        .unwrap();
+    let apps: Vec<ApplicationTO> = resp.json().await.unwrap();
+    apps[0].id
+}
+
+/// Helper: upload a PDF to `/api/applications/{id}/document`. Returns the TO.
+async fn upload_application_pdf(
+    server: &genossi_rest::test_server::test_support::TestServer,
+    client: &reqwest::Client,
+    app_id: uuid::Uuid,
+    filename: &str,
+    bytes: Vec<u8>,
+) -> ApplicationDocumentTO {
+    let part = reqwest::multipart::Part::bytes(bytes)
+        .file_name(filename.to_string())
+        .mime_str("application/pdf")
+        .unwrap();
+    let form = reqwest::multipart::Form::new().part("file", part);
+    let resp = client
+        .post(server.url(&format!("/api/applications/{}/document", app_id)))
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED);
+    resp.json().await.unwrap()
+}
+
+/// Helper: find and delete the stored file for a given application. The DAO
+/// stores files under `{DOCUMENT_STORAGE_PATH:-./documents}/applications/{app_id}/`.
+/// Returns `true` when at least one file was deleted.
+fn delete_stored_application_file(app_id: uuid::Uuid) -> bool {
+    let base = std::env::var("DOCUMENT_STORAGE_PATH").unwrap_or_else(|_| "./documents".to_string());
+    let dir = std::path::PathBuf::from(base)
+        .join("applications")
+        .join(app_id.to_string());
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(e) => e,
+        Err(_) => return false,
+    };
+    let mut removed = false;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_file() && std::fs::remove_file(&path).is_ok() {
+            removed = true;
+        }
+    }
+    removed
+}
+
+/// E2E-1: Upload → confirm → audited MemberDocument transfer + audit valid.
+#[tokio::test]
+async fn application_upload_confirm_carryover_audited() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let app_id = seed_application(&server, &client).await;
+
+    // Upload a small "PDF".
+    let file_bytes = b"%PDF-1.4 fake application content".to_vec();
+    let uploaded =
+        upload_application_pdf(&server, &client, app_id, "antrag.pdf", file_bytes.clone()).await;
+    assert_eq!(uploaded.application_id, app_id);
+    assert_eq!(uploaded.file_name, "antrag.pdf");
+    assert_eq!(uploaded.mime_type, "application/pdf");
+
+    // Confirm.
+    let resp = client
+        .post(server.url(&format!("/api/applications/{}/confirm", app_id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let confirmed: ApplicationTO = resp.json().await.unwrap();
+    assert!(matches!(confirmed.status, ApplicationStatusTO::Bestaetigt));
+
+    // New Member must exist with exactly one MemberDocument (the carryover).
+    let resp = client.get(server.url("/api/members")).send().await.unwrap();
+    let members: Vec<MemberTO> = resp.json().await.unwrap();
+    assert_eq!(members.len(), 1);
+    let member_id = members[0].id.unwrap();
+
+    let resp = client
+        .get(server.url(&format!("/api/members/{}/documents", member_id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let docs: Vec<MemberDocumentTO> = resp.json().await.unwrap();
+    assert_eq!(
+        docs.len(),
+        1,
+        "exactly one carryover MemberDocument expected"
+    );
+    assert_eq!(docs[0].document_type, "other");
+    let description = docs[0].description.clone().unwrap_or_default();
+    assert!(
+        description.starts_with("Original-Antrag (übernommen bei Bestätigung am "),
+        "unexpected description: {}",
+        description
+    );
+
+    // Application document metadata must now be 404 (soft-deleted).
+    let resp = client
+        .get(server.url(&format!("/api/applications/{}/document?meta=1", app_id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+
+    // Audit hashchain remains valid.
+    let resp = client
+        .get(server.url("/api/audit/verify"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let verify: VerifyResponseTO = resp.json().await.unwrap();
+    assert!(
+        verify.valid,
+        "audit hashchain must remain valid after carryover"
+    );
+}
+
+/// E2E-2: Missing file at confirm → rolls back the whole transaction.
+#[tokio::test]
+async fn application_upload_confirm_missing_file_rolls_back() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let app_id = seed_application(&server, &client).await;
+
+    // Upload, then physically delete the stored file (simulate a corrupt
+    // filesystem / manual admin mishap).
+    let _uploaded =
+        upload_application_pdf(&server, &client, app_id, "antrag.pdf", b"payload".to_vec()).await;
+    assert!(
+        delete_stored_application_file(app_id),
+        "expected at least one stored file to remove"
+    );
+
+    // Confirm must NOT succeed — the storage.load() failure inside the
+    // use_transaction block must roll back the whole cascade.
+    let resp = client
+        .post(server.url(&format!("/api/applications/{}/confirm", app_id)))
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        resp.status().is_client_error() || resp.status().is_server_error(),
+        "confirm must fail when the storage file is missing, got {}",
+        resp.status()
+    );
+
+    // Application status must still be Offen (rollback happened).
+    let resp = client
+        .get(server.url(&format!("/api/applications/{}", app_id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let app: ApplicationTO = resp.json().await.unwrap();
+    assert!(
+        matches!(app.status, ApplicationStatusTO::Offen),
+        "application status must remain Offen after rollback, was {:?}",
+        app.status
+    );
+
+    // No members must have been created.
+    let resp = client.get(server.url("/api/members")).send().await.unwrap();
+    let members: Vec<MemberTO> = resp.json().await.unwrap();
+    assert!(members.is_empty(), "no member should exist after rollback");
+
+    // Audit hashchain remains valid.
+    let resp = client
+        .get(server.url("/api/audit/verify"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let verify: VerifyResponseTO = resp.json().await.unwrap();
+    assert!(
+        verify.valid,
+        "audit hashchain must remain valid after rollback"
+    );
+}
+
+/// E2E-3: Second upload replaces the row in place — same application_id,
+/// different `version`.
+#[tokio::test]
+async fn application_upload_replace_in_place() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let app_id = seed_application(&server, &client).await;
+
+    let first = upload_application_pdf(
+        &server,
+        &client,
+        app_id,
+        "antrag-v1.pdf",
+        b"first payload".to_vec(),
+    )
+    .await;
+
+    let second = upload_application_pdf(
+        &server,
+        &client,
+        app_id,
+        "antrag-v2.pdf",
+        b"second payload".to_vec(),
+    )
+    .await;
+
+    assert_eq!(first.application_id, app_id);
+    assert_eq!(second.application_id, app_id);
+    assert_ne!(
+        first.version, second.version,
+        "second upload must have a different version UUID (replace-in-place)"
+    );
+    assert_eq!(second.file_name, "antrag-v2.pdf");
+
+    // Metadata query must return the second (active) document.
+    let resp = client
+        .get(server.url(&format!("/api/applications/{}/document?meta=1", app_id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let active: ApplicationDocumentTO = resp.json().await.unwrap();
+    assert_eq!(active.file_name, "antrag-v2.pdf");
+    assert_eq!(active.version, second.version);
 }
 
 #[tokio::test]
@@ -14674,7 +14925,9 @@ async fn preview_body_html_round_trips_to_response() {
         .expect("preview POST (no body_html) failed");
     assert_eq!(response.status(), StatusCode::OK);
     let raw_json: serde_json::Value = response.json().await.unwrap();
-    let obj = raw_json.as_object().expect("preview response is a JSON object");
+    let obj = raw_json
+        .as_object()
+        .expect("preview response is a JSON object");
     assert!(
         !obj.contains_key("body_html") || obj["body_html"].is_null(),
         "body_html key must be absent on the wire when the source was None, got: {}",
