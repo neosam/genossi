@@ -8,6 +8,7 @@ use genossi_service::permission::MockContext;
 #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
 use genossi_service::user_service::MockUserService;
 use genossi_service_impl::application::ApplicationServiceDeps;
+use genossi_service_impl::application_document::ApplicationDocumentServiceDeps;
 use genossi_service_impl::member::MemberServiceDeps;
 use genossi_service_impl::member_action::MemberActionServiceDeps;
 use genossi_service_impl::member_document::MemberDocumentServiceDeps;
@@ -124,6 +125,9 @@ impl MemberServiceDeps for MemberServiceDependencies {
 type MemberService = genossi_service_impl::member::MemberServiceImpl<MemberServiceDependencies>;
 
 type ApplicationDao = genossi_dao_impl_sqlite::application::ApplicationDaoImpl;
+// Phase 25 Wave 3: single-slot application-document DAO.
+type ApplicationDocumentDao =
+    genossi_dao_impl_sqlite::application_document::ApplicationDocumentDaoImpl;
 type AssemblyDao = genossi_dao_impl_sqlite::assembly::AssemblyDaoImpl;
 type AssemblyMemberSnapshotDao =
     genossi_dao_impl_sqlite::assembly_member_snapshot::AssemblyMemberSnapshotDaoImpl;
@@ -137,6 +141,10 @@ impl ApplicationServiceDeps for ApplicationServiceDependencies {
     type Context = Context;
     type Transaction = Transaction;
     type ApplicationDao = ApplicationDao;
+    // Phase 25 Wave 3: confirm() carryover to audited MemberDocument.
+    type ApplicationDocumentDao = ApplicationDocumentDao;
+    type MemberDocumentDao = MemberDocumentDao;
+    type DocumentStorage = DocumentStorage;
     type AuditLogDao = AuditLogDao;
     type MemberDao = MemberDao;
     type MemberActionDao = MemberActionDao;
@@ -530,6 +538,28 @@ type MemberDocumentService = genossi_service_impl::member_document::MemberDocume
 
 type DocumentStorage = genossi_service_impl::document_storage::FilesystemDocumentStorage;
 
+// Phase 25 Wave 3 (Plan 25-04): ApplicationDocumentServiceImpl DI wiring.
+pub struct ApplicationDocumentServiceDependencies;
+
+unsafe impl Send for ApplicationDocumentServiceDependencies {}
+unsafe impl Sync for ApplicationDocumentServiceDependencies {}
+
+impl ApplicationDocumentServiceDeps for ApplicationDocumentServiceDependencies {
+    type Context = Context;
+    type Transaction = Transaction;
+    type ApplicationDocumentDao = ApplicationDocumentDao;
+    type ApplicationDao = ApplicationDao;
+    type DocumentStorage = DocumentStorage;
+    type PermissionService = PermissionService;
+    type UuidService = UuidService;
+    type TransactionDao = TransactionDao;
+}
+
+type ApplicationDocumentService =
+    genossi_service_impl::application_document::ApplicationDocumentServiceImpl<
+        ApplicationDocumentServiceDependencies,
+    >;
+
 pub struct ValidationServiceDependencies;
 
 unsafe impl Send for ValidationServiceDependencies {}
@@ -632,6 +662,8 @@ pub struct RestStateImpl {
     inbox_service: Arc<InboxServiceType>,
     static_document_service: Arc<StaticDocumentServiceType>,
     application_service: Arc<ApplicationService>,
+    // Phase 25 Wave 3 (Plan 25-04): single-slot Application-document service.
+    application_document_service: Arc<ApplicationDocumentService>,
     assembly_service: Arc<AssemblyService>,
     // Phase 7 Plan 04: RepaymentPhase backend foundation.
     repayment_phase_service: Arc<RepaymentPhaseService>,
@@ -806,6 +838,13 @@ impl RestStateImpl {
 
         let application_dao = Arc::new(ApplicationDao::new(pool.clone()));
 
+        // Phase 25 Wave 3 (Plan 25-04): single-slot application-document DAO.
+        // The same Arc is passed into both ApplicationServiceImpl (for
+        // confirm() carryover) and ApplicationDocumentServiceImpl (for the
+        // three REST endpoints). Single DAO per process.
+        let application_document_dao =
+            Arc::new(ApplicationDocumentDao::new(pool.clone()));
+
         let member_import_service = Arc::new(
             genossi_service_impl::member_import::MemberImportServiceImpl {
                 member_dao: member_dao.clone(),
@@ -890,7 +929,13 @@ impl RestStateImpl {
         let config_service_for_app = Arc::new(ConfigService::new(config_dao_for_app));
         let application_service =
             Arc::new(genossi_service_impl::application::ApplicationServiceImpl {
-                application_dao,
+                application_dao: application_dao.clone(),
+                // Phase 25 Wave 3 (Plan 25-04): confirm() carryover to
+                // audited MemberDocument uses these three deps inside the
+                // same use_transaction block.
+                application_document_dao: application_document_dao.clone(),
+                member_document_dao: member_document_dao.clone(),
+                document_storage: document_storage.clone(),
                 audit_log_dao: audit_log_dao.clone(),
                 member_dao: member_dao.clone(),
                 member_action_dao: member_action_dao.clone(),
@@ -900,6 +945,19 @@ impl RestStateImpl {
                 config_service: config_service_for_app,
                 mail_service: mail_service.clone(),
             });
+
+        // Phase 25 Wave 3 (Plan 25-04): ApplicationDocumentServiceImpl for
+        // the three REST endpoints (upload/download/delete).
+        let application_document_service = Arc::new(
+            genossi_service_impl::application_document::ApplicationDocumentServiceImpl {
+                application_document_dao: application_document_dao.clone(),
+                application_dao: application_dao.clone(),
+                document_storage: document_storage.clone(),
+                permission_service: permission_service.clone(),
+                uuid_service: uuid_service.clone(),
+                transaction_dao: transaction_dao.clone(),
+            },
+        );
 
         // assembly_dao was already constructed above (before session_service).
         let assembly_member_snapshot_dao = Arc::new(AssemblyMemberSnapshotDao::new(pool.clone()));
@@ -1163,6 +1221,7 @@ impl RestStateImpl {
             membership_adjust_service,
             member_document_service,
             application_service,
+            application_document_service,
             assembly_service,
             repayment_phase_service,
             repayment_entry_service,
@@ -1998,6 +2057,8 @@ impl genossi_rest::RestStateDef for RestStateImpl {
     type MemberActionService = MemberActionService;
     type MembershipAdjustService = MembershipAdjustService;
     type MemberDocumentService = MemberDocumentService;
+    // Phase 25 Wave 3 (Plan 25-04).
+    type ApplicationDocumentService = ApplicationDocumentService;
     type DocumentStorage = DocumentStorage;
     type ValidationService = ValidationService;
     type UserPreferenceService = UserPreferenceService;
@@ -2030,6 +2091,10 @@ impl genossi_rest::RestStateDef for RestStateImpl {
 
     fn member_document_service(&self) -> Arc<Self::MemberDocumentService> {
         self.member_document_service.clone()
+    }
+
+    fn application_document_service(&self) -> Arc<Self::ApplicationDocumentService> {
+        self.application_document_service.clone()
     }
 
     fn document_storage(&self) -> Arc<Self::DocumentStorage> {
