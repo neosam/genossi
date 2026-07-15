@@ -97,7 +97,7 @@ impl BackupDao for BackupDaoImpl {
              LEFT JOIN member_action a ON m.id = a.member_id \
              WHERE m.deleted IS NULL \
                AND m.join_date <= ? \
-               AND (m.exit_date IS NULL OR m.exit_date > ?) \
+               AND (m.exit_date IS NULL OR m.exit_date >= ?) \
                AND (m.status IS NULL OR m.status != 'FehlerhaftErfasst') \
              GROUP BY m.id \
              ORDER BY m.member_number",
@@ -366,5 +366,135 @@ impl BackupDocumentSyncDao for BackupDocumentSyncDaoImpl {
         .map_err(|e| DaoError::DatabaseError(Arc::from(e.to_string())))?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Hand-rolled schema for `member` + `member_action`, matching the columns
+    /// touched by `BackupDaoImpl::members_at_date`. Running the full migration
+    /// graph here would pull in unrelated tables and their FKs.
+    async fn setup_backup_db() -> Arc<SqlitePool> {
+        let pool = SqlitePool::connect("sqlite::memory:")
+            .await
+            .expect("create in-memory db");
+
+        sqlx::query(
+            "CREATE TABLE member (
+                id BLOB PRIMARY KEY NOT NULL,
+                member_number INTEGER NOT NULL,
+                salutation TEXT,
+                title TEXT,
+                first_name TEXT NOT NULL,
+                last_name TEXT NOT NULL,
+                company TEXT,
+                street TEXT,
+                house_number TEXT,
+                postal_code TEXT,
+                city TEXT,
+                email TEXT,
+                bank_account TEXT,
+                join_date TEXT NOT NULL,
+                exit_date TEXT,
+                shares_at_joining INTEGER NOT NULL DEFAULT 1,
+                status TEXT,
+                comment TEXT,
+                deleted TEXT
+            )",
+        )
+        .execute(&pool)
+        .await
+        .expect("create member table");
+
+        sqlx::query(
+            "CREATE TABLE member_action (
+                id BLOB PRIMARY KEY NOT NULL,
+                member_id BLOB NOT NULL,
+                date TEXT NOT NULL,
+                shares_change INTEGER NOT NULL DEFAULT 0,
+                deleted TEXT
+            )",
+        )
+        .execute(&pool)
+        .await
+        .expect("create member_action table");
+
+        Arc::new(pool)
+    }
+
+    async fn insert_member(
+        pool: &SqlitePool,
+        member_number: i64,
+        first: &str,
+        last: &str,
+        join_date: &str,
+        exit_date: Option<&str>,
+    ) -> Uuid {
+        let id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO member (id, member_number, first_name, last_name, \
+                join_date, exit_date, shares_at_joining) \
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(id.as_bytes().to_vec())
+        .bind(member_number)
+        .bind(first.to_string())
+        .bind(last.to_string())
+        .bind(join_date.to_string())
+        .bind(exit_date.map(str::to_string))
+        .bind(1i32)
+        .execute(pool)
+        .await
+        .expect("insert member");
+        id
+    }
+
+    /// Boundary case (the bug this fix addresses): a member whose `exit_date`
+    /// falls exactly on the reporting stichtag must still appear in the
+    /// export. Genossenschaften convention: austritt zum 31.12. → im
+    /// Jahresexport für dieses Jahr noch geführt.
+    #[tokio::test]
+    async fn members_at_date_includes_member_exiting_on_stichtag() {
+        let pool = setup_backup_db().await;
+        insert_member(&pool, 1, "Anna", "Austrittam", "2020-01-01", Some("2025-12-31")).await;
+
+        let dao = BackupDaoImpl::new(pool);
+        let stichtag = time::Date::from_calendar_date(2025, time::Month::December, 31).unwrap();
+
+        let rows = dao.members_at_date(stichtag).await.expect("query");
+        assert_eq!(rows.len(), 1, "member with exit_date == stichtag must be included");
+        assert_eq!(rows[0].member_number, 1);
+        assert_eq!(rows[0].exit_date.as_deref(), Some("2025-12-31"));
+    }
+
+    /// Members who left *before* the stichtag must not appear. Uses
+    /// stichtag - 1 day to lock in the direction of the comparison.
+    #[tokio::test]
+    async fn members_at_date_excludes_member_exiting_before_stichtag() {
+        let pool = setup_backup_db().await;
+        insert_member(&pool, 2, "Bernd", "Weganfang", "2020-01-01", Some("2025-12-30")).await;
+
+        let dao = BackupDaoImpl::new(pool);
+        let stichtag = time::Date::from_calendar_date(2025, time::Month::December, 31).unwrap();
+
+        let rows = dao.members_at_date(stichtag).await.expect("query");
+        assert!(rows.is_empty(), "member with exit_date < stichtag must be excluded");
+    }
+
+    /// Baseline: still-active member (no exit_date) appears in the export.
+    #[tokio::test]
+    async fn members_at_date_includes_active_member_without_exit_date() {
+        let pool = setup_backup_db().await;
+        insert_member(&pool, 3, "Clara", "Aktiv", "2020-01-01", None).await;
+
+        let dao = BackupDaoImpl::new(pool);
+        let stichtag = time::Date::from_calendar_date(2025, time::Month::December, 31).unwrap();
+
+        let rows = dao.members_at_date(stichtag).await.expect("query");
+        assert_eq!(rows.len(), 1, "member without exit_date must be included");
+        assert_eq!(rows[0].member_number, 3);
+        assert!(rows[0].exit_date.is_none());
     }
 }
