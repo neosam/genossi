@@ -604,7 +604,9 @@ fn render_transfer_sub_view(
     let title = i18n.t(Key::MembershipAdjustTransferTitle).to_string();
     let date_label = i18n.t(Key::MembershipAdjustTransferDateLabel).to_string();
     let shares_label = i18n.t(Key::MembershipAdjustTransferSharesLabel).to_string();
-    let recipient_label = i18n.t(Key::MembershipAdjustTransferRecipientLabel).to_string();
+    let recipient_label = i18n
+        .t(Key::MembershipAdjustTransferRecipientLabel)
+        .to_string();
     let recipient_load_err = i18n
         .t(Key::MembershipAdjustTransferRecipientLoadError)
         .to_string();
@@ -651,11 +653,11 @@ fn render_transfer_sub_view(
     // Preview text (live)
     let preview_text = {
         let date_val = *date_signal.read();
-        let recipient_to: Option<MemberTO> =
-            match (&*recipients_resource.read(), recipient_id_val) {
-                (Some(Ok(list)), Some(rid)) => list.iter().find(|s| s.id == rid).map(to_member_to),
-                _ => None,
-            };
+        let recipient_to: Option<MemberTO> = match (&*recipients_resource.read(), recipient_id_val)
+        {
+            (Some(Ok(list)), Some(rid)) => list.iter().find(|s| s.id == rid).map(to_member_to),
+            _ => None,
+        };
         match (date_val, recipient_to) {
             (None, _) | (_, None) => String::new(),
             (Some(d), Some(_))
@@ -856,7 +858,11 @@ fn render_upgrade_sub_view(
     let shares_now = *shares_signal.read();
     let current = member.current_shares;
 
-    let inline_err: Option<String> = if shares_now < 1 { Some(shares_err) } else { None };
+    let inline_err: Option<String> = if shares_now < 1 {
+        Some(shares_err)
+    } else {
+        None
+    };
 
     let preview_text = {
         let date_val = *date_signal.read();

@@ -12,7 +12,7 @@
 
 use dioxus::prelude::*;
 
-use crate::i18n::{use_i18n, Key, I18n};
+use crate::i18n::{use_i18n, I18n, Key};
 
 /// Pure helper: baut den Card-Titel aus i18n-Prefix + Memo. Cargo-testbar (kein web-sys).
 #[allow(dead_code)]

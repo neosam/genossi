@@ -52,7 +52,10 @@ pub fn FiscalYearDateInput(
     let max_str = format!("{:04}-12-31", max_year);
 
     let value_read = value.read();
-    let current_value_str = value_read.as_ref().map(format_date_input).unwrap_or_default();
+    let current_value_str = value_read
+        .as_ref()
+        .map(format_date_input)
+        .unwrap_or_default();
     let is_oor = value_read
         .as_ref()
         .map_or(false, |d| !is_valid_fiscal_year_date(*d, today));

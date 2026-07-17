@@ -23,7 +23,9 @@ pub fn RevokeSessionsButton() -> Element {
                 Ok(_) => {
                     // Redirect to backend logout to clear browser state
                     if let Some(window) = web_sys::window() {
-                        let _ = window.location().set_href(&format!("{}/logout", config.backend));
+                        let _ = window
+                            .location()
+                            .set_href(&format!("{}/logout", config.backend));
                     }
                 }
                 Err(e) => {

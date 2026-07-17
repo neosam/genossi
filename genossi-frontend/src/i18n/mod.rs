@@ -1148,8 +1148,16 @@ mod tests {
             let de_str = de.t(key.clone()).to_string();
             let en_str = en.t(key.clone()).to_string();
 
-            assert!(!de_str.is_empty(), "Key {:?}: DE-Translation ist leer.", key);
-            assert!(!en_str.is_empty(), "Key {:?}: EN-Translation ist leer.", key);
+            assert!(
+                !de_str.is_empty(),
+                "Key {:?}: DE-Translation ist leer.",
+                key
+            );
+            assert!(
+                !en_str.is_empty(),
+                "Key {:?}: EN-Translation ist leer.",
+                key
+            );
             assert_ne!(
                 de_str, en_str,
                 "Key {:?}: DE und EN sind identisch ('{}').",

@@ -381,12 +381,7 @@ fn compose_initial_body(footer: &str, quote: &str) -> String {
 /// The baseline is captured AFTER the async footer load (D-05), so an untouched
 /// draft — whose body equals the composed footer+quote string, NOT the first quote —
 /// is correctly reported as not dirty.
-fn is_draft_dirty(
-    subject: &str,
-    body: &str,
-    baseline_subject: &str,
-    baseline_body: &str,
-) -> bool {
+fn is_draft_dirty(subject: &str, body: &str, baseline_subject: &str, baseline_body: &str) -> bool {
     subject != baseline_subject || body != baseline_body
 }
 

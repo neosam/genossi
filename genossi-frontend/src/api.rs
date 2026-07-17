@@ -2,13 +2,22 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use rest_types::{
-    ApplicationDocumentTO, MemberActionTO, MemberDocumentTO, MemberTO, MigrationStatusTO, UserTO,
-    ValidationResultTO,
+    ApplicationDocumentTO,
+    CancelMembershipRequestTO,
+    IncreaseSharesRequestTO,
+    MemberActionTO,
+    MemberDocumentTO,
     // ─── Phase 18 ─── Membership-Adjust DTOs ─────────────────────────
     MemberSlimTO,
-    CancelMembershipRequestTO, IncreaseSharesRequestTO, MembershipAdjustResponseTO,
-    PartialRepaymentRequestTO, PartialRepaymentResponseTO,
-    TransferSharesRequestTO, TransferSharesResponseTO,
+    MemberTO,
+    MembershipAdjustResponseTO,
+    MigrationStatusTO,
+    PartialRepaymentRequestTO,
+    PartialRepaymentResponseTO,
+    TransferSharesRequestTO,
+    TransferSharesResponseTO,
+    UserTO,
+    ValidationResultTO,
 };
 use tracing::info;
 use uuid::Uuid;
@@ -1632,8 +1641,7 @@ pub async fn reply_inbox_mail(
     body_html: Option<&str>,
 ) -> Result<(), AppError> {
     let url = format!("{}/api/inbox/{}/reply", config.backend, id);
-    let attachment_id_strs: Vec<String> =
-        attachment_ids.iter().map(|u| u.to_string()).collect();
+    let attachment_id_strs: Vec<String> = attachment_ids.iter().map(|u| u.to_string()).collect();
     let mut payload = serde_json::json!({
         "subject": subject,
         "body": body,
@@ -1642,7 +1650,10 @@ pub async fn reply_inbox_mail(
     });
     if let Some(html) = body_html {
         if let Some(obj) = payload.as_object_mut() {
-            obj.insert("body_html".to_string(), serde_json::Value::String(html.to_string()));
+            obj.insert(
+                "body_html".to_string(),
+                serde_json::Value::String(html.to_string()),
+            );
         }
     }
     let response = reqwest::Client::new()
@@ -3244,7 +3255,10 @@ pub async fn partial_repayment(
     willensbekundung_date: time::Date,
 ) -> Result<PartialRepaymentResponseTO, AppError> {
     info!("Partial repayment for {member_id}: {shares} shares");
-    let url = format!("{}/api/members/{member_id}/partial-repayment", config.backend);
+    let url = format!(
+        "{}/api/members/{member_id}/partial-repayment",
+        config.backend
+    );
     let body = PartialRepaymentRequestTO {
         willensbekundung_date,
         shares,

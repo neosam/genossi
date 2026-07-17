@@ -2,7 +2,9 @@ use dioxus::prelude::*;
 
 use crate::api::{self, MailTemplateTO};
 use crate::auth::RequirePrivilege;
-use crate::component::mail_compose::{plain_to_html, TemplateTester, TemplateVarButtons, WysiwygEditor};
+use crate::component::mail_compose::{
+    plain_to_html, TemplateTester, TemplateVarButtons, WysiwygEditor,
+};
 use crate::component::{ErrorAlert, TopBar};
 use crate::i18n::{use_i18n, Key};
 use crate::page::AccessDeniedPage;

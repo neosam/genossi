@@ -85,7 +85,10 @@ mod tests {
     #[test]
     fn debounce_constant_is_within_human_perception_bounds() {
         // Sanity bounds: should be high enough to coalesce typing yet not feel laggy.
-        assert!(DEBOUNCE_MS >= 200, "debounce too aggressive — feels twitchy");
+        assert!(
+            DEBOUNCE_MS >= 200,
+            "debounce too aggressive — feels twitchy"
+        );
         assert!(DEBOUNCE_MS <= 1000, "debounce too long — feels laggy");
     }
 }

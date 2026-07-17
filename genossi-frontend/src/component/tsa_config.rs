@@ -67,7 +67,11 @@ pub fn TsaConfigSection(
 
                 for (key, value, value_type) in settings {
                     if let Err(e) = api::set_config_entry(&config, key, value, value_type).await {
-                        error.set(Some(api::AppError::new(e.status, format!("Error saving {}: {}", key, e.message), e.detail)));
+                        error.set(Some(api::AppError::new(
+                            e.status,
+                            format!("Error saving {}: {}", key, e.message),
+                            e.detail,
+                        )));
                         had_error = true;
                         break;
                     }

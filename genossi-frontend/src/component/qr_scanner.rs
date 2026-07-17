@@ -70,8 +70,7 @@ pub fn QrScanner(
     let mut error_msg = use_signal(|| Option::<String>::None);
 
     // Stream holder for use_drop cleanup (Pattern 2 — RESEARCH §use_drop pattern).
-    let stream_holder: Rc<RefCell<Option<MediaStream>>> =
-        use_hook(|| Rc::new(RefCell::new(None)));
+    let stream_holder: Rc<RefCell<Option<MediaStream>>> = use_hook(|| Rc::new(RefCell::new(None)));
 
     // Mount-Effect: Camera anfragen + Decoder starten.
     {
@@ -250,10 +249,9 @@ pub fn QrScanner(
                             use gloo_timers::future::TimeoutFuture;
                             loop {
                                 TimeoutFuture::new(200).await;
-                                let mut eval =
-                                    dioxus::document::eval(
-                                        "return window.__zxing_last_result || null;",
-                                    );
+                                let mut eval = dioxus::document::eval(
+                                    "return window.__zxing_last_result || null;",
+                                );
                                 if let Ok(v) = eval.recv::<serde_json::Value>().await {
                                     if let Some(text) = v.as_str() {
                                         if !text.is_empty() {

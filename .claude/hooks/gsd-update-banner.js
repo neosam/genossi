@@ -1,5 +1,5 @@
 #!/nix/store/6x6v11xjf0psckgqmyhfyhw9bdma0rn6-nodejs-22.22.2/bin/node
-// gsd-hook-version: 1.6.0
+// gsd-hook-version: 1.7.0
 // SessionStart banner that surfaces GSD update availability when GSD's
 // statusline isn't installed. Reads the cache that
 // gsd-check-update-worker.js writes to ~/.cache/gsd/<updateCacheFileName> (per-package).

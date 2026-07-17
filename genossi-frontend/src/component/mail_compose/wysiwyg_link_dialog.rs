@@ -31,10 +31,7 @@ pub fn is_valid_link_url(url: &str) -> bool {
 }
 
 #[component]
-pub fn WysiwygLinkDialog(
-    open: Signal<bool>,
-    on_insert: EventHandler<(String, String)>,
-) -> Element {
+pub fn WysiwygLinkDialog(open: Signal<bool>, on_insert: EventHandler<(String, String)>) -> Element {
     let i18n = use_i18n();
     let mut url = use_signal(String::new);
     let mut display_text = use_signal(String::new);

@@ -83,7 +83,9 @@ pub fn NoRepaymentLetterAction(props: NoRepaymentLetterActionProps) -> Element {
         // Pre-resolve the no-entry i18n string before crossing the spawn
         // boundary — `I18n` is not Send so we cannot read it inside the
         // async block on the wasm runtime.
-        let no_entry_msg = use_i18n().t(Key::MailGenerateLetterAndRetryNoEntry).to_string();
+        let no_entry_msg = use_i18n()
+            .t(Key::MailGenerateLetterAndRetryNoEntry)
+            .to_string();
         state.set(ButtonState::Loading);
         spawn(async move {
             let config = CONFIG.read().clone();

@@ -17,10 +17,7 @@ use crate::util::format::format_size;
 /// handlers attached, which sidesteps the documented form-reload pitfall.
 /// Every `target="_blank"` anchor carries `rel="noopener"` (T-08 mitigation).
 #[component]
-pub fn InboxAttachmentListItem(
-    mail_id: String,
-    attachment: InboundMailAttachmentTO,
-) -> Element {
+pub fn InboxAttachmentListItem(mail_id: String, attachment: InboundMailAttachmentTO) -> Element {
     let i18n = use_i18n();
     let cfg = CONFIG.read().clone();
 
@@ -34,11 +31,7 @@ pub fn InboxAttachmentListItem(
 
     // Branch 1 — oversized: no download/preview, only amber hint.
     if attachment.oversized {
-        let oversized_label = format!(
-            "{} ({})",
-            i18n.t(Key::InboxAttachmentsOversized),
-            size_str
-        );
+        let oversized_label = format!("{} ({})", i18n.t(Key::InboxAttachmentsOversized), size_str);
         return rsx! {
             li { class: "p-3 border rounded bg-white flex items-center gap-3",
                 span { aria_hidden: "true", "📎" }
@@ -123,9 +116,7 @@ fn glyph_for_mime(mime: &str) -> &'static str {
         "📄"
     } else if mime.starts_with("image/") {
         "🖼️"
-    } else if mime == "application/zip"
-        || mime == "application/x-tar"
-        || mime == "application/gzip"
+    } else if mime == "application/zip" || mime == "application/x-tar" || mime == "application/gzip"
     {
         "🗜️"
     } else if mime == "application/msword"

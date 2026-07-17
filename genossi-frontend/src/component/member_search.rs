@@ -44,8 +44,7 @@ pub fn MemberSearch(
     selected_id: Option<Uuid>,
     exclude_id: Option<Uuid>,
     // Phase 18 L-5: optional override; None = use global MEMBERS (Phase 12 default).
-    #[props(default)]
-    members_override: Option<Vec<MemberTO>>,
+    #[props(default)] members_override: Option<Vec<MemberTO>>,
 ) -> Element {
     let mut query = use_signal(|| String::new());
     let mut show_dropdown = use_signal(|| false);

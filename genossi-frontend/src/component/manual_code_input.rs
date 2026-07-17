@@ -113,7 +113,10 @@ mod tests {
     #[test]
     fn lowercase_blocks_submit() {
         let (valid, disabled) = compute_submit_state("abc1234567", false);
-        assert!(!valid, "lowercase is not valid (sanitize would uppercase first)");
+        assert!(
+            !valid,
+            "lowercase is not valid (sanitize would uppercase first)"
+        );
         assert!(disabled);
     }
 
@@ -135,7 +138,10 @@ mod tests {
     fn valid_code_blocks_submit_while_submitting() {
         let (valid, disabled) = compute_submit_state("ABC1234567", true);
         assert!(valid, "value itself is still valid Crockford");
-        assert!(disabled, "submitting=true forces disabled (no double-submit)");
+        assert!(
+            disabled,
+            "submitting=true forces disabled (no double-submit)"
+        );
     }
 
     #[test]

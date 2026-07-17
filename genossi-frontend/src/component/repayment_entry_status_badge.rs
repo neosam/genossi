@@ -11,9 +11,7 @@ use crate::i18n::{use_i18n, Key};
 fn status_label(i18n: &crate::i18n::I18n, status: &RepaymentEntryStatusTO) -> String {
     match status {
         RepaymentEntryStatusTO::Open => i18n.t(Key::RepaymentEntryStatusOpen).to_string(),
-        RepaymentEntryStatusTO::Contacted => {
-            i18n.t(Key::RepaymentEntryStatusContacted).to_string()
-        }
+        RepaymentEntryStatusTO::Contacted => i18n.t(Key::RepaymentEntryStatusContacted).to_string(),
         RepaymentEntryStatusTO::PaidOut => i18n.t(Key::RepaymentEntryStatusPaidOut).to_string(),
     }
 }

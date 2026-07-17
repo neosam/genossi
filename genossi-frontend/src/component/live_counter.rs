@@ -209,8 +209,14 @@ mod tests {
         };
         let text = render_counter_text(Some(&stats), 0, &de());
         assert_eq!(text, "12 von 47 anwesend");
-        assert!(text.contains(" von "), "must contain literal ' von ' separator");
-        assert!(text.ends_with("anwesend"), "must end with the word 'anwesend'");
+        assert!(
+            text.contains(" von "),
+            "must contain literal ' von ' separator"
+        );
+        assert!(
+            text.ends_with("anwesend"),
+            "must end with the word 'anwesend'"
+        );
     }
 
     #[test]
@@ -243,7 +249,10 @@ mod tests {
         };
         let text = render_counter_text(Some(&stats), 2, &de());
         assert_eq!(text, "\u{2014} von 47 anwesend");
-        assert!(text.contains("47"), "Y (47) must remain visible during outage");
+        assert!(
+            text.contains("47"),
+            "Y (47) must remain visible during outage"
+        );
     }
 
     #[test]
