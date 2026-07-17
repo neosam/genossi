@@ -33,6 +33,25 @@ Plan: —
 Status: Defining requirements
 Last activity: 2026-07-17 — Milestone v1.5 started
 
+### v1.5 Phase Structure (Phases 26-28, granularity: coarse)
+
+| Phase | Goal | Requirements | Depends on |
+|-------|------|--------------|------------|
+| 26. Editor-Formatierung vervollständigen | WYSIWYG-Toolbar um Listen (ul/ol) + Überschriften (H2/H3) erweitern; v1.4 Phase-24-UAT im gleichen Zug abhaken | EDIT-06..10 | Phase 25 (v1.4 WYSIWYG + ammonia-Pipeline) |
+| 27. Bild-Support Backend + Editor-Upload | `mail_asset`-Entität ohne Audit + Upload-/Bytes-REST + `<img data-genossi-asset-id>`-Regel + CID-Renderer + `multipart/related` | IMG-01..09 | Phase 26 |
+| 28. Desktop/Mobile-Vorschau | Sandboxed iframe-Preview (~640px/~360px) rendert ammonia-sanitisierte HTML inklusive Bilder | PREV-01..05 | Phase 27 |
+
+**Build order:** 26 → 27 → 28 strikt sequenziell. Phase 27 fasst dieselben ammonia-`<img>`-Regeln an, die Phase 26 erweitert — Sequenzierung vermeidet Merge-Konflikte auf `sanitize.rs`. Phase 28 (Preview) braucht Phase 27's `/api/mail/assets/{id}/bytes`-Endpoint, um Bilder zu rendern.
+
+**Audit scope (v1.5):** Kein Audit-Log für die neue `mail_asset`-Entität (Non-Kern-Entität, analog `application_documents`-Pattern aus v1.4 Phase 25). Bestehende auditierte Entitäten (Member/MemberAction/MemberDocument/Application) bleiben unverändert. Keine neue Backend-Dependency: `ammonia` (Phase 23) wird nur um Regeln erweitert; bleibt server-side only (kein WASM-Bundle).
+
+**Backward-Compat:** v1.4-Templates ohne Bilder senden weiterhin OHNE `multipart/related`-Wrapper (IMG-09). Bestehende WYSIWYG-Component wird erweitert, nicht ersetzt.
+
+**Deferred UAT vor Produktions-Merge (Restposten aus v1.4, jetzt via EDIT-10 kombiniert):**
+- Phase 24 UAT-Checklist (3 HARD FAIL GATES: styleWithCSS=false-Bold, Paste-Plain, In-App-Modal statt window.prompt) + Live-Preview + Template-Save/Reload + multipart/alternative-Delivery
+- Phase 25 UAT-Checklist (Upload/Replace/Delete, Confirm→Carryover→Member-Detail, Audit-Chain, CR-02-Regression)
+- MAIL-04: EHLO-250-8BITMIME-Check am Produktiv-Relay VOR `smtp_encoding=8bit`-Aktivierung
+
 ### v1.4 Phase Structure (Phases 22-25, granularity: coarse)
 
 | Phase | Goal | Requirements | Depends on |

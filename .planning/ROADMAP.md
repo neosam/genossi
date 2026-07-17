@@ -1,6 +1,6 @@
 # Roadmap: Genossi
 
-Mitgliederverwaltungs-Software für Genossenschaften. Aktiver Stand: fünf ausgelieferte Milestones — v1.0..v1.3 (siehe unten) plus v1.4 (Mail-Formatierung & Antrags-Dokumente). **Nächster Milestone: TBD.** Offene Kandidaten siehe Backlog (999.x).
+Mitgliederverwaltungs-Software für Genossenschaften. Aktiver Stand: fünf ausgelieferte Milestones — v1.0..v1.4 — plus aktiver Milestone **v1.5 Editor-Vervollständigung, Bild-Support & Vorschau** (Phases 26-28). Offene Kandidaten siehe Backlog (999.x).
 
 ## Milestones
 
@@ -9,6 +9,7 @@ Mitgliederverwaltungs-Software für Genossenschaften. Aktiver Stand: fünf ausge
 - ✅ **v1.2 Mitgliedschaft-Anpassungen** — Phases 14-18 (shipped 2026-06-07)
 - ✅ **v1.3 Posteingang-Benachrichtigung & Reply-Komfort** — Phases 19-21 (shipped 2026-06-28)
 - ✅ **v1.4 Mail-Formatierung & Antrags-Dokumente** — Phases 22-25 (shipped 2026-07-03)
+- 🚧 **v1.5 Editor-Vervollständigung, Bild-Support & Vorschau** — Phases 26-28 (planning 2026-07-17)
 
 ## Phases
 
@@ -81,6 +82,66 @@ Archive: `.planning/milestones/v1.4-ROADMAP.md` · `v1.4-REQUIREMENTS.md` · `v1
 
 </details>
 
+<details open>
+<summary>🚧 v1.5 Editor-Vervollständigung, Bild-Support & Vorschau (Phases 26-28) — PLANNING 2026-07-17</summary>
+
+**Goal:** Der WYSIWYG-Editor bekommt vollen Formatierungs-Umfang (Listen, Überschriften), Vorstand kann Inline-Bilder direkt im Editor hochladen und in HTML-Mails einbetten, und das gerenderte HTML lässt sich in Desktop-/Mobile-Vorschau prüfen bevor die Mail versendet wird.
+
+- [ ] **Phase 26: Editor-Formatierung vervollständigen** — Listen (ul/ol), Überschriften (H2/H3), Toolbar-Erweiterung + Grep-Gate; v1.4-Phase-24-UAT-Checklist wird im gleichen Zug abgehakt (EDIT-06..10)
+- [ ] **Phase 27: Bild-Support Backend + Editor-Upload** — `mail_asset`-Entität (kein Audit) + Upload-REST + Bytes-REST + ammonia `<img data-genossi-asset-id>`-Regel + CID-Renderer + `multipart/related` (IMG-01..09)
+- [ ] **Phase 28: Desktop/Mobile-Vorschau** — sandboxed iframe-Preview mit umschaltbaren Breakpoints (~640px / ~360px), rendert ammonia-sanitisierte HTML mit Bildern via `/api/mail/assets/{id}/bytes` (PREV-01..05)
+
+**Build order:** 26 → 27 → 28 strikt sequenziell. Phase 27 (Bild-Support) fasst dieselben `ammonia`-Regeln an, die Phase 26 erweitert — Sequenzierung vermeidet Merge-Konflikte auf `sanitize.rs`. Phase 28 (Preview) braucht Phase 27's `/api/mail/assets/{id}/bytes`-Endpoint, um Bilder in der Vorschau zu rendern.
+
+**Audit scope (v1.5):** Kein Audit-Log für die neue `mail_asset`-Entität (Non-Kern-Entität, analog `application_documents`-Pattern aus v1.4 Phase 25). Bestehende auditierte Entitäten (Member/MemberAction/MemberDocument/Application) bleiben unverändert. Neue Backend-Dependency: keine — `ammonia` (Phase 23) wird nur um Regeln erweitert.
+
+**Backward-Compat:** v1.4-Templates ohne Bilder senden weiterhin OHNE `multipart/related`-Wrapper (IMG-09). Bestehende WYSIWYG-Component wird erweitert, nicht ersetzt. Ammonia bleibt server-side only (kein WASM-Bundle).
+
+Archive: TBD (bei Milestone-Close)
+
+</details>
+
+## Phase Details
+
+### Phase 26: Editor-Formatierung vervollständigen
+**Goal:** Vorstand kann im WYSIWYG-Editor Listen und Überschriften wie in einer normalen Text-Verarbeitung setzen — die Formatierung überlebt Save/Reload und ammonia-Sanitization ohne Verlust.
+**Depends on:** Phase 25 (v1.4 WYSIWYG-Component + ammonia-Sanitize-Pipeline)
+**Requirements:** EDIT-06, EDIT-07, EDIT-08, EDIT-09, EDIT-10
+**Success Criteria** (what must be TRUE):
+  1. Vorstand kann im Editor ungeordnete UND geordnete Listen (`<ul>`/`<ol>`) via Toolbar setzen; nach Save→Reload sind die Listen-Elemente unverändert im Body.
+  2. Vorstand kann Überschriften H2 und H3 via Toolbar setzen; nach Save→Reload sind die Header-Elemente unverändert im Body und werden in der Empfänger-Mail sichtbar gerendert.
+  3. Ammonia-Sanitize verliert weder Listen- noch Überschriften-Struktur; ein Grep-Gate analog EDIT-01/02 verifiziert `styleWithCSS=false`-Konsistenz für die neuen Toolbar-Buttons.
+  4. v1.4 Phase-24-UAT-Checklist (3 HARD FAIL GATES: styleWithCSS=false-Bold, Paste-Plain, In-App-Modal statt window.prompt) wird im gleichen Vorstand-Smoke-Test mit-abgehakt und der Live-Preview-Render sowie die multipart/alternative-Delivery bestätigt.
+  5. Bestehende v1.4-Templates ohne Listen/Überschriften rendern byte-identisch weiter (Backward-Compat auf sanitize.rs).
+**Plans:** TBD
+**UI hint:** yes
+
+### Phase 27: Bild-Support Backend + Editor-Upload
+**Goal:** Vorstand kann Inline-Bilder direkt im WYSIWYG-Editor hochladen und in HTML-Mails einbetten; die Empfänger sehen die Bilder in der Mail (inklusive Test-Mail an den Vorstand selbst).
+**Depends on:** Phase 26
+**Requirements:** IMG-01, IMG-02, IMG-03, IMG-04, IMG-05, IMG-06, IMG-07, IMG-08, IMG-09
+**Success Criteria** (what must be TRUE):
+  1. Vorstand kann im Editor ein PNG/JPEG/GIF-Bild (bis 5 MB) per Drag&Drop ODER Toolbar-Button hochladen; der Editor zeigt das Bild sofort per `/api/mail/assets/{id}/bytes`-URL an.
+  2. Beim Mail-Versand wird das Bild als CID-Referenz (`cid:asset-X@genossi`) in die HTML-Mail geschrieben und als `multipart/related`-Inline-Part angehängt; Gesamt-Mail-Struktur ist `multipart/mixed → multipart/related → multipart/alternative`.
+  3. Test-Mail an den Vorstand rendert das Bild im echten Mail-Client (Thunderbird, Outlook, Nextcloud-Webmail) korrekt — kein „broken image"-Icon.
+  4. Externe HTTP-`src`, `data:`-URIs und SVG werden serverseitig via `ammonia`-Regel gestrippt; nur `<img data-genossi-asset-id="…">` ist erlaubt, `src` wird nur beim Rendern injiziert.
+  5. Gesamt-Mailgröße wird gegen 25 MB Limit geprüft (klarer Fehler VOR SMTP), und bestehende v1.4-Templates ohne Bilder senden weiterhin OHNE `multipart/related`-Wrapper (Backward-Compat).
+**Plans:** TBD
+**UI hint:** yes
+
+### Phase 28: Desktop/Mobile-Vorschau
+**Goal:** Vorstand kann vor dem Versand die tatsächlich sanitisierte HTML-Mail in Desktop- und Mobile-Breite anschauen — Diskrepanzen zwischen dem Editor-DOM und der Empfänger-Sicht werden sofort sichtbar.
+**Depends on:** Phase 27 (Assets-Bytes-Endpoint wird für Bilder in der Preview benötigt)
+**Requirements:** PREV-01, PREV-02, PREV-03, PREV-04, PREV-05
+**Success Criteria** (what must be TRUE):
+  1. Vorstand kann im Editor zwischen den drei Modi „Bearbeiten", „Desktop-Vorschau" (~640px) und „Mobile-Vorschau" (~360px) umschalten; die Umschaltung ist visuell klar (z. B. Device-Rahmen), sodass ein versehentliches Tippen im Preview-Modus offensichtlich nichts editiert.
+  2. Die Vorschau rendert den ammonia-sanitisierten HTML-Body (nicht das rohe `contenteditable`-DOM); dadurch werden Diskrepanzen — z. B. verlorene Attribute — sofort sichtbar, bevor die Mail versendet wird.
+  3. Bilder in der Vorschau werden korrekt angezeigt: `data-genossi-asset-id="X"` wird zu `/api/mail/assets/{id}/bytes` aufgelöst (nur für authentifizierte Vorstands-Sessions).
+  4. Preview läuft in einem sandboxed `<iframe>` mit fester Breite; kein CSS bleedet zwischen Editor und Vorschau in beide Richtungen (verifizierbar durch bewusst gesetzte Konflikt-Klassen im Editor-Umfeld).
+  5. Alle Preview-Modi funktionieren mit bestehenden v1.4-Templates ohne Bilder (Backward-Compat) UND mit den neuen v1.5-Templates mit Listen/Überschriften/Bildern.
+**Plans:** TBD
+**UI hint:** yes
+
 ## Progress
 
 | Phase                                              | Milestone | Plans Complete | Status      | Completed  |
@@ -110,6 +171,9 @@ Archive: `.planning/milestones/v1.4-ROADMAP.md` · `v1.4-REQUIREMENTS.md` · `v1
 | 23. HTML Mail Backend                              | v1.4      | 4/4            | Complete    | 2026-07-02 |
 | 24. WYSIWYG Frontend Editor                        | v1.4      | 4/4            | Complete    | 2026-07-03 |
 | 25. Application File Upload + Audited Carryover    | v1.4      | 5/5            | Complete    | 2026-07-03 |
+| 26. Editor-Formatierung vervollständigen           | v1.5      | 0/0            | Not started | -          |
+| 27. Bild-Support Backend + Editor-Upload           | v1.5      | 0/0            | Not started | -          |
+| 28. Desktop/Mobile-Vorschau                        | v1.5      | 0/0            | Not started | -          |
 
 ---
 
@@ -174,4 +238,4 @@ Archive: `.planning/milestones/v1.4-ROADMAP.md` · `v1.4-REQUIREMENTS.md` · `v1
 
 ---
 
-_Last updated: 2026-06-29 — v1.4 Mail-Formatierung & Antrags-Dokumente gestartet (Phases 22-25, fortlaufende Nummerierung nach v1.3 Phase 21). 20 REQs (MAIL/HTML/EDIT/APDOC je 5) auf 4 Phasen gemappt, 100% Coverage. Build-Order 22→23→24 sequenziell, Phase 25 parallelisierbar. v1.0-v1.3 Historie + Backlog 999.x unverändert erhalten._
+_Last updated: 2026-07-17 — v1.5 Editor-Vervollständigung, Bild-Support & Vorschau gestartet (Phases 26-28, fortlaufende Nummerierung nach v1.4 Phase 25). 19 REQs (EDIT-06..10, IMG-01..09, PREV-01..05) auf 3 Phasen gemappt, 100% Coverage. Build-Order 26→27→28 strikt sequenziell (ammonia-Regeln-Konflikt zwischen 26/27; Preview braucht 27's Assets-Bytes-Endpoint). v1.0-v1.4 Historie + Backlog 999.x unverändert erhalten._

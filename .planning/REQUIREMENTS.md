@@ -65,26 +65,28 @@ Explizit ausgeschlossen — dokumentiert, um Scope-Creep zu verhindern.
 
 ## Traceability
 
-Wird beim Roadmap-Bau vom `gsd-roadmapper` gefüllt.
+Gefüllt vom `gsd-roadmapper` beim Roadmap-Bau am 2026-07-17.
 
-| Requirement | Phase | Status |
-|-------------|-------|--------|
-| EDIT-06 | Phase 26 | Pending |
-| EDIT-07 | Phase 26 | Pending |
-| EDIT-08 | Phase 26 | Pending |
-| EDIT-09 | Phase 26 | Pending |
-| EDIT-10 | Phase 26 | Pending |
-| IMG-01 | Phase 27 | Pending |
-| IMG-02 | Phase 27 | Pending |
-| IMG-03 | Phase 27 | Pending |
-| IMG-04 | Phase 27 | Pending |
-| IMG-05 | Phase 27 | Pending |
-| IMG-06 | Phase 27 | Pending |
-| IMG-07 | Phase 27 | Pending |
-| IMG-08 | Phase 27 | Pending |
-| IMG-09 | Phase 27 | Pending |
-| PREV-01 | Phase 28 | Pending |
-| PREV-02 | Phase 28 | Pending |
-| PREV-03 | Phase 28 | Pending |
-| PREV-04 | Phase 28 | Pending |
-| PREV-05 | Phase 28 | Pending |
+| Requirement | Phase | Phase Name | Status |
+|-------------|-------|------------|--------|
+| EDIT-06 | Phase 26 | Editor-Formatierung vervollständigen | Pending |
+| EDIT-07 | Phase 26 | Editor-Formatierung vervollständigen | Pending |
+| EDIT-08 | Phase 26 | Editor-Formatierung vervollständigen | Pending |
+| EDIT-09 | Phase 26 | Editor-Formatierung vervollständigen | Pending |
+| EDIT-10 | Phase 26 | Editor-Formatierung vervollständigen | Pending |
+| IMG-01 | Phase 27 | Bild-Support Backend + Editor-Upload | Pending |
+| IMG-02 | Phase 27 | Bild-Support Backend + Editor-Upload | Pending |
+| IMG-03 | Phase 27 | Bild-Support Backend + Editor-Upload | Pending |
+| IMG-04 | Phase 27 | Bild-Support Backend + Editor-Upload | Pending |
+| IMG-05 | Phase 27 | Bild-Support Backend + Editor-Upload | Pending |
+| IMG-06 | Phase 27 | Bild-Support Backend + Editor-Upload | Pending |
+| IMG-07 | Phase 27 | Bild-Support Backend + Editor-Upload | Pending |
+| IMG-08 | Phase 27 | Bild-Support Backend + Editor-Upload | Pending |
+| IMG-09 | Phase 27 | Bild-Support Backend + Editor-Upload | Pending |
+| PREV-01 | Phase 28 | Desktop/Mobile-Vorschau | Pending |
+| PREV-02 | Phase 28 | Desktop/Mobile-Vorschau | Pending |
+| PREV-03 | Phase 28 | Desktop/Mobile-Vorschau | Pending |
+| PREV-04 | Phase 28 | Desktop/Mobile-Vorschau | Pending |
+| PREV-05 | Phase 28 | Desktop/Mobile-Vorschau | Pending |
+
+**Coverage:** 19/19 (100%) v1.5 Requirements mapped, keine Orphans, keine Duplikate.
