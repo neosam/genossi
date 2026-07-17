@@ -1,41 +1,37 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.4
-milestone_name: Mail-Formatierung & Antrags-Dokumente
-current_phase: 4
-status: Awaiting next milestone
-stopped_at: Completed 25-03-PLAN.md
-last_updated: "2026-07-03T02:00:00.271Z"
-last_activity: 2026-07-03
-last_activity_desc: Milestone v1.4 completed and archived
+milestone: v1.5
+milestone_name: Editor-Vervollständigung, Bild-Support & Vorschau
+status: planning
+last_updated: "2026-07-17T07:18:48.877Z"
+last_activity: 2026-07-17
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 16
-  completed_plans: 16
-  percent: 100
-current_phase_name: Application File Upload + Audited Carryover (complete — 5/5 plans)
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
-# State: Genossi — v1.4 Mail-Formatierung & Antrags-Dokumente (Roadmap erstellt)
+# State: Genossi — v1.5 Editor-Vervollständigung, Bild-Support & Vorschau (Requirements werden erhoben)
 
 **Initialized:** 2026-05-02
-**Last Updated:** 2026-07-02 (Phase 24 Plan 04 executed — Wave 4 UAT + e2e complete, Phase 24 fully done)
+**Last Updated:** 2026-07-17 (Milestone v1.5 gestartet — Editor-Fix, mail_asset, Preview)
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-06-07 after v1.2 close)
+See: `.planning/PROJECT.md` (updated 2026-07-17 mit v1.5 Current Milestone)
 
 **Core Value:** Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachvollziehbar (Audit-Hashchain), mit weniger manueller Arbeit.
 
-**Current Focus:** Phase 25 — Application File Upload + Audited Carryover **COMPLETE**. Nächster Schritt: Vorstand-Smoke-Test der 25-UAT-CHECKLIST (Steps 4-12) vor Merge, dann Milestone v1.4 abschluss-audit (Phase 22+23 sind noch Ready to verify / In Progress).
+**Current Focus:** Milestone v1.5 gestartet. Nächster Schritt: REQUIREMENTS.md definieren, dann ROADMAP.md (Phasen 26 Editor-Fix → 27 Bild-Support → 28 Preview).
 
 ## Current Position
 
-Phase: Milestone v1.4 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-07-03 — Milestone v1.4 completed and archived
+Status: Defining requirements
+Last activity: 2026-07-17 — Milestone v1.5 started
 
 ### v1.4 Phase Structure (Phases 22-25, granularity: coarse)
 

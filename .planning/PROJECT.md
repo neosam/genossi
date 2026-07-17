@@ -18,11 +18,21 @@ Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachv
 - ✅ **v1.3 Posteingang-Benachrichtigung & Reply-Komfort** (2026-06-28) — Inbox-Anhänge persistieren/anzeigen/herunterladen (Phase 19), täglicher Inbox-Digest-Worker (`genossi_mail/src/digest.rs`: konfigurierbare Empfänger + Uhrzeit, Ein-Versand-pro-Kalendertag, Deep-Link auf `/inbox`, kein Versand bei leerem Posteingang/ohne Empfänger), und Reply im vollflächigen `Modal` (X-Header + «Abbrechen» + Dirty-Check-Confirm, Body-Editor unverändert `h-40`). Audit `passed` (11/11 REQs, Integration 8/8 sauber, E2E-Flow Digest→Inbox→Anhänge→Reply, Live-Browser-Smoke-Test bestanden). Phase-21-Code-Review fand+fixte 1 Critical (Footer-Load überschrieb getippten Reply-Body → Datenverlust).
 - ✅ **v1.4 Mail-Formatierung & Antrags-Dokumente** (2026-07-03) — `build_message`-Factory in `genossi_mail::send` + opt-in 8bit-Encoding (MAIL-01..05); `multipart/alternative` mit `ammonia`-Sanitization + autoescape-`html_env` + FMT-01 deutsches Datumsformat (HTML-01..05, FMT-01); wiederverwendbare Dioxus-`WysiwygEditor`-Component mit ammonia-safer Toolbar (styleWithCSS=false), In-App-Modal-Link-Dialog + plain-text-Paste, ersetzt alle 3 `MailBodyEditor`-Verwender (EDIT-01..05); `application_documents`-Single-Slot mit auditiertem Carryover-`MemberDocument` bei `confirm()` inkl. CR-02-Fix (APDOC-01..05). Audit `passed` (20/21 REQs — MAIL-04 by design als Verify-in-Prod-Runbook). Live-Browser-UAT (Phase 24 + 25) deferred zu Vorstand-Smoke-Session.
 
-## Current Milestone: TBD
+## Current Milestone: v1.5 Editor-Vervollständigung, Bild-Support & Vorschau
 
-Der nächste Milestone ist noch nicht definiert. Verwende `/gsd-new-milestone`, um das nächste Ziel zu klären.
+**Goal:** Der WYSIWYG-Editor bekommt vollen Formatierungs-Umfang (Listen, Überschriften), Vorstand kann Inline-Bilder direkt im Editor hochladen und in HTML-Mails einbetten, und das gerenderte HTML lässt sich in Desktop-/Mobile-Vorschau prüfen bevor die Mail versendet wird.
 
-**Deferred UAT vor Produktions-Merge:**
+**Target features:**
+- Editor-Formatierung vervollständigen — Listen (ungeordnet/geordnet), Überschriften (H2/H3), evtl. Zitat; Fix des v1.4-Gaps aus Phase 24 (nur Bold war explizit im UAT-Gate)
+- Bild-Support — dedizierte `mail_asset`-Entität (DAO/Service/REST, keine Auditpflicht), Drag&Drop + Toolbar-Upload im WYSIWYG, ammonia `<img data-genossi-asset-id>`-Regel, Renderer löst zu `cid:` + `multipart/related` auf, Test-Mail-Path bleibt bildfähig
+- Desktop/Mobile-Vorschau — umschaltbar ~600px/~360px, rendert sanitisierte HTML-Fassung (nicht `contenteditable`-Roh-DOM), Bilder via `/api/mail/assets/{id}/bytes`
+
+**Key context:**
+- Baut auf v1.4 (HTML-Mail-Pipeline Phase 23 + WYSIWYG-Editor Phase 24)
+- Bild-Format-Startvorschlag: PNG/JPEG/GIF, 5 MB/Bild, 25 MB/Mail; kein SVG (XSS-Risiko), kein WebP (Outlook-Kompat)
+- Details für Discuss-Phase je Phase offen: Zugriffsschutz Bytes-Endpoint, Orphan-Cleanup, Preview-CSS-Reset (iframe-Sandbox vs sandboxed div), Template-vs-Job-Bild-Auflösungszeitpunkt
+
+**Deferred UAT vor Produktions-Merge (Restposten aus v1.4):**
 - Phase 24 UAT-Checklist (`.planning/milestones/v1.4-phases/24-wysiwyg-frontend-editor/24-UAT-CHECKLIST.md` — noch nicht archiviert, siehe `.planning/phases/24-.../`): 3 HARD FAIL GATES (styleWithCSS=false-Bold, Paste-Plain, In-App-Modal statt window.prompt) + Live-Preview + Template-Save/Reload + multipart/alternative-Delivery
 - Phase 25 UAT-Checklist: 6 HARD FAIL GATES (Upload/Replace/Delete-Flow, Confirm→Carryover→Member-Detail-Sichtbarkeit, Audit-Chain-Grün, CR-02-Regressionstest)
 - MAIL-04: EHLO-`250-8BITMIME`-Check am Produktiv-Relay per Runbook `docs/OPERATIONS.md` VOR `smtp_encoding=8bit`-Aktivierung
