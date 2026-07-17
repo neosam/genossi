@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Editor-Vervollständigung, Bild-Support & Vorschau
-current_phase_name: defining requirements
-status: planning
-stopped_at: Completed 25-03-PLAN.md
-last_updated: "2026-07-17T12:06:12.772Z"
+current_phase_name: 26-editor-formatierung-vervollstaendigen
+status: phase_complete
+stopped_at: Verifier PASSED für Phase 26 (UAT deferred per D-06)
+last_updated: "2026-07-17T14:20:00.000Z"
 last_activity: 2026-07-17
-last_activity_desc: Milestone v1.5 started
+last_activity_desc: Phase 26 verifiziert (PASSED); UAT als Ship-Gate vor v1.5-Close vorgemerkt; nächster Schritt Phase 27 (Bild-Support)
 progress:
-  total_phases: 1
+  total_phases: 3
   completed_phases: 1
   total_plans: 3
   completed_plans: 3
@@ -30,10 +30,10 @@ See: `.planning/PROJECT.md` (updated 2026-07-17 mit v1.5 Current Milestone)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-07-17 — Milestone v1.5 started
+Phase: 26 — Editor-Formatierung vervollständigen
+Plan: 26-01, 26-02, 26-03 (all Wave-1, all complete)
+Status: Verifying (Goal-Backward-Analyse steht an; UAT via 26-UAT-CHECKLIST.md deferred bis Vorstands-Termin vor v1.5-Milestone-Close)
+Last activity: 2026-07-17 — Phase 26 Execution abgeschlossen (3 sanitize-Tests, 1 e2e round-trip, 3 grep-gate-Tests + 1 meta-test, UAT-Checklist mit 16 Steps)
 
 ### v1.5 Phase Structure (Phases 26-28, granularity: coarse)
 
@@ -120,6 +120,7 @@ Last activity: 2026-07-17 — Milestone v1.5 started
 | Phase | State | Resume |
 |-------|-------|--------|
 | 24 | verification_deferred_human — live browser UAT (styleWithCSS=false Bold, paste-plain, in-app modal link, live preview render, template save/reload, multipart delivery) | Run 24-UAT-CHECKLIST.md in `dx serve` browser session before production merge |
+| 26 | verification_deferred_human — 16-Step-Vorstands-Smoke (Phase-24-UAT 1-12 + neue Steps 13-16 für UL/OL/H2/H3), D-06 Ship-Gate vor `/gsd-complete-milestone` | Run 26-UAT-CHECKLIST.md via `dx serve`/`cargo run --bin genossi`-Session vor v1.5-Milestone-Close |
 
 ## Deferred Items
 
