@@ -14841,6 +14841,74 @@ async fn create_template_body_html_sanitized() {
     assert!(!fetched_html.contains("<script>"));
 }
 
+/// Phase 26 EDIT-06/07/08 (D-03 b, D-04): POST + GET template with lists and
+/// headings — prove ammonia-default preserves the WYSIWYG toolbar's UL, OL, LI,
+/// H1, H2, H3 tags through the Frontend→Backend→SQLite→Backend→Frontend
+/// round-trip. Complements the three sanitize.rs unit tests (isolated ammonia
+/// call) with a full HTTP round-trip so a future ammonia upgrade that regresses
+/// list/heading survival fails fast here.
+#[tokio::test]
+async fn create_template_body_html_lists_and_headings_round_trip() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let body_html = "<h1>Titel</h1><h2>Untertitel</h2><ul><li>Punkt A</li><li>Punkt B</li></ul><ol><li>Schritt 1</li><li>Schritt 2</li></ol><h3>Sub</h3>";
+
+    let response = client
+        .post(server.url("/api/mail/templates"))
+        .json(&serde_json::json!({
+            "name": "lists-and-headings-round-trip",
+            "subject": "Formatierungs-Round-Trip",
+            "body": "plain",
+            "body_html": body_html,
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let created: MailTemplateTO = response.json().await.unwrap();
+
+    // GET by id and verify stored value is served back with tags intact.
+    let response = client
+        .get(server.url(&format!("/api/mail/templates/{}", created.id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let fetched: MailTemplateTO = response.json().await.unwrap();
+    let stored = fetched.body_html.expect("body_html Some on fetched");
+
+    // Substring-based assertions (per Pitfall 4: no byte-exact comparison —
+    // ammonia may normalise whitespace). Each tag-token and each text fragment
+    // must survive independently.
+    for token in [
+        "<h1>",
+        "</h1>",
+        "<h2>",
+        "</h2>",
+        "<h3>",
+        "</h3>",
+        "<ul>",
+        "</ul>",
+        "<ol>",
+        "</ol>",
+        "<li>",
+        "</li>",
+        "Titel",
+        "Untertitel",
+        "Punkt A",
+        "Punkt B",
+        "Schritt 1",
+        "Schritt 2",
+        "Sub",
+    ] {
+        assert!(
+            stored.contains(token),
+            "round-trip lost token {token}, got: {stored}"
+        );
+    }
+}
+
 // ── Phase 24 Plan 04 — WYSIWYG e2e wire tests (EDIT-01, EDIT-05) ──
 
 /// Phase 24 Plan 04 Task 1 (EDIT-05, D-04 preview seam):

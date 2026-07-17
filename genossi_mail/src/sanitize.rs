@@ -106,4 +106,63 @@ mod tests {
             "expected <p> wrapper to survive, got: {output}"
         );
     }
+
+    // Phase 26 EDIT-06 (D-01/D-03/D-04): ammonia default must preserve UL/LI
+    // so the WYSIWYG toolbar's Unordered-List button round-trips through
+    // sanitize_html unchanged. sanitize.rs is intentionally unmodified
+    // outside the tests module (D-04 backward-compat).
+    #[test]
+    fn sanitize_preserves_unordered_list() {
+        let input = "<ul><li>a</li><li>b</li></ul>";
+        let output = sanitize_html(input);
+        assert!(
+            output.contains("<ul>"),
+            "expected <ul> to survive, got: {output}"
+        );
+        assert!(
+            output.contains("<li>a</li>"),
+            "expected <li>a</li> to survive, got: {output}"
+        );
+        assert!(
+            output.contains("<li>b</li>"),
+            "expected <li>b</li> to survive, got: {output}"
+        );
+    }
+
+    // Phase 26 EDIT-07 (D-01/D-03/D-04): ammonia default must preserve OL/LI
+    // so the WYSIWYG toolbar's Ordered-List button round-trips through
+    // sanitize_html unchanged.
+    #[test]
+    fn sanitize_preserves_ordered_list() {
+        let input = "<ol><li>1</li><li>2</li></ol>";
+        let output = sanitize_html(input);
+        assert!(
+            output.contains("<ol>"),
+            "expected <ol> to survive, got: {output}"
+        );
+        assert!(
+            output.contains("<li>1</li>"),
+            "expected <li>1</li> to survive, got: {output}"
+        );
+        assert!(
+            output.contains("<li>2</li>"),
+            "expected <li>2</li> to survive, got: {output}"
+        );
+    }
+
+    // Phase 26 EDIT-08 (D-01/D-03/D-04): ammonia default must preserve H1/H2/H3
+    // so the WYSIWYG toolbar's heading buttons round-trip through
+    // sanitize_html unchanged. H1 is explicitly covered per D-01 (H1 toolbar
+    // button stays in the frontend).
+    #[test]
+    fn sanitize_preserves_headings_h1_h2_h3() {
+        let input = "<h1>A</h1><h2>B</h2><h3>C</h3>";
+        let output = sanitize_html(input);
+        for token in ["<h1>", "</h1>", "<h2>", "</h2>", "<h3>", "</h3>"] {
+            assert!(
+                output.contains(token),
+                "expected {token} to survive, got: {output}"
+            );
+        }
+    }
 }
