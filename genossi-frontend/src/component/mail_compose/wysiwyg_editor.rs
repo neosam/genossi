@@ -159,3 +159,65 @@ fn sync_from_dom(on_change: &EventHandler<(String, String)>) {
         .unwrap_or_default();
     on_change.call((plain, html));
 }
+
+/// Convert plain text to HTML suitable for seeding the WysiwygEditor.
+/// Escapes HTML entities and turns line breaks into `<br>`, so legacy
+/// templates that were saved before HTML support (Phase 24) show up in the
+/// editor instead of appearing empty.
+pub fn plain_to_html(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        match ch {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            '\r' => {}
+            '\n' => out.push_str("<br>"),
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::plain_to_html;
+
+    #[test]
+    fn empty_input_stays_empty() {
+        assert_eq!(plain_to_html(""), "");
+    }
+
+    #[test]
+    fn escapes_html_entities() {
+        assert_eq!(
+            plain_to_html("<b>&\"'</b>"),
+            "&lt;b&gt;&amp;&quot;&#39;&lt;/b&gt;"
+        );
+    }
+
+    #[test]
+    fn converts_lf_to_br() {
+        assert_eq!(plain_to_html("a\nb"), "a<br>b");
+    }
+
+    #[test]
+    fn converts_crlf_to_br() {
+        assert_eq!(plain_to_html("a\r\nb"), "a<br>b");
+    }
+
+    #[test]
+    fn mixed_content_escapes_and_breaks() {
+        assert_eq!(
+            plain_to_html("Hallo <Welt>\nZeile2 & Zeile3"),
+            "Hallo &lt;Welt&gt;<br>Zeile2 &amp; Zeile3"
+        );
+    }
+
+    #[test]
+    fn trailing_newline_becomes_br() {
+        assert_eq!(plain_to_html("foo\n"), "foo<br>");
+    }
+}

@@ -5,8 +5,8 @@ use uuid::Uuid;
 use crate::api::{self, BulkRecipient, MailJobDetailTO};
 use crate::auth::RequirePrivilege;
 use crate::component::mail_compose::{
-    MailAttachmentPicker, MailSubjectInput, TemplatePreview, TemplateSelector, TemplateVarButtons,
-    WysiwygEditor,
+    plain_to_html, MailAttachmentPicker, MailSubjectInput, TemplatePreview, TemplateSelector,
+    TemplateVarButtons, WysiwygEditor,
 };
 // Quick 260614-ckn: status-Helper leben jetzt in der MailJobsList-Komponente
 // (DRY) und werden von MailJobDetail weiterhin genutzt.
@@ -391,18 +391,19 @@ pub fn MailPage() -> Element {
                             TemplateSelector {
                                 on_select: move |template_body: String| {
                                     let footer = cached_footer.read().clone();
-                                    if footer.is_empty() {
-                                        body.set(template_body);
+                                    let combined = if footer.is_empty() {
+                                        template_body
                                     } else {
-                                        body.set(format!("{}\n{}", template_body, footer));
-                                    }
-                                    // Phase 24 Plan 03 Task 2: TemplateSelector
-                                    // surfaces only plain-text template body,
-                                    // so wipe body_html on select — the user
-                                    // starts with a plain-text template and
-                                    // any HTML they add via the WysiwygEditor
-                                    // afterwards will be captured on submit.
-                                    body_html.set(String::new());
+                                        format!("{}\n{}", template_body, footer)
+                                    };
+                                    body.set(combined.clone());
+                                    // TemplateSelector liefert Plain-Text; für
+                                    // den WysiwygEditor in HTML konvertieren
+                                    // (escape + \n→<br>), sonst bleibt der
+                                    // Editor beim Template-Wechsel leer, weil
+                                    // die neue Seed-Version niemandem als HTML
+                                    // gerendert wird.
+                                    body_html.set(plain_to_html(&combined));
                                 },
                                 // Phase 12 D-18 / Issue #2 BLOCKER-Fix:
                                 // store selected template id so send_bulk_mail can use it.
@@ -414,12 +415,25 @@ pub fn MailPage() -> Element {
                             // SINGLE input source. Its on_change tuple pushes
                             // (innerText, innerHTML) into (body, body_html)
                             // signals after every DOM mutation.
-                            WysiwygEditor {
-                                value: body_html.read().clone(),
-                                on_change: move |(plain, html): (String, String)| {
-                                    body.set(plain);
-                                    body_html.set(html);
-                                },
+                            // `key` erzwingt Remount, wenn ein anderes Template
+                            // gewählt wird — der Editor seedet innerHTML nur
+                            // beim Mount, ohne Remount würde der neue Inhalt
+                            // nie ins DOM übernommen.
+                            {
+                                let editor_key = selected_template_id
+                                    .read()
+                                    .clone()
+                                    .unwrap_or_else(|| "__no_template__".to_string());
+                                rsx! {
+                                    WysiwygEditor {
+                                        key: "{editor_key}",
+                                        value: body_html.read().clone(),
+                                        on_change: move |(plain, html): (String, String)| {
+                                            body.set(plain);
+                                            body_html.set(html);
+                                        },
+                                    }
+                                }
                             }
                             TemplatePreview {
                                 subject: subject,

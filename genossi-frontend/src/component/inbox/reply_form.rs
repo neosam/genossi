@@ -4,8 +4,8 @@ use uuid::Uuid;
 
 use crate::api::{self, StaticDocumentTO};
 use crate::component::mail_compose::{
-    MailAttachmentPicker, MailSubjectInput, TemplatePreview, TemplateSelector, TemplateVarButtons,
-    WysiwygEditor,
+    plain_to_html, MailAttachmentPicker, MailSubjectInput, TemplatePreview, TemplateSelector,
+    TemplateVarButtons, WysiwygEditor,
 };
 use crate::i18n::{use_i18n, Key};
 use crate::service::config::CONFIG;
@@ -55,6 +55,11 @@ pub fn InboxReplyForm(
     // from the WysiwygEditor's DOM alongside reply_body (innerText). Empty
     // sentinel → reply_inbox_mail posts None → legacy plaintext reply.
     let mut reply_body_html = use_signal(|| String::new());
+    // Zähler, der bei jedem Template-Select hochgezählt wird → als `key` auf
+    // dem WysiwygEditor triggert er einen Remount, damit der neu geseedete
+    // reply_body_html tatsächlich im contenteditable-DOM landet
+    // (onmounted läuft nur beim Mount, nicht bei Prop-Änderungen).
+    let mut editor_reset_counter = use_signal(|| 0u32);
     let cached_quote = use_signal({
         let q = quote_block.clone();
         move || q
@@ -194,12 +199,14 @@ pub fn InboxReplyForm(
                         body.push_str("\n\n");
                         body.push_str(&quote);
                     }
+                    // TemplateSelector liefert Plain-Text; ohne HTML-Konversion
+                    // wäre der WysiwygEditor beim Template-Wechsel leer, weil
+                    // set_inner_html("") beim Remount nichts anzeigt.
+                    reply_body_html.set(plain_to_html(&body));
                     reply_body.set(body);
-                    // Phase 24 Plan 03 Task 3: TemplateSelector surfaces
-                    // only plain-text template body; wipe reply_body_html
-                    // on select. Any HTML the user adds via WysiwygEditor
-                    // afterwards is captured on submit.
-                    reply_body_html.set(String::new());
+                    // Remount des Editors erzwingen (via key-Bump), damit der
+                    // neue Seed-HTML im DOM ankommt.
+                    editor_reset_counter.with_mut(|c| *c = c.wrapping_add(1));
                 },
             }
             TemplateVarButtons {
@@ -224,12 +231,20 @@ pub fn InboxReplyForm(
             }
             // Phase 24 (EDIT-01, D-01): WysiwygEditor is the SINGLE input
             // source. on_change tuple → (innerText, innerHTML) → signals.
-            WysiwygEditor {
-                value: reply_body_html.read().clone(),
-                on_change: move |(plain, html): (String, String)| {
-                    reply_body.set(plain);
-                    reply_body_html.set(html);
-                },
+            // `key` bumpt bei jedem Template-Select → Remount → set_inner_html
+            // seedet den neuen Body.
+            {
+                let editor_key = format!("reply-{}", *editor_reset_counter.read());
+                rsx! {
+                    WysiwygEditor {
+                        key: "{editor_key}",
+                        value: reply_body_html.read().clone(),
+                        on_change: move |(plain, html): (String, String)| {
+                            reply_body.set(plain);
+                            reply_body_html.set(html);
+                        },
+                    }
+                }
             }
             // Quick 260607-s0s: same picker the Compose-flow uses
             // (Component-First).

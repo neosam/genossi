@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 
 use crate::api::{self, MailTemplateTO};
 use crate::auth::RequirePrivilege;
-use crate::component::mail_compose::{TemplateTester, TemplateVarButtons, WysiwygEditor};
+use crate::component::mail_compose::{plain_to_html, TemplateTester, TemplateVarButtons, WysiwygEditor};
 use crate::component::{ErrorAlert, TopBar};
 use crate::i18n::{use_i18n, Key};
 use crate::page::AccessDeniedPage;
@@ -57,10 +57,17 @@ pub fn MailTemplatesPage() -> Element {
         edit_name.set(tpl.name.clone());
         edit_subject.set(tpl.subject.clone());
         edit_body.set(tpl.body.clone());
-        // Phase 24 Plan 03 Task 4: seed edit_body_html from the loaded
-        // template's body_html field (may be None for legacy templates
-        // created before Phase 24).
-        edit_body_html.set(tpl.body_html.clone().unwrap_or_default());
+        // Fallback: Legacy-Templates (Phase <24) haben body_html=None; ohne
+        // Fallback wäre der WysiwygEditor leer. Konvertiere den Plain-Text-
+        // Body zu HTML (escape + \n→<br>), damit der Nutzer nicht denkt,
+        // das Template sei gelöscht.
+        let html_seed = tpl
+            .body_html
+            .as_deref()
+            .filter(|h| !h.trim().is_empty())
+            .map(|h| h.to_string())
+            .unwrap_or_else(|| plain_to_html(&tpl.body));
+        edit_body_html.set(html_seed);
         edit_version.set(tpl.version.clone());
         editor_mode.set(EditorMode::Edit(tpl.id.clone()));
         confirm_delete.set(false);
@@ -308,12 +315,28 @@ pub fn MailTemplatesPage() -> Element {
                                             label { class: "block text-sm font-medium text-gray-700 mb-1",
                                                 {i18n.t(Key::MailTemplateBody)}
                                             }
-                                            WysiwygEditor {
-                                                value: edit_body_html.read().clone(),
-                                                on_change: move |(plain, html): (String, String)| {
-                                                    edit_body.set(plain);
-                                                    edit_body_html.set(html);
-                                                },
+                                            // `key` erzwingt Remount, wenn ein
+                                            // anderes Template gewählt wird —
+                                            // WysiwygEditor::onmounted seedet
+                                            // innerHTML nur beim Mount, ohne
+                                            // Remount bliebe der Editor-Inhalt
+                                            // beim Template-Wechsel stehen.
+                                            {
+                                                let editor_key = match &*editor_mode.read() {
+                                                    EditorMode::Edit(id) => id.clone(),
+                                                    EditorMode::Create => "__create__".to_string(),
+                                                    EditorMode::None => String::new(),
+                                                };
+                                                rsx! {
+                                                    WysiwygEditor {
+                                                        key: "{editor_key}",
+                                                        value: edit_body_html.read().clone(),
+                                                        on_change: move |(plain, html): (String, String)| {
+                                                            edit_body.set(plain);
+                                                            edit_body_html.set(html);
+                                                        },
+                                                    }
+                                                }
                                             }
                                         }
 
