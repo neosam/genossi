@@ -113,7 +113,10 @@ Archive: TBD (bei Milestone-Close)
   3. Ammonia-Sanitize verliert weder Listen- noch Überschriften-Struktur; ein Grep-Gate analog EDIT-01/02 verifiziert `styleWithCSS=false`-Konsistenz für die neuen Toolbar-Buttons.
   4. v1.4 Phase-24-UAT-Checklist (3 HARD FAIL GATES: styleWithCSS=false-Bold, Paste-Plain, In-App-Modal statt window.prompt) wird im gleichen Vorstand-Smoke-Test mit-abgehakt und der Live-Preview-Render sowie die multipart/alternative-Delivery bestätigt.
   5. Bestehende v1.4-Templates ohne Listen/Überschriften rendern byte-identisch weiter (Backward-Compat auf sanitize.rs).
-**Plans:** TBD
+**Plans:** 3 plans
+- [ ] 26-01-PLAN.md — Backend Round-Trip Tests: 3 ammonia-Unit-Tests (UL/OL/H1-H3) + 1 E2E-Template-Round-Trip (EDIT-06, EDIT-07, EDIT-08)
+- [ ] 26-02-PLAN.md — Frontend Grep-Gate: 2 include_str!-Source-Invariant-Tests für styleWithCSS + onpaste (EDIT-09)
+- [ ] 26-03-PLAN.md — UAT-Checklist Nachhol + Erweiterung: Copy Phase-24-Checkliste + 4 neue Steps für UL/OL/H2/H3 (EDIT-10)
 **UI hint:** yes
 
 ### Phase 27: Bild-Support Backend + Editor-Upload
@@ -171,7 +174,7 @@ Archive: TBD (bei Milestone-Close)
 | 23. HTML Mail Backend                              | v1.4      | 4/4            | Complete    | 2026-07-02 |
 | 24. WYSIWYG Frontend Editor                        | v1.4      | 4/4            | Complete    | 2026-07-03 |
 | 25. Application File Upload + Audited Carryover    | v1.4      | 5/5            | Complete    | 2026-07-03 |
-| 26. Editor-Formatierung vervollständigen           | v1.5      | 0/0            | Not started | -          |
+| 26. Editor-Formatierung vervollständigen           | v1.5      | 0/3            | Not started | -          |
 | 27. Bild-Support Backend + Editor-Upload           | v1.5      | 0/0            | Not started | -          |
 | 28. Desktop/Mobile-Vorschau                        | v1.5      | 0/0            | Not started | -          |
 
