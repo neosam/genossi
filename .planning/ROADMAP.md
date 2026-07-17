@@ -104,44 +104,55 @@ Archive: TBD (bei Milestone-Close)
 ## Phase Details
 
 ### Phase 26: Editor-Formatierung vervollständigen
+
 **Goal:** Vorstand kann im WYSIWYG-Editor Listen und Überschriften wie in einer normalen Text-Verarbeitung setzen — die Formatierung überlebt Save/Reload und ammonia-Sanitization ohne Verlust.
 **Depends on:** Phase 25 (v1.4 WYSIWYG-Component + ammonia-Sanitize-Pipeline)
 **Requirements:** EDIT-06, EDIT-07, EDIT-08, EDIT-09, EDIT-10
 **Success Criteria** (what must be TRUE):
+
   1. Vorstand kann im Editor ungeordnete UND geordnete Listen (`<ul>`/`<ol>`) via Toolbar setzen; nach Save→Reload sind die Listen-Elemente unverändert im Body.
   2. Vorstand kann Überschriften H2 und H3 via Toolbar setzen; nach Save→Reload sind die Header-Elemente unverändert im Body und werden in der Empfänger-Mail sichtbar gerendert.
   3. Ammonia-Sanitize verliert weder Listen- noch Überschriften-Struktur; ein Grep-Gate analog EDIT-01/02 verifiziert `styleWithCSS=false`-Konsistenz für die neuen Toolbar-Buttons.
   4. v1.4 Phase-24-UAT-Checklist (3 HARD FAIL GATES: styleWithCSS=false-Bold, Paste-Plain, In-App-Modal statt window.prompt) wird im gleichen Vorstand-Smoke-Test mit-abgehakt und der Live-Preview-Render sowie die multipart/alternative-Delivery bestätigt.
   5. Bestehende v1.4-Templates ohne Listen/Überschriften rendern byte-identisch weiter (Backward-Compat auf sanitize.rs).
-**Plans:** 3 plans
-- [ ] 26-01-PLAN.md — Backend Round-Trip Tests: 3 ammonia-Unit-Tests (UL/OL/H1-H3) + 1 E2E-Template-Round-Trip (EDIT-06, EDIT-07, EDIT-08)
-- [ ] 26-02-PLAN.md — Frontend Grep-Gate: 2 include_str!-Source-Invariant-Tests für styleWithCSS + onpaste (EDIT-09)
-- [ ] 26-03-PLAN.md — UAT-Checklist Nachhol + Erweiterung: Copy Phase-24-Checkliste + 4 neue Steps für UL/OL/H2/H3 (EDIT-10)
+
+**Plans:** 3/3 plans executed
+
+- [x] 26-01-PLAN.md — Backend Round-Trip Tests: 3 ammonia-Unit-Tests (UL/OL/H1-H3) + 1 E2E-Template-Round-Trip (EDIT-06, EDIT-07, EDIT-08)
+- [x] 26-02-PLAN.md — Frontend Grep-Gate: 2 include_str!-Source-Invariant-Tests für styleWithCSS + onpaste (EDIT-09)
+- [x] 26-03-PLAN.md — UAT-Checklist Nachhol + Erweiterung: Copy Phase-24-Checkliste + 4 neue Steps für UL/OL/H2/H3 (EDIT-10)
+
 **UI hint:** yes
 
 ### Phase 27: Bild-Support Backend + Editor-Upload
+
 **Goal:** Vorstand kann Inline-Bilder direkt im WYSIWYG-Editor hochladen und in HTML-Mails einbetten; die Empfänger sehen die Bilder in der Mail (inklusive Test-Mail an den Vorstand selbst).
 **Depends on:** Phase 26
 **Requirements:** IMG-01, IMG-02, IMG-03, IMG-04, IMG-05, IMG-06, IMG-07, IMG-08, IMG-09
 **Success Criteria** (what must be TRUE):
+
   1. Vorstand kann im Editor ein PNG/JPEG/GIF-Bild (bis 5 MB) per Drag&Drop ODER Toolbar-Button hochladen; der Editor zeigt das Bild sofort per `/api/mail/assets/{id}/bytes`-URL an.
   2. Beim Mail-Versand wird das Bild als CID-Referenz (`cid:asset-X@genossi`) in die HTML-Mail geschrieben und als `multipart/related`-Inline-Part angehängt; Gesamt-Mail-Struktur ist `multipart/mixed → multipart/related → multipart/alternative`.
   3. Test-Mail an den Vorstand rendert das Bild im echten Mail-Client (Thunderbird, Outlook, Nextcloud-Webmail) korrekt — kein „broken image"-Icon.
   4. Externe HTTP-`src`, `data:`-URIs und SVG werden serverseitig via `ammonia`-Regel gestrippt; nur `<img data-genossi-asset-id="…">` ist erlaubt, `src` wird nur beim Rendern injiziert.
   5. Gesamt-Mailgröße wird gegen 25 MB Limit geprüft (klarer Fehler VOR SMTP), und bestehende v1.4-Templates ohne Bilder senden weiterhin OHNE `multipart/related`-Wrapper (Backward-Compat).
+
 **Plans:** TBD
 **UI hint:** yes
 
 ### Phase 28: Desktop/Mobile-Vorschau
+
 **Goal:** Vorstand kann vor dem Versand die tatsächlich sanitisierte HTML-Mail in Desktop- und Mobile-Breite anschauen — Diskrepanzen zwischen dem Editor-DOM und der Empfänger-Sicht werden sofort sichtbar.
 **Depends on:** Phase 27 (Assets-Bytes-Endpoint wird für Bilder in der Preview benötigt)
 **Requirements:** PREV-01, PREV-02, PREV-03, PREV-04, PREV-05
 **Success Criteria** (what must be TRUE):
+
   1. Vorstand kann im Editor zwischen den drei Modi „Bearbeiten", „Desktop-Vorschau" (~640px) und „Mobile-Vorschau" (~360px) umschalten; die Umschaltung ist visuell klar (z. B. Device-Rahmen), sodass ein versehentliches Tippen im Preview-Modus offensichtlich nichts editiert.
   2. Die Vorschau rendert den ammonia-sanitisierten HTML-Body (nicht das rohe `contenteditable`-DOM); dadurch werden Diskrepanzen — z. B. verlorene Attribute — sofort sichtbar, bevor die Mail versendet wird.
   3. Bilder in der Vorschau werden korrekt angezeigt: `data-genossi-asset-id="X"` wird zu `/api/mail/assets/{id}/bytes` aufgelöst (nur für authentifizierte Vorstands-Sessions).
   4. Preview läuft in einem sandboxed `<iframe>` mit fester Breite; kein CSS bleedet zwischen Editor und Vorschau in beide Richtungen (verifizierbar durch bewusst gesetzte Konflikt-Klassen im Editor-Umfeld).
   5. Alle Preview-Modi funktionieren mit bestehenden v1.4-Templates ohne Bilder (Backward-Compat) UND mit den neuen v1.5-Templates mit Listen/Überschriften/Bildern.
+
 **Plans:** TBD
 **UI hint:** yes
 
@@ -174,7 +185,7 @@ Archive: TBD (bei Milestone-Close)
 | 23. HTML Mail Backend                              | v1.4      | 4/4            | Complete    | 2026-07-02 |
 | 24. WYSIWYG Frontend Editor                        | v1.4      | 4/4            | Complete    | 2026-07-03 |
 | 25. Application File Upload + Audited Carryover    | v1.4      | 5/5            | Complete    | 2026-07-03 |
-| 26. Editor-Formatierung vervollständigen           | v1.5      | 0/3            | Not started | -          |
+| 26. Editor-Formatierung vervollständigen           | v1.5      | 3/3 | In Progress|  |
 | 27. Bild-Support Backend + Editor-Upload           | v1.5      | 0/0            | Not started | -          |
 | 28. Desktop/Mobile-Vorschau                        | v1.5      | 0/0            | Not started | -          |
 

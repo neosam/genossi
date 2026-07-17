@@ -12,7 +12,7 @@
 - [ ] **EDIT-06**: Vorstand kann im WYSIWYG-Editor **ungeordnete Listen** (`<ul><li>`) via Toolbar-Button einfügen; die Struktur überlebt Save/Reload und ammonia-Sanitization.
 - [ ] **EDIT-07**: Vorstand kann im WYSIWYG-Editor **geordnete Listen** (`<ol><li>`) via Toolbar-Button einfügen; die Struktur überlebt Save/Reload und ammonia-Sanitization.
 - [ ] **EDIT-08**: Vorstand kann im WYSIWYG-Editor **Überschriften H2/H3** via Toolbar-Button (Dropdown oder zwei Buttons) einfügen; die Struktur überlebt Save/Reload und ammonia-Sanitization.
-- [ ] **EDIT-09**: Toolbar-Buttons für Listen und Überschriften nutzen `document.execCommand` konsistent mit dem bestehenden Bold-Pattern (`styleWithCSS=false`); zusätzlicher Grep-Gate analog EDIT-01/02 aus v1.4.
+- [x] **EDIT-09**: Toolbar-Buttons für Listen und Überschriften nutzen `document.execCommand` konsistent mit dem bestehenden Bold-Pattern (`styleWithCSS=false`); zusätzlicher Grep-Gate analog EDIT-01/02 aus v1.4.
 - [ ] **EDIT-10**: v1.4 Phase 24 UAT-Checklist wird im Zuge dieser Phase mit-abgehakt (Bold + Paste-Plain + Modal-Link-Dialog + neue Formatierungen als kombinierter Vorstand-Smoke-Test).
 
 ### Bild-Support (Phase 27)
@@ -72,7 +72,7 @@ Gefüllt vom `gsd-roadmapper` beim Roadmap-Bau am 2026-07-17.
 | EDIT-06 | Phase 26 | Editor-Formatierung vervollständigen | Pending |
 | EDIT-07 | Phase 26 | Editor-Formatierung vervollständigen | Pending |
 | EDIT-08 | Phase 26 | Editor-Formatierung vervollständigen | Pending |
-| EDIT-09 | Phase 26 | Editor-Formatierung vervollständigen | Pending |
+| EDIT-09 | Phase 26 | Editor-Formatierung vervollständigen | Complete |
 | EDIT-10 | Phase 26 | Editor-Formatierung vervollständigen | Pending |
 | IMG-01 | Phase 27 | Bild-Support Backend + Editor-Upload | Pending |
 | IMG-02 | Phase 27 | Bild-Support Backend + Editor-Upload | Pending |

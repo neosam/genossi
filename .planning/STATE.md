@@ -2,15 +2,17 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Editor-Vervollständigung, Bild-Support & Vorschau
+current_phase_name: defining requirements
 status: planning
-last_updated: "2026-07-17T07:18:48.877Z"
+stopped_at: Completed 25-03-PLAN.md
+last_updated: "2026-07-17T12:06:12.772Z"
 last_activity: 2026-07-17
+last_activity_desc: Milestone v1.5 started
 progress:
-  total_phases: 0
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  total_phases: 1
+  completed_phases: 1
+  total_plans: 3
+  completed_plans: 3
 ---
 
 # State: Genossi — v1.5 Editor-Vervollständigung, Bild-Support & Vorschau (Requirements werden erhoben)
@@ -48,6 +50,7 @@ Last activity: 2026-07-17 — Milestone v1.5 started
 **Backward-Compat:** v1.4-Templates ohne Bilder senden weiterhin OHNE `multipart/related`-Wrapper (IMG-09). Bestehende WYSIWYG-Component wird erweitert, nicht ersetzt.
 
 **Deferred UAT vor Produktions-Merge (Restposten aus v1.4, jetzt via EDIT-10 kombiniert):**
+
 - Phase 24 UAT-Checklist (3 HARD FAIL GATES: styleWithCSS=false-Bold, Paste-Plain, In-App-Modal statt window.prompt) + Live-Preview + Template-Save/Reload + multipart/alternative-Delivery
 - Phase 25 UAT-Checklist (Upload/Replace/Delete, Confirm→Carryover→Member-Detail, Audit-Chain, CR-02-Regression)
 - MAIL-04: EHLO-250-8BITMIME-Check am Produktiv-Relay VOR `smtp_encoding=8bit`-Aktivierung
@@ -268,6 +271,11 @@ v1.0 Phasen (alle abgeschlossen, archiviert in .planning/milestones/v1.0-phases/
 | Phase 25 P01 | 2min | 1 tasks | 2 files |
 | Phase 25 P03 | 16min | 2 tasks tasks | 4 files (2 new + 2 mod) files |
 | Phase 25 P05 | ~24min | 3 tasks (1 checkpoint auto-approved) | 13 files (2 new + 11 mod) |
+**Per-Plan Metrics:**
+
+| Plan | Duration | Tasks | Files |
+|------|----------|-------|-------|
+| Phase 26 P02 | 20min | 1 tasks | 1 files |
 
 ## Accumulated Context
 
