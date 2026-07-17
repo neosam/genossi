@@ -33,10 +33,7 @@ use crate::component::mail_compose::wysiwyg_toolbar::WysiwygToolbar;
 const EDITOR_ID: &str = "wysiwyg-editor";
 
 #[component]
-pub fn WysiwygEditor(
-    value: String,
-    on_change: EventHandler<(String, String)>,
-) -> Element {
+pub fn WysiwygEditor(value: String, on_change: EventHandler<(String, String)>) -> Element {
     let mut link_dialog_open = use_signal(|| false);
     let mut saved_range = use_signal(|| None::<Range>);
 
@@ -149,8 +146,12 @@ fn doc() -> Option<web_sys::Document> {
 /// through `on_change`. Called after every DOM mutation the parent needs
 /// to see (oninput, toolbar command, link insert, paste). Pitfall 5.
 fn sync_from_dom(on_change: &EventHandler<(String, String)>) {
-    let Some(doc) = doc() else { return; };
-    let Some(el) = doc.get_element_by_id(EDITOR_ID) else { return; };
+    let Some(doc) = doc() else {
+        return;
+    };
+    let Some(el) = doc.get_element_by_id(EDITOR_ID) else {
+        return;
+    };
     let html = el.inner_html();
     // D-02: innerText not textContent so intentional line breaks survive.
     let plain = el
@@ -219,5 +220,111 @@ mod tests {
     #[test]
     fn trailing_newline_becomes_br() {
         assert_eq!(plain_to_html("foo\n"), "foo<br>");
+    }
+}
+
+/// Phase 26 EDIT-09 — Source-Invariant Grep-Gate for the WYSIWYG editor.
+///
+/// These two tests protect against silent regression of the two invariants
+/// that keep the ammonia sanitize gate working:
+/// (1) styleWithCSS=false is set exactly once at mount, so bold/italic emit
+///     semantic <b>/<i> and not <span style=…> (Pitfall 1 of 24-RESEARCH.md).
+/// (2) The onpaste handler calls prevent_default() FIRST, so the browser
+///     does not paste rich-text markup before our insertText override
+///     (Pitfall 3 of 24-RESEARCH.md).
+///
+/// The tests load THIS FILE via include_str! and assert the invariants
+/// are present verbatim. A cargo fmt reformat that changes whitespace or
+/// argument quoting breaks these tests — that is the point.
+///
+/// SELF-REFERENCE HAZARD (Deviation Rule 1 fix during Plan 26-02 execution):
+/// The naive pattern `EDITOR_SRC.contains("target-literal")` produces a
+/// **false positive** because the literal in the test's own source becomes
+/// part of `EDITOR_SRC` via `include_str!`. To avoid this, we:
+///   (a) Slice `EDITOR_SRC` to only the region BEFORE the test module marker,
+///       so the test module's own bytes are excluded from the search range.
+///   (b) Assemble target substrings at runtime via `format!`/concat so no
+///       single literal byte sequence in the test source could satisfy the
+///       search even if (a) failed.
+/// Both defences run together; removing the guard in production code
+/// (line ~77 or the `evt.prevent_default()` on line ~89) reliably trips
+/// the assertion. Verified via manual negative-proof — see 26-02-SUMMARY.md.
+#[cfg(test)]
+mod grep_gate_tests {
+    const EDITOR_SRC: &str = include_str!("wysiwyg_editor.rs");
+
+    /// Marker string that begins the test module itself. Everything from
+    /// this point on is EXCLUDED from the grep-search region, so the
+    /// literals embedded in the assertions below cannot satisfy their
+    /// own contains() checks (self-reference hazard, see module doc).
+    const TEST_MODULE_MARKER: &str = "mod grep_gate_tests";
+
+    fn production_region() -> &'static str {
+        let cutoff = EDITOR_SRC
+            .find(TEST_MODULE_MARKER)
+            .expect("BUG: grep-gate test module marker not found; the marker string must appear verbatim before `mod grep_gate_tests` opens");
+        &EDITOR_SRC[..cutoff]
+    }
+
+    #[test]
+    fn style_with_css_false_guard_present() {
+        // Assemble the target at runtime so its literal byte sequence does
+        // NOT appear anywhere in this test source. Combined with
+        // `production_region()` slicing, this makes the check bite only
+        // when the actual production call is missing.
+        let target = format!(
+            "exec_command_bool(&doc, {q}styleWithCSS{q}, false)",
+            q = "\""
+        );
+        assert!(
+            production_region().contains(&target),
+            "Grep gate FAILED: expected literal call {target} in wysiwyg_editor.rs \
+             (production region, before the test module). This guard is Pitfall 1 \
+             of 24-RESEARCH.md — removing it means Bold emits <span style=…> \
+             instead of <b>, which ammonia strips silently."
+        );
+    }
+
+    #[test]
+    fn paste_handler_calls_prevent_default_before_read() {
+        // Same defence as test 1: search only the production region, and
+        // build the needle strings at runtime.
+        let region = production_region();
+        let paste_needle = format!("onpast{tail}", tail = "e:");
+        let prevent_needle = format!("evt.prevent_defaul{tail}", tail = "t()");
+        let idx = region.find(&paste_needle).expect(
+            "Grep gate FAILED: onpaste handler missing entirely in wysiwyg_editor.rs \
+             (production region)",
+        );
+        let window = &region[idx..idx.saturating_add(400).min(region.len())];
+        assert!(
+            window.contains(&prevent_needle),
+            "Grep gate FAILED: expected {prevent_needle} within 400 chars of \
+             {paste_needle} in wysiwyg_editor.rs (production region). This is \
+             Pitfall 3 of 24-RESEARCH.md — without it, the browser pastes \
+             formatted HTML before our insertText overrides it. Window around \
+             the paste handler (first 400 chars):\n{window}"
+        );
+    }
+
+    /// Meta-test: prove that `production_region()` actually excludes the
+    /// test module. If someone renames `mod grep_gate_tests` or moves the
+    /// tests above the invariants, this test forces the fix.
+    #[test]
+    fn production_region_excludes_test_module() {
+        let region = production_region();
+        assert!(
+            !region.contains(TEST_MODULE_MARKER),
+            "BUG: production_region() slice still contains the test module \
+             marker — the slice is wrong, and grep_gate tests would be false \
+             positives. Fix production_region() before trusting this suite."
+        );
+        // And the excluded portion must be non-empty (i.e. tests DO live
+        // in this file somewhere after the marker).
+        assert!(
+            region.len() < EDITOR_SRC.len(),
+            "BUG: production_region() covers the whole file — test module \
+             marker was not found via .find(), which should have panicked."
+        );
     }
 }
