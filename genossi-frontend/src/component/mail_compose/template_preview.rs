@@ -189,7 +189,7 @@ pub fn TemplatePreview(
                                 {i18n.t(Key::MailEditorPreviewHtml)}
                             }
                             div {
-                                class: "prose prose-sm max-w-none border rounded p-3 text-sm bg-gray-50",
+                                class: "mail-html-render border rounded p-3 text-sm bg-gray-50",
                                 dangerous_inner_html: "{html}",
                             }
                         }
@@ -213,5 +213,54 @@ pub fn TemplatePreview(
                 }
             }
         }
+    }
+}
+
+// Grep-gate tests below — module-level docstring intentionally omitted so no
+// literal class-name strings live in `production_region()`. See test docs.
+#[cfg(test)]
+mod grep_gate_tests {
+    const PREVIEW_SRC: &str = include_str!("template_preview.rs");
+    const TEST_MODULE_MARKER: &str = "mod grep_gate_tests";
+
+    fn production_region() -> &'static str {
+        let cutoff = PREVIEW_SRC
+            .find(TEST_MODULE_MARKER)
+            .expect("BUG: grep-gate test module marker not found");
+        &PREVIEW_SRC[..cutoff]
+    }
+
+    /// Quick 260718-wysiwyg-editor-preview-css-fix — the preview must use the
+    /// same CSS scope as the WYSIWYG editor, otherwise the rendered HTML gets
+    /// flattened by Tailwind Preflight (no h1 sizes, no ul bullets, no
+    /// blockquote border). Uses the same self-reference-hazard defence as
+    /// `wysiwyg_editor::grep_gate_tests`: slice the source before the test
+    /// module and assemble needles at runtime.
+    #[test]
+    fn preview_uses_mail_html_render_scope() {
+        let region = production_region();
+        let scope_needle = format!("mail-html-rende{tail}", tail = "r");
+        let prose_needle = format!("pros{tail}", tail = "e ");
+        assert!(
+            region.contains(&scope_needle),
+            "Grep gate FAILED: expected `mail-html-render` class on the preview \
+             div in template_preview.rs (production region). Without it the \
+             preview flattens h1/ul/ol/blockquote to plain text."
+        );
+        assert!(
+            !region.contains(&prose_needle),
+            "Grep gate FAILED: the `prose ` class is back in template_preview.rs. \
+             It is a no-op because Tailwind Typography is not installed."
+        );
+    }
+
+    #[test]
+    fn production_region_excludes_test_module() {
+        let region = production_region();
+        assert!(
+            !region.contains(TEST_MODULE_MARKER),
+            "BUG: production_region() slice still contains the test module marker"
+        );
+        assert!(region.len() < PREVIEW_SRC.len());
     }
 }

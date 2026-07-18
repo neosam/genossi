@@ -34,5 +34,10 @@ module.exports = {
     "animate-spin",
     "animate-pulse",
     "print:hidden",
+    // Quick 260718-wysiwyg-editor-preview-css-fix — WYSIWYG-Editor + TemplatePreview
+    // custom-scoped semantic-HTML re-styling. Belt-and-suspenders against purge:
+    // the class is referenced in wysiwyg_editor.rs + template_preview.rs which
+    // `content` already covers, but safelist keeps it alive if content-globs shift.
+    "mail-html-render",
   ]
 };

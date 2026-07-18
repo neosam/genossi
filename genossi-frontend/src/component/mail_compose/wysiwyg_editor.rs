@@ -67,7 +67,7 @@ pub fn WysiwygEditor(value: String, on_change: EventHandler<(String, String)>) -
 
             div {
                 id: EDITOR_ID,
-                class: "w-full px-3 py-2 min-h-40 focus:outline-none prose prose-sm max-w-none",
+                class: "w-full px-3 py-2 min-h-40 focus:outline-none mail-html-render",
                 contenteditable: "true",
                 role: "textbox",
                 onmounted: move |_| {
@@ -304,6 +304,30 @@ mod grep_gate_tests {
              Pitfall 3 of 24-RESEARCH.md — without it, the browser pastes \
              formatted HTML before our insertText overrides it. Window around \
              the paste handler (first 400 chars):\n{window}"
+        );
+    }
+
+    /// Quick 260718-wysiwyg-editor-preview-css-fix — the editor container must
+    /// use `mail-html-render` scope so h1..h6 / ul / ol / blockquote render
+    /// visibly. The old `prose prose-sm` is a no-op because Tailwind Typography
+    /// is not installed; regressing to it silently plattes the toolbar output.
+    #[test]
+    fn editor_uses_mail_html_render_scope() {
+        let region = production_region();
+        let scope_needle = format!("mail-html-rende{tail}", tail = "r");
+        let prose_needle = format!("pros{tail}", tail = "e ");
+        assert!(
+            region.contains(&scope_needle),
+            "Grep gate FAILED: expected `mail-html-render` class on the editor \
+             div in wysiwyg_editor.rs (production region). Without it the \
+             semantic HTML from the toolbar (h1, ul, ol, blockquote) is \
+             flattened by Tailwind Preflight and looks like plain text."
+        );
+        assert!(
+            !region.contains(&prose_needle),
+            "Grep gate FAILED: the `prose ` class is back in wysiwyg_editor.rs. \
+             It is a no-op because Tailwind Typography is not installed and \
+             leaves the editor visually broken. Use `mail-html-render` instead."
         );
     }
 

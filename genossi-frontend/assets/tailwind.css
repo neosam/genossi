@@ -588,6 +588,94 @@ video {
   }
 }
 
+.mail-html-render h1 {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin: 0.67em 0;
+  line-height: 1.2;
+}
+
+.mail-html-render h2 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin: 0.75em 0;
+  line-height: 1.2;
+}
+
+.mail-html-render h3 {
+  font-size: 1.125rem;
+  font-weight: 700;
+  margin: 0.83em 0;
+  line-height: 1.25;
+}
+
+.mail-html-render h4 {
+  font-size: 1rem;
+  font-weight: 700;
+  margin: 1em 0;
+}
+
+.mail-html-render h5 {
+  font-size: 0.875rem;
+  font-weight: 700;
+  margin: 1em 0;
+}
+
+.mail-html-render h6 {
+  font-size: 0.75rem;
+  font-weight: 700;
+  margin: 1em 0;
+}
+
+.mail-html-render p  {
+  margin: 0.5em 0;
+}
+
+.mail-html-render ul {
+  list-style-type: disc;
+  padding-left: 1.5rem;
+  margin: 0.5em 0;
+}
+
+.mail-html-render ol {
+  list-style-type: decimal;
+  padding-left: 1.5rem;
+  margin: 0.5em 0;
+}
+
+.mail-html-render li {
+  margin: 0.15em 0;
+}
+
+.mail-html-render blockquote {
+  border-left: 3px solid #cbd5e1;
+  padding-left: 0.75rem;
+  margin: 0.5em 0;
+  color: #475569;
+  font-style: italic;
+}
+
+.mail-html-render a  {
+  color: #2563eb;
+  text-decoration: underline;
+}
+
+.mail-html-render b, .mail-html-render strong {
+  font-weight: 700;
+}
+
+.mail-html-render i, .mail-html-render em     {
+  font-style: italic;
+}
+
+.mail-html-render u   {
+  text-decoration: underline;
+}
+
+.mail-html-render s, .mail-html-render strike {
+  text-decoration: line-through;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -610,6 +698,10 @@ video {
 
 .visible {
   visibility: visible;
+}
+
+.invisible {
+  visibility: hidden;
 }
 
 .static {
@@ -744,6 +836,11 @@ video {
 .my-1 {
   margin-top: 0.25rem;
   margin-bottom: 0.25rem;
+}
+
+.my-4 {
+  margin-top: 1rem;
+  margin-bottom: 1rem;
 }
 
 .-mt-1 {
@@ -894,10 +991,6 @@ video {
   height: 1rem;
 }
 
-.h-40 {
-  height: 10rem;
-}
-
 .h-5 {
   height: 1.25rem;
 }
@@ -936,6 +1029,10 @@ video {
 
 .min-h-0 {
   min-height: 0px;
+}
+
+.min-h-40 {
+  min-height: 10rem;
 }
 
 .min-h-\[36px\] {
@@ -2078,6 +2175,10 @@ video {
   text-decoration-line: underline;
 }
 
+.line-through {
+  text-decoration-line: line-through;
+}
+
 .opacity-60 {
   opacity: 0.6;
 }
@@ -2098,6 +2199,11 @@ video {
   --tw-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
   --tw-shadow-colored: 0 1px 2px 0 var(--tw-shadow-color);
   box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow);
+}
+
+.blur {
+  --tw-blur: blur(8px);
+  filter: var(--tw-blur) var(--tw-brightness) var(--tw-contrast) var(--tw-grayscale) var(--tw-hue-rotate) var(--tw-invert) var(--tw-saturate) var(--tw-sepia) var(--tw-drop-shadow);
 }
 
 .filter {
@@ -2133,6 +2239,14 @@ video {
 .duration-500 {
   transition-duration: 500ms;
 }
+
+/* Quick-Task 260718-wysiwyg-editor-preview-css-fix — reactivate default-like
+   styling for semantic HTML elements inside the mail composer editor and the
+   template preview. Tailwind's Preflight zeroes h1..h6, ul, ol, blockquote so
+   they would otherwise render like plain text; the mail recipient's client
+   renders them with browser defaults, so the editor and preview should too.
+   Scope this via `.mail-html-render` — never leak these rules to app-wide
+   headings, which are intentionally styled by Tailwind utilities. */
 
 /* ─── Phase 4 Plan 02 / 04-10 fix ─── Top-level .qr-card marker so Tailwind purge
    keeps the @media print rules below. Without this, @media-only rules whose
@@ -2354,6 +2468,11 @@ body {
   background-color: rgb(185 28 28 / var(--tw-bg-opacity, 1));
 }
 
+.hover\:bg-yellow-200:hover {
+  --tw-bg-opacity: 1;
+  background-color: rgb(254 240 138 / var(--tw-bg-opacity, 1));
+}
+
 .hover\:bg-yellow-600:hover {
   --tw-bg-opacity: 1;
   background-color: rgb(202 138 4 / var(--tw-bg-opacity, 1));
@@ -2488,6 +2607,18 @@ body {
 
   .sm\:grid-cols-3 {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .sm\:flex-row {
+    flex-direction: row;
+  }
+
+  .sm\:items-center {
+    align-items: center;
+  }
+
+  .sm\:justify-between {
+    justify-content: space-between;
   }
 
   .sm\:p-6 {
