@@ -51,6 +51,8 @@ pub fn WysiwygToolbar(
             // Bold
             button {
                 r#type: "button",
+                // Selection-preserve: mousedown → blur destroys the editor's Range before onclick.
+                onmousedown: move |evt| { evt.prevent_default(); },
                 class: "px-2 py-1 text-sm font-bold hover:bg-gray-200 rounded",
                 title: "{i18n.t(Key::MailEditorBold)}",
                 onclick: move |evt| {
@@ -66,6 +68,8 @@ pub fn WysiwygToolbar(
             // Italic
             button {
                 r#type: "button",
+                // Selection-preserve: mousedown → blur destroys the editor's Range before onclick.
+                onmousedown: move |evt| { evt.prevent_default(); },
                 class: "px-2 py-1 text-sm italic hover:bg-gray-200 rounded",
                 title: "{i18n.t(Key::MailEditorItalic)}",
                 onclick: move |evt| {
@@ -81,6 +85,8 @@ pub fn WysiwygToolbar(
             // Underline
             button {
                 r#type: "button",
+                // Selection-preserve: mousedown → blur destroys the editor's Range before onclick.
+                onmousedown: move |evt| { evt.prevent_default(); },
                 class: "px-2 py-1 text-sm underline hover:bg-gray-200 rounded",
                 title: "{i18n.t(Key::MailEditorUnderline)}",
                 onclick: move |evt| {
@@ -96,6 +102,8 @@ pub fn WysiwygToolbar(
             // Strikethrough
             button {
                 r#type: "button",
+                // Selection-preserve: mousedown → blur destroys the editor's Range before onclick.
+                onmousedown: move |evt| { evt.prevent_default(); },
                 class: "px-2 py-1 text-sm line-through hover:bg-gray-200 rounded",
                 title: "{i18n.t(Key::MailEditorStrike)}",
                 onclick: move |evt| {
@@ -111,6 +119,8 @@ pub fn WysiwygToolbar(
             // Unordered list
             button {
                 r#type: "button",
+                // Selection-preserve: mousedown → blur destroys the editor's Range before onclick.
+                onmousedown: move |evt| { evt.prevent_default(); },
                 class: "px-2 py-1 text-sm hover:bg-gray-200 rounded",
                 title: "{i18n.t(Key::MailEditorUnorderedList)}",
                 onclick: move |evt| {
@@ -126,6 +136,8 @@ pub fn WysiwygToolbar(
             // Ordered list
             button {
                 r#type: "button",
+                // Selection-preserve: mousedown → blur destroys the editor's Range before onclick.
+                onmousedown: move |evt| { evt.prevent_default(); },
                 class: "px-2 py-1 text-sm hover:bg-gray-200 rounded",
                 title: "{i18n.t(Key::MailEditorOrderedList)}",
                 onclick: move |evt| {
@@ -141,6 +153,8 @@ pub fn WysiwygToolbar(
             // Heading 1
             button {
                 r#type: "button",
+                // Selection-preserve: mousedown → blur destroys the editor's Range before onclick.
+                onmousedown: move |evt| { evt.prevent_default(); },
                 class: "px-2 py-1 text-sm font-semibold hover:bg-gray-200 rounded",
                 title: "{i18n.t(Key::MailEditorHeading1)}",
                 onclick: move |evt| {
@@ -156,6 +170,8 @@ pub fn WysiwygToolbar(
             // Heading 2
             button {
                 r#type: "button",
+                // Selection-preserve: mousedown → blur destroys the editor's Range before onclick.
+                onmousedown: move |evt| { evt.prevent_default(); },
                 class: "px-2 py-1 text-sm font-semibold hover:bg-gray-200 rounded",
                 title: "{i18n.t(Key::MailEditorHeading2)}",
                 onclick: move |evt| {
@@ -171,6 +187,8 @@ pub fn WysiwygToolbar(
             // Heading 3
             button {
                 r#type: "button",
+                // Selection-preserve: mousedown → blur destroys the editor's Range before onclick.
+                onmousedown: move |evt| { evt.prevent_default(); },
                 class: "px-2 py-1 text-sm font-semibold hover:bg-gray-200 rounded",
                 title: "{i18n.t(Key::MailEditorHeading3)}",
                 onclick: move |evt| {
@@ -186,6 +204,8 @@ pub fn WysiwygToolbar(
             // Paragraph
             button {
                 r#type: "button",
+                // Selection-preserve: mousedown → blur destroys the editor's Range before onclick.
+                onmousedown: move |evt| { evt.prevent_default(); },
                 class: "px-2 py-1 text-sm hover:bg-gray-200 rounded",
                 title: "{i18n.t(Key::MailEditorParagraph)}",
                 onclick: move |evt| {
@@ -201,6 +221,8 @@ pub fn WysiwygToolbar(
             // Blockquote
             button {
                 r#type: "button",
+                // Selection-preserve: mousedown → blur destroys the editor's Range before onclick.
+                onmousedown: move |evt| { evt.prevent_default(); },
                 class: "px-2 py-1 text-sm hover:bg-gray-200 rounded",
                 title: "{i18n.t(Key::MailEditorBlockquote)}",
                 onclick: move |evt| {
@@ -216,6 +238,8 @@ pub fn WysiwygToolbar(
             // Link — DIFFERENT: defer to parent so it can preserve Selection Range.
             button {
                 r#type: "button",
+                // Selection-preserve: mousedown → blur destroys the editor's Range before onclick.
+                onmousedown: move |evt| { evt.prevent_default(); },
                 class: "px-2 py-1 text-sm hover:bg-gray-200 rounded",
                 title: "{i18n.t(Key::MailEditorLink)}",
                 onclick: move |evt| {
@@ -231,6 +255,8 @@ pub fn WysiwygToolbar(
             // Unlink
             button {
                 r#type: "button",
+                // Selection-preserve: mousedown → blur destroys the editor's Range before onclick.
+                onmousedown: move |evt| { evt.prevent_default(); },
                 class: "px-2 py-1 text-sm hover:bg-gray-200 rounded",
                 title: "{i18n.t(Key::MailEditorUnlink)}",
                 onclick: move |evt| {
@@ -258,5 +284,71 @@ fn focus_editor(editor_id: &str) {
                 let _ = html_el.focus();
             }
         }
+    }
+}
+
+/// Source-Invariant Grep-Gate — every toolbar button MUST have an onmousedown
+/// handler with `prevent_default()`. Without it, the mousedown → blur sequence
+/// destroys the contenteditable's Selection Range before onclick can read it,
+/// which makes block-level execCommands (formatBlock, insertUnorderedList,
+/// insertOrderedList) silently no-op. See `.planning/quick/20260718-wysiwyg-toolbar-onmousedown-fix/PLAN.md`.
+///
+/// Uses the same self-reference-hazard defence as `wysiwyg_editor::grep_gate_tests`:
+/// slice the source before the test module and assemble needles at runtime.
+#[cfg(test)]
+mod grep_gate_tests {
+    const TOOLBAR_SRC: &str = include_str!("wysiwyg_toolbar.rs");
+    const TEST_MODULE_MARKER: &str = "mod grep_gate_tests";
+
+    fn production_region() -> &'static str {
+        let cutoff = TOOLBAR_SRC
+            .find(TEST_MODULE_MARKER)
+            .expect("BUG: grep-gate test module marker not found");
+        &TOOLBAR_SRC[..cutoff]
+    }
+
+    #[test]
+    fn every_button_has_onmousedown_prevent_default() {
+        let region = production_region();
+        let button_needle = format!("r#type: {q}button{q}", q = "\"");
+        let mousedown_needle = format!("onmousedow{tail}", tail = "n:");
+        let prevent_needle = format!("evt.prevent_defaul{tail}", tail = "t()");
+
+        let button_count = region.matches(&button_needle).count();
+        let mousedown_count = region.matches(&mousedown_needle).count();
+        assert!(
+            button_count >= 13,
+            "Grep gate FAILED: expected >=13 toolbar buttons, found {button_count}. \
+             If a button was removed intentionally, update this assertion."
+        );
+        assert_eq!(
+            button_count, mousedown_count,
+            "Grep gate FAILED: {button_count} toolbar buttons declared but only \
+             {mousedown_count} have `onmousedown` handlers. Every button MUST \
+             call `evt.prevent_default()` in onmousedown to preserve the editor's \
+             Selection Range — without it, block-level execCommands (formatBlock, \
+             insertUnorderedList, insertOrderedList) silently no-op."
+        );
+
+        // For every onmousedown occurrence, prevent_default() must appear within
+        // the next 80 chars (i.e. inside the closure body, not somewhere else).
+        for (idx, _) in region.match_indices(&mousedown_needle) {
+            let window = &region[idx..idx.saturating_add(80).min(region.len())];
+            assert!(
+                window.contains(&prevent_needle),
+                "Grep gate FAILED: onmousedown at byte {idx} does not call \
+                 prevent_default() within 80 chars. Window:\n{window}"
+            );
+        }
+    }
+
+    #[test]
+    fn production_region_excludes_test_module() {
+        let region = production_region();
+        assert!(
+            !region.contains(TEST_MODULE_MARKER),
+            "BUG: production_region() slice still contains the test module marker"
+        );
+        assert!(region.len() < TOOLBAR_SRC.len());
     }
 }
