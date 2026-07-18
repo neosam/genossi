@@ -778,6 +778,16 @@ pub async fn preview_mail<S: MailRestState>(
                 None => None,
             };
 
+            // Quick 260718-html-to-plain-derivation (Nachtrag): Preview muss den
+            // Plain-Text ebenso aus dem HTML ableiten wie der Send-Worker, sonst
+            // sieht der Vorstand in der Editor-Preview eine strukturlose Wall-of-
+            // Text während Empfänger korrekt formatierten Text bekommen. Siehe
+            // `crate::render::plain_from_html` für Semantik + Rationale.
+            let rendered_body = match rendered_body_html.as_deref() {
+                Some(html) => crate::render::plain_from_html(html),
+                None => rendered_body,
+            };
+
             let response = PreviewResponse {
                 subject: rendered_subject,
                 body: rendered_body,
@@ -955,6 +965,16 @@ pub async fn send_test_mail_with_template<S: MailRestState>(
                     )))
                 })?),
                 None => None,
+            };
+
+            // Quick 260718-html-to-plain-derivation (Nachtrag): Test-Mail-Path
+            // (send_test_mail_with_template) analog zum Send-Worker — Plain-Text
+            // aus HTML ableiten, damit Text-Only-Empfänger strukturierten Fallback
+            // bekommen. Ohne diesen Override würde ausgerechnet die Test-Mail
+            // (die zur QA da ist) unstrukturierten Text zeigen.
+            let rendered_body = match rendered_body_html.as_deref() {
+                Some(html) => crate::render::plain_from_html(html),
+                None => rendered_body,
             };
 
             // PRIVACY: `body.to_address` MUST be the recipient — NEVER any

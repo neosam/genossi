@@ -70,3 +70,11 @@ WYSIWYG-Mail mit UL/OL/H2/H3/Blockquote versenden, dann:
 
 - **Disk-Space:** `/dev/mapper/luks-...` bei 100% (877 MB frei / 950 GB). `target/` = 53 GB. Kandidaten zum Cleanup: alte Nix-Store-Generationen, `cargo clean` einzelner Workspace-Mitglieder, Docker-Container falls vorhanden. Nicht Teil dieses Quick-Tasks.
 - Frontend-Optimierung: `sync_from_dom` könnte auf `he.inner_text()` verzichten und nur HTML senden. Backend würde beides ableiten. Cleaner-API, aber Backward-Compat-Break — separater Task.
+
+## Nachtrag 2026-07-18 (unmittelbar nach Erst-Commit)
+
+**Gap gefunden:** Erste Iteration fixte nur den Render-Layer (`resolve_rendered_content`). Preview + Test-Mail-Endpoint in `genossi_mail/src/rest.rs` haben **eigene** Render-Pfade (`render_template` + `render_html_template` inline), gehen nicht durch `resolve_rendered_content`. Effekt: User sah in der Editor-Preview weiter zusammenhängenden Text, obwohl versendete Mails korrekt strukturiert waren.
+
+**Nachtrag:** Beide Sites in `rest.rs` (`preview_mail` bei rendered_body_html-Match + `send_test_mail_with_template` analog) bekommen denselben `plain_from_html`-Override. 261/261 lib-Tests bleiben grün.
+
+Lesson: Bei „Backend leitet aus HTML ab"-Fixes IMMER alle Render-Sites grep-pen (`render_template` + `render_html_template` als Anker), nicht nur die Worker-Pipeline. Die Preview/Test-Pfade waren aus historischen Gründen (Phase 22-23-Refactor) nicht durch `resolve_rendered_content` konsolidiert — Refactor-Kandidat für später.
