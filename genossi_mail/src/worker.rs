@@ -390,22 +390,22 @@ pub async fn start_mail_worker<C, J, R, A, SA, D, M, IB, MD, AL, MT, RE, RP, TX,
                 repayment_context_resolver.as_ref(),
             )
             .await
-        {
-            Ok(rendered) => (rendered.subject, rendered.body, rendered.body_html),
-            Err(failure) => {
-                mark_recipient_failed(
-                    recipient_dao.as_ref(),
-                    job_dao.as_ref(),
-                    &next,
-                    &mut job,
-                    &failure.message,
-                )
-                .await;
-                let interval = get_send_interval(config_service.as_ref()).await;
-                tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
-                continue;
-            }
-        };
+            {
+                Ok(rendered) => (rendered.subject, rendered.body, rendered.body_html),
+                Err(failure) => {
+                    mark_recipient_failed(
+                        recipient_dao.as_ref(),
+                        job_dao.as_ref(),
+                        &next,
+                        &mut job,
+                        &failure.message,
+                    )
+                    .await;
+                    let interval = get_send_interval(config_service.as_ref()).await;
+                    tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
+                    continue;
+                }
+            };
 
         // Resolve In-Reply-To header for reply jobs
         let reply_message_id: Option<String> =
@@ -457,8 +457,7 @@ pub async fn start_mail_worker<C, J, R, A, SA, D, M, IB, MD, AL, MT, RE, RP, TX,
         updated_recipient.rendered_body = Some(Arc::from(rendered_body.as_str()));
         // Phase 23 Plan 04 (D-08, Pitfall 4): persist rendered HTML iff the job
         // carried body_html. `Option::map` preserves None (never Some("")).
-        updated_recipient.rendered_html_body =
-            rendered_html_body_opt.as_deref().map(Arc::from);
+        updated_recipient.rendered_html_body = rendered_html_body_opt.as_deref().map(Arc::from);
         // Quick 260614-b1t: live worker renders are NOT reconstructions — they are
         // the byte-accurate content sent at this moment. The backfill flips this to
         // true only for retroactively-rendered legacy rows.

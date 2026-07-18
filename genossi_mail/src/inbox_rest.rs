@@ -613,11 +613,7 @@ async fn download_attachment<S: InboxRestState>(
             return (StatusCode::NOT_FOUND, "file not found").into_response()
         }
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("storage: {}", e),
-            )
-                .into_response()
+            return (StatusCode::INTERNAL_SERVER_ERROR, format!("storage: {}", e)).into_response()
         }
     };
     // T-02: Content-Disposition filename goes through http_util helpers

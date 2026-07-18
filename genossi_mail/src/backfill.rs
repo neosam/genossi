@@ -35,7 +35,9 @@ pub async fn run_rendered_backfill<R, J, M, RE, RP, TX, RCR>(
     J: MailJobDao,
     M: MemberResolver,
     RE: genossi_dao::repayment_entry::RepaymentEntryDao + Send + Sync,
-    RP: genossi_dao::repayment_phase::RepaymentPhaseDao<Transaction = RE::Transaction> + Send + Sync,
+    RP: genossi_dao::repayment_phase::RepaymentPhaseDao<Transaction = RE::Transaction>
+        + Send
+        + Sync,
     TX: genossi_dao::TransactionDao<Transaction = RE::Transaction> + Send + Sync,
     RCR: RepaymentContextResolver<Transaction = RE::Transaction> + Send + Sync,
 {
@@ -269,7 +271,9 @@ mod tests {
         recipient_dao.expect_update().never();
 
         let mut job_dao = MockMailJobDao::new();
-        job_dao.expect_find_by_id().returning(move |_| Ok(make_job()));
+        job_dao
+            .expect_find_by_id()
+            .returning(move |_| Ok(make_job()));
 
         let mut resolver = MockMemberResolver::new();
         resolver.expect_find_member_by_id().returning(|_| Ok(None));

@@ -62,16 +62,12 @@ pub fn build_message(
     // Address parsing — the exact "Invalid from address" / "Invalid to address"
     // error strings are preserved from the pre-Phase-22 worker/service call
     // sites so downstream diagnostics (and any log-scraping) keep working.
-    let from_addr = from
-        .parse()
-        .map_err(|e: lettre::address::AddressError| {
-            MailServiceError::SmtpError(Arc::from(format!("Invalid from address: {}", e)))
-        })?;
-    let to_addr = to
-        .parse()
-        .map_err(|e: lettre::address::AddressError| {
-            MailServiceError::SmtpError(Arc::from(format!("Invalid to address: {}", e)))
-        })?;
+    let from_addr = from.parse().map_err(|e: lettre::address::AddressError| {
+        MailServiceError::SmtpError(Arc::from(format!("Invalid from address: {}", e)))
+    })?;
+    let to_addr = to.parse().map_err(|e: lettre::address::AddressError| {
+        MailServiceError::SmtpError(Arc::from(format!("Invalid to address: {}", e)))
+    })?;
 
     // Build the text part explicitly in BOTH branches — no `SinglePart::plain`
     // fallback — so the CTE decision is visible on a single-line diff (per
@@ -355,8 +351,7 @@ mod tests {
             .headers()
             .get_raw("Message-ID")
             .expect("lettre should auto-set Message-ID");
-        let normalized =
-            crate::dao::normalize_message_id(raw).expect("Message-ID must normalise");
+        let normalized = crate::dao::normalize_message_id(raw).expect("Message-ID must normalise");
 
         assert!(
             !normalized.contains('<') && !normalized.contains('>'),
@@ -585,9 +580,7 @@ mod tests {
         // MAIL-01 style regression: charset=utf-8 must apply on the HTML part.
         // Assert charset=utf-8 appears somewhere AFTER the text/html declaration
         // so we know the charset attaches to the HTML part (not just the text part).
-        let html_pos = text
-            .find("text/html")
-            .expect("text/html must appear");
+        let html_pos = text.find("text/html").expect("text/html must appear");
         let after_html = &text[html_pos..];
         assert!(
             after_html.contains("charset=utf-8"),

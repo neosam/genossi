@@ -98,10 +98,7 @@ pub fn html_env() -> minijinja::Environment<'static> {
 /// Mirrors [`render_template`] but uses the HTML env; error messages prefix
 /// "HTML template …" so downstream error handling can distinguish the two
 /// paths.
-pub fn render_html_template(
-    template_str: &str,
-    context: &Value,
-) -> Result<String, TemplateError> {
+pub fn render_html_template(template_str: &str, context: &Value) -> Result<String, TemplateError> {
     let env = html_env();
     let tmpl = env
         .template_from_str(template_str)

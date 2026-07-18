@@ -295,14 +295,18 @@ async fn persist_attachment(
     let relative_path = if oversized {
         None
     } else {
-        Some(format!("inbound_mail_attachments/{}/{}", inbound_mail_id, id))
+        Some(format!(
+            "inbound_mail_attachments/{}/{}",
+            inbound_mail_id, id
+        ))
     };
 
     // For non-oversized attachments: filesystem first, then DB.
     if let Some(ref rel_path) = relative_path {
-        storage.save(rel_path, bytes).await.map_err(|e| {
-            MailServiceError::DataAccess(Arc::from(format!("storage save: {}", e)))
-        })?;
+        storage
+            .save(rel_path, bytes)
+            .await
+            .map_err(|e| MailServiceError::DataAccess(Arc::from(format!("storage save: {}", e))))?;
     }
 
     let entity = InboundMailAttachment {
@@ -349,75 +353,67 @@ pub fn parse_raw_mail(raw: &[u8]) -> ParsedMail {
     let parser = MessageParser::default();
     let parsed = parser.parse(raw);
 
-    let (
-        from_address,
-        subject,
-        received_at,
-        body_text,
-        html,
-        attachments,
-        in_reply_to,
-        message_id,
-    ) = if let Some(msg) = parsed {
-        let from_address = msg
-            .from()
-            .and_then(|addrs| addrs.first())
-            .and_then(|a| a.address())
-            .unwrap_or("")
-            .to_string();
+    let (from_address, subject, received_at, body_text, html, attachments, in_reply_to, message_id) =
+        if let Some(msg) = parsed {
+            let from_address = msg
+                .from()
+                .and_then(|addrs| addrs.first())
+                .and_then(|a| a.address())
+                .unwrap_or("")
+                .to_string();
 
-        let subject = msg.subject().unwrap_or("").to_string();
+            let subject = msg.subject().unwrap_or("").to_string();
 
-        let received_at = msg
-            .date()
-            .and_then(|d| {
-                let ts = d.to_timestamp();
-                time::OffsetDateTime::from_unix_timestamp(ts).ok()
-            })
-            .map(|odt| time::PrimitiveDateTime::new(odt.date(), odt.time()))
-            .unwrap_or_else(now_primitive);
+            let received_at = msg
+                .date()
+                .and_then(|d| {
+                    let ts = d.to_timestamp();
+                    time::OffsetDateTime::from_unix_timestamp(ts).ok()
+                })
+                .map(|odt| time::PrimitiveDateTime::new(odt.date(), odt.time()))
+                .unwrap_or_else(now_primitive);
 
-        let body_text = (0..msg.text_body_count())
-            .find_map(|i| msg.body_text(i))
-            .map(|s| s.into_owned())
-            .unwrap_or_default();
+            let body_text = (0..msg.text_body_count())
+                .find_map(|i| msg.body_text(i))
+                .map(|s| s.into_owned())
+                .unwrap_or_default();
 
-        let html = (0..msg.html_body_count())
-            .find_map(|i| msg.body_html(i))
-            .map(|s| s.into_owned());
+            let html = (0..msg.html_body_count())
+                .find_map(|i| msg.body_html(i))
+                .map(|s| s.into_owned());
 
-        let attachments = extract_attachments(&msg);
+            let attachments = extract_attachments(&msg);
 
-        let in_reply_to = msg
-            .in_reply_to()
-            .as_text()
-            .map(|s| s.to_string())
-            .and_then(|s| crate::dao::normalize_message_id(&s));
+            let in_reply_to = msg
+                .in_reply_to()
+                .as_text()
+                .map(|s| s.to_string())
+                .and_then(|s| crate::dao::normalize_message_id(&s));
 
-        let message_id = msg.message_id().and_then(crate::dao::normalize_message_id);
+            let message_id = msg.message_id().and_then(crate::dao::normalize_message_id);
 
-        (
-            from_address,
-            subject,
-            received_at,
-            body_text,
-            html,
-            attachments,
-            in_reply_to,
-            message_id,
-        )
-    } else {
-        (
-            String::new(),
-            String::new(),
-            now_primitive(),
-            String::new(),
-            None,
-            Vec::new(),
-            None,
-            None,
-        )
-    };
+            (
+                from_address,
+                subject,
+                received_at,
+                body_text,
+                html,
+                attachments,
+                in_reply_to,
+                message_id,
+            )
+        } else {
+            (
+                String::new(),
+                String::new(),
+                now_primitive(),
+                String::new(),
+                None,
+                Vec::new(),
+                None,
+                None,
+            )
+        };
 
     let has_html_body = html.is_some();
     let raw_html_body = html;
@@ -695,8 +691,7 @@ where
             // Phase 24 (EDIT-01, D-01): sanitize the optional HTML sibling at
             // the store boundary (Phase 23 D-03 EP wire). None ⇒ None out
             // (text-only reply, pre-Phase-24 behavior).
-            body_html: crate::service::sanitize_body_html_opt(body_html.as_deref())
-                .map(Arc::from),
+            body_html: crate::service::sanitize_body_html_opt(body_html.as_deref()).map(Arc::from),
         };
         self.job_dao.create(&job).await?;
 
@@ -1494,16 +1489,12 @@ mod tests {
         let mut recipient_dao = MockMailRecipientDao::new();
         // Capture the recipient.id assigned by `reply` so we can assert each
         // attachment row references that exact id.
-        let captured_recipient_id =
-            Arc::new(std::sync::Mutex::new(None::<Uuid>));
+        let captured_recipient_id = Arc::new(std::sync::Mutex::new(None::<Uuid>));
         let captured_for_recipient = captured_recipient_id.clone();
-        recipient_dao
-            .expect_create()
-            .times(1)
-            .returning(move |r| {
-                *captured_for_recipient.lock().unwrap() = Some(r.id);
-                Ok(())
-            });
+        recipient_dao.expect_create().times(1).returning(move |r| {
+            *captured_for_recipient.lock().unwrap() = Some(r.id);
+            Ok(())
+        });
 
         // CRITICAL: recipient_attachment_dao.create MUST be called exactly twice,
         // once per AttachmentInput, with the recipient.id from above.
@@ -1837,7 +1828,10 @@ mod tests {
         )
         .await
         .unwrap();
-        assert!(result.oversized, "returned entity must report oversized=true");
+        assert!(
+            result.oversized,
+            "returned entity must report oversized=true"
+        );
         assert!(
             result.relative_path.is_none(),
             "returned entity must have None relative_path"
@@ -1895,9 +1889,7 @@ mod tests {
         // imap_client.fetch_one_by_uid: first → Err, second → Ok(None).
         // Both responses cause silent-skip; neither triggers persist.
         let mut imap_client = MockInboxImapClient::new();
-        imap_client
-            .expect_uid_validity()
-            .times(0); // backfill does NOT call uid_validity — only fetch_one_by_uid per candidate
+        imap_client.expect_uid_validity().times(0); // backfill does NOT call uid_validity — only fetch_one_by_uid per candidate
         let mut call_count = 0u32;
         imap_client
             .expect_fetch_one_by_uid()
@@ -2044,7 +2036,11 @@ mod tests {
         raw.extend_from_slice(b"\r\n--BOUNDARY--\r\n");
 
         let parsed = parse_raw_mail(&raw);
-        assert_eq!(parsed.attachments.len(), 1, "expected exactly one attachment");
+        assert_eq!(
+            parsed.attachments.len(),
+            1,
+            "expected exactly one attachment"
+        );
         let att = &parsed.attachments[0];
         assert!(
             att.declared_size > ATTACHMENT_MAX_BYTES,

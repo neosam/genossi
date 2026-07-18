@@ -263,7 +263,10 @@ mod tests {
     fn is_open_done_mail_excluded() {
         let mut m = sample_mail("s", "a@x.de");
         m.done = true;
-        assert!(!is_open(&m), "erledigte (done) Mails gehören NICHT in den Digest");
+        assert!(
+            !is_open(&m),
+            "erledigte (done) Mails gehören NICHT in den Digest"
+        );
     }
 
     #[test]
@@ -277,7 +280,10 @@ mod tests {
     fn is_open_replied_but_not_done_stays_open() {
         let mut m = sample_mail("s", "a@x.de");
         m.replied = true;
-        assert!(is_open(&m), "beantwortet, aber nicht erledigt → bleibt offen (wie Inbox-Tab)");
+        assert!(
+            is_open(&m),
+            "beantwortet, aber nicht erledigt → bleibt offen (wie Inbox-Tab)"
+        );
     }
 
     // ── parse_recipients ──────────────────────────────────────────────────────
