@@ -29,6 +29,12 @@ minijinja = "2"
 # ammonia (permissiver Default-Filter) saniert. Siehe genossi_mail/src/sanitize.rs
 # und 23-CONTEXT.md D-01/D-03.
 ammonia = "4"
+# Quick 260718-html-to-plain-derivation: dreht die Phase-23-HTML-02-Entscheidung
+# im Render-Layer um. Wenn body_html Some ist, wird der Plain-Text-Teil aus dem
+# gerenderten HTML abgeleitet — sonst verliert der Text-Fallback bei WYSIWYG-
+# Formatierung (ul/ol/h1-3/blockquote) die semantische Struktur (nur innerText).
+# Server-side, kein WASM-Impact.
+html2text = "0.17"
 sha2 = "0.10"
 async-imap = { version = "0.10", default-features = false, features = ["runtime-tokio"] }
 tokio-rustls = "0.26"

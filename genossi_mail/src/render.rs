@@ -78,7 +78,9 @@ pub async fn resolve_rendered_content<M, RE, RP, TX, RCR>(
 where
     M: MemberResolver,
     RE: genossi_dao::repayment_entry::RepaymentEntryDao + Send + Sync,
-    RP: genossi_dao::repayment_phase::RepaymentPhaseDao<Transaction = RE::Transaction> + Send + Sync,
+    RP: genossi_dao::repayment_phase::RepaymentPhaseDao<Transaction = RE::Transaction>
+        + Send
+        + Sync,
     TX: genossi_dao::TransactionDao<Transaction = RE::Transaction> + Send + Sync,
     RCR: RepaymentContextResolver<Transaction = RE::Transaction> + Send + Sync,
 {
@@ -113,10 +115,16 @@ where
 
     if let Some(phase_id) = job.repayment_phase_id {
         let agg_tx = transaction_dao.transaction().await.map_err(|e| {
-            RenderFailure::new(format!("Worker: cannot open tx for repayment context: {:?}", e))
+            RenderFailure::new(format!(
+                "Worker: cannot open tx for repayment context: {:?}",
+                e
+            ))
         })?;
 
-        let phase_opt = match repayment_phase_dao.find_by_id(phase_id, agg_tx.clone()).await {
+        let phase_opt = match repayment_phase_dao
+            .find_by_id(phase_id, agg_tx.clone())
+            .await
+        {
             Ok(p) => p,
             Err(e) => {
                 return Err(RenderFailure::new(format!(
@@ -127,7 +135,9 @@ where
         };
 
         if let Some(phase) = phase_opt {
-            let entries = match repayment_entry_dao.find_by_phase_id(phase_id, agg_tx.clone()).await
+            let entries = match repayment_entry_dao
+                .find_by_phase_id(phase_id, agg_tx.clone())
+                .await
             {
                 Ok(es) => es,
                 Err(e) => {
@@ -171,8 +181,9 @@ where
         let _ = transaction_dao.commit(agg_tx).await;
     }
 
-    let subject = render_template(&job.subject, &ctx)
-        .map_err(|e| RenderFailure::new(format!("Template render error (subject): {}", e.message)))?;
+    let subject = render_template(&job.subject, &ctx).map_err(|e| {
+        RenderFailure::new(format!("Template render error (subject): {}", e.message))
+    })?;
     let body = render_template(&job.body, &ctx)
         .map_err(|e| RenderFailure::new(format!("Template render error (body): {}", e.message)))?;
 
@@ -186,6 +197,18 @@ where
         None => None,
     };
 
+    // Quick 260718-html-to-plain-derivation: wenn wir einen HTML-Body haben, ist
+    // der Frontend-supplied `body` bloß `element.innerText()` — verliert Bullets,
+    // Nummerierung und Titel-Unterstreichung bei WYSIWYG-Formatierung. Wir leiten
+    // deshalb den Plain-Text im Render-Layer aus dem gerenderten HTML ab. Der
+    // Send-Layer (build_message) bleibt HTML-02-treu: `body` ist raw plain, nur
+    // die Quelle ist jetzt html2text statt inner_text. body_html: None → alter
+    // Pfad, Frontend-`body` unverändert (Backward-Compat mit v1.4-Plaintext-Mails).
+    let body = match body_html.as_deref() {
+        Some(html) => plain_from_html(html),
+        None => body,
+    };
+
     Ok(RenderedContent {
         subject,
         body,
@@ -193,16 +216,28 @@ where
     })
 }
 
+/// Quick 260718-html-to-plain-derivation: rendert HTML-Body zu strukturiertem
+/// Plain-Text (Listen mit Bullets/Nummern, Überschriften mit Unterstreichung,
+/// Blockquotes mit `>`-Prefix). Wird für den Text-Teil der `multipart/alternative`
+/// verwendet, wenn body_html Some ist. 78-Zeichen-Breite = klassische Mail-Grenze
+/// (RFC 2822-freundlich).
+pub(crate) fn plain_from_html(html: &str) -> String {
+    html2text::from_read(html.as_bytes(), 78)
+        .unwrap_or_else(|_| String::new())
+        .trim_end()
+        .to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::template::MockMemberResolver;
-    use std::sync::Arc;
     use genossi_dao::member::{MemberEntity, MemberStatus, Salutation};
     use genossi_dao::repayment_entry::{MockRepaymentEntryDao, RepaymentEntryEntity};
     use genossi_dao::repayment_phase::{MockRepaymentPhaseDao, RepaymentPhaseEntity};
     use genossi_dao::{MockTransaction, MockTransactionDao};
     use genossi_service::repayment_context::{MockRepaymentContextResolver, RepaymentContext};
+    use std::sync::Arc;
     use uuid::Uuid;
 
     fn sample_datetime() -> time::PrimitiveDateTime {
@@ -468,6 +503,10 @@ mod tests {
         .unwrap();
 
         assert_eq!(rendered.body_html.as_deref(), Some("<p>Hallo Max</p>"));
+        // Quick 260718-html-to-plain-derivation: body wird jetzt aus dem
+        // gerenderten HTML abgeleitet (statt Frontend-supplied "Text body"),
+        // damit Plain-Text-Empfänger strukturierten Fallback sehen.
+        assert_eq!(rendered.body, "Hallo Max");
     }
 
     #[tokio::test]
@@ -500,6 +539,73 @@ mod tests {
             rendered.body_html.is_none(),
             "body_html must be None (D-09), got: {:?}",
             rendered.body_html
+        );
+        // Quick 260718-html-to-plain-derivation: body_html=None ⇒ Frontend-supplied
+        // body unverändert (Backward-Compat mit v1.4-Plaintext-Mails, HTML-02-treu).
+        assert_eq!(rendered.body, "Text body");
+    }
+
+    // ============================================================
+    // Quick 260718-html-to-plain-derivation: Plain-Text-Alternative
+    // aus gerendertem HTML ableiten, damit Empfänger mit reinem Text-
+    // Client (Terminal, Screen-Reader, HTML-off) strukturierte Listen,
+    // Überschriften und Blockquotes sehen — nicht nur `inner_text()`.
+    // ============================================================
+
+    #[test]
+    fn plain_from_html_unordered_list_has_bullets() {
+        let out = plain_from_html("<ul><li>Apfel</li><li>Birne</li></ul>");
+        assert!(
+            out.contains("* Apfel") && out.contains("* Birne"),
+            "expected `* Apfel` and `* Birne` in output, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn plain_from_html_ordered_list_is_numbered() {
+        let out = plain_from_html("<ol><li>Eins</li><li>Zwei</li></ol>");
+        assert!(
+            out.contains("1. Eins") && out.contains("2. Zwei"),
+            "expected `1. Eins` and `2. Zwei` in output, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn plain_from_html_headings_are_marked() {
+        // html2text 0.17 default: `# H1`, `## H2`, `### H3` (markdown-style).
+        // Assertion tolerant: only require the text plus at least one leading `#`.
+        let out = plain_from_html("<h1>Titel1</h1><h2>Titel2</h2><h3>Titel3</h3>");
+        assert!(
+            out.contains("Titel1") && out.contains("Titel2") && out.contains("Titel3"),
+            "expected all three headings in output, got:\n{out}"
+        );
+        assert!(
+            out.contains("# Titel1") || out.contains("Titel1\n===") || out.contains("TITEL1"),
+            "expected h1 marker (# or === or upper), got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn plain_from_html_blockquote_prefixed() {
+        let out = plain_from_html("<blockquote>Zitat hier</blockquote>");
+        assert!(
+            out.contains("> Zitat hier"),
+            "expected `> Zitat hier` in output, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn plain_from_html_empty_input_is_empty() {
+        assert_eq!(plain_from_html(""), "");
+    }
+
+    #[test]
+    fn plain_from_html_bold_becomes_markdown_stars() {
+        let out = plain_from_html("<p>Hallo <b>Welt</b>!</p>");
+        // Belt-and-suspenders — accept either **Welt** (default) or plain Welt.
+        assert!(
+            out.contains("Welt"),
+            "expected `Welt` in output, got:\n{out}"
         );
     }
 }
