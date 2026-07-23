@@ -487,7 +487,9 @@ Response::builder()
 | A4 | The `admin` privilege string (not `manage_members`) is the correct gate per IMG-02/04 "admin-Rolle" | Pattern 2 | If the intended gate is `manage_members`, swap the constant; both patterns exist in the codebase — trivial change |
 | A5 | CID transform on the HTML part + `<img>` stripped for the plain-text derivation is the correct split | Anti-Patterns / render.rs | If plain text should keep an image placeholder, adjust; low risk |
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+> RESOLVED during planning: Q1 → 27-03 injects a main-layer byte-loader and passes `Vec<LoadedInlineImage>` to an extended `build_message` (the recommended option). Q2 → user decision **D-02**: the 25 MB check is against the **base64-encoded wire size** (overrides the [ASSUMED] raw-byte A1). Q3 → 27-03 implements the CID transform as a pure `rewrite_img_cids` function.
 
 1. **Where exactly does the send path load asset bytes?**
    - What we know: worker (`worker.rs:637`) and test-mail (`service.rs:515`) both call `build_message`; both already load attachment bytes before the call.

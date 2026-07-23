@@ -140,7 +140,12 @@ Archive: TBD (bei Milestone-Close)
 **Plans:** 4 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 27-01-PLAN.md — `mail_asset`-Entität (DAO/SQLite-BLOB/Service/REST/TO/Migration/DI) + Admin-Gate + Magic-Byte-MIME-Sniff + Upload/Bytes-REST (IMG-01, IMG-02, IMG-04)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 27-02-PLAN.md — ammonia `<img>`-Härtung: nur `data-genossi-asset-id`, strippt src/data:/SVG; Phase-26-Listen/Überschriften bleiben grün (IMG-05)
 - [ ] 27-03-PLAN.md — CID-Renderer (`rewrite_img_cids`) + `multipart/related` + 25-MB-base64-Check + Test-Mail + Backward-Compat, alle `send.rs`-Änderungen in einem Plan (IMG-06, IMG-07, IMG-08, IMG-09)
 - [ ] 27-04-PLAN.md — Frontend Editor-Upload: Toolbar-Bild-Button + Drag&Drop + FormData-Upload + insertHTML (IMG-03)
