@@ -19,7 +19,25 @@
 use dioxus::prelude::*;
 use wasm_bindgen::JsCast;
 
+use crate::api;
 use crate::i18n::{use_i18n, Key};
+use crate::service::config::CONFIG;
+
+/// Stable DOM id for the hidden file input that backs the image toolbar
+/// button. The button's onclick programmatically clicks this input to open
+/// the OS file picker without rendering a visible `<input>`.
+const IMAGE_INPUT_ID: &str = "wysiwyg-image-input";
+
+/// Pure helper producing the inline-image markup inserted at the caret.
+///
+/// Emits `<img data-genossi-asset-id="{id}" src="/api/mail/assets/{id}/bytes">`.
+/// The `src` is a convenience for the live editor only — 27-02's sanitizer
+/// strips it on store, so only `data-genossi-asset-id` persists (T-27-17).
+/// Both the toolbar button and the editor drag&drop handler reuse this
+/// helper so the inserted shape is identical.
+pub(crate) fn image_insert_html(id: &str) -> String {
+    format!(r#"<img data-genossi-asset-id="{id}" src="/api/mail/assets/{id}/bytes">"#)
+}
 
 #[component]
 pub fn WysiwygToolbar(
@@ -45,6 +63,7 @@ pub fn WysiwygToolbar(
     let editor_id_j = editor_id.clone();
     let editor_id_k = editor_id.clone();
     let editor_id_l = editor_id.clone();
+    let editor_id_m = editor_id.clone();
 
     rsx! {
         div { class: "flex flex-wrap gap-1 border-b px-2 py-1 bg-gray-50",
@@ -269,6 +288,70 @@ pub fn WysiwygToolbar(
                 },
                 "⊘"
             }
+            // Image (Phase 27, IMG-03) — opens a hidden PNG/JPEG/GIF file
+            // picker, uploads via upload_mail_asset, then inserts the
+            // data-genossi-asset-id <img> at the caret. Follows the button
+            // pattern verbatim incl. the mandatory onmousedown+prevent_default
+            // selection-preserve invariant (grep-gate).
+            button {
+                r#type: "button",
+                // Selection-preserve: mousedown → blur destroys the editor's Range before onclick.
+                onmousedown: move |evt| { evt.prevent_default(); },
+                class: "px-2 py-1 text-sm hover:bg-gray-200 rounded",
+                title: "{i18n.t(Key::MailEditorImage)}",
+                onclick: move |evt| {
+                    evt.prevent_default();
+                    // Focus the editor first so the caret is inside the
+                    // contenteditable when insertHTML runs after upload.
+                    focus_editor(&editor_id_m);
+                    // Programmatically open the OS file picker by clicking the
+                    // hidden input; the actual upload+insert happens in the
+                    // input's onchange handler below.
+                    if let Some(doc) = doc() {
+                        if let Some(el) = doc.get_element_by_id(IMAGE_INPUT_ID) {
+                            if let Some(input) = el.dyn_ref::<web_sys::HtmlElement>() {
+                                input.click();
+                            }
+                        }
+                    }
+                },
+                "🖼"
+            }
+            // Hidden file input backing the image button. accept= is a UX hint
+            // only — authoritative PNG/JPEG/GIF + 5 MB validation is server-side
+            // (T-27-16). onchange reads the first File, uploads it, and inserts
+            // the same shape as the drag&drop path via image_insert_html.
+            input {
+                id: IMAGE_INPUT_ID,
+                r#type: "file",
+                accept: "image/png,image/jpeg,image/gif",
+                class: "hidden",
+                onchange: move |evt| {
+                    let Some(web_event) = evt.downcast::<web_sys::Event>().cloned() else { return; };
+                    let Some(target) = web_event.target() else { return; };
+                    let Ok(input) = target.dyn_into::<web_sys::HtmlInputElement>() else { return; };
+                    let Some(files) = input.files() else { return; };
+                    let Some(file) = files.get(0) else { return; };
+                    spawn(async move {
+                        let config = CONFIG.read().clone();
+                        match api::upload_mail_asset(&config, file).await {
+                            Ok(asset) => {
+                                let img_html = image_insert_html(&asset.id.to_string());
+                                if let Some(doc) = doc() {
+                                    let _ = crate::js::exec_command_str(&doc, "insertHTML", &img_html);
+                                }
+                                on_command.call(());
+                            }
+                            Err(e) => {
+                                tracing::error!("mail-asset image upload failed: {e}");
+                            }
+                        }
+                    });
+                    // Reset the input so selecting the same file again re-fires
+                    // onchange.
+                    input.set_value("");
+                },
+            }
         }
     }
 }
@@ -350,5 +433,21 @@ mod grep_gate_tests {
             "BUG: production_region() slice still contains the test module marker"
         );
         assert!(region.len() < TOOLBAR_SRC.len());
+    }
+}
+
+#[cfg(test)]
+mod image_insert_html_tests {
+    use super::image_insert_html;
+
+    #[test]
+    fn produces_exact_asset_img_shape() {
+        let id = "123e4567-e89b-12d3-a456-426614174000";
+        assert_eq!(
+            image_insert_html(id),
+            format!(
+                "<img data-genossi-asset-id=\"{id}\" src=\"/api/mail/assets/{id}/bytes\">"
+            )
+        );
     }
 }
