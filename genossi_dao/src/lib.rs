@@ -8,6 +8,7 @@ pub mod audit_timestamp;
 pub mod auditable;
 pub mod backup;
 pub mod helper_token;
+pub mod mail_asset;
 pub mod member;
 pub mod member_action;
 pub mod member_document;
