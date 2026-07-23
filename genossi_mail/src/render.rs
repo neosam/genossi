@@ -221,11 +221,158 @@ where
 /// Blockquotes mit `>`-Prefix). Wird für den Text-Teil der `multipart/alternative`
 /// verwendet, wenn body_html Some ist. 78-Zeichen-Breite = klassische Mail-Grenze
 /// (RFC 2822-freundlich).
+///
+/// Phase 27 (IMG-06, RESEARCH Anti-Pattern): `<img>`-Tags werden VOR der
+/// html2text-Ableitung entfernt, damit weder `cid:`-URLs noch `img`-Reste in
+/// den Text-Teil der `multipart/alternative` lecken. html2text droppt `<img>`
+/// zwar meist von selbst, aber das explizite Strippen ist die belt-and-suspenders
+/// Garantie (Threat T-27-13).
 pub(crate) fn plain_from_html(html: &str) -> String {
-    html2text::from_read(html.as_bytes(), 78)
+    let stripped = strip_img_tags(html);
+    html2text::from_read(stripped.as_bytes(), 78)
         .unwrap_or_else(|_| String::new())
         .trim_end()
         .to_string()
+}
+
+/// Phase 27 (IMG-06): eine im Send-Pfad referenzierte Bild-Asset-Referenz.
+/// De-dupliziert pro distinktem Asset-ID — ein `multipart/related`-Part bedient
+/// N `<img>`-Vorkommen desselben Assets (Pitfall 6).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AssetRef {
+    pub asset_id: uuid::Uuid,
+    /// Der BARE Content-ID-String (ohne spitze Klammern), z. B. `asset-1@genossi`.
+    /// Exakt derselbe String wird in `<img src="cid:...">` UND in
+    /// `Attachment::new_inline(...)` verwendet (Pitfall 6, CID/Content-ID-Match).
+    pub cid: String,
+}
+
+/// Entfernt alle `<img ...>`-Tags aus dem HTML (bounded, ohne Re-Serialisierung).
+/// Wird für die Plain-Text-Ableitung genutzt, damit kein Bild-Rest im Text-Teil
+/// landet.
+fn strip_img_tags(html: &str) -> String {
+    let mut out = String::with_capacity(html.len());
+    let bytes = html.as_bytes();
+    let mut i = 0;
+    while i < html.len() {
+        if html[i..].starts_with("<img") {
+            // Finde das schließende '>' des img-Tags. Bilder in sanitized HTML
+            // sind void-Elemente ohne verschachtelte '>' in Attributwerten
+            // (data-genossi-asset-id ist ein UUID, src ist gestript).
+            if let Some(rel_end) = html[i..].find('>') {
+                i += rel_end + 1;
+                continue;
+            } else {
+                // Kein schließendes '>' — Rest wörtlich übernehmen.
+                out.push_str(&html[i..]);
+                break;
+            }
+        }
+        // Ein UTF-8-sicheres Zeichen übernehmen.
+        let ch_len = utf8_char_len(bytes[i]);
+        out.push_str(&html[i..i + ch_len]);
+        i += ch_len;
+    }
+    out
+}
+
+/// Phase 27 (IMG-06, RESEARCH Open Question 3): reine Funktion, die sanitized
+/// HTML mit `<img data-genossi-asset-id="X">` in `<img src="cid:asset-N@genossi">`
+/// transformiert und die referenzierten Asset-IDs zurückgibt.
+///
+/// - Die HTML ist bereits von 27-02 sanitized, sodass auf `<img>` NUR
+///   `data-genossi-asset-id` steht — ein gezielter, begrenzter Attribut-Rewrite
+///   ist sicher (RESEARCH Don't-Hand-Roll); es wird NICHT voll re-serialisiert.
+/// - Pro DISTINKTEM Asset-ID wird eine fortlaufende Nummer vergeben (asset-1,
+///   asset-2, …), sodass CIDs kurz und eindeutig sind (Pitfall 6).
+/// - Malformed IDs (keine gültige UUID) werden unangetastet gelassen (kein Panic).
+/// - Rückgabe: rewritten HTML + de-duplizierter `Vec<AssetRef>` (ein Eintrag pro
+///   distinktem Asset-ID). Kein `<img data-genossi-asset-id>` ⇒ HTML unverändert
+///   + leerer Vec (Backward-Compat-Signal für den byte-identischen No-Image-Pfad).
+pub(crate) fn rewrite_img_cids(html: &str) -> (String, Vec<AssetRef>) {
+    let mut out = String::with_capacity(html.len());
+    let mut refs: Vec<AssetRef> = Vec::new();
+    // Mappt Asset-ID → zugewiesene fortlaufende Nummer (für De-Dup).
+    let mut id_to_num: std::collections::HashMap<uuid::Uuid, usize> =
+        std::collections::HashMap::new();
+    let bytes = html.as_bytes();
+    let mut i = 0;
+
+    while i < html.len() {
+        if html[i..].starts_with("<img") {
+            // Ganzen img-Tag isolieren.
+            let Some(rel_end) = html[i..].find('>') else {
+                // Kein schließendes '>' — Rest wörtlich übernehmen.
+                out.push_str(&html[i..]);
+                break;
+            };
+            let tag = &html[i..i + rel_end + 1];
+
+            match extract_asset_id(tag) {
+                Some(asset_id) => {
+                    let num = match id_to_num.get(&asset_id) {
+                        Some(n) => *n,
+                        None => {
+                            let n = id_to_num.len() + 1;
+                            id_to_num.insert(asset_id, n);
+                            refs.push(AssetRef {
+                                asset_id,
+                                cid: format!("asset-{}@genossi", n),
+                            });
+                            n
+                        }
+                    };
+                    out.push_str(&format!(r#"<img src="cid:asset-{}@genossi">"#, num));
+                }
+                None => {
+                    // Malformed / keine Asset-ID — Tag unangetastet übernehmen.
+                    out.push_str(tag);
+                }
+            }
+            i += rel_end + 1;
+            continue;
+        }
+        let ch_len = utf8_char_len(bytes[i]);
+        out.push_str(&html[i..i + ch_len]);
+        i += ch_len;
+    }
+
+    (out, refs)
+}
+
+/// Liest den `data-genossi-asset-id="{uuid}"`-Wert aus einem `<img>`-Tag und
+/// parst ihn als UUID. `None`, wenn das Attribut fehlt oder der Wert keine
+/// gültige UUID ist.
+fn extract_asset_id(tag: &str) -> Option<uuid::Uuid> {
+    const ATTR: &str = "data-genossi-asset-id";
+    let attr_pos = tag.find(ATTR)?;
+    let after = &tag[attr_pos + ATTR.len()..];
+    // Erwartetes Muster: [=]["]{uuid}["]. Whitespace um '=' tolerieren.
+    let after = after.trim_start();
+    let after = after.strip_prefix('=')?;
+    let after = after.trim_start();
+    // Wert ist quoted (single oder double).
+    let quote = after.chars().next()?;
+    if quote != '"' && quote != '\'' {
+        return None;
+    }
+    let rest = &after[1..];
+    let end = rest.find(quote)?;
+    let value = &rest[..end];
+    uuid::Uuid::parse_str(value).ok()
+}
+
+/// UTF-8 Byte-Länge eines Zeichens anhand des Leadbytes.
+fn utf8_char_len(lead: u8) -> usize {
+    if lead < 0x80 {
+        1
+    } else if lead < 0xE0 {
+        2
+    } else if lead < 0xF0 {
+        3
+    } else {
+        4
+    }
 }
 
 #[cfg(test)]
@@ -606,6 +753,120 @@ mod tests {
         assert!(
             out.contains("Welt"),
             "expected `Welt` in output, got:\n{out}"
+        );
+    }
+
+    // ============================================================
+    // Phase 27 (IMG-06): rewrite_img_cids — CID-Transform + Asset-ID-
+    // Sammlung. Reine Funktion; De-Dup pro Asset-ID; Plain-Text-Teil
+    // trägt keine Bild-Leckage (T-27-13).
+    // ============================================================
+
+    #[test]
+    fn rewrite_img_cids_single_image_produces_cid_and_ref() {
+        let id = Uuid::new_v4();
+        let html = format!(r#"<p>x</p><img data-genossi-asset-id="{}">"#, id);
+        let (rewritten, refs) = rewrite_img_cids(&html);
+
+        assert!(
+            rewritten.contains(r#"src="cid:asset-1@genossi""#),
+            "rewritten HTML must contain bare cid src, got:\n{rewritten}"
+        );
+        assert!(
+            !rewritten.contains("<cid:") && !rewritten.contains("cid:<"),
+            "cid must have no angle brackets, got:\n{rewritten}"
+        );
+        assert_eq!(refs.len(), 1, "one distinct asset ⇒ one AssetRef");
+        assert_eq!(refs[0].asset_id, id);
+        assert_eq!(refs[0].cid, "asset-1@genossi");
+    }
+
+    #[test]
+    fn rewrite_img_cids_same_id_dedups_to_one_ref_both_imgs_same_cid() {
+        let id = Uuid::new_v4();
+        let html = format!(
+            r#"<img data-genossi-asset-id="{}"><p>mid</p><img data-genossi-asset-id="{}">"#,
+            id, id
+        );
+        let (rewritten, refs) = rewrite_img_cids(&html);
+
+        assert_eq!(refs.len(), 1, "same asset id de-dups to ONE AssetRef");
+        // Both <img> must carry the SAME cid.
+        let count = rewritten.matches(r#"src="cid:asset-1@genossi""#).count();
+        assert_eq!(count, 2, "both <img> get the same cid, got:\n{rewritten}");
+    }
+
+    #[test]
+    fn rewrite_img_cids_distinct_ids_get_sequential_cids() {
+        let id1 = Uuid::new_v4();
+        let id2 = Uuid::new_v4();
+        let html = format!(
+            r#"<img data-genossi-asset-id="{}"><img data-genossi-asset-id="{}">"#,
+            id1, id2
+        );
+        let (rewritten, refs) = rewrite_img_cids(&html);
+
+        assert_eq!(refs.len(), 2, "two distinct ids ⇒ two AssetRefs");
+        assert_eq!(refs[0].asset_id, id1);
+        assert_eq!(refs[0].cid, "asset-1@genossi");
+        assert_eq!(refs[1].asset_id, id2);
+        assert_eq!(refs[1].cid, "asset-2@genossi");
+        assert!(rewritten.contains(r#"src="cid:asset-1@genossi""#));
+        assert!(rewritten.contains(r#"src="cid:asset-2@genossi""#));
+    }
+
+    #[test]
+    fn rewrite_img_cids_no_image_returns_input_unchanged_and_empty_vec() {
+        let html = "<p>Hallo <b>Welt</b></p><ul><li>a</li></ul>";
+        let (rewritten, refs) = rewrite_img_cids(html);
+        assert_eq!(
+            rewritten, html,
+            "no <img data-genossi-asset-id> ⇒ HTML unchanged (backward-compat signal)"
+        );
+        assert!(refs.is_empty(), "no images ⇒ empty Vec");
+    }
+
+    #[test]
+    fn rewrite_img_cids_drops_data_attribute() {
+        let id = Uuid::new_v4();
+        let html = format!(r#"<img data-genossi-asset-id="{}">"#, id);
+        let (rewritten, _refs) = rewrite_img_cids(&html);
+        assert!(
+            !rewritten.contains("data-genossi-asset-id"),
+            "the data attribute must be replaced by the cid src, got:\n{rewritten}"
+        );
+    }
+
+    #[test]
+    fn rewrite_img_cids_leaves_malformed_id_untouched() {
+        // A non-UUID value must not panic and must leave the tag as-is.
+        let html = r#"<img data-genossi-asset-id="not-a-uuid">"#;
+        let (rewritten, refs) = rewrite_img_cids(html);
+        assert!(refs.is_empty(), "malformed id yields no AssetRef");
+        assert!(
+            rewritten.contains("not-a-uuid"),
+            "malformed tag left untouched, got:\n{rewritten}"
+        );
+    }
+
+    #[test]
+    fn plain_from_html_strips_image_no_cid_no_img_leak() {
+        // T-27-13: der Plain-Text-Teil darf weder `cid:` noch `img` enthalten.
+        // Wir geben die BEREITS cid-rewritten HTML rein (worst case) und stellen
+        // sicher, dass plain_from_html das <img> strippt.
+        let html = r#"<p>Vorher</p><img src="cid:asset-1@genossi"><p>Nachher</p>"#;
+        let plain = plain_from_html(html);
+        assert!(
+            !plain.contains("cid:"),
+            "plain text must not leak cid:, got:\n{plain}"
+        );
+        assert!(
+            !plain.to_lowercase().contains("img"),
+            "plain text must not leak img token, got:\n{plain}"
+        );
+        assert!(
+            plain.contains("Vorher") && plain.contains("Nachher"),
+            "surrounding text must survive, got:\n{plain}"
         );
     }
 }
