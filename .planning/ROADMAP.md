@@ -137,12 +137,12 @@ Archive: TBD (bei Milestone-Close)
   4. Externe HTTP-`src`, `data:`-URIs und SVG werden serverseitig via `ammonia`-Regel gestrippt; nur `<img data-genossi-asset-id="…">` ist erlaubt, `src` wird nur beim Rendern injiziert.
   5. Gesamt-Mailgröße wird gegen 25 MB Limit geprüft (klarer Fehler VOR SMTP), und bestehende v1.4-Templates ohne Bilder senden weiterhin OHNE `multipart/related`-Wrapper (Backward-Compat).
 
-**Plans:** 4 plans
+**Plans:** 1/4 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 27-01-PLAN.md — `mail_asset`-Entität (DAO/SQLite-BLOB/Service/REST/TO/Migration/DI) + Admin-Gate + Magic-Byte-MIME-Sniff + Upload/Bytes-REST (IMG-01, IMG-02, IMG-04)
+- [x] 27-01-PLAN.md — `mail_asset`-Entität (DAO/SQLite-BLOB/Service/REST/TO/Migration/DI) + Admin-Gate + Magic-Byte-MIME-Sniff + Upload/Bytes-REST (IMG-01, IMG-02, IMG-04)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -198,7 +198,7 @@ Plans:
 | 24. WYSIWYG Frontend Editor                        | v1.4      | 4/4            | Complete    | 2026-07-03 |
 | 25. Application File Upload + Audited Carryover    | v1.4      | 5/5            | Complete    | 2026-07-03 |
 | 26. Editor-Formatierung vervollständigen           | v1.5      | 3/3 | In Progress|  |
-| 27. Bild-Support Backend + Editor-Upload           | v1.5      | 0/4            | Planned     | -          |
+| 27. Bild-Support Backend + Editor-Upload           | v1.5      | 1/4 | In Progress|  |
 | 28. Desktop/Mobile-Vorschau                        | v1.5      | 0/0            | Not started | -          |
 
 ---

@@ -160,3 +160,9 @@ These are outside plan 27-01's scope (mail-render surface, addressed in 27-03) a
 - `cargo build --workspace` — success (all layers + DI wiring compile)
 - `cargo test --test e2e_tests mail_asset` — 2 passed (PNG upload+bytes roundtrip; SVG → 415)
 - Full `cargo test --workspace` — all mail_asset + all other tests pass EXCEPT two pre-existing genossi_mail render failures (deferred, see above)
+
+## Self-Check: PASSED
+
+- All 6 created source files + migration present on disk and in HEAD tree.
+- All task commits present: `589f949`, `9e103eb`, `a87482c`, docs `24b3dc2`.
+- SUMMARY.md committed and present in HEAD tree.

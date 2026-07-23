@@ -17,10 +17,10 @@
 
 ### Bild-Support (Phase 27)
 
-- [ ] **IMG-01**: Neue `mail_asset`-Entität (SQLite BLOB-Storage: `id, created, deleted, version, filename, mime_type, size_bytes, bytes, uploaded_by`) mit DAO/Service/REST — **kein Audit-Log** (analog Application-Doc-Pattern für Nicht-Kern-Entitäten).
-- [ ] **IMG-02**: `POST /api/mail/assets` akzeptiert `multipart/form-data` mit PNG/JPEG/GIF, max 5 MB/Bild, gibt `mail_asset.id` zurück; nur für Vorstand (`admin`-Rolle).
+- [x] **IMG-01**: Neue `mail_asset`-Entität (SQLite BLOB-Storage: `id, created, deleted, version, filename, mime_type, size_bytes, bytes, uploaded_by`) mit DAO/Service/REST — **kein Audit-Log** (analog Application-Doc-Pattern für Nicht-Kern-Entitäten).
+- [x] **IMG-02**: `POST /api/mail/assets` akzeptiert `multipart/form-data` mit PNG/JPEG/GIF, max 5 MB/Bild, gibt `mail_asset.id` zurück; nur für Vorstand (`admin`-Rolle).
 - [ ] **IMG-03**: Vorstand kann im WYSIWYG-Editor Bilder per **Drag&Drop** ODER Toolbar-Button einfügen; Editor fügt `<img data-genossi-asset-id="…" src="/api/mail/assets/{id}/bytes">` in den Body ein.
-- [ ] **IMG-04**: `GET /api/mail/assets/{id}/bytes` liefert die Bytes für Editor-Preview; nur für Vorstand (kein Public-Access, kein CID-Bypass).
+- [x] **IMG-04**: `GET /api/mail/assets/{id}/bytes` liefert die Bytes für Editor-Preview; nur für Vorstand (kein Public-Access, kein CID-Bypass).
 - [ ] **IMG-05**: `sanitize.rs` `<img>`-Regel härten — erlaubt ausschließlich `data-genossi-asset-id` als Attribut-Referenz; `src` und andere Attribute werden gestrippt bzw. server-seitig injiziert (kein externes HTTP, kein `data:`-URI).
 - [ ] **IMG-06**: Renderer transformiert `<img data-genossi-asset-id="X">` zu `<img src="cid:asset-X@genossi">` und hängt die Bytes als `multipart/related` inline-Part mit passender `Content-ID` an; Mail-Struktur wird `multipart/mixed → multipart/related → multipart/alternative`.
 - [ ] **IMG-07**: Test-Mail-Versand (bestehender Endpoint) unterstützt Bilder identisch — Vorstand sieht die Bilder in der Test-Mail.
@@ -74,10 +74,10 @@ Gefüllt vom `gsd-roadmapper` beim Roadmap-Bau am 2026-07-17.
 | EDIT-08 | Phase 26 | Editor-Formatierung vervollständigen | Pending |
 | EDIT-09 | Phase 26 | Editor-Formatierung vervollständigen | Complete |
 | EDIT-10 | Phase 26 | Editor-Formatierung vervollständigen | Pending |
-| IMG-01 | Phase 27 | Bild-Support Backend + Editor-Upload | Pending |
-| IMG-02 | Phase 27 | Bild-Support Backend + Editor-Upload | Pending |
+| IMG-01 | Phase 27 | Bild-Support Backend + Editor-Upload | Complete |
+| IMG-02 | Phase 27 | Bild-Support Backend + Editor-Upload | Complete |
 | IMG-03 | Phase 27 | Bild-Support Backend + Editor-Upload | Pending |
-| IMG-04 | Phase 27 | Bild-Support Backend + Editor-Upload | Pending |
+| IMG-04 | Phase 27 | Bild-Support Backend + Editor-Upload | Complete |
 | IMG-05 | Phase 27 | Bild-Support Backend + Editor-Upload | Pending |
 | IMG-06 | Phase 27 | Bild-Support Backend + Editor-Upload | Pending |
 | IMG-07 | Phase 27 | Bild-Support Backend + Editor-Upload | Pending |
