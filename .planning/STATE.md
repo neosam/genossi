@@ -4,16 +4,16 @@ milestone: v1.5
 milestone_name: Editor-Vervollständigung, Bild-Support & Vorschau
 current_phase: 27
 current_phase_name: bild-support-backend-editor-upload
-status: executing
-stopped_at: Completed 27-02-PLAN.md
-last_updated: "2026-07-23T11:14:50.181Z"
+status: phase_complete
+stopped_at: Phase 27 verifiziert (9/9 must-haves automatisiert PASSED); 4 UAT-Items deferred bis Vorstands-Smoke-Session vor v1.5-Close
+last_updated: "2026-07-23T14:15:00.000Z"
 last_activity: 2026-07-23
-last_activity_desc: Phase 27 execution started
+last_activity_desc: Phase 27 (Bild-Support) ausgeführt (4/4 Pläne) + verifiziert (9/9 must-haves); UAT deferred; nächster Schritt Phase 28 (Preview)
 progress:
-  total_phases: 2
+  total_phases: 3
   completed_phases: 2
-  total_plans: 7
-  completed_plans: 7
+  total_plans: 11
+  completed_plans: 11
 ---
 
 # State: Genossi — v1.5 Editor-Vervollständigung, Bild-Support & Vorschau (Requirements werden erhoben)
@@ -27,14 +27,14 @@ See: `.planning/PROJECT.md` (updated 2026-07-17 mit v1.5 Current Milestone)
 
 **Core Value:** Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachvollziehbar (Audit-Hashchain), mit weniger manueller Arbeit.
 
-**Current Focus:** Phase 27 — bild-support-backend-editor-upload
+**Current Focus:** Phase 27 abgeschlossen & verifiziert — nächster Schritt Phase 28 (Desktop/Mobile-Vorschau)
 
 ## Current Position
 
-Phase: 27 (bild-support-backend-editor-upload) — EXECUTING
-Plan: 4 of 4
-Status: Ready to execute
-Last activity: 2026-07-23 — Phase 27 execution started
+Phase: 27 (bild-support-backend-editor-upload) — COMPLETE (verifiziert, UAT deferred)
+Plan: 4 of 4 abgeschlossen (27-01 mail_asset backend, 27-02 ammonia img-hardening, 27-03 CID-Renderer, 27-04 Editor-Upload)
+Status: Phase-Goal 9/9 must-haves automatisiert PASSED (27-VERIFICATION.md); 4 nicht-automatisierbare UAT-Items in 27-UAT.md (Vorstands-Smoke-Session vor v1.5-Close)
+Last activity: 2026-07-23 — Phase 27 ausgeführt + verifiziert
 
 ### v1.5 Phase Structure (Phases 26-28, granularity: coarse)
 
