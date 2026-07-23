@@ -137,7 +137,7 @@ Archive: TBD (bei Milestone-Close)
   4. Externe HTTP-`src`, `data:`-URIs und SVG werden serverseitig via `ammonia`-Regel gestrippt; nur `<img data-genossi-asset-id="…">` ist erlaubt, `src` wird nur beim Rendern injiziert.
   5. Gesamt-Mailgröße wird gegen 25 MB Limit geprüft (klarer Fehler VOR SMTP), und bestehende v1.4-Templates ohne Bilder senden weiterhin OHNE `multipart/related`-Wrapper (Backward-Compat).
 
-**Plans:** 2/4 plans executed
+**Plans:** 3/4 plans executed
 
 Plans:
 **Wave 1**
@@ -147,7 +147,7 @@ Plans:
 **Wave 2** *(blocked on Wave 1 completion)*
 
 - [x] 27-02-PLAN.md — ammonia `<img>`-Härtung: nur `data-genossi-asset-id`, strippt src/data:/SVG; Phase-26-Listen/Überschriften bleiben grün (IMG-05)
-- [ ] 27-03-PLAN.md — CID-Renderer (`rewrite_img_cids`) + `multipart/related` + 25-MB-base64-Check + Test-Mail + Backward-Compat, alle `send.rs`-Änderungen in einem Plan (IMG-06, IMG-07, IMG-08, IMG-09)
+- [x] 27-03-PLAN.md — CID-Renderer (`rewrite_img_cids`) + `multipart/related` + 25-MB-base64-Check + Test-Mail + Backward-Compat, alle `send.rs`-Änderungen in einem Plan (IMG-06, IMG-07, IMG-08, IMG-09)
 - [ ] 27-04-PLAN.md — Frontend Editor-Upload: Toolbar-Bild-Button + Drag&Drop + FormData-Upload + insertHTML (IMG-03)
 
 **UI hint:** yes
@@ -198,7 +198,7 @@ Plans:
 | 24. WYSIWYG Frontend Editor                        | v1.4      | 4/4            | Complete    | 2026-07-03 |
 | 25. Application File Upload + Audited Carryover    | v1.4      | 5/5            | Complete    | 2026-07-03 |
 | 26. Editor-Formatierung vervollständigen           | v1.5      | 3/3 | In Progress|  |
-| 27. Bild-Support Backend + Editor-Upload           | v1.5      | 2/4 | In Progress|  |
+| 27. Bild-Support Backend + Editor-Upload           | v1.5      | 3/4 | In Progress|  |
 | 28. Desktop/Mobile-Vorschau                        | v1.5      | 0/0            | Not started | -          |
 
 ---
