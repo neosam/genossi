@@ -500,6 +500,8 @@ impl<
             // send_test_mail is smoke-test only — never HTML (Plan 03 mechanical None).
             None,
             &[],
+            // Phase 27 (IMG-07): smoke-test variant never carries images.
+            &[],
             None,
             smtp_config.encoding,
         )?;
@@ -541,6 +543,8 @@ impl<
             body,
             // Phase 23 Plan 04: rendered + sanitized HTML sibling (D-03 EP4).
             sanitized_html.as_deref(),
+            &[],
+            // Phase 27 (IMG-07): image byte-loading wired in Task 3.
             &[],
             None,
             smtp_config.encoding,

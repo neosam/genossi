@@ -30,6 +30,32 @@ pub struct LoadedAttachment {
     pub bytes: Vec<u8>,
 }
 
+/// Phase 27 (IMG-06): a single inline image whose bytes are already resident in
+/// memory, ready to become a `multipart/related` inline part.
+///
+/// Mirrors [`LoadedAttachment`] but carries a `cid` (the BARE Content-ID string,
+/// e.g. `asset-1@genossi`) instead of a filename. The same `cid` string appears
+/// both in the rewritten HTML (`src="cid:asset-1@genossi"`) and in
+/// `Attachment::new_inline(cid)` (which emits `Content-ID: <asset-1@genossi>`),
+/// so the two match exactly (Pitfall 6).
+#[derive(Clone)]
+pub struct LoadedInlineImage {
+    pub cid: String,
+    pub mime_type: Arc<str>,
+    pub bytes: Vec<u8>,
+}
+
+/// Phase 27 (IMG-08, user decision D-02): the 25 MB total-size limit checked
+/// against the BASE64-ENCODED wire size (SMTP SIZE limits apply to the encoded
+/// message, not the raw payload).
+const MAX_ENCODED_MAIL_BYTES: usize = 25 * 1024 * 1024;
+
+/// Base64 encodes 3 raw bytes into 4 output chars. `div_ceil(3) * 4` is the
+/// exact encoded length (including padding) for `raw_len` bytes.
+fn base64_encoded_len(raw_len: usize) -> usize {
+    raw_len.div_ceil(3) * 4
+}
+
 /// Build a [`lettre::Message`] with a consistent, charset-preserving text part.
 ///
 /// * `from` / `to` are `&str` — this function centralises the three `.parse()`
@@ -49,6 +75,14 @@ pub struct LoadedAttachment {
 ///   backward-compat) and 8bit (opt-in, MAIL-02) — the ONE place in the crate
 ///   where the Content-Transfer-Encoding is chosen (22-CONTEXT.md D-07/D-09).
 ///   Applies uniformly to text AND HTML part (D-01).
+///
+/// * `inline_images` (Phase 27, IMG-06) — optional `multipart/related` inline
+///   parts. When non-empty, the `multipart/alternative` is wrapped in a
+///   `multipart/related` and each image is added as an inline part whose
+///   `Content-ID` matches the `cid:` reference in the HTML. When EMPTY, the
+///   existing 4-branch `(html_body, attachments)` matrix runs byte-identically
+///   (IMG-09).
+#[allow(clippy::too_many_arguments)]
 pub fn build_message(
     from: &str,
     to: &str,
@@ -56,9 +90,32 @@ pub fn build_message(
     body: &str,
     html_body: Option<&str>,
     attachments: &[LoadedAttachment],
+    inline_images: &[LoadedInlineImage],
     in_reply_to: Option<&str>,
     encoding: MailEncoding,
 ) -> Result<Message, MailServiceError> {
+    // Phase 27 (IMG-08, D-02): reject oversized mail BEFORE assembly. The basis
+    // is the BASE64-ENCODED wire size because SMTP SIZE limits apply to the
+    // encoded message, not the raw payload. We sum the encoded size of every
+    // binary part (inline images + document attachments) plus the encoded body
+    // and HTML length. This fires before any address parsing / part building so
+    // the caller gets a clear app-level error instead of a late SMTP 552.
+    let mut encoded_total: usize = base64_encoded_len(body.len());
+    if let Some(html) = html_body {
+        encoded_total = encoded_total.saturating_add(base64_encoded_len(html.len()));
+    }
+    for img in inline_images {
+        encoded_total = encoded_total.saturating_add(base64_encoded_len(img.bytes.len()));
+    }
+    for att in attachments {
+        encoded_total = encoded_total.saturating_add(base64_encoded_len(att.bytes.len()));
+    }
+    if encoded_total > MAX_ENCODED_MAIL_BYTES {
+        return Err(MailServiceError::BadRequest(Arc::from(
+            "Mail exceeds 25 MB limit (base64-encoded wire size)",
+        )));
+    }
+
     // Address parsing — the exact "Invalid from address" / "Invalid to address"
     // error strings are preserved from the pre-Phase-22 worker/service call
     // sites so downstream diagnostics (and any log-scraping) keep working.
@@ -101,6 +158,56 @@ pub fn build_message(
     if let Some(ref_id) = in_reply_to {
         let bracketed = format!("<{}>", ref_id);
         builder = builder.in_reply_to(bracketed.clone()).references(bracketed);
+    }
+
+    // Phase 27 (IMG-06 / IMG-09): images present → build the multipart/related
+    // tree; images absent → fall through to the byte-identical 4-branch matrix.
+    if !inline_images.is_empty() {
+        // The plain-text part is reused; the alternative needs a real HTML part.
+        // If images are referenced but there is no HTML body, that is a caller
+        // error (the cid: refs live in HTML) — surface it clearly.
+        let Some(html_part) = html_part_opt else {
+            return Err(MailServiceError::BadRequest(Arc::from(
+                "inline images require an HTML body (cid: references live in the HTML part)",
+            )));
+        };
+
+        let alternative = MultiPart::alternative()
+            .singlepart(text_part)
+            .singlepart(html_part);
+
+        let mut related = MultiPart::related().multipart(alternative);
+        for img in inline_images {
+            // Pitfall 6: Attachment::new_inline("asset-1@genossi") emits
+            // `Content-ID: <asset-1@genossi>`; the HTML says
+            // `src="cid:asset-1@genossi"` — the SAME bare string in both places.
+            let content_type = ContentType::parse(&img.mime_type)
+                .map_err(|e| MailServiceError::SmtpError(Arc::from(e.to_string())))?;
+            let inline =
+                Attachment::new_inline(img.cid.clone()).body(img.bytes.clone(), content_type);
+            related = related.singlepart(inline);
+        }
+
+        // Document attachments (if any) wrap the related tree in multipart/mixed;
+        // otherwise the related tree is the message body.
+        if attachments.is_empty() {
+            return builder
+                .multipart(related)
+                .map_err(|e| MailServiceError::SmtpError(Arc::from(e.to_string())));
+        }
+        let mut mixed = MultiPart::mixed().multipart(related);
+        for att in attachments {
+            let content_type = ContentType::parse(&att.mime_type).unwrap_or_else(|_| {
+                ContentType::parse("application/octet-stream")
+                    .expect("application/octet-stream is a valid MIME type")
+            });
+            let attachment =
+                Attachment::new(att.file_name.to_string()).body(att.bytes.clone(), content_type);
+            mixed = mixed.singlepart(attachment);
+        }
+        return builder
+            .multipart(mixed)
+            .map_err(|e| MailServiceError::SmtpError(Arc::from(e.to_string())));
     }
 
     // 4-branch decision tree — (html_body, attachments) matrix per HTML-01/D-10.
@@ -176,6 +283,7 @@ mod tests {
             "Hallo Jürgen, schöne Grüße! ä ö ü ß",
             None,
             &[],
+            &[],
             None,
             MailEncoding::QuotedPrintable,
         )
@@ -209,6 +317,7 @@ mod tests {
             "Test",
             "Hallo Jürgen, schöne Grüße! ä ö ü ß",
             None,
+            &[],
             &[],
             None,
             MailEncoding::EightBit,
@@ -257,6 +366,7 @@ mod tests {
             "Anbei die Bescheinigung für Herrn Müller.",
             None,
             std::slice::from_ref(&attachment),
+            &[],
             None,
             MailEncoding::QuotedPrintable,
         )
@@ -291,6 +401,7 @@ mod tests {
             "reply body",
             None,
             &[],
+            &[],
             Some("abc.123@example.com"),
             MailEncoding::QuotedPrintable,
         )
@@ -319,6 +430,7 @@ mod tests {
             "body",
             None,
             &[],
+            &[],
             None,
             MailEncoding::QuotedPrintable,
         )
@@ -341,6 +453,7 @@ mod tests {
             "Test",
             "hi",
             None,
+            &[],
             &[],
             None,
             MailEncoding::QuotedPrintable,
@@ -372,6 +485,7 @@ mod tests {
             "b",
             None,
             &[],
+            &[],
             None,
             MailEncoding::QuotedPrintable,
         );
@@ -399,6 +513,7 @@ mod tests {
             "Test",
             "Hallo Jürgen (plain).",
             Some("<p>Hallo Jürgen (html).</p>"),
+            &[],
             &[],
             None,
             MailEncoding::QuotedPrintable,
@@ -445,6 +560,7 @@ mod tests {
             "plain-verbatim-marker",
             Some("<p>totally-different-html-marker</p>"),
             &[],
+            &[],
             None,
             MailEncoding::QuotedPrintable,
         )
@@ -487,6 +603,7 @@ mod tests {
             "plain body",
             Some("<p>html body</p>"),
             std::slice::from_ref(&attachment),
+            &[],
             None,
             MailEncoding::QuotedPrintable,
         )
@@ -537,6 +654,7 @@ mod tests {
             "just text",
             None,
             &[],
+            &[],
             None,
             MailEncoding::QuotedPrintable,
         )
@@ -565,6 +683,7 @@ mod tests {
             "plain",
             Some("<p>Hallo Jürgen — Umlaute ä ö ü ß</p>"),
             &[],
+            &[],
             None,
             MailEncoding::QuotedPrintable,
         )
@@ -586,6 +705,215 @@ mod tests {
             after_html.contains("charset=utf-8"),
             "html part must declare charset=utf-8 next to text/html, got (from html-pos):\n{}",
             after_html
+        );
+    }
+
+    // ---- Phase 27 Plan 03: multipart/related inline images + 25 MB base64 guard ----
+
+    fn png_bytes(n: usize) -> Vec<u8> {
+        // A minimal PNG-ish blob (magic bytes + padding). Content is irrelevant
+        // to the MIME structure assertions; only the length matters for IMG-08.
+        let mut v = vec![0x89, 0x50, 0x4E, 0x47];
+        v.resize(n.max(4), 0x00);
+        v
+    }
+
+    #[test]
+    fn build_message_related_structure_matches_cid_and_content_id() {
+        // IMG-06: one inline image + html referencing its cid produces a
+        // multipart/related > multipart/alternative tree with a matching
+        // Content-ID and cid: reference (Pitfall 6).
+        let img = LoadedInlineImage {
+            cid: "asset-1@genossi".to_string(),
+            mime_type: Arc::from("image/png"),
+            bytes: png_bytes(16),
+        };
+
+        let email = build_message(
+            "sender@example.com",
+            "recipient@example.com",
+            "Test",
+            "plain",
+            Some(r#"<p>Logo:</p><img src="cid:asset-1@genossi">"#),
+            &[],
+            std::slice::from_ref(&img),
+            None,
+            MailEncoding::QuotedPrintable,
+        )
+        .expect("build related mail");
+
+        let text = formatted(&email);
+
+        assert!(
+            text.contains("multipart/related"),
+            "image mail must declare multipart/related, got:\n{}",
+            text
+        );
+        assert!(
+            text.contains("multipart/alternative"),
+            "image mail must nest a multipart/alternative, got:\n{}",
+            text
+        );
+        assert!(
+            text.contains("Content-ID: <asset-1@genossi>"),
+            "inline part must declare Content-ID: <asset-1@genossi>, got:\n{}",
+            text
+        );
+        assert!(
+            text.contains("cid:asset-1@genossi"),
+            "html part must reference cid:asset-1@genossi, got:\n{}",
+            text
+        );
+    }
+
+    #[test]
+    fn build_message_empty_inline_images_is_byte_identical_no_related() {
+        // IMG-09: an empty inline_images slice must NOT introduce a related
+        // wrapper — the output is the existing alternative shape.
+        let with_empty = build_message(
+            "sender@example.com",
+            "recipient@example.com",
+            "Test",
+            "plain",
+            Some("<p>html</p>"),
+            &[],
+            &[],
+            None,
+            MailEncoding::QuotedPrintable,
+        )
+        .expect("build alternative mail");
+
+        let text = formatted(&with_empty);
+        assert!(
+            !text.contains("multipart/related"),
+            "empty inline_images must NOT produce multipart/related, got:\n{}",
+            text
+        );
+        assert!(
+            text.contains("multipart/alternative"),
+            "no-image html mail stays multipart/alternative, got:\n{}",
+            text
+        );
+    }
+
+    #[test]
+    fn build_message_rejects_when_base64_encoded_size_exceeds_25mb() {
+        // IMG-08 (D-02): the guard is on the BASE64-ENCODED wire size. Choose a
+        // raw size UNDER 25 MB whose base64 encoding EXCEEDS 25 MB. base64
+        // inflates by 4/3, so a raw payload of 20 MB encodes to ~26.6 MB.
+        // 20 MB raw < 25 MB (a raw-byte guard would WRONGLY accept it), but
+        // 20 MB * 4/3 ≈ 26.6 MB > 25 MB (the base64 guard MUST reject it).
+        let raw = 20 * 1024 * 1024;
+        assert!(
+            raw < MAX_ENCODED_MAIL_BYTES,
+            "precondition: raw payload must be under the 25 MB limit"
+        );
+        assert!(
+            base64_encoded_len(raw) > MAX_ENCODED_MAIL_BYTES,
+            "precondition: base64-encoded payload must exceed the 25 MB limit"
+        );
+
+        let img = LoadedInlineImage {
+            cid: "asset-1@genossi".to_string(),
+            mime_type: Arc::from("image/png"),
+            bytes: png_bytes(raw),
+        };
+
+        let result = build_message(
+            "sender@example.com",
+            "recipient@example.com",
+            "Test",
+            "plain",
+            Some(r#"<img src="cid:asset-1@genossi">"#),
+            &[],
+            std::slice::from_ref(&img),
+            None,
+            MailEncoding::QuotedPrintable,
+        );
+
+        assert!(
+            matches!(result, Err(MailServiceError::BadRequest(_))),
+            "base64-encoded oversize must yield BadRequest before assembly, got: {:?}",
+            result.map(|_| "Ok(Message)")
+        );
+    }
+
+    #[test]
+    fn build_message_mixed_wraps_related_when_attachments_present() {
+        // IMG-06 + attachments: multipart/mixed > related > alternative + inline
+        // parts + attachment parts.
+        let img = LoadedInlineImage {
+            cid: "asset-1@genossi".to_string(),
+            mime_type: Arc::from("image/png"),
+            bytes: png_bytes(16),
+        };
+        let attachment = LoadedAttachment {
+            file_name: Arc::from("test.pdf"),
+            mime_type: Arc::from("application/pdf"),
+            bytes: b"%PDF-fake".to_vec(),
+        };
+
+        let email = build_message(
+            "sender@example.com",
+            "recipient@example.com",
+            "Test",
+            "plain",
+            Some(r#"<img src="cid:asset-1@genossi">"#),
+            std::slice::from_ref(&attachment),
+            std::slice::from_ref(&img),
+            None,
+            MailEncoding::QuotedPrintable,
+        )
+        .expect("build mixed>related mail");
+
+        let text = formatted(&email);
+
+        let mixed_pos = text.find("multipart/mixed").expect("mixed must appear");
+        let related_pos = text.find("multipart/related").expect("related must appear");
+        let alt_pos = text
+            .find("multipart/alternative")
+            .expect("alternative must appear");
+        assert!(
+            mixed_pos < related_pos && related_pos < alt_pos,
+            "nesting must be mixed(outer) > related > alternative, got:\n{}",
+            text
+        );
+        assert!(
+            text.contains("Content-ID: <asset-1@genossi>"),
+            "inline image Content-ID must be present, got:\n{}",
+            text
+        );
+        assert!(
+            text.contains("application/pdf") || text.contains("test.pdf"),
+            "document attachment must be present, got:\n{}",
+            text
+        );
+    }
+
+    #[test]
+    fn build_message_images_without_html_body_is_rejected() {
+        // Caller error: cid: references live in HTML; images with no HTML body
+        // must not silently drop the images.
+        let img = LoadedInlineImage {
+            cid: "asset-1@genossi".to_string(),
+            mime_type: Arc::from("image/png"),
+            bytes: png_bytes(16),
+        };
+        let result = build_message(
+            "sender@example.com",
+            "recipient@example.com",
+            "Test",
+            "plain only",
+            None,
+            &[],
+            std::slice::from_ref(&img),
+            None,
+            MailEncoding::QuotedPrintable,
+        );
+        assert!(
+            matches!(result, Err(MailServiceError::BadRequest(_))),
+            "images without an HTML body must be rejected, got: {:?}",
+            result.map(|_| "Ok(Message)")
         );
     }
 }

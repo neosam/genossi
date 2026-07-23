@@ -680,6 +680,8 @@ async fn send_mail_for_recipient<C: ConfigService, D: DocumentStorage>(
         // Phase 23 Plan 04 (HTML-01, D-08): forward the rendered HTML sibling.
         body_html,
         &loaded,
+        // Phase 27 (IMG-06): inline images wired in Task 3.
+        &[],
         in_reply_to,
         smtp_config.encoding,
     )?;
