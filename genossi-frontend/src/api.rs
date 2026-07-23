@@ -5,6 +5,8 @@ use rest_types::{
     ApplicationDocumentTO,
     CancelMembershipRequestTO,
     IncreaseSharesRequestTO,
+    // Phase 27 (IMG-03): inline mail image asset upload response.
+    MailAssetTO,
     MemberActionTO,
     MemberDocumentTO,
     // ─── Phase 18 ─── Membership-Adjust DTOs ─────────────────────────
@@ -390,6 +392,59 @@ pub async fn upload_member_document(
         .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
 
     Ok(doc)
+}
+
+// Mail Asset API (Phase 27, IMG-03)
+
+/// Upload an inline image for the mail WYSIWYG editor. POSTs the file as a
+/// single-field `multipart/form-data` (`file`) to 27-01's admin-gated
+/// `POST /api/mail/assets` endpoint and parses the returned `MailAssetTO`.
+///
+/// The frontend performs NO trusted validation: the `accept=` filter on the
+/// picker and any client-side type check are UX hints only. Authoritative
+/// PNG/JPEG/GIF + 5 MB validation is server-side (magic-byte sniff + body
+/// limit, T-27-16). `map_web_response_error` surfaces the 415/401 branches
+/// consistently with `upload_member_document`.
+pub async fn upload_mail_asset(config: &Config, file: web_sys::File) -> Result<MailAssetTO, AppError> {
+    use wasm_bindgen::JsCast;
+    use wasm_bindgen_futures::JsFuture;
+
+    let url = format!("{}/api/mail/assets", config.backend);
+
+    let form_data = web_sys::FormData::new()
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
+    form_data
+        .append_with_blob_and_filename("file", &file, &file.name())
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
+
+    let mut opts = web_sys::RequestInit::new();
+    opts.method("POST");
+    opts.body(Some(&form_data));
+
+    let request = web_sys::Request::new_with_str_and_init(&url, &opts)
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
+
+    let window = web_sys::window().ok_or_else(|| AppError::new(None, "Verbindungsfehler", None))?;
+    let resp_value = JsFuture::from(window.fetch_with_request(&request))
+        .await
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
+
+    let resp: web_sys::Response = resp_value
+        .dyn_into()
+        .map_err(|_| AppError::new(None, "Verbindungsfehler", None))?;
+
+    if !resp.ok() {
+        return Err(map_web_response_error(&resp).await);
+    }
+
+    let json = JsFuture::from(resp.json().unwrap())
+        .await
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
+
+    let asset: MailAssetTO = serde_wasm_bindgen::from_value(json)
+        .map_err(|e| AppError::new(None, "Verbindungsfehler", Some(format!("{:?}", e))))?;
+
+    Ok(asset)
 }
 
 pub async fn delete_member_document(

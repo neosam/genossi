@@ -289,6 +289,9 @@ pub enum Key {
     MailEditorBlockquote,
     MailEditorLink,
     MailEditorUnlink,
+    // Phase 27 (IMG-03): inline image insert (toolbar button + drag&drop).
+    MailEditorImage,
+    MailEditorImageUploadError,
     MailEditorLinkDialogTitle,
     MailEditorLinkUrlLabel,
     MailEditorLinkTextLabel,

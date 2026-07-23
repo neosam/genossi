@@ -520,6 +520,25 @@ pub struct ApplicationDocumentTO {
     pub version: Option<Uuid>,
 }
 
+// Phase 27 (IMG-02/IMG-03): inline mail image asset. Mirrors the backend
+// `genossi_rest_types::MailAssetTO` serialized shape so the WYSIWYG editor can
+// parse the `POST /api/mail/assets` response and reference the asset via
+// `/api/mail/assets/{id}/bytes`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MailAssetTO {
+    pub id: Uuid,
+    pub filename: String,
+    pub mime_type: String,
+    pub size_bytes: i64,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    pub created: Option<time::PrimitiveDateTime>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MigrationStatusTO {
     pub member_id: Uuid,

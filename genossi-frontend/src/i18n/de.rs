@@ -230,6 +230,8 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::MailEditorBlockquote => "Zitat".into(),
         Key::MailEditorLink => "Link".into(),
         Key::MailEditorUnlink => "Link entfernen".into(),
+        Key::MailEditorImage => "Bild einfügen".into(),
+        Key::MailEditorImageUploadError => "Bild konnte nicht hochgeladen werden".into(),
         Key::MailEditorLinkDialogTitle => "Link einfügen".into(),
         Key::MailEditorLinkUrlLabel => "URL".into(),
         Key::MailEditorLinkTextLabel => "Anzeige-Text (optional)".into(),
