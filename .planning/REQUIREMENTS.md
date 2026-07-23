@@ -21,7 +21,7 @@
 - [x] **IMG-02**: `POST /api/mail/assets` akzeptiert `multipart/form-data` mit PNG/JPEG/GIF, max 5 MB/Bild, gibt `mail_asset.id` zurück; nur für Vorstand (`admin`-Rolle).
 - [ ] **IMG-03**: Vorstand kann im WYSIWYG-Editor Bilder per **Drag&Drop** ODER Toolbar-Button einfügen; Editor fügt `<img data-genossi-asset-id="…" src="/api/mail/assets/{id}/bytes">` in den Body ein.
 - [x] **IMG-04**: `GET /api/mail/assets/{id}/bytes` liefert die Bytes für Editor-Preview; nur für Vorstand (kein Public-Access, kein CID-Bypass).
-- [ ] **IMG-05**: `sanitize.rs` `<img>`-Regel härten — erlaubt ausschließlich `data-genossi-asset-id` als Attribut-Referenz; `src` und andere Attribute werden gestrippt bzw. server-seitig injiziert (kein externes HTTP, kein `data:`-URI).
+- [x] **IMG-05**: `sanitize.rs` `<img>`-Regel härten — erlaubt ausschließlich `data-genossi-asset-id` als Attribut-Referenz; `src` und andere Attribute werden gestrippt bzw. server-seitig injiziert (kein externes HTTP, kein `data:`-URI).
 - [ ] **IMG-06**: Renderer transformiert `<img data-genossi-asset-id="X">` zu `<img src="cid:asset-X@genossi">` und hängt die Bytes als `multipart/related` inline-Part mit passender `Content-ID` an; Mail-Struktur wird `multipart/mixed → multipart/related → multipart/alternative`.
 - [ ] **IMG-07**: Test-Mail-Versand (bestehender Endpoint) unterstützt Bilder identisch — Vorstand sieht die Bilder in der Test-Mail.
 - [ ] **IMG-08**: Gesamtmailgröße wird beim Rendern gegen 25 MB Limit geprüft; Überschreitung liefert klaren Fehler (kein SMTP-Reject später).
