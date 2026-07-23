@@ -8,6 +8,7 @@ pub mod audit_macros;
 pub mod document_storage;
 pub mod helper_token;
 pub mod macros;
+pub mod mail_asset;
 pub mod member;
 pub mod member_action;
 pub mod member_document;
