@@ -14,6 +14,7 @@ pub mod backup;
 pub mod dev;
 pub mod helper_token;
 pub mod http_util;
+pub mod mail_asset;
 pub mod mail_footer;
 pub mod member;
 pub mod member_action;
@@ -230,6 +231,11 @@ pub trait RestStateDef:
         + Send
         + Sync
         + 'static;
+    // Phase 27 (IMG-01/02/04): inline mail image asset service.
+    type MailAssetService: genossi_service::mail_asset::MailAssetService<Context = ContextType>
+        + Send
+        + Sync
+        + 'static;
     // Phase 15 v1.2 (D-15-16): MembershipAdjustService — Foundation fuer
     // cancel_membership + increase_shares (Phase 16-17 erweitern um
     // partial_repayment + transfer_shares).
@@ -259,6 +265,7 @@ pub trait RestStateDef:
     fn member_action_service(&self) -> Arc<Self::MemberActionService>;
     fn member_document_service(&self) -> Arc<Self::MemberDocumentService>;
     fn application_document_service(&self) -> Arc<Self::ApplicationDocumentService>;
+    fn mail_asset_service(&self) -> Arc<Self::MailAssetService>;
     fn membership_adjust_service(&self) -> Arc<Self::MembershipAdjustService>;
     fn document_storage(&self) -> Arc<Self::DocumentStorage>;
     fn validation_service(&self) -> Arc<Self::ValidationService>;
@@ -290,6 +297,7 @@ pub trait RestStateDef:
         (path = "/api/member-documents", api = member_document::CountsApiDoc),
         (path = "/api/applications", api = application::ApiDoc),
         (path = "/api/applications/{application_id}/document", api = application_document::ApiDoc),
+        (path = "/api/mail/assets", api = mail_asset::ApiDoc),
         (path = "/api/assembly", api = assembly::ApiDoc),
         (path = "/api/repayment-phase", api = repayment_phase::ApiDoc),
         (path = "/api/repayment-entry", api = repayment_entry::ApiDoc),
@@ -656,6 +664,10 @@ pub async fn create_app<
         .nest(
             "/api/applications/{application_id}/document",
             application_document::generate_route::<RestState>(),
+        )
+        .nest(
+            "/api/mail/assets",
+            mail_asset::generate_route::<RestState>(),
         )
         .nest("/api/assembly", assembly::generate_route::<RestState>())
         .nest(

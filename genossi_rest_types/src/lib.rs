@@ -757,6 +757,41 @@ impl From<&genossi_service::application_document::ApplicationDocument> for Appli
     }
 }
 
+/// Phase 27 (IMG-02): Transfer object for an inline mail image asset. The
+/// upload response requires the `id` back so the editor can reference the asset
+/// via `/api/mail/assets/{id}/bytes`; `filename`/`mime_type`/`size_bytes`/
+/// `created` are included for completeness.
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct MailAssetTO {
+    #[schema(example = "123e4567-e89b-12d3-a456-426614174000")]
+    pub id: Uuid,
+    #[schema(example = "logo.png")]
+    pub filename: String,
+    #[schema(example = "image/png")]
+    pub mime_type: String,
+    #[schema(example = 12345)]
+    pub size_bytes: i64,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "iso8601_datetime::serialize",
+        deserialize_with = "iso8601_datetime::deserialize",
+        default
+    )]
+    pub created: Option<time::PrimitiveDateTime>,
+}
+
+impl From<&genossi_service::mail_asset::MailAsset> for MailAssetTO {
+    fn from(a: &genossi_service::mail_asset::MailAsset) -> Self {
+        Self {
+            id: a.id,
+            filename: a.filename.to_string(),
+            mime_type: a.mime_type.to_string(),
+            size_bytes: a.size_bytes,
+            created: Some(a.created),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
 pub struct ValidationResultTO {
     pub member_number_gaps: Vec<i64>,

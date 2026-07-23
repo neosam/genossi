@@ -560,6 +560,26 @@ type ApplicationDocumentService =
         ApplicationDocumentServiceDependencies,
     >;
 
+// Phase 27 (IMG-01/02/04): inline mail image asset — DAO + service wiring.
+type MailAssetDao = genossi_dao_impl_sqlite::mail_asset::MailAssetDaoImpl;
+
+pub struct MailAssetServiceDependencies;
+
+unsafe impl Send for MailAssetServiceDependencies {}
+unsafe impl Sync for MailAssetServiceDependencies {}
+
+impl genossi_service_impl::mail_asset::MailAssetServiceDeps for MailAssetServiceDependencies {
+    type Context = Context;
+    type Transaction = Transaction;
+    type MailAssetDao = MailAssetDao;
+    type PermissionService = PermissionService;
+    type UuidService = UuidService;
+    type TransactionDao = TransactionDao;
+}
+
+type MailAssetService =
+    genossi_service_impl::mail_asset::MailAssetServiceImpl<MailAssetServiceDependencies>;
+
 pub struct ValidationServiceDependencies;
 
 unsafe impl Send for ValidationServiceDependencies {}
@@ -664,6 +684,8 @@ pub struct RestStateImpl {
     application_service: Arc<ApplicationService>,
     // Phase 25 Wave 3 (Plan 25-04): single-slot Application-document service.
     application_document_service: Arc<ApplicationDocumentService>,
+    // Phase 27 (IMG-01/02/04): inline mail image asset service.
+    mail_asset_service: Arc<MailAssetService>,
     assembly_service: Arc<AssemblyService>,
     // Phase 7 Plan 04: RepaymentPhase backend foundation.
     repayment_phase_service: Arc<RepaymentPhaseService>,
@@ -959,6 +981,18 @@ impl RestStateImpl {
             },
         );
 
+        // Phase 27 (IMG-01/02/04): MailAssetServiceImpl for the two REST
+        // endpoints (upload + bytes preview). Bytes stored inline as a BLOB —
+        // no document_storage dependency.
+        let mail_asset_dao = Arc::new(MailAssetDao::new(pool.clone()));
+        let mail_asset_service =
+            Arc::new(genossi_service_impl::mail_asset::MailAssetServiceImpl {
+                mail_asset_dao: mail_asset_dao.clone(),
+                permission_service: permission_service.clone(),
+                uuid_service: uuid_service.clone(),
+                transaction_dao: transaction_dao.clone(),
+            });
+
         // assembly_dao was already constructed above (before session_service).
         let assembly_member_snapshot_dao = Arc::new(AssemblyMemberSnapshotDao::new(pool.clone()));
         // Phase 3 Plan 05: helper_token_dao needs to be constructed BEFORE
@@ -1222,6 +1256,7 @@ impl RestStateImpl {
             member_document_service,
             application_service,
             application_document_service,
+            mail_asset_service,
             assembly_service,
             repayment_phase_service,
             repayment_entry_service,
@@ -2059,6 +2094,8 @@ impl genossi_rest::RestStateDef for RestStateImpl {
     type MemberDocumentService = MemberDocumentService;
     // Phase 25 Wave 3 (Plan 25-04).
     type ApplicationDocumentService = ApplicationDocumentService;
+    // Phase 27 (IMG-01/02/04).
+    type MailAssetService = MailAssetService;
     type DocumentStorage = DocumentStorage;
     type ValidationService = ValidationService;
     type UserPreferenceService = UserPreferenceService;
@@ -2095,6 +2132,10 @@ impl genossi_rest::RestStateDef for RestStateImpl {
 
     fn application_document_service(&self) -> Arc<Self::ApplicationDocumentService> {
         self.application_document_service.clone()
+    }
+
+    fn mail_asset_service(&self) -> Arc<Self::MailAssetService> {
+        self.mail_asset_service.clone()
     }
 
     fn document_storage(&self) -> Arc<Self::DocumentStorage> {

@@ -13,7 +13,7 @@ use genossi_rest_types::{
     ActionTypeTO, AdminCreateApplicationRequest, ApplicationDocumentTO, ApplicationStatusTO,
     ApplicationTO, AssemblyDetailTO, AssemblyStatusTO, AssemblyTO, AttendanceMemberTO,
     AttendanceStatsTO, AuditLogEntryTO, BatchStatusRequest, CreateRepaymentEntryRequest,
-    HelperSessionTO, MemberActionTO, MemberDocumentTO, MemberImportResultTO, MemberTO,
+    HelperSessionTO, MailAssetTO, MemberActionTO, MemberDocumentTO, MemberImportResultTO, MemberTO,
     MigrationStatusTO, PublicJoinRequest, PublicJoinResponse, RepaymentEntryStatusTO,
     RepaymentEntryTO, RepaymentPhaseStatusTO, RepaymentPhaseTO, SalutationTO,
     SessionRevokeResponse, UpdateApplicationRequest, UpdateRepaymentEntryRequest, UserPreferenceTO,
@@ -15104,4 +15104,89 @@ async fn inbox_reply_body_html_sanitized_and_persisted() {
     );
     // Sanity: plain body preserved.
     assert_eq!(detail.job.body, "Text-only reply.");
+}
+
+/// Minimal valid 1x1 transparent PNG (magic bytes + IHDR/IDAT/IEND).
+/// Starts with the PNG signature \x89PNG\r\n\x1a\n so the service's magic-byte
+/// sniff accepts it and derives "image/png".
+fn tiny_png() -> Vec<u8> {
+    vec![
+        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // PNG signature
+        0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, // IHDR length + type
+        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, // 1x1
+        0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4, 0x89, // bit depth/color + CRC
+        0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41, 0x54, // IDAT
+        0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00, 0x05, 0x00, 0x01, // deflate data
+        0x0D, 0x0A, 0x2D, 0xB4, // IDAT CRC
+        0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82, // IEND
+    ]
+}
+
+/// IMG-02 + IMG-04 e2e: an admin uploads a PNG and reads it back via /bytes.
+#[tokio::test]
+async fn test_mail_asset_upload_and_bytes_roundtrip() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let png = tiny_png();
+
+    // 1) POST /api/mail/assets — expect 201 + { id }.
+    let part = reqwest::multipart::Part::bytes(png.clone())
+        .file_name("logo.png")
+        // Deliberately lie about the MIME — the server sniffs magic bytes.
+        .mime_str("application/octet-stream")
+        .unwrap();
+    let form = reqwest::multipart::Form::new().part("file", part);
+
+    let response = client
+        .post(server.url("/api/mail/assets"))
+        .multipart(form)
+        .send()
+        .await
+        .expect("upload POST failed");
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    let asset: MailAssetTO = response.json().await.expect("parse MailAssetTO");
+    assert_eq!(asset.mime_type, "image/png");
+    assert_eq!(asset.filename, "logo.png");
+    assert_eq!(asset.size_bytes, png.len() as i64);
+
+    // 2) GET /api/mail/assets/{id}/bytes — expect 200, image/png, exact bytes.
+    let response = client
+        .get(server.url(&format!("/api/mail/assets/{}/bytes", asset.id)))
+        .send()
+        .await
+        .expect("bytes GET failed");
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok()),
+        Some("image/png"),
+    );
+    let body = response.bytes().await.expect("read bytes body").to_vec();
+    assert_eq!(body, png, "returned bytes must be byte-identical to upload");
+}
+
+/// IMG-05 e2e: an SVG payload (masquerading as .png) is rejected with 415.
+#[tokio::test]
+async fn test_mail_asset_upload_svg_rejected_415() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let svg = br#"<svg xmlns="http://www.w3.org/2000/svg"></svg>"#.to_vec();
+    let part = reqwest::multipart::Part::bytes(svg)
+        .file_name("sneaky.png")
+        .mime_str("image/png")
+        .unwrap();
+    let form = reqwest::multipart::Form::new().part("file", part);
+
+    let response = client
+        .post(server.url("/api/mail/assets"))
+        .multipart(form)
+        .send()
+        .await
+        .expect("upload POST failed");
+    assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
 }
