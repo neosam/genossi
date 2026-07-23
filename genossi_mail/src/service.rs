@@ -35,6 +35,22 @@ impl From<crate::dao::MailDaoError> for MailServiceError {
     }
 }
 
+/// Phase 27 (IMG-07): a minimal async byte-loader for inline mail-image assets.
+///
+/// Injected into [`MailServiceImpl`] as a boxed trait object so the test-mail
+/// send path (`send_test_mail_with_body`) can load asset bytes WITHOUT adding a
+/// `MailAssetDao` type parameter to `MailServiceImpl`'s generic list (RESEARCH
+/// Anti-Pattern). The main-layer wiring (`genossi_bin`) supplies an
+/// implementation backed by the `mail_asset` DAO. When `None`, the send path
+/// simply skips image loading (used by the SMTP-config smoke test).
+#[async_trait]
+pub trait InlineImageByteLoader: Send + Sync {
+    /// Load `(mime_type, bytes)` for a single asset id. Returns `None` when the
+    /// asset is missing or soft-deleted (broken-image is preferable to a failed
+    /// send, T-27-15).
+    async fn load(&self, asset_id: Uuid) -> Option<(Arc<str>, Vec<u8>)>;
+}
+
 pub struct RecipientInput {
     pub address: String,
     pub member_id: Option<Uuid>,
@@ -286,6 +302,9 @@ pub struct MailServiceImpl<
     attachment_dao: Arc<A>,
     static_document_dao: Arc<S>,
     mail_job_static_attachment_dao: Arc<M>,
+    /// Phase 27 (IMG-07): optional inline-image byte loader for the test-mail
+    /// send path. `None` ⇒ image loading is skipped (SMTP-config smoke test).
+    image_loader: Option<Arc<dyn InlineImageByteLoader>>,
 }
 
 impl<
@@ -312,7 +331,15 @@ impl<
             attachment_dao: Arc::new(attachment_dao),
             static_document_dao: Arc::new(static_document_dao),
             mail_job_static_attachment_dao: Arc::new(mail_job_static_attachment_dao),
+            image_loader: None,
         }
+    }
+
+    /// Phase 27 (IMG-07): attach an inline-image byte loader so the test-mail
+    /// send path can embed images referenced by `data-genossi-asset-id`.
+    pub fn with_image_loader(mut self, loader: Arc<dyn InlineImageByteLoader>) -> Self {
+        self.image_loader = Some(loader);
+        self
     }
 }
 
@@ -536,16 +563,50 @@ impl<
         // store-boundary sanitize on `create_job` / templates.
         let sanitized_html = sanitize_body_html_opt(body_html.as_deref());
 
+        // Phase 27 (IMG-07): rewrite <img data-genossi-asset-id=X> to cid: refs
+        // and load the referenced asset bytes so the Vorstand sees images in the
+        // test mail identically to a real send. When the HTML carries no image
+        // (or no loader is configured), `inline_images` stays empty and
+        // build_message runs the byte-identical no-image path (IMG-09).
+        let (rewritten_html, inline_images) = match sanitized_html.as_deref() {
+            Some(html) => {
+                let (rewritten, refs) = crate::render::rewrite_img_cids(html);
+                let mut images: Vec<crate::send::LoadedInlineImage> = Vec::new();
+                if let Some(loader) = self.image_loader.as_ref() {
+                    for asset_ref in &refs {
+                        match loader.load(asset_ref.asset_id).await {
+                            Some((mime_type, bytes)) => {
+                                images.push(crate::send::LoadedInlineImage {
+                                    cid: asset_ref.cid.clone(),
+                                    mime_type,
+                                    bytes,
+                                });
+                            }
+                            None => {
+                                // Missing asset — skip (broken image beats a
+                                // failed send, T-27-15).
+                                tracing::warn!(
+                                    asset_id = %asset_ref.asset_id,
+                                    "Test mail: inline asset not found, skipping image"
+                                );
+                            }
+                        }
+                    }
+                }
+                (Some(rewritten), images)
+            }
+            None => (None, Vec::new()),
+        };
+
         let email = crate::send::build_message(
             &smtp_config.from,
             to,
             subject,
             body,
-            // Phase 23 Plan 04: rendered + sanitized HTML sibling (D-03 EP4).
-            sanitized_html.as_deref(),
+            // Phase 27 (IMG-07): the cid-rewritten HTML (or None when text-only).
+            rewritten_html.as_deref(),
             &[],
-            // Phase 27 (IMG-07): image byte-loading wired in Task 3.
-            &[],
+            &inline_images,
             None,
             smtp_config.encoding,
         )?;
@@ -1458,6 +1519,112 @@ mod tests {
             sanitized.contains("https://example.com"),
             "http(s) URL preserved, got: {}",
             sanitized
+        );
+    }
+
+    // ============================================================
+    // Phase 27 (IMG-07 + IMG-09): test-mail image loading wiring —
+    // an HTML body with <img data-genossi-asset-id> triggers a loader
+    // call for the referenced asset; an image-less body does NOT.
+    // ============================================================
+
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct RecordingLoader {
+        calls: Arc<AtomicUsize>,
+        last_id: Arc<std::sync::Mutex<Option<Uuid>>>,
+    }
+
+    #[async_trait]
+    impl InlineImageByteLoader for RecordingLoader {
+        async fn load(&self, asset_id: Uuid) -> Option<(Arc<str>, Vec<u8>)> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            *self.last_id.lock().unwrap() = Some(asset_id);
+            Some((Arc::from("image/png"), vec![0x89, 0x50, 0x4E, 0x47]))
+        }
+    }
+
+    fn recording_service(
+        loader: Arc<RecordingLoader>,
+    ) -> MailServiceImpl<
+        MockConfigService,
+        MockMailJobDao,
+        MockMailRecipientDao,
+        MockMailRecipientAttachmentDao,
+        MockStaticDocumentDao,
+        MockMailJobStaticAttachmentDao,
+    > {
+        let mut config_mock = MockConfigService::new();
+        let config = mock_smtp_config();
+        config_mock
+            .expect_get_all()
+            .returning(move || Ok(config.clone().into()));
+        let (sd_mock, msa_mock) = empty_static_mocks();
+        MailServiceImpl::new(
+            config_mock,
+            MockMailJobDao::new(),
+            MockMailRecipientDao::new(),
+            MockMailRecipientAttachmentDao::new(),
+            sd_mock,
+            msa_mock,
+        )
+        .with_image_loader(loader)
+    }
+
+    #[tokio::test]
+    async fn send_test_mail_with_body_loads_asset_bytes_when_html_has_image() {
+        // IMG-07: an HTML body referencing an asset id triggers a loader call.
+        let calls = Arc::new(AtomicUsize::new(0));
+        let last_id = Arc::new(std::sync::Mutex::new(None));
+        let loader = Arc::new(RecordingLoader {
+            calls: calls.clone(),
+            last_id: last_id.clone(),
+        });
+        let asset_id = Uuid::new_v4();
+        let service = recording_service(loader);
+
+        let html = format!(r#"<p>Logo</p><img data-genossi-asset-id="{}">"#, asset_id);
+        // SMTP will fail (no server), but the loader runs BEFORE the send attempt.
+        let _ = service
+            .send_test_mail_with_body("to@example.com", "Betreff", "Body", Some(html))
+            .await;
+
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "loader must be called once for the single referenced asset"
+        );
+        assert_eq!(
+            *last_id.lock().unwrap(),
+            Some(asset_id),
+            "loader must be called with the asset id from the HTML"
+        );
+    }
+
+    #[tokio::test]
+    async fn send_test_mail_with_body_no_image_does_not_load_assets() {
+        // IMG-09: an image-less HTML body loads no assets (empty inline slice).
+        let calls = Arc::new(AtomicUsize::new(0));
+        let last_id = Arc::new(std::sync::Mutex::new(None));
+        let loader = Arc::new(RecordingLoader {
+            calls: calls.clone(),
+            last_id,
+        });
+        let service = recording_service(loader);
+
+        let _ = service
+            .send_test_mail_with_body(
+                "to@example.com",
+                "Betreff",
+                "Body",
+                Some("<p>Kein Bild hier</p>".to_string()),
+            )
+            .await;
+
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            0,
+            "image-less body must not trigger any asset load (IMG-09)"
         );
     }
 }

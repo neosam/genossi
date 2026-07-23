@@ -580,6 +580,30 @@ impl genossi_service_impl::mail_asset::MailAssetServiceDeps for MailAssetService
 type MailAssetService =
     genossi_service_impl::mail_asset::MailAssetServiceImpl<MailAssetServiceDependencies>;
 
+/// Phase 27 (IMG-07): main-layer inline-image byte loader backing the test-mail
+/// send path. Loads asset bytes via the `mail_asset` DAO inside a read tx,
+/// WITHOUT adding a DAO type param to `MailServiceImpl` (RESEARCH Anti-Pattern
+/// respected — the loader is a boxed trait object).
+struct MailAssetImageLoader {
+    mail_asset_dao: Arc<MailAssetDao>,
+    transaction_dao: Arc<TransactionDao>,
+}
+
+#[async_trait::async_trait]
+impl genossi_mail::service::InlineImageByteLoader for MailAssetImageLoader {
+    async fn load(&self, asset_id: uuid::Uuid) -> Option<(std::sync::Arc<str>, Vec<u8>)> {
+        use genossi_dao::mail_asset::MailAssetDao as _;
+        use genossi_dao::TransactionDao as _;
+        let tx = self.transaction_dao.transaction().await.ok()?;
+        let result = self.mail_asset_dao.find_by_id(asset_id, tx.clone()).await;
+        let _ = self.transaction_dao.commit(tx).await;
+        match result {
+            Ok(Some(entity)) => Some((entity.mime_type.clone(), entity.bytes.clone())),
+            _ => None,
+        }
+    }
+}
+
 pub struct ValidationServiceDependencies;
 
 unsafe impl Send for ValidationServiceDependencies {}
@@ -738,6 +762,9 @@ pub struct RestStateImpl {
     worker_recipient_dao: Arc<MailRecipientDao>,
     worker_attachment_dao: Arc<MailRecipientAttachmentDao>,
     worker_static_attachment_dao: Arc<MailJobStaticAttachmentDaoType>,
+    // Phase 27 (IMG-06/IMG-07): mail-asset DAO for the worker's inline-image
+    // byte loading. Same Arc as the mail-asset REST service.
+    worker_mail_asset_dao: Arc<MailAssetDao>,
     // Backup worker dependencies
     backup_config_service: Arc<ConfigService>,
     backup_sync_dao: Arc<BackupDocumentSyncDao>,
@@ -864,8 +891,7 @@ impl RestStateImpl {
         // The same Arc is passed into both ApplicationServiceImpl (for
         // confirm() carryover) and ApplicationDocumentServiceImpl (for the
         // three REST endpoints). Single DAO per process.
-        let application_document_dao =
-            Arc::new(ApplicationDocumentDao::new(pool.clone()));
+        let application_document_dao = Arc::new(ApplicationDocumentDao::new(pool.clone()));
 
         let member_import_service = Arc::new(
             genossi_service_impl::member_import::MemberImportServiceImpl {
@@ -937,14 +963,26 @@ impl RestStateImpl {
         let mail_job_static_attachment_dao = MailJobStaticAttachmentDaoType::new(pool.clone());
         let config_dao_for_mail = ConfigDao::new(pool.clone());
         let config_service_for_mail = ConfigService::new(config_dao_for_mail);
-        let mail_service = Arc::new(MailServiceType::new(
-            config_service_for_mail,
-            mail_job_dao,
-            mail_recipient_dao,
-            mail_attachment_dao,
-            mail_static_dao,
-            mail_job_static_attachment_dao,
-        ));
+        // Phase 27 (IMG-01..07): the mail-asset DAO is shared by the mail-asset
+        // REST service, the test-mail image loader, and the worker generic.
+        let mail_asset_dao = Arc::new(MailAssetDao::new(pool.clone()));
+        // Phase 27 (IMG-07): inline-image byte loader for the test-mail path.
+        let mail_asset_image_loader: Arc<dyn genossi_mail::service::InlineImageByteLoader> =
+            Arc::new(MailAssetImageLoader {
+                mail_asset_dao: mail_asset_dao.clone(),
+                transaction_dao: Arc::new(TransactionDao::new(pool.clone())),
+            });
+        let mail_service = Arc::new(
+            MailServiceType::new(
+                config_service_for_mail,
+                mail_job_dao,
+                mail_recipient_dao,
+                mail_attachment_dao,
+                mail_static_dao,
+                mail_job_static_attachment_dao,
+            )
+            .with_image_loader(mail_asset_image_loader),
+        );
 
         // Application service for public join
         let config_dao_for_app = ConfigDao::new(pool.clone());
@@ -983,15 +1021,14 @@ impl RestStateImpl {
 
         // Phase 27 (IMG-01/02/04): MailAssetServiceImpl for the two REST
         // endpoints (upload + bytes preview). Bytes stored inline as a BLOB —
-        // no document_storage dependency.
-        let mail_asset_dao = Arc::new(MailAssetDao::new(pool.clone()));
-        let mail_asset_service =
-            Arc::new(genossi_service_impl::mail_asset::MailAssetServiceImpl {
-                mail_asset_dao: mail_asset_dao.clone(),
-                permission_service: permission_service.clone(),
-                uuid_service: uuid_service.clone(),
-                transaction_dao: transaction_dao.clone(),
-            });
+        // no document_storage dependency. Reuses the shared `mail_asset_dao`
+        // Arc created above (also used by the test-mail image loader + worker).
+        let mail_asset_service = Arc::new(genossi_service_impl::mail_asset::MailAssetServiceImpl {
+            mail_asset_dao: mail_asset_dao.clone(),
+            permission_service: permission_service.clone(),
+            uuid_service: uuid_service.clone(),
+            transaction_dao: transaction_dao.clone(),
+        });
 
         // assembly_dao was already constructed above (before session_service).
         let assembly_member_snapshot_dao = Arc::new(AssemblyMemberSnapshotDao::new(pool.clone()));
@@ -1224,6 +1261,9 @@ impl RestStateImpl {
         let worker_attachment_dao = Arc::new(MailRecipientAttachmentDao::new(pool.clone()));
         let worker_static_attachment_dao =
             Arc::new(MailJobStaticAttachmentDaoType::new(pool.clone()));
+        // Phase 27 (IMG-06/IMG-07): shared mail-asset DAO Arc for the worker's
+        // inline-image byte loading (same DAO used by the REST service + loader).
+        let worker_mail_asset_dao = mail_asset_dao.clone();
         let worker_config_dao = ConfigDao::new(pool.clone());
         let worker_config_service = Arc::new(ConfigService::new(worker_config_dao));
 
@@ -1302,6 +1342,7 @@ impl RestStateImpl {
             worker_recipient_dao,
             worker_attachment_dao,
             worker_static_attachment_dao,
+            worker_mail_asset_dao,
             backup_config_service,
             backup_sync_dao,
             backup_comm_sync_dao,
@@ -1593,6 +1634,8 @@ impl RestStateImpl {
         let transaction_dao = self.transaction_dao.clone();
         // Quick 260603-h0r: Shared aggregation resolver — same Arc as Letter-Service.
         let repayment_context_resolver = self.repayment_context_resolver.clone();
+        // Phase 27 (IMG-06/IMG-07): mail-asset DAO for inline-image byte loading.
+        let mail_asset_dao = self.worker_mail_asset_dao.clone();
         tokio::spawn(async move {
             genossi_mail::worker::start_mail_worker(
                 config_service,
@@ -1613,6 +1656,8 @@ impl RestStateImpl {
                 transaction_dao,
                 // Quick 260603-h0r: 15th positional arg (RCR generic).
                 repayment_context_resolver,
+                // Phase 27: 16th positional arg (AS = MailAssetDao generic).
+                mail_asset_dao,
             )
             .await;
         });

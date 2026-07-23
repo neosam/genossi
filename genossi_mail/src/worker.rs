@@ -197,7 +197,7 @@ async fn mark_recipient_failed<R: MailRecipientDao, J: MailJobDao>(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub async fn start_mail_worker<C, J, R, A, SA, D, M, IB, MD, AL, MT, RE, RP, TX, RCR>(
+pub async fn start_mail_worker<C, J, R, A, SA, D, M, IB, MD, AL, MT, RE, RP, TX, RCR, AS>(
     config_service: Arc<C>,
     job_dao: Arc<J>,
     recipient_dao: Arc<R>,
@@ -218,6 +218,11 @@ pub async fn start_mail_worker<C, J, R, A, SA, D, M, IB, MD, AL, MT, RE, RP, TX,
     //     Truth for the Phase-10 D-04 (German euro format) + D-06 (status
     //     filter Open+Contacted + soft-delete IS NULL) aggregation rule.
     repayment_context_resolver: Arc<RCR>,
+    // --- Phase 27 (IMG-06/IMG-07): inline-image asset DAO ---
+    // Sanctioned pattern: a new worker-only DAO generic (mirrors attachment_dao),
+    // NOT a DAO added to MailServiceImpl (RESEARCH Anti-Pattern). Appended LAST
+    // so all existing positional args keep their order.
+    mail_asset_dao: Arc<AS>,
 ) where
     C: ConfigService,
     J: MailJobDao,
@@ -240,6 +245,10 @@ pub async fn start_mail_worker<C, J, R, A, SA, D, M, IB, MD, AL, MT, RE, RP, TX,
         + 'static,
     TX: genossi_dao::TransactionDao<Transaction = MD::Transaction> + Send + Sync + 'static,
     RCR: RepaymentContextResolver<Transaction = MD::Transaction> + Send + Sync + 'static,
+    AS: genossi_dao::mail_asset::MailAssetDao<Transaction = MD::Transaction>
+        + Send
+        + Sync
+        + 'static,
 {
     loop {
         let next = match recipient_dao.next_pending().await {
@@ -439,6 +448,10 @@ pub async fn start_mail_worker<C, J, R, A, SA, D, M, IB, MD, AL, MT, RE, RP, TX,
             rendered_html_body_opt.as_deref(),
             &attachments,
             document_storage.as_ref(),
+            // Phase 27 (IMG-06/IMG-07): the mail-asset DAO + tx DAO let the send
+            // path load inline-image bytes referenced by data-genossi-asset-id.
+            mail_asset_dao.as_ref(),
+            transaction_dao.as_ref(),
             reply_message_id.as_deref(),
         )
         .await;
@@ -634,7 +647,8 @@ async fn try_create_member_document_audited<MD, AL, TX>(
     }
 }
 
-async fn send_mail_for_recipient<C: ConfigService, D: DocumentStorage>(
+#[allow(clippy::too_many_arguments)]
+async fn send_mail_for_recipient<C, D, AS, TX>(
     config_service: &C,
     to: &str,
     subject: &str,
@@ -644,8 +658,19 @@ async fn send_mail_for_recipient<C: ConfigService, D: DocumentStorage>(
     body_html: Option<&str>,
     attachments: &[crate::dao::MailRecipientAttachment],
     document_storage: &D,
+    // Phase 27 (IMG-06/IMG-07): load inline-image bytes referenced by
+    // data-genossi-asset-id via the mail-asset DAO. A read tx is opened via
+    // transaction_dao for the lookup.
+    mail_asset_dao: &AS,
+    transaction_dao: &TX,
     in_reply_to: Option<&str>,
-) -> Result<Option<String>, MailServiceError> {
+) -> Result<Option<String>, MailServiceError>
+where
+    C: ConfigService,
+    D: DocumentStorage,
+    AS: genossi_dao::mail_asset::MailAssetDao + Send + Sync,
+    TX: genossi_dao::TransactionDao<Transaction = AS::Transaction> + Send + Sync,
+{
     use lettre::AsyncTransport;
 
     let smtp_config = load_smtp_config(config_service).await?;
@@ -672,16 +697,74 @@ async fn send_mail_for_recipient<C: ConfigService, D: DocumentStorage>(
         });
     }
 
+    // Phase 27 (IMG-06): rewrite <img data-genossi-asset-id=X> to cid: refs and
+    // load the referenced asset bytes. When the HTML carries no image,
+    // rewrite_img_cids returns the HTML unchanged + an empty Vec, so the
+    // no-image build_message path stays byte-identical (IMG-09).
+    let (rewritten_html, inline_images): (Option<String>, Vec<crate::send::LoadedInlineImage>) =
+        match body_html {
+            Some(html) => {
+                let (rewritten, refs) = crate::render::rewrite_img_cids(html);
+                let mut images: Vec<crate::send::LoadedInlineImage> =
+                    Vec::with_capacity(refs.len());
+                if !refs.is_empty() {
+                    // Open a single read tx for all asset lookups.
+                    match transaction_dao.transaction().await {
+                        Ok(tx) => {
+                            for asset_ref in &refs {
+                                match mail_asset_dao
+                                    .find_by_id(asset_ref.asset_id, tx.clone())
+                                    .await
+                                {
+                                    Ok(Some(entity)) => {
+                                        images.push(crate::send::LoadedInlineImage {
+                                            cid: asset_ref.cid.clone(),
+                                            mime_type: entity.mime_type.clone(),
+                                            bytes: entity.bytes.clone(),
+                                        });
+                                    }
+                                    Ok(None) => {
+                                        // Missing/soft-deleted asset — skip the
+                                        // image (broken image beats a failed
+                                        // send, T-27-15).
+                                        tracing::warn!(
+                                            asset_id = %asset_ref.asset_id,
+                                            "Worker: inline asset not found, skipping image"
+                                        );
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            asset_id = %asset_ref.asset_id,
+                                            error = ?e,
+                                            "Worker: inline asset load failed, skipping image"
+                                        );
+                                    }
+                                }
+                            }
+                            let _ = genossi_dao::TransactionDao::commit(transaction_dao, tx).await;
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                error = ?e,
+                                "Worker: cannot open tx for inline-image load, sending without images"
+                            );
+                        }
+                    }
+                }
+                (Some(rewritten), images)
+            }
+            None => (None, Vec::new()),
+        };
+
     let email = crate::send::build_message(
         &smtp_config.from,
         to,
         subject,
         body,
-        // Phase 23 Plan 04 (HTML-01, D-08): forward the rendered HTML sibling.
-        body_html,
+        // Phase 27 (IMG-06): forward the cid-rewritten HTML sibling.
+        rewritten_html.as_deref(),
         &loaded,
-        // Phase 27 (IMG-06): inline images wired in Task 3.
-        &[],
+        &inline_images,
         in_reply_to,
         smtp_config.encoding,
     )?;
