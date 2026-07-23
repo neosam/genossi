@@ -24,8 +24,10 @@ use dioxus::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::Range;
 
+use crate::api;
 use crate::component::mail_compose::wysiwyg_link_dialog::WysiwygLinkDialog;
-use crate::component::mail_compose::wysiwyg_toolbar::WysiwygToolbar;
+use crate::component::mail_compose::wysiwyg_toolbar::{image_insert_html, WysiwygToolbar};
+use crate::service::config::CONFIG;
 
 /// The stable DOM id for the contenteditable div. Constant so
 /// `WysiwygToolbar::focus_editor` and every read-from-DOM call can find
@@ -102,6 +104,42 @@ pub fn WysiwygEditor(value: String, on_change: EventHandler<(String, String)>) -
                         let _ = crate::js::exec_command_str(&doc, "insertText", &text);
                         sync_from_dom(&on_change);
                     }
+                },
+                // Phase 27 (IMG-03): make the div a drop target. Without a
+                // dragover handler that calls prevent_default the browser
+                // refuses to fire ondrop.
+                ondragover: move |evt| {
+                    evt.prevent_default();
+                },
+                // Phase 27 (IMG-03): drop an image file → upload → insert the
+                // same data-genossi-asset-id <img> as the toolbar button.
+                // Mirrors the onpaste structure: prevent_default FIRST, then
+                // downcast to the platform event and read the dropped files.
+                ondrop: move |evt| {
+                    // prevent_default FIRST so the browser does not navigate to
+                    // / open the dropped file (T-27-18).
+                    evt.prevent_default();
+                    let Some(web_event) = evt.downcast::<web_sys::Event>().cloned() else { return; };
+                    let Ok(drag_event) = web_event.dyn_into::<web_sys::DragEvent>() else { return; };
+                    let Some(dt) = drag_event.data_transfer() else { return; };
+                    let Some(files) = dt.files() else { return; };
+                    // No file in the drop (e.g. dragged text) → nothing to do.
+                    let Some(file) = files.get(0) else { return; };
+                    spawn(async move {
+                        let config = CONFIG.read().clone();
+                        match api::upload_mail_asset(&config, file).await {
+                            Ok(asset) => {
+                                let img_html = image_insert_html(&asset.id.to_string());
+                                if let Some(doc) = doc() {
+                                    let _ = crate::js::exec_command_str(&doc, "insertHTML", &img_html);
+                                    sync_from_dom(&on_change);
+                                }
+                            }
+                            Err(e) => {
+                                tracing::error!("mail-asset image drop upload failed: {e}");
+                            }
+                        }
+                    });
                 },
             }
 
@@ -328,6 +366,30 @@ mod grep_gate_tests {
             "Grep gate FAILED: the `prose ` class is back in wysiwyg_editor.rs. \
              It is a no-op because Tailwind Typography is not installed and \
              leaves the editor visually broken. Use `mail-html-render` instead."
+        );
+    }
+
+    /// Phase 27 (IMG-03) — the drop handler must exist and call
+    /// prevent_default(), otherwise the browser opens/navigates to the dropped
+    /// file instead of uploading it (T-27-18). Same self-reference-hazard
+    /// defence as the paste test: search the production region only and build
+    /// the needles at runtime.
+    #[test]
+    fn drop_handler_calls_prevent_default() {
+        let region = production_region();
+        let drop_needle = format!("ondro{tail}", tail = "p:");
+        let prevent_needle = format!("evt.prevent_defaul{tail}", tail = "t()");
+        let idx = region.find(&drop_needle).expect(
+            "Grep gate FAILED: ondrop handler missing entirely in wysiwyg_editor.rs \
+             (production region) — image drag&drop insert is gone",
+        );
+        let window = &region[idx..idx.saturating_add(400).min(region.len())];
+        assert!(
+            window.contains(&prevent_needle),
+            "Grep gate FAILED: expected {prevent_needle} within 400 chars of \
+             {drop_needle} in wysiwyg_editor.rs (production region). Without it \
+             the browser opens the dropped file instead of uploading it \
+             (T-27-18). Window around the drop handler (first 400 chars):\n{window}"
         );
     }
 
