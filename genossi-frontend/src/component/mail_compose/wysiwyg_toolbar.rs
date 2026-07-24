@@ -30,13 +30,21 @@ const IMAGE_INPUT_ID: &str = "wysiwyg-image-input";
 
 /// Pure helper producing the inline-image markup inserted at the caret.
 ///
-/// Emits `<img data-genossi-asset-id="{id}" src="/api/mail/assets/{id}/bytes">`.
+/// Emits `<img data-genossi-asset-id="{id}" src="{backend}/api/mail/assets/{id}/bytes">`.
+/// The `src` is built from `config.backend` — exactly like every other API call
+/// (`format!("{}/api/...", config.backend)`) — so the live preview resolves to
+/// the same base the working requests use in every environment. A relative
+/// `/api/...` src would bypass `config.backend` and 404 on deployments where the
+/// browser-visible API base is not the page origin (e.g. beta, where
+/// `config.backend` already carries an `/api` segment consumed by the proxy).
 /// The `src` is a convenience for the live editor only — 27-02's sanitizer
 /// strips it on store, so only `data-genossi-asset-id` persists (T-27-17).
 /// Both the toolbar button and the editor drag&drop handler reuse this
 /// helper so the inserted shape is identical.
-pub(crate) fn image_insert_html(id: &str) -> String {
-    format!(r#"<img data-genossi-asset-id="{id}" src="/api/mail/assets/{id}/bytes">"#)
+pub(crate) fn image_insert_html(backend: &str, id: &str) -> String {
+    format!(
+        r#"<img data-genossi-asset-id="{id}" src="{backend}/api/mail/assets/{id}/bytes">"#
+    )
 }
 
 #[component]
@@ -336,7 +344,8 @@ pub fn WysiwygToolbar(
                         let config = CONFIG.read().clone();
                         match api::upload_mail_asset(&config, file).await {
                             Ok(asset) => {
-                                let img_html = image_insert_html(&asset.id.to_string());
+                                let img_html =
+                                    image_insert_html(&config.backend, &asset.id.to_string());
                                 if let Some(doc) = doc() {
                                     let _ = crate::js::exec_command_str(&doc, "insertHTML", &img_html);
                                 }
@@ -442,12 +451,35 @@ mod image_insert_html_tests {
 
     #[test]
     fn produces_exact_asset_img_shape() {
+        let backend = "http://localhost:8080";
         let id = "123e4567-e89b-12d3-a456-426614174000";
         assert_eq!(
-            image_insert_html(id),
+            image_insert_html(backend, id),
             format!(
-                "<img data-genossi-asset-id=\"{id}\" src=\"/api/mail/assets/{id}/bytes\">"
+                "<img data-genossi-asset-id=\"{id}\" src=\"{backend}/api/mail/assets/{id}/bytes\">"
             )
+        );
+    }
+
+    /// Regression guard for the beta Preview-404 (quick 260724-8p1): the preview
+    /// `src` MUST be built from `config.backend` — exactly like every other API
+    /// call — not a relative `/api/...` path. A relative src bypasses the backend
+    /// base and 404s where the browser-visible API base is not the page origin.
+    #[test]
+    fn preview_src_uses_backend_base_not_relative() {
+        let id = "123e4567-e89b-12d3-a456-426614174000";
+
+        // Beta-style backend that already carries an `/api` segment.
+        let backend = "https://genossi-beta.nebenan-unverpackt.de/api";
+        let html = image_insert_html(backend, id);
+        assert!(
+            html.contains(&format!("src=\"{backend}/api/mail/assets/{id}/bytes\"")),
+            "preview src must start with config.backend, got: {html}"
+        );
+        // Must NOT emit the relative single-`/api` src that caused the 404.
+        assert!(
+            !html.contains("src=\"/api/mail/assets/"),
+            "preview src must not be relative (bypasses config.backend), got: {html}"
         );
     }
 }

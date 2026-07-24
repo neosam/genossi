@@ -129,7 +129,8 @@ pub fn WysiwygEditor(value: String, on_change: EventHandler<(String, String)>) -
                         let config = CONFIG.read().clone();
                         match api::upload_mail_asset(&config, file).await {
                             Ok(asset) => {
-                                let img_html = image_insert_html(&asset.id.to_string());
+                                let img_html =
+                                    image_insert_html(&config.backend, &asset.id.to_string());
                                 if let Some(doc) = doc() {
                                     let _ = crate::js::exec_command_str(&doc, "insertHTML", &img_html);
                                     sync_from_dom(&on_change);
