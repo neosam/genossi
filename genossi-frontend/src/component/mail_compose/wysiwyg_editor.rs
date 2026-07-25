@@ -105,11 +105,21 @@ pub fn WysiwygEditor(value: String, on_change: EventHandler<(String, String)>) -
                         sync_from_dom(&on_change);
                     }
                 },
-                // Phase 27 (IMG-03): make the div a drop target. Without a
-                // dragover handler that calls prevent_default the browser
-                // refuses to fire ondrop.
+                // Phase 27 (IMG-03): make the div a drop target. A drop target
+                // only fires `ondrop` if BOTH `dragenter` and `dragover` are
+                // canceled. Dioxus 0.6's synthetic `evt.prevent_default()` did
+                // NOT reliably cancel the native dragover here (quick 260724:
+                // drop never fired), so cancel on the NATIVE event directly —
+                // the same downcast path the drop handler uses to read files.
+                ondragenter: move |evt| {
+                    if let Some(web_event) = evt.downcast::<web_sys::Event>() {
+                        web_event.prevent_default();
+                    }
+                },
                 ondragover: move |evt| {
-                    evt.prevent_default();
+                    if let Some(web_event) = evt.downcast::<web_sys::Event>() {
+                        web_event.prevent_default();
+                    }
                 },
                 // Phase 27 (IMG-03): drop an image file → upload → insert the
                 // same data-genossi-asset-id <img> as the toolbar button.
@@ -120,6 +130,10 @@ pub fn WysiwygEditor(value: String, on_change: EventHandler<(String, String)>) -
                     // / open the dropped file (T-27-18).
                     evt.prevent_default();
                     let Some(web_event) = evt.downcast::<web_sys::Event>().cloned() else { return; };
+                    // Also cancel on the native event — synthetic prevent_default
+                    // is unreliable for drag events in Dioxus 0.6, and a missed
+                    // cancel lets the browser open the dropped file after us.
+                    web_event.prevent_default();
                     let Ok(drag_event) = web_event.dyn_into::<web_sys::DragEvent>() else { return; };
                     let Some(dt) = drag_event.data_transfer() else { return; };
                     let Some(files) = dt.files() else { return; };
@@ -391,6 +405,37 @@ mod grep_gate_tests {
              {drop_needle} in wysiwyg_editor.rs (production region). Without it \
              the browser opens the dropped file instead of uploading it \
              (T-27-18). Window around the drop handler (first 400 chars):\n{window}"
+        );
+    }
+
+    /// Phase 27 (IMG-03) / quick 260724 — the `dragover` handler MUST cancel on
+    /// the NATIVE event (downcast → prevent_default), not only via Dioxus'
+    /// synthetic `evt.prevent_default()`. A drop target only fires `ondrop` when
+    /// dragover is canceled on the native event; the synthetic call did not do
+    /// that in Dioxus 0.6, so drop never fired (no upload, no console log). This
+    /// guard bites if someone reverts dragover to the synthetic-only form.
+    #[test]
+    fn dragover_cancels_on_native_event() {
+        let region = production_region();
+        let dragover_needle = format!("ondragove{tail}", tail = "r:");
+        // Runtime-assembled so the literal does not self-match via include_str!.
+        let native_prevent_needle = format!(
+            "web_event.prevent_defaul{tail}",
+            tail = "t()"
+        );
+        let idx = region.find(&dragover_needle).expect(
+            "Grep gate FAILED: ondragover handler missing entirely in \
+             wysiwyg_editor.rs (production region) — the div is no longer a drop \
+             target and ondrop cannot fire",
+        );
+        let window = &region[idx..idx.saturating_add(300).min(region.len())];
+        assert!(
+            window.contains(&native_prevent_needle),
+            "Grep gate FAILED: expected {native_prevent_needle} within 300 chars \
+             of {dragover_needle} in wysiwyg_editor.rs (production region). \
+             Dioxus 0.6 synthetic evt.prevent_default() does NOT reliably cancel \
+             the native dragover, so ondrop never fires (quick 260724). Cancel on \
+             the downcast native event. Window:\n{window}"
         );
     }
 
