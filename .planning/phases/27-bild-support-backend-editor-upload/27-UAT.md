@@ -31,10 +31,10 @@ awaiting: user response (blockiert bis Preview-Fix, siehe Gaps)
 - **Test:** Vorstand zieht ein PNG/JPEG/GIF-Bild aus dem Datei-Manager auf den WYSIWYG-Editor-Bereich.
 - **Expected:** Browser navigiert NICHT zur Bild-Datei; Bild wird hochgeladen und identisch zum Toolbar-Pfad eingebettet; kein Seiten-Reload.
 - **Why human:** DragEvent-Dispatch, DataTransfer-API und der prevent_default-Effekt lassen sich nur im echten Browser-WASM-Kontext validieren.
-- **Status:** pending (Fix appliziert, wartet auf Browser-Re-Test nach Deploy)
-- **reported:** "Drag&Drop reagiert gar nicht — kein ondrop, kein Log, kein Request."
+- **Status:** pending (2. Fix appliziert, wartet auf Browser-Re-Test nach Deploy)
+- **reported:** "Drag&Drop reagiert gar nicht — kein ondrop, kein Log, kein Request." Auch nach 1. Fix-Versuch (native prevent_default in Dioxus-Handlern) weiterhin ohne Funktion.
 - **severity:** minor
-- **root_cause:** `ondragover` cancelte nur via Dioxus-synthetischem `evt.prevent_default()`; das cancelt das native dragover in Dioxus 0.6 nicht zuverlässig → Browser feuert `ondrop` nie. Fix (folge-commit): `ondragover` + neuer `ondragenter` cancellen auf dem NATIVEN Event (downcast → `web_event.prevent_default()`); Drop-Handler zusätzlich nativ gehärtet. Grep-Gate-Regression `dragover_cancels_on_native_event` ergänzt. Muss im echten Browser nach Frontend-Deploy verifiziert werden.
+- **root_cause:** Dioxus 0.6 feuerte die `ondragover`/`ondrop`-Handler in der Praxis gar nicht (weder synthetisches noch nativ-via-downcast `prevent_default` half — 2 Versuche, kein Drop, kein Log). **Finaler Fix:** Drag&Drop komplett an Dioxus vorbei als NATIVE DOM-Listener im `onmounted` verdrahtet (`attach_image_drop_target`): `dragenter`+`dragover`+`drop` via `add_event_listener_with_callback` direkt auf dem Element, `preventDefault()` nativ, Upload+Insert im Drop-Closure (identisch zum Toolbar-Pfad, inkl. `config.backend`-src). Neue web-sys-Feature `EventTarget`. Grep-Gate `native_drop_target_wired_and_prevents_default`. Kompiliert für Host **und** `wasm32-unknown-unknown`. Muss im echten Browser nach Frontend-Deploy verifiziert werden.
 
 ### 3. Empfänger sieht Inline-Bild in echtem Mail-Client (Vorstand Smoke-Test)
 
