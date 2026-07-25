@@ -21,6 +21,7 @@
 //! No native prompt fallback. No `form` wrapper. No new JS bundle.
 
 use dioxus::prelude::*;
+use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
 use web_sys::Range;
 
@@ -81,6 +82,12 @@ pub fn WysiwygEditor(value: String, on_change: EventHandler<(String, String)>) -
                             el.set_inner_html(&initial_value);
                         }
                     }
+                    // Phase 27 (IMG-03) / quick 260724: wire drag&drop as NATIVE
+                    // listeners on the element. Dioxus 0.6's ondragover/ondrop
+                    // handlers did not fire in practice (two attempts, no drop,
+                    // no log), so we attach dragenter/dragover/drop directly via
+                    // web-sys — vanilla-JS semantics the framework cannot swallow.
+                    attach_image_drop_target(on_change);
                 },
                 oninput: move |_| {
                     sync_from_dom(&on_change);
@@ -105,57 +112,8 @@ pub fn WysiwygEditor(value: String, on_change: EventHandler<(String, String)>) -
                         sync_from_dom(&on_change);
                     }
                 },
-                // Phase 27 (IMG-03): make the div a drop target. A drop target
-                // only fires `ondrop` if BOTH `dragenter` and `dragover` are
-                // canceled. Dioxus 0.6's synthetic `evt.prevent_default()` did
-                // NOT reliably cancel the native dragover here (quick 260724:
-                // drop never fired), so cancel on the NATIVE event directly —
-                // the same downcast path the drop handler uses to read files.
-                ondragenter: move |evt| {
-                    if let Some(web_event) = evt.downcast::<web_sys::Event>() {
-                        web_event.prevent_default();
-                    }
-                },
-                ondragover: move |evt| {
-                    if let Some(web_event) = evt.downcast::<web_sys::Event>() {
-                        web_event.prevent_default();
-                    }
-                },
-                // Phase 27 (IMG-03): drop an image file → upload → insert the
-                // same data-genossi-asset-id <img> as the toolbar button.
-                // Mirrors the onpaste structure: prevent_default FIRST, then
-                // downcast to the platform event and read the dropped files.
-                ondrop: move |evt| {
-                    // prevent_default FIRST so the browser does not navigate to
-                    // / open the dropped file (T-27-18).
-                    evt.prevent_default();
-                    let Some(web_event) = evt.downcast::<web_sys::Event>().cloned() else { return; };
-                    // Also cancel on the native event — synthetic prevent_default
-                    // is unreliable for drag events in Dioxus 0.6, and a missed
-                    // cancel lets the browser open the dropped file after us.
-                    web_event.prevent_default();
-                    let Ok(drag_event) = web_event.dyn_into::<web_sys::DragEvent>() else { return; };
-                    let Some(dt) = drag_event.data_transfer() else { return; };
-                    let Some(files) = dt.files() else { return; };
-                    // No file in the drop (e.g. dragged text) → nothing to do.
-                    let Some(file) = files.get(0) else { return; };
-                    spawn(async move {
-                        let config = CONFIG.read().clone();
-                        match api::upload_mail_asset(&config, file).await {
-                            Ok(asset) => {
-                                let img_html =
-                                    image_insert_html(&config.backend, &asset.id.to_string());
-                                if let Some(doc) = doc() {
-                                    let _ = crate::js::exec_command_str(&doc, "insertHTML", &img_html);
-                                    sync_from_dom(&on_change);
-                                }
-                            }
-                            Err(e) => {
-                                tracing::error!("mail-asset image drop upload failed: {e}");
-                            }
-                        }
-                    });
-                },
+                // Drag&drop is wired natively in `onmounted` via
+                // `attach_image_drop_target` — see the comment there.
             }
 
             WysiwygLinkDialog {
@@ -212,6 +170,76 @@ fn sync_from_dom(on_change: &EventHandler<(String, String)>) {
         .map(|he| he.inner_text())
         .unwrap_or_default();
     on_change.call((plain, html));
+}
+
+/// Phase 27 (IMG-03) / quick 260724 — wire image drag&drop as NATIVE DOM
+/// listeners on the contenteditable element, bypassing Dioxus' drag-event
+/// handling (which did not fire in practice: no drop, no upload, no console
+/// log). Attaches `dragenter` + `dragover` (which only `preventDefault()` so
+/// the element becomes a valid drop target and the browser fires `drop`) and
+/// `drop` (preventDefault → read the first file → upload → insert the same
+/// `data-genossi-asset-id` <img> as the toolbar button). Listeners are
+/// `forget()`-leaked; they can only fire while the element is in the DOM, i.e.
+/// while this component is mounted, so capturing `on_change` is sound.
+fn attach_image_drop_target(on_change: EventHandler<(String, String)>) {
+    let Some(document) = doc() else {
+        return;
+    };
+    let Some(el) = document.get_element_by_id(EDITOR_ID) else {
+        return;
+    };
+
+    // A drop target only fires `drop` if dragenter AND dragover are canceled.
+    for name in ["dragenter", "dragover"] {
+        let cb = Closure::<dyn FnMut(web_sys::Event)>::new(|e: web_sys::Event| {
+            e.prevent_default();
+        });
+        let _ = el.add_event_listener_with_callback(name, cb.as_ref().unchecked_ref());
+        cb.forget();
+    }
+
+    // drop: cancel the browser default (open the file), then upload + insert.
+    let cb = Closure::<dyn FnMut(web_sys::Event)>::new(move |e: web_sys::Event| {
+        e.prevent_default();
+        let Ok(drag_event) = e.dyn_into::<web_sys::DragEvent>() else {
+            return;
+        };
+        let Some(dt) = drag_event.data_transfer() else {
+            return;
+        };
+        let Some(files) = dt.files() else {
+            return;
+        };
+        // No file in the drop (e.g. dragged text) → nothing to do.
+        let Some(file) = files.get(0) else {
+            return;
+        };
+        let config = CONFIG.read().clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            match api::upload_mail_asset(&config, file).await {
+                Ok(asset) => {
+                    let Some(doc) = doc() else {
+                        return;
+                    };
+                    // Focus the editor so insertHTML lands inside it (the drop
+                    // may have happened without the caret in the contenteditable).
+                    if let Some(el) = doc.get_element_by_id(EDITOR_ID) {
+                        if let Some(he) = el.dyn_ref::<web_sys::HtmlElement>() {
+                            let _ = he.focus();
+                        }
+                    }
+                    let img_html = image_insert_html(&config.backend, &asset.id.to_string());
+                    let _ = crate::js::exec_command_str(&doc, "insertHTML", &img_html);
+                    sync_from_dom(&on_change);
+                }
+                Err(err) => {
+                    tracing::error!("mail-asset image drop upload failed: {err}");
+                }
+            }
+        });
+    });
+    let _ = el.add_event_listener_with_callback("drop", cb.as_ref().unchecked_ref());
+    cb.forget();
 }
 
 /// Convert plain text to HTML suitable for seeding the WysiwygEditor.
@@ -384,58 +412,45 @@ mod grep_gate_tests {
         );
     }
 
-    /// Phase 27 (IMG-03) — the drop handler must exist and call
-    /// prevent_default(), otherwise the browser opens/navigates to the dropped
-    /// file instead of uploading it (T-27-18). Same self-reference-hazard
-    /// defence as the paste test: search the production region only and build
-    /// the needles at runtime.
+    /// Phase 27 (IMG-03) / quick 260724 — drag&drop is wired as NATIVE DOM
+    /// listeners, not Dioxus handlers (which never fired: no drop, no log). The
+    /// `onmounted` handler MUST call `attach_image_drop_target`, and that fn
+    /// MUST register a native `drop` listener and `prevent_default()` the drag
+    /// events. This guard bites if someone reverts to Dioxus ondrop/ondragover
+    /// (which regressed twice) or drops the native wiring. Needles assembled at
+    /// runtime + production-region slice defeat the include_str! self-match.
     #[test]
-    fn drop_handler_calls_prevent_default() {
+    fn native_drop_target_wired_and_prevents_default() {
         let region = production_region();
-        let drop_needle = format!("ondro{tail}", tail = "p:");
-        let prevent_needle = format!("evt.prevent_defaul{tail}", tail = "t()");
-        let idx = region.find(&drop_needle).expect(
-            "Grep gate FAILED: ondrop handler missing entirely in wysiwyg_editor.rs \
-             (production region) — image drag&drop insert is gone",
-        );
-        let window = &region[idx..idx.saturating_add(400).min(region.len())];
-        assert!(
-            window.contains(&prevent_needle),
-            "Grep gate FAILED: expected {prevent_needle} within 400 chars of \
-             {drop_needle} in wysiwyg_editor.rs (production region). Without it \
-             the browser opens the dropped file instead of uploading it \
-             (T-27-18). Window around the drop handler (first 400 chars):\n{window}"
-        );
-    }
 
-    /// Phase 27 (IMG-03) / quick 260724 — the `dragover` handler MUST cancel on
-    /// the NATIVE event (downcast → prevent_default), not only via Dioxus'
-    /// synthetic `evt.prevent_default()`. A drop target only fires `ondrop` when
-    /// dragover is canceled on the native event; the synthetic call did not do
-    /// that in Dioxus 0.6, so drop never fired (no upload, no console log). This
-    /// guard bites if someone reverts dragover to the synthetic-only form.
-    #[test]
-    fn dragover_cancels_on_native_event() {
-        let region = production_region();
-        let dragover_needle = format!("ondragove{tail}", tail = "r:");
-        // Runtime-assembled so the literal does not self-match via include_str!.
-        let native_prevent_needle = format!(
-            "web_event.prevent_defaul{tail}",
-            tail = "t()"
-        );
-        let idx = region.find(&dragover_needle).expect(
-            "Grep gate FAILED: ondragover handler missing entirely in \
-             wysiwyg_editor.rs (production region) — the div is no longer a drop \
-             target and ondrop cannot fire",
-        );
-        let window = &region[idx..idx.saturating_add(300).min(region.len())];
+        // (a) onmounted must invoke the native attach helper.
+        let attach_needle = format!("attach_image_drop_targe{tail}", tail = "t(");
         assert!(
-            window.contains(&native_prevent_needle),
-            "Grep gate FAILED: expected {native_prevent_needle} within 300 chars \
-             of {dragover_needle} in wysiwyg_editor.rs (production region). \
-             Dioxus 0.6 synthetic evt.prevent_default() does NOT reliably cancel \
-             the native dragover, so ondrop never fires (quick 260724). Cancel on \
-             the downcast native event. Window:\n{window}"
+            region.contains(&attach_needle),
+            "Grep gate FAILED: expected {attach_needle} in wysiwyg_editor.rs \
+             (production region) — drag&drop is no longer wired natively in \
+             onmounted. Dioxus ondrop/ondragover handlers do NOT fire here \
+             (quick 260724); reverting to them regresses drag&drop."
+        );
+
+        // (b) the native helper must register a `drop` listener ...
+        let listen_needle = format!("add_event_listener_with_callbac{tail}", tail = "k(");
+        let drop_literal = format!("{q}dro{tail}{q}", q = "\"", tail = "p");
+        assert!(
+            region.contains(&listen_needle) && region.contains(&drop_literal),
+            "Grep gate FAILED: expected a native {listen_needle} registering a \
+             {drop_literal} listener in wysiwyg_editor.rs (production region). \
+             Without a native drop listener the browser opens the dropped file \
+             instead of uploading it (T-27-18)."
+        );
+
+        // (c) ... and cancel the drag defaults so `drop` fires at all.
+        let prevent_needle = format!("prevent_defaul{tail}", tail = "t()");
+        assert!(
+            region.contains(&prevent_needle),
+            "Grep gate FAILED: expected {prevent_needle} in wysiwyg_editor.rs \
+             (production region). A drop target only fires `drop` when dragenter \
+             and dragover are canceled (quick 260724)."
         );
     }
 

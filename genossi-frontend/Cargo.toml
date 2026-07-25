@@ -43,6 +43,7 @@ features = [
     "Navigator",
     "Document",
     "Element",
+    "EventTarget",      # quick 260724: native drag&drop listeners on the WysiwygEditor
     "HtmlElement",
     "HtmlTextAreaElement",
     "HtmlSelectElement",
