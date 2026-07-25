@@ -22,19 +22,19 @@ awaiting: user response (blockiert bis Preview-Fix, siehe Gaps)
 - **Test:** Vorstand loggt sich ein, öffnet den WYSIWYG-Editor, klickt den "Bild einfügen"-Button, wählt eine PNG/JPEG/GIF-Datei aus.
 - **Expected:** Datei-Picker öffnet sich; nach Auswahl wird die Datei an `/api/mail/assets` hochgeladen; bei Erfolg erscheint das Bild sofort sichtbar im Editor (via `/api/mail/assets/{id}/bytes`-src).
 - **Why human:** Browser-WASM-file-picker-Verhalten, `insertHTML` und visuelles Rendern des `<img>` im contenteditable sind per Unit-Test nicht verifizierbar.
-- **Status:** issue
-- **reported:** "Upload liefert Asset-ID, aber der Bild-Preview via GET /api/mail/assets/{id}/bytes gibt 404 Not Found zurück (auf genossi-beta). Bild erscheint nicht im Editor."
-- **severity:** major
+- **Status:** pass
+- **reported:** "Nach dem Fix (quick 260724-8p1, image_insert_html backend-basiert) erscheint das Bild per Toolbar sofort im Editor. Vom Nutzer bestätigt (2026-07-25)."
+- **severity:** major (behoben)
 
 ### 2. Drag&Drop eines Bildes auf den Editor (Browser UAT)
 
 - **Test:** Vorstand zieht ein PNG/JPEG/GIF-Bild aus dem Datei-Manager auf den WYSIWYG-Editor-Bereich.
 - **Expected:** Browser navigiert NICHT zur Bild-Datei; Bild wird hochgeladen und identisch zum Toolbar-Pfad eingebettet; kein Seiten-Reload.
 - **Why human:** DragEvent-Dispatch, DataTransfer-API und der prevent_default-Effekt lassen sich nur im echten Browser-WASM-Kontext validieren.
-- **Status:** issue
-- **reported:** "Drag&Drop reagiert gar nicht (ondrop feuert nicht). Vom Nutzer vorerst zurückgestellt."
+- **Status:** pending (Fix appliziert, wartet auf Browser-Re-Test nach Deploy)
+- **reported:** "Drag&Drop reagiert gar nicht — kein ondrop, kein Log, kein Request."
 - **severity:** minor
-- **deferred:** vom Nutzer vorerst ignoriert; separates Problem vom Preview-404.
+- **root_cause:** `ondragover` cancelte nur via Dioxus-synthetischem `evt.prevent_default()`; das cancelt das native dragover in Dioxus 0.6 nicht zuverlässig → Browser feuert `ondrop` nie. Fix (folge-commit): `ondragover` + neuer `ondragenter` cancellen auf dem NATIVEN Event (downcast → `web_event.prevent_default()`); Drop-Handler zusätzlich nativ gehärtet. Grep-Gate-Regression `dragover_cancels_on_native_event` ergänzt. Muss im echten Browser nach Frontend-Deploy verifiziert werden.
 
 ### 3. Empfänger sieht Inline-Bild in echtem Mail-Client (Vorstand Smoke-Test)
 
@@ -53,9 +53,9 @@ awaiting: user response (blockiert bis Preview-Fix, siehe Gaps)
 ## Summary
 
 total: 4
-passed: 0
-issues: 2
-pending: 2
+passed: 1
+issues: 0
+pending: 3
 skipped: 0
 
 ## Gaps
