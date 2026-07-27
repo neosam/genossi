@@ -2,17 +2,17 @@
 gsd_state_version: 1.0
 milestone: v1.5
 milestone_name: Editor-Vervollständigung, Bild-Support & Vorschau
-current_phase: 27
-current_phase_name: bild-support-backend-editor-upload
-status: phase_complete
-stopped_at: Phase 28 context gathered
-last_updated: "2026-07-27T19:41:33.245Z"
-last_activity: 2026-07-24
-last_activity_desc: "Quick 260724-8p1: Phase-27 Bild-Preview-404 gefixt (image_insert_html backend-basiert)"
+current_phase: 28
+current_phase_name: desktop-mobile-vorschau
+status: ready_to_execute
+stopped_at: Phase 28 geplant (5 Plans, 4 Waves) — plan-checker PASSED
+last_updated: "2026-07-27T21:30:00.000Z"
+last_activity: 2026-07-27
+last_activity_desc: "Phase 28 geplant: Research + Pattern-Map + 5 Plans (28-01..28-05), plan-checker VERIFICATION PASSED"
 progress:
   total_phases: 3
   completed_phases: 2
-  total_plans: 7
+  total_plans: 12
   completed_plans: 7
 ---
 
@@ -31,10 +31,18 @@ See: `.planning/PROJECT.md` (updated 2026-07-17 mit v1.5 Current Milestone)
 
 ## Current Position
 
-Phase: 27 (bild-support-backend-editor-upload) — COMPLETE (verifiziert, UAT deferred)
-Plan: 4 of 4 abgeschlossen (27-01 mail_asset backend, 27-02 ammonia img-hardening, 27-03 CID-Renderer, 27-04 Editor-Upload)
-Status: Phase-Goal 9/9 must-haves automatisiert PASSED (27-VERIFICATION.md); 4 nicht-automatisierbare UAT-Items in 27-UAT.md (Vorstands-Smoke-Session vor v1.5-Close)
-Last activity: 2026-07-24 — Quick 260724-8p1: Phase-27 Bild-Preview-404 gefixt (image_insert_html backend-basiert)
+Phase: 28 (desktop-mobile-vorschau) — READY TO EXECUTE (5 Plans, 4 Waves)
+Plan: 0 of 5 abgeschlossen — Wave 1: 28-01 (Backend sanitize im Preview-Pfad) ‖ 28-02 (MailPreviewFrame + i18n); Wave 2: 28-03 (Editor-Modus-Umschalter); Wave 3: 28-04 (D-03-Call-Site-Refactor); Wave 4: 28-05 (UAT-Checklist, autonomous: false)
+Status: Research + Pattern-Map + 5 Plans erstellt; plan-checker VERIFICATION PASSED (1 Warning nachgeschärft). Requirements PREV-01..05 vollständig abgedeckt, Entscheidungen D-01..D-17 alle referenziert.
+Last activity: 2026-07-27 — Phase 28 geplant (/gsd-plan-phase 28, --skip-ui)
+
+**Offener Override (für verify-phase):** Der Decision-Coverage-Gate lief in `reason: "could-not-parse"` — die 28-CONTEXT.md formatiert D-01..D-17 als Fett-Absätze statt als `- **D-NN:**`-Bullets, die der Parser erwartet. Coverage wurde stattdessen per Grep und durch den plan-checker unabhängig belegt (17/17). Kein echter Coverage-Gap.
+
+**Vorbestehender Testfehlschlag (keine Phase-28-Regression):** `test_mail_preview_repayment_no_entries_does_not_default_to_one` (`genossi_bin/tests/e2e_tests.rs:14628`, Meldung `errors must be array`) schlägt schon vor Phase 28 fehl. Die Plans 28-01 und 28-04 nageln Meldung und Fundstelle als unverändert fest.
+
+### Phase 27 Closure (abgeschlossen)
+
+Phase 27 (bild-support-backend-editor-upload) — COMPLETE (verifiziert, UAT deferred). 4 of 4 Plans (27-01 mail_asset backend, 27-02 ammonia img-hardening, 27-03 CID-Renderer, 27-04 Editor-Upload). Phase-Goal 9/9 must-haves automatisiert PASSED (27-VERIFICATION.md); 4 nicht-automatisierbare UAT-Items in 27-UAT.md (Vorstands-Smoke-Session vor v1.5-Close). Quick 260724-8p1: Phase-27 Bild-Preview-404 gefixt (image_insert_html backend-basiert).
 
 ### v1.5 Phase Structure (Phases 26-28, granularity: coarse)
 

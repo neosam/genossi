@@ -168,10 +168,21 @@ Plans:
 **Plans:** 5 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 28-01-PLAN.md — Backend: ammonia-Sanitize vor dem Jinja-Rendering im `preview_mail`-Handler (D-01/D-02) plus vier e2e-Tests
 - [ ] 28-02-PLAN.md — Frontend-Primitive: `mail_preview_frame.rs` mit `PreviewMode`, `inject_asset_src`, `preview_srcdoc`, `MailPreviewFrame`, Sandbox-Grep-Gate und sieben i18n-Keys
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 28-03-PLAN.md — Editor-Integration: Drei-Modi-Umschalter, Toolbar-Ausblendung, Off-Screen-Hide statt Rendering-Unterdrückung, Preview-Fetch beim Moduswechsel
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 28-04-PLAN.md — Call-Site-Verkabelung: `preview_member_id` auf Page-Ebene gehoben, drei Call-Sites verkabelt (D-03 inkl. Ausstiegsklausel für `reply_form.rs`)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 28-05-PLAN.md — UAT-Checkliste und Vorstands-Smoke-Abnahme der nicht automatisierbaren Punkte
 
 **Waves:** 1 (28-01, 28-02 parallel) → 2 (28-03) → 3 (28-04) → 4 (28-05)
