@@ -1,4 +1,5 @@
 use dioxus::prelude::*;
+use uuid::Uuid;
 
 use crate::api::{self, MailTemplateTO};
 use crate::auth::RequirePrivilege;
@@ -35,6 +36,12 @@ pub fn MailTemplatesPage() -> Element {
     let mut edit_version = use_signal(String::new);
     let mut saving = use_signal(|| false);
     let mut confirm_delete = use_signal(|| false);
+    // Phase 28 (PREV-02, D-03): GENAU EINE Mitglieds-Auswahl für die Vorschau
+    // auf dieser Seite. Vorher standen hier zwei verschachtelte Auswahlen
+    // nebeneinander — die Suche im TemplateTester und das Auswahlfeld in der
+    // TemplatePreview darin. Jetzt teilen sie sich dieses Signal, das zugleich
+    // die Device-Vorschau im WysiwygEditor speist.
+    let preview_member_id = use_signal(|| None::<Uuid>);
 
     let reload = move || {
         spawn(async move {
@@ -330,6 +337,22 @@ pub fn MailTemplatesPage() -> Element {
                                                     EditorMode::None => String::new(),
                                                 };
                                                 rsx! {
+                                                    // Phase 28 (PREV-02, D-03):
+                                                    // Device-Vorschau im Editor —
+                                                    // sie liest die EINE
+                                                    // Mitglieds-Auswahl der Seite,
+                                                    // dieselbe, die der
+                                                    // TemplateTester unten führt.
+                                                    // Das optionale
+                                                    // Rueckzahlungs-Kontext-Prop
+                                                    // wird hier bewusst NICHT
+                                                    // gesetzt: diese Seite kennt
+                                                    // keinen solchen Kontext, und
+                                                    // ein Template mit
+                                                    // entsprechenden Platzhaltern
+                                                    // soll den Render-Fehler
+                                                    // sichtbar im roten
+                                                    // Fehler-Block zeigen.
                                                     WysiwygEditor {
                                                         key: "{editor_key}",
                                                         value: edit_body_html.read().clone(),
@@ -337,6 +360,7 @@ pub fn MailTemplatesPage() -> Element {
                                                             edit_body.set(plain);
                                                             edit_body_html.set(html);
                                                         },
+                                                        preview_member_id: *preview_member_id.read(),
                                                     }
                                                 }
                                             }
@@ -349,10 +373,18 @@ pub fn MailTemplatesPage() -> Element {
                                         // Phase 24 Plan 03 Task 4: forwards
                                         // edit_body_html to TemplatePreview
                                         // via the new body_html prop.
+                                        // Phase 28 (PREV-02, D-03): dasselbe
+                                        // Signal wie am Editor oben — die
+                                        // Member-Suche hier und das
+                                        // Auswahlfeld der TemplatePreview
+                                        // darin zeigen ab jetzt denselben
+                                        // Zustand statt zweier konkurrierender
+                                        // Auswahlen.
                                         TemplateTester {
                                             subject: edit_subject,
                                             body: edit_body,
                                             body_html: edit_body_html,
+                                            selected_member_id: preview_member_id,
                                         }
 
                                         // Action buttons

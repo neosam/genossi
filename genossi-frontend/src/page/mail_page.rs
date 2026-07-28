@@ -64,6 +64,11 @@ pub fn MailPage() -> Element {
     let mut body_html = use_signal(|| String::new());
     let mut sending = use_signal(|| false);
     let mut cached_footer = use_signal(|| String::new());
+    // Phase 28 (PREV-02, D-03): GENAU EINE Mitglieds-Auswahl für die Vorschau
+    // auf dieser Seite. Das Signal speist beide Verbraucher — die Device-
+    // Vorschau im WysiwygEditor und die TemplatePreview darunter (D-16). Es
+    // wird ausschließlich vom Auswahlfeld der TemplatePreview geschrieben.
+    let preview_member_id = use_signal(|| None::<Uuid>);
 
     // Phase 12 D-18: Repayment-Kontext aus URL-Params synchron initialisiert
     let mut repayment_phase_id = use_signal(|| url_params.phase_id);
@@ -425,6 +430,15 @@ pub fn MailPage() -> Element {
                                     .clone()
                                     .unwrap_or_else(|| "__no_template__".to_string());
                                 rsx! {
+                                    // Phase 28 (PREV-02, D-03): Device-Vorschau
+                                    // im Editor — sie liest dieselbe, einzige
+                                    // Mitglieds-Auswahl der Seite wie die
+                                    // TemplatePreview darunter, damit für den
+                                    // Vorstand eindeutig ist, welche Auswahl
+                                    // gilt. repayment_phase_id ist derselbe
+                                    // Wert, den TemplatePreview schon bekommt —
+                                    // sonst blieben Repayment-Variablen in der
+                                    // Device-Vorschau unaufgelöst.
                                     WysiwygEditor {
                                         key: "{editor_key}",
                                         value: body_html.read().clone(),
@@ -432,9 +446,15 @@ pub fn MailPage() -> Element {
                                             body.set(plain);
                                             body_html.set(html);
                                         },
+                                        preview_member_id: *preview_member_id.read(),
+                                        repayment_phase_id: *repayment_phase_id.read(),
                                     }
                                 }
                             }
+                            // Phase 28 (PREV-02, D-03): dasselbe Signal wie am
+                            // Editor oben — das Auswahlfeld dieser Component
+                            // ist die EINE Auswahl der Seite und speist beide
+                            // Vorschauen.
                             TemplatePreview {
                                 subject: subject,
                                 body: body,
@@ -442,6 +462,7 @@ pub fn MailPage() -> Element {
                                 member_ids: selected_member_ids.read().clone(),
                                 // UAT-Defekt #6: Live-Preview soll Repayment-Vars rendern
                                 repayment_phase_id: *repayment_phase_id.read(),
+                                preview_member_id: preview_member_id,
                             }
 
                             // Quick 260603-e6p: Vorstand opt-in to attach the per-recipient
