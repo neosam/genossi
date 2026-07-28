@@ -558,7 +558,63 @@ pub fn plain_to_html(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::plain_to_html;
+    use super::{editor_container_style, plain_to_html};
+    use crate::component::mail_compose::mail_preview_frame::PreviewMode;
+
+    /// Phase 28 (D-17): Im Bearbeiten-Modus soll das Element exakt so aussehen
+    /// wie vor Phase 28. Ein leerer Style-String garantiert das.
+    #[test]
+    fn editor_container_style_is_empty_in_edit_mode() {
+        assert_eq!(
+            editor_container_style(PreviewMode::Edit),
+            "",
+            "Im Bearbeiten-Modus darf kein Inline-Style am contenteditable-Container \
+             hängen — sonst verschiebt sich das Layout gegenüber dem Stand vor Phase 28."
+        );
+    }
+
+    /// Phase 28 (T-28-12, Pitfall 1): Verhaltenstest auf dem Rückgabewert der
+    /// Funktion, KEIN Quelltext-Grep — dadurch unabhängig von Formatierung und
+    /// Kommentaren.
+    #[test]
+    fn editor_is_hidden_offscreen_not_display_none() {
+        for mode in [PreviewMode::Desktop, PreviewMode::Mobile] {
+            let style = editor_container_style(mode);
+            assert!(
+                style.contains("position:absolute"),
+                "editor_container_style({mode:?}) muss das Element absolut positionieren, \
+                 um es off-screen schieben zu können. Ist: {style:?}"
+            );
+            assert!(
+                style.contains("left:-"),
+                "editor_container_style({mode:?}) muss einen negativen left-Wert setzen, \
+                 damit das Element aus dem sichtbaren Bereich wandert. Ist: {style:?}"
+            );
+            assert!(
+                !style.contains("display:none") && !style.contains("visibility:hidden"),
+                "editor_container_style({mode:?}) darf das Element NICHT aus dem Rendering \
+                 nehmen. Bei einem nicht gerenderten Element fällt HtmlElement::inner_text() \
+                 auf Node.textContent zurück (MDN), wodurch die Zeilenumbrüche aus <p>, <li> \
+                 und <br> verlorengehen. sync_from_dom benutzt inner_text() ausdrücklich \
+                 (Phase 24, D-02), und der Submit-Guard ALLER DREI Call-Sites (reply_form.rs, \
+                 mail_page.rs, mail_templates.rs) liest unmittelbar vor dem Absenden erneut \
+                 inner_text() direkt vom Element — der text/plain-Teil der versendeten Mail \
+                 würde damit zu einer einzigen Zeile Fließtext (T-28-12). Ist: {style:?}"
+            );
+        }
+    }
+
+    /// Phase 28 (D-15): Die Off-Screen-Position hängt nicht vom Device-Modus
+    /// ab; die Device-Breite lebt ausschließlich im iframe.
+    #[test]
+    fn editor_container_style_is_identical_for_both_preview_modes() {
+        assert_eq!(
+            editor_container_style(PreviewMode::Desktop),
+            editor_container_style(PreviewMode::Mobile),
+            "Desktop und Mobile müssen denselben Container-Style liefern — die Device-Breite \
+             gehört in den iframe (PreviewMode::width_px), nicht an den versteckten Editor."
+        );
+    }
 
     #[test]
     fn empty_input_stays_empty() {
@@ -744,6 +800,53 @@ mod grep_gate_tests {
             "Grep gate FAILED: expected {prevent_needle} in wysiwyg_editor.rs \
              (production region). A drop target only fires `drop` when dragenter \
              and dragover are canceled (quick 260724)."
+        );
+    }
+
+    /// Phase 28 (T-28-12, Pitfall 1) — der Off-Screen-Helper muss tatsächlich
+    /// im RSX verdrahtet sein und nicht bloß ungenutzt herumliegen. Ohne diese
+    /// Verdrahtung wäre `editor_is_hidden_offscreen_not_display_none` wertlos:
+    /// die Funktion könnte perfekt sein und der Container trotzdem per
+    /// Rendering-Unterdrückung versteckt werden. Die Needle zielt deshalb auf
+    /// die AUFRUFFORM im RSX, nicht auf die Definition — sonst wäre der Gate
+    /// schon durch die bloße Existenz der Funktion erfüllt.
+    #[test]
+    fn editor_uses_offscreen_style_helper() {
+        let region = production_region();
+        let call_needle = format!("editor_container_styl{tail}", tail = "e(*mode.read())");
+        assert!(
+            region.contains(&call_needle),
+            "Grep gate FAILED: expected {call_needle} in wysiwyg_editor.rs \
+             (production region) — der contenteditable-Container bezieht seinen \
+             Style nicht mehr aus dem Off-Screen-Helper. Wird er stattdessen aus \
+             dem Rendering genommen, fällt inner_text() auf textContent zurück \
+             und der Submit-Guard aller drei Call-Sites überschreibt den \
+             text/plain-Teil der Mail umbruchlos (T-28-12, Pitfall 1)."
+        );
+    }
+
+    /// Phase 28 (T-28-13, Pitfall 1 Schicht 2) — `switch_preview_mode` muss die
+    /// Parent-Signale synchronisieren, BEVOR der Modus umgestellt und damit das
+    /// Layout verändert wird. Fenster-Such-Muster analog
+    /// `paste_handler_calls_prevent_default_before_read`.
+    #[test]
+    fn preview_mode_switch_syncs_dom_before_switching() {
+        let region = production_region();
+        let switch_needle = format!("fn switch_preview_mod{tail}", tail = "e(");
+        let sync_needle = format!("sync_from_do{tail}", tail = "m(");
+        let idx = region.find(&switch_needle).expect(
+            "Grep gate FAILED: switch_preview_mode missing entirely in \
+             wysiwyg_editor.rs (production region)",
+        );
+        let window = &region[idx..idx.saturating_add(400).min(region.len())];
+        assert!(
+            window.contains(&sync_needle),
+            "Grep gate FAILED: expected {sync_needle} within 400 chars of \
+             {switch_needle} in wysiwyg_editor.rs (production region). Das ist \
+             Schicht 2 der Pitfall-1-Abwehr (T-28-13): der Editor-Inhalt muss in \
+             die Parent-Signale wandern, BEVOR mode.set das Layout umbaut — sonst \
+             gehen die letzten Tastenanschläge beim Wechsel in die Vorschau \
+             verloren. Fenster ab switch_preview_mode (erste 400 Zeichen):\n{window}"
         );
     }
 
