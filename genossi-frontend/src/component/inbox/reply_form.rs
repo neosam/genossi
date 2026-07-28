@@ -92,6 +92,15 @@ pub fn InboxReplyForm(
         .as_ref()
         .and_then(|s| Uuid::parse_str(s).ok());
 
+    // Phase 28 (PREV-02, D-03): eigenes Signal AUSSCHLIESSLICH für die
+    // TemplatePreview weiter unten, die seit Phase 28 ein Pflicht-Prop dafür
+    // verlangt. Bewusst NICHT mit `member_uuid_opt` vorbelegt (T-28-24): eine
+    // Vorbelegung würde diese Vorschau ohne Nutzeraktion in einen anderen
+    // Zustand versetzen als bisher und wäre eine unbeabsichtigte
+    // Verhaltensänderung. Die Device-Vorschau im Editor bekommt stattdessen
+    // `member_uuid_opt` direkt — siehe Kommentar am WysiwygEditor.
+    let preview_member_id = use_signal(|| None::<Uuid>);
+
     // Load footer on mount. Once the footer arrives, recompose the initial body
     // so the footer sits between the (still empty) typing area and the quote.
     use_effect(move || {
@@ -236,6 +245,14 @@ pub fn InboxReplyForm(
             {
                 let editor_key = format!("reply-{}", *editor_reset_counter.read());
                 rsx! {
+                    // Phase 28 (PREV-02, D-03 Ausstiegsklausel): der Member ist
+                    // hier bereits bekannt, es gibt keine Auswahl, die mit einer
+                    // zweiten konkurrieren könnte — deshalb wird bewusst KEINE
+                    // Mitglieds-Auswahl auf Call-Site-Ebene hochgezogen, sondern
+                    // `member_uuid_opt` direkt durchgereicht. Ist kein Member
+                    // zugeordnet, ist der Wert `None` und die Device-Vorschau
+                    // zeigt die Hinweiszeile statt eines leeren Rahmens — genau
+                    // das gewünschte Fallback aus D-03.
                     WysiwygEditor {
                         key: "{editor_key}",
                         value: reply_body_html.read().clone(),
@@ -243,6 +260,7 @@ pub fn InboxReplyForm(
                             reply_body.set(plain);
                             reply_body_html.set(html);
                         },
+                        preview_member_id: member_uuid_opt,
                     }
                 }
             }
@@ -264,6 +282,11 @@ pub fn InboxReplyForm(
                             body: reply_body,
                             body_html: reply_body_html,
                             member_ids: member_ids,
+                            // Phase 28 (PREV-02, D-03): lokales Signal, damit
+                            // sich diese Vorschau exakt wie vor Phase 28
+                            // verhält — Auswahlfeld listet den einen
+                            // zugeordneten Member, der Nutzer wählt ihn dort.
+                            preview_member_id: preview_member_id,
                         }
                     }
                 }
