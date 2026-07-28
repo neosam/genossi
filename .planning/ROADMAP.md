@@ -165,7 +165,7 @@ Plans:
   4. Preview läuft in einem sandboxed `<iframe>` mit fester Breite; kein CSS bleedet zwischen Editor und Vorschau in beide Richtungen (verifizierbar durch bewusst gesetzte Konflikt-Klassen im Editor-Umfeld).
   5. Alle Preview-Modi funktionieren mit bestehenden v1.4-Templates ohne Bilder (Backward-Compat) UND mit den neuen v1.5-Templates mit Listen/Überschriften/Bildern.
 
-**Plans:** 2/5 plans executed
+**Plans:** 3/5 plans executed
 
 Plans:
 **Wave 1**
@@ -175,7 +175,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 28-03-PLAN.md — Editor-Integration: Drei-Modi-Umschalter, Toolbar-Ausblendung, Off-Screen-Hide statt Rendering-Unterdrückung, Preview-Fetch beim Moduswechsel
+- [x] 28-03-PLAN.md — Editor-Integration: Drei-Modi-Umschalter, Toolbar-Ausblendung, Off-Screen-Hide statt Rendering-Unterdrückung, Preview-Fetch beim Moduswechsel
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -219,7 +219,7 @@ Plans:
 | 25. Application File Upload + Audited Carryover    | v1.4      | 5/5            | Complete    | 2026-07-03 |
 | 26. Editor-Formatierung vervollständigen           | v1.5      | 3/3 | In Progress|  |
 | 27. Bild-Support Backend + Editor-Upload           | v1.5      | 4/4 | In Progress|  |
-| 28. Desktop/Mobile-Vorschau                        | v1.5      | 2/5 | In Progress|  |
+| 28. Desktop/Mobile-Vorschau                        | v1.5      | 3/5 | In Progress|  |
 
 ---
 
