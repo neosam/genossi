@@ -21,11 +21,15 @@
 //! No native prompt fallback. No `form` wrapper. No new JS bundle.
 
 use dioxus::prelude::*;
+use uuid::Uuid;
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
 use web_sys::Range;
 
 use crate::api;
+use crate::component::mail_compose::mail_preview_frame::{
+    inject_asset_src, preview_needs_fetch, preview_srcdoc, PreviewMode,
+};
 use crate::component::mail_compose::wysiwyg_link_dialog::WysiwygLinkDialog;
 use crate::component::mail_compose::wysiwyg_toolbar::{image_insert_html, WysiwygToolbar};
 use crate::service::config::CONFIG;
@@ -36,9 +40,37 @@ use crate::service::config::CONFIG;
 const EDITOR_ID: &str = "wysiwyg-editor";
 
 #[component]
-pub fn WysiwygEditor(value: String, on_change: EventHandler<(String, String)>) -> Element {
+pub fn WysiwygEditor(
+    value: String,
+    on_change: EventHandler<(String, String)>,
+    // Phase 28 (PREV-02, D-03): Member, gegen den die Device-Vorschau die
+    // Template-Variablen rendert. `None` bedeutet Hinweiszeile statt iframe
+    // und ausdrücklich KEIN Request. Das Default-Attribut unten hält jede der
+    // drei Call-Sites einzeln umstellbar (dasselbe Migrationsmuster, mit dem
+    // Phase 24 `TemplatePreview.body_html` eingeführt hat).
+    #[props(default)] preview_member_id: Option<Uuid>,
+    // Phase 28 (PREV-02, D-03): Repayment-Kontext, 1:1 an `/api/mail/preview`
+    // durchgereicht, damit Repayment-Variablen auch in der Device-Vorschau
+    // auflösen — gleiche Semantik wie bei `TemplatePreview`.
+    #[props(default)] repayment_phase_id: Option<Uuid>,
+) -> Element {
     let mut link_dialog_open = use_signal(|| false);
     let mut saved_range = use_signal(|| None::<Range>);
+
+    // Phase 28 (PREV-01, D-13): Der Modus lebt bewusst INNERHALB dieser
+    // Component, damit der Umschalter automatisch in allen drei Call-Sites
+    // wirkt, ohne dass irgendeine Page ihn verdrahten muss.
+    //
+    // Pitfall 6 (bewusst akzeptiert, T-28-18): Alle drei Call-Sites bumpen
+    // beim Template-Wechsel absichtlich einen `key` auf `WysiwygEditor`, um
+    // einen Remount und damit ein Re-Seeding zu erzwingen. Dabei fällt `mode`
+    // auf `Edit` zurück. Das ist gewünschtes Verhalten und KEIN Bug: nach
+    // einem Template-Wechsel ist der Vorschau-Inhalt ohnehin veraltet, und
+    // der Rücksprung in den Bearbeiten-Modus ist die richtige Reaktion.
+    let mode = use_signal(|| PreviewMode::Edit);
+    let preview_doc = use_signal(String::new);
+    let preview_errors = use_signal(Vec::<String>::new);
+    let preview_loading = use_signal(|| false);
 
     // Clone initial value for the onmounted closure (moves into the FnOnce).
     let initial_value = value.clone();
@@ -170,6 +202,146 @@ fn sync_from_dom(on_change: &EventHandler<(String, String)>) {
         .map(|he| he.inner_text())
         .unwrap_or_default();
     on_change.call((plain, html));
+}
+
+/// Phase 28 (PREV-05, D-17) — Inline-Style des contenteditable-Containers je
+/// Modus. Im Bearbeiten-Modus leer (das Element sieht exakt aus wie vor
+/// Phase 28), in beiden Vorschau-Modi absolut positioniert und weit nach
+/// links aus dem sichtbaren Bereich geschoben.
+///
+/// PITFALL 1 — warum off-screen und nicht aus dem Rendering genommen:
+/// Der naheliegende Weg wäre, das Element per `display:none` bzw. die
+/// entsprechende Tailwind-Utility unsichtbar zu machen. Genau das ist hier
+/// VERBOTEN. Bei einem nicht gerenderten Element fällt
+/// `HtmlElement::inner_text()` auf `Node.textContent` zurück und liefert den
+/// Text OHNE die Umbrüche aus `<p>`, `<li>` und `<br>`. `sync_from_dom`
+/// benutzt `inner_text()` ausdrücklich, damit gewollte Zeilenumbrüche
+/// überleben (Phase 24, D-02) — und ALLE DREI Call-Sites (`reply_form.rs`,
+/// `mail_page.rs`, `mail_templates.rs`) lesen in ihrem Submit-Guard
+/// unmittelbar vor dem Absenden erneut `inner_text()` direkt vom Element.
+/// Schaltet der Vorstand in die Vorschau und klickt dann Senden, würde der
+/// Submit-Guard den Plain-Body mit der umbruchlosen Variante überschreiben:
+/// die HTML-Mail wäre korrekt, der `text/plain`-Teil eine einzige Zeile
+/// Fließtext (T-28-12). Off-Screen lässt das Element gerendert,
+/// `inner_text()` verhält sich unverändert, und visuell ist es vollständig
+/// weg.
+///
+/// Bewusst ein Inline-`style` statt einer Tailwind-Klasse: arbiträre
+/// Tailwind-Werte müssten vom JIT-Purge im Quelltext gefunden werden, und ein
+/// String-Rückgabewert ist robuster und obendrein nativ testbar.
+///
+/// `EDITOR_ID` bleibt eine Konstante und der Knoten bleibt genau einmal im
+/// DOM (T-28-14) — ein zweiter Knoten mit derselben Id würde alle
+/// `get_element_by_id`-Lookups der Toolbar und der drei Submit-Guards ins
+/// falsche Element leiten.
+pub(crate) fn editor_container_style(mode: PreviewMode) -> &'static str {
+    if mode.is_preview() {
+        // Feste Breite, damit der Umbruch im off-screen liegenden Element
+        // stabil bleibt und `inner_text()` dieselben Umbrüche liefert wie im
+        // sichtbaren Zustand.
+        "position:absolute;left:-10000px;top:0;width:640px"
+    } else {
+        ""
+    }
+}
+
+/// Phase 28 (PREV-01/PREV-02, D-05) — Moduswechsel: Sync vor Wechsel,
+/// Fetch-Entscheidung, Request-Dispatch.
+///
+/// PITFALL 1, SCHICHT 2 (T-28-13): `sync_from_dom` läuft bedingungslos als
+/// ERSTE Anweisung, unabhängig vom Zielmodus. Damit sind die Parent-Signale
+/// garantiert aktuell, BEVOR sich am Layout irgendetwas ändert.
+///
+/// PITFALL 7 (T-28-16): `template_uses_repayment_vars` prüft serverseitig nur
+/// Subject und Plain-Body, NICHT `body_html`. Enthält also nur das HTML einen
+/// Repayment-Platzhalter und wird keine `repayment_phase_id` mitgeschickt,
+/// greift der Dummy-Fallback nicht und minijinjas strict-env liefert einen
+/// Render-Fehler, der mit `HTML:`-Präfix in `errors` landet. Genau deshalb
+/// wird `repayment_phase_id` konsequent von der Call-Site durchgereicht und
+/// `errors` angezeigt statt verworfen — sonst ist ein Render-Fehler von einer
+/// leeren Mail nicht unterscheidbar.
+#[allow(clippy::too_many_arguments)]
+fn switch_preview_mode(
+    target: PreviewMode,
+    on_change: EventHandler<(String, String)>,
+    mut mode: Signal<PreviewMode>,
+    mut preview_doc: Signal<String>,
+    mut preview_errors: Signal<Vec<String>>,
+    mut preview_loading: Signal<bool>,
+    preview_member_id: Option<Uuid>,
+    repayment_phase_id: Option<Uuid>,
+) {
+    sync_from_dom(&on_change);
+    let from = *mode.read();
+
+    // D-05 / T-28-17: Desktop ↔ Mobile und jeder Rückweg nach Bearbeiten
+    // lösen KEINEN Request aus. Es ändert sich ausschließlich die Breite, das
+    // Dokument-Attribut bleibt unangetastet, Dioxus' Attribut-Diff überspringt
+    // es, der iframe lädt nicht neu und die Vorschau flackert nicht.
+    if !preview_needs_fetch(from, target) {
+        mode.set(target);
+        return;
+    }
+
+    // D-03-Fallback: ohne Member kein Request und kein leerer Rahmen — die
+    // RSX-Seite zeigt stattdessen die Hinweiszeile.
+    let Some(member_id) = preview_member_id else {
+        preview_doc.set(String::new());
+        preview_errors.set(Vec::new());
+        mode.set(target);
+        return;
+    };
+
+    let html = doc()
+        .and_then(|d| d.get_element_by_id(EDITOR_ID))
+        .map(|el| el.inner_html())
+        .unwrap_or_default();
+
+    // Kein Request für einen leeren Editor — entspricht der projektweit
+    // etablierten empty→None-Regel an allen send/reply/save-Entry-Points.
+    if html.trim().is_empty() {
+        preview_doc.set(preview_srcdoc(""));
+        preview_errors.set(Vec::new());
+        mode.set(target);
+        return;
+    }
+
+    mode.set(target);
+    preview_loading.set(true);
+
+    let member_id_str = member_id.to_string();
+    spawn(async move {
+        let config = CONFIG.read().clone();
+        // `subject` und `body` sind leere Strings: beide sind Pflichtfelder
+        // der `PreviewRequest`, leere Werte sind zulässig, minijinja liefert
+        // für ein leeres Template `Ok("")`, und `rendered_body` wird bei
+        // gesetztem `body_html` ohnehin serverseitig aus dem HTML abgeleitet.
+        match api::preview_mail(
+            &config,
+            "",
+            "",
+            &member_id_str,
+            repayment_phase_id,
+            Some(&html),
+        )
+        .await
+        {
+            Ok(resp) if !resp.errors.is_empty() => {
+                preview_errors.set(resp.errors.clone());
+                preview_doc.set(String::new());
+            }
+            Ok(resp) => {
+                preview_errors.set(Vec::new());
+                let raw = resp.body_html.as_deref().unwrap_or("");
+                preview_doc.set(preview_srcdoc(&inject_asset_src(raw, &config.backend)));
+            }
+            Err(e) => {
+                preview_errors.set(vec![e.to_string()]);
+                preview_doc.set(String::new());
+            }
+        }
+        preview_loading.set(false);
+    });
 }
 
 /// Phase 27 (IMG-03) / quick 260724 — wire image drag&drop as NATIVE DOM
