@@ -32,6 +32,8 @@ use crate::component::mail_compose::mail_preview_frame::{
 };
 use crate::component::mail_compose::wysiwyg_link_dialog::WysiwygLinkDialog;
 use crate::component::mail_compose::wysiwyg_toolbar::{image_insert_html, WysiwygToolbar};
+use crate::component::mail_compose::MailPreviewFrame;
+use crate::i18n::{use_i18n, Key};
 use crate::service::config::CONFIG;
 
 /// The stable DOM id for the contenteditable div. Constant so
@@ -54,6 +56,7 @@ pub fn WysiwygEditor(
     // auflösen — gleiche Semantik wie bei `TemplatePreview`.
     #[props(default)] repayment_phase_id: Option<Uuid>,
 ) -> Element {
+    let i18n = use_i18n();
     let mut link_dialog_open = use_signal(|| false);
     let mut saved_range = use_signal(|| None::<Range>);
 
@@ -77,31 +80,117 @@ pub fn WysiwygEditor(
 
     rsx! {
         div { class: "border rounded",
-            WysiwygToolbar {
-                editor_id: EDITOR_ID.to_string(),
-                on_command: move |_| {
-                    sync_from_dom(&on_change);
-                },
-                on_link_click: move |_| {
-                    // Pitfall 6: capture the current Selection Range before
-                    // opening the modal. The modal steals focus and the
-                    // browser drops the range from Selection when the caret
-                    // leaves the contenteditable, so we cache it here.
-                    if let Some(win) = web_sys::window() {
-                        if let Ok(Some(sel)) = win.get_selection() {
-                            if sel.range_count() > 0 {
-                                if let Ok(r) = sel.get_range_at(0) {
-                                    saved_range.set(Some(r));
+            // Phase 28 (PREV-01, D-13): Segmented-Control mit den drei Modi —
+            // gegenüber Tabs und Dropdown die richtige Wahl, weil es permanent
+            // ALLE drei Zustände UND den aktiven zeigt (genau das verlangt
+            // PREV-04). Der Umschalter bleibt bewusst inline in dieser
+            // Component und wird NICHT extrahiert: er hat genau einen
+            // Verwender, und D-13 legt ihn ausdrücklich in den `WysiwygEditor`,
+            // damit er ohne Verdrahtung pro Page in allen drei Call-Sites
+            // wirkt. Der iframe hingegen IST eine eigene Component
+            // (`MailPreviewFrame`) — dort gilt Component-First.
+            div { class: "flex items-center gap-2 px-2 py-1 border-b bg-gray-50",
+                div { class: "flex rounded-md overflow-hidden border border-gray-300",
+                    button {
+                        class: if *mode.read() == PreviewMode::Edit { "px-3 py-1 text-sm bg-blue-600 text-white" } else { "px-3 py-1 text-sm bg-white text-gray-700 hover:bg-gray-100" },
+                        // `r#type: "button"` ist zwingend — ohne dieses Attribut
+                        // lädt die Seite trotz prevent_default neu (dokumentierter,
+                        // bereits zweimal aufgetretener Projektbug).
+                        r#type: "button",
+                        onclick: move |evt: Event<MouseData>| {
+                            evt.prevent_default();
+                            switch_preview_mode(
+                                PreviewMode::Edit,
+                                on_change,
+                                mode,
+                                preview_doc,
+                                preview_errors,
+                                preview_loading,
+                                preview_member_id,
+                                repayment_phase_id,
+                            );
+                        },
+                        {i18n.t(Key::MailEditorModeEdit)}
+                    }
+                    button {
+                        class: if *mode.read() == PreviewMode::Desktop { "px-3 py-1 text-sm bg-blue-600 text-white" } else { "px-3 py-1 text-sm bg-white text-gray-700 hover:bg-gray-100" },
+                        r#type: "button",
+                        onclick: move |evt: Event<MouseData>| {
+                            evt.prevent_default();
+                            switch_preview_mode(
+                                PreviewMode::Desktop,
+                                on_change,
+                                mode,
+                                preview_doc,
+                                preview_errors,
+                                preview_loading,
+                                preview_member_id,
+                                repayment_phase_id,
+                            );
+                        },
+                        {i18n.t(Key::MailEditorModeDesktop)}
+                    }
+                    button {
+                        class: if *mode.read() == PreviewMode::Mobile { "px-3 py-1 text-sm bg-blue-600 text-white" } else { "px-3 py-1 text-sm bg-white text-gray-700 hover:bg-gray-100" },
+                        r#type: "button",
+                        onclick: move |evt: Event<MouseData>| {
+                            evt.prevent_default();
+                            switch_preview_mode(
+                                PreviewMode::Mobile,
+                                on_change,
+                                mode,
+                                preview_doc,
+                                preview_errors,
+                                preview_loading,
+                                preview_member_id,
+                                repayment_phase_id,
+                            );
+                        },
+                        {i18n.t(Key::MailEditorModeMobile)}
+                    }
+                }
+                if *preview_loading.read() {
+                    p { class: "text-xs text-gray-500", {i18n.t(Key::MailEditorModeLoading)} }
+                }
+            }
+
+            // Phase 28 (PREV-04, D-14): Toolbar nur im Bearbeiten-Modus.
+            // Ausblenden statt Ausgrauen — das klarste Signal, dass hier gerade
+            // nichts editiert wird.
+            if !mode.read().is_preview() {
+                WysiwygToolbar {
+                    editor_id: EDITOR_ID.to_string(),
+                    on_command: move |_| {
+                        sync_from_dom(&on_change);
+                    },
+                    on_link_click: move |_| {
+                        // Pitfall 6: capture the current Selection Range before
+                        // opening the modal. The modal steals focus and the
+                        // browser drops the range from Selection when the caret
+                        // leaves the contenteditable, so we cache it here.
+                        if let Some(win) = web_sys::window() {
+                            if let Ok(Some(sel)) = win.get_selection() {
+                                if sel.range_count() > 0 {
+                                    if let Ok(r) = sel.get_range_at(0) {
+                                        saved_range.set(Some(r));
+                                    }
                                 }
                             }
                         }
-                    }
-                    link_dialog_open.set(true);
-                },
+                        link_dialog_open.set(true);
+                    },
+                }
             }
 
+            // Phase 28 (PREV-05, D-17, Pitfall 1): der contenteditable-Knoten
+            // bleibt in JEDEM Modus genau einmal im DOM und wird nur
+            // off-screen geschoben — nicht aus dem Rendering genommen und
+            // nicht in einen if-Zweig gehängt. Alles andere an diesem Element
+            // (id, class, contenteditable, role, onmounted, oninput, onpaste)
+            // ist buchstäblich unverändert.
             div {
                 id: EDITOR_ID,
+                style: editor_container_style(*mode.read()),
                 class: "w-full px-3 py-2 min-h-40 focus:outline-none mail-html-render",
                 contenteditable: "true",
                 role: "textbox",
@@ -148,6 +237,38 @@ pub fn WysiwygEditor(
                 // `attach_image_drop_target` — see the comment there.
             }
 
+            // Phase 28 (PREV-02/PREV-05, D-04): Vorschau-Bereich mit drei sich
+            // ausschließenden Fällen. Es gibt bewusst KEIN Banner der Form
+            // „der Sanitizer hat N Elemente entfernt" — zeigt ammonia weniger
+            // an, als der Editor enthielt, ist genau das die Information. Die
+            // Darstellung selbst ist der Beweis, ein Element-Diff wäre eigene
+            // Komplexität ohne Mehrwert.
+            if mode.read().is_preview() {
+                if preview_member_id.is_none() {
+                    // D-03-Fallback: Hinweiszeile statt leerem Rahmen. In
+                    // `switch_preview_mode` wurde bereits kein Request gestellt.
+                    p { class: "text-sm text-gray-400 italic p-4",
+                        {i18n.t(Key::MailEditorModeSelectMember)}
+                    }
+                } else if *preview_loading.read() {
+                    p { class: "text-sm text-gray-400 italic p-4",
+                        {i18n.t(Key::MailEditorModeLoading)}
+                    }
+                } else {
+                    // Die Component entscheidet selbst, ob sie den roten
+                    // Fehler-Block (T-28-16) oder den sandboxed iframe rendert.
+                    MailPreviewFrame {
+                        mode: *mode.read(),
+                        srcdoc: preview_doc.read().clone(),
+                        errors: preview_errors.read().clone(),
+                    }
+                }
+            }
+
+            // Phase 28: bleibt unverändert und in JEDEM Modus gemountet. Er ist
+            // nur über die Toolbar erreichbar, die im Vorschau-Modus
+            // ausgeblendet ist; ein bedingtes Rendern würde das gecachte
+            // Selection-Range aus Pitfall 6 der Phase 24 unnötig gefährden.
             WysiwygLinkDialog {
                 open: link_dialog_open,
                 on_insert: move |(url, _display_text): (String, String)| {

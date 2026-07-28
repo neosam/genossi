@@ -10,13 +10,9 @@
 //! Dadurch sind Asset-Rewrite, Dokument-Aufbau und die Sandbox-Invariante
 //! automatisiert prüfbar, ohne Browser und ohne wasm32-Target.
 
-// Genau deshalb ist in diesem Plan noch KEIN Produktions-Konsument vorhanden:
-// jedes Symbol dieser Datei wird ausschließlich von den Tests am Dateiende und
-// — ab Plan 28-03 — vom `WysiwygEditor` benutzt. Ohne dieses Allow meldet
-// `cargo build` die Konstanten, das Enum und die pure Funktionen als tote
-// Symbole. TODO (Plan 28-03): nach der Verkabelung wieder entfernen und
-// prüfen, dass der Build warnungsfrei bleibt.
-#![allow(dead_code)]
+// Plan 28-03 hat das Modul-Level `#![allow(dead_code)]` wieder entfernt: seit
+// der Verkabelung im `WysiwygEditor` hat jedes Symbol dieser Datei einen
+// Produktions-Konsumenten, der Build bleibt ohne das Allow warnungsfrei.
 
 use dioxus::prelude::*;
 use uuid::Uuid;
