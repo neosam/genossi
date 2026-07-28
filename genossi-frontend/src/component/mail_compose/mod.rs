@@ -1,6 +1,7 @@
 pub mod attachment_picker;
 // Phase 24 Plan 03 Task 6: body_editor.rs deleted; MailBodyEditor replaced
 // project-wide by WysiwygEditor (contenteditable-based rich-text component).
+pub mod mail_preview_frame;
 pub mod subject_input;
 pub mod template_preview;
 pub mod template_selector;
@@ -11,6 +12,7 @@ pub mod wysiwyg_link_dialog;
 pub mod wysiwyg_toolbar;
 
 pub use attachment_picker::MailAttachmentPicker;
+pub use mail_preview_frame::MailPreviewFrame;
 pub use subject_input::MailSubjectInput;
 pub use template_preview::TemplatePreview;
 pub use template_selector::TemplateSelector;
