@@ -292,3 +292,315 @@ pub fn MailPreviewFrame(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{inject_asset_src, preview_needs_fetch, preview_srcdoc, PreviewMode};
+    use crate::component::mail_compose::wysiwyg_toolbar::{asset_bytes_url, image_insert_html};
+
+    const UUID_A: &str = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
+    const UUID_B: &str = "9c858901-8a57-4791-81fe-4c455b099bc9";
+    /// Basis mit `/api`-Segment — genau die Deployment-Form, die Pitfall 4
+    /// beschreibt (auf beta konsumiert ein Proxy dieses Segment).
+    const BACKEND: &str = "https://beta.example.test/api";
+
+    // --- Geometrie und Modus (PREV-01, D-12) ---
+
+    #[test]
+    fn preview_mode_widths_are_640_and_360() {
+        assert_eq!(PreviewMode::Desktop.width_px(), Some(640));
+        assert_eq!(PreviewMode::Mobile.width_px(), Some(360));
+    }
+
+    #[test]
+    fn preview_mode_edit_has_no_width() {
+        assert_eq!(PreviewMode::Edit.width_px(), None);
+    }
+
+    #[test]
+    fn preview_mode_is_preview_only_for_device_modes() {
+        assert!(!PreviewMode::Edit.is_preview());
+        assert!(PreviewMode::Desktop.is_preview());
+        assert!(PreviewMode::Mobile.is_preview());
+    }
+
+    // --- Request-Entscheidung (D-05) ---
+
+    #[test]
+    fn preview_needs_fetch_on_edit_to_preview() {
+        assert!(preview_needs_fetch(PreviewMode::Edit, PreviewMode::Desktop));
+        assert!(preview_needs_fetch(PreviewMode::Edit, PreviewMode::Mobile));
+    }
+
+    #[test]
+    fn preview_needs_fetch_false_between_device_modes() {
+        // Desktop <-> Mobile aendert nur die Breite; das Dokument-Attribut
+        // bleibt gleich, der iframe laedt nicht neu, die Vorschau flackert
+        // nicht.
+        assert!(!preview_needs_fetch(
+            PreviewMode::Desktop,
+            PreviewMode::Mobile
+        ));
+        assert!(!preview_needs_fetch(
+            PreviewMode::Mobile,
+            PreviewMode::Desktop
+        ));
+        assert!(!preview_needs_fetch(
+            PreviewMode::Desktop,
+            PreviewMode::Edit
+        ));
+        assert!(!preview_needs_fetch(PreviewMode::Mobile, PreviewMode::Edit));
+        assert!(!preview_needs_fetch(PreviewMode::Edit, PreviewMode::Edit));
+    }
+
+    // --- Asset-Injektion (PREV-03, D-06, Pitfall 3, Pitfall 4) ---
+
+    #[test]
+    fn inject_asset_src_adds_src_and_keeps_asset_id() {
+        let html = format!(r#"<img data-genossi-asset-id="{UUID_A}">"#);
+        let out = inject_asset_src(&html, BACKEND);
+        assert!(
+            out.contains(&format!(r#"data-genossi-asset-id="{UUID_A}""#)),
+            "das data-Attribut muss erhalten bleiben (nicht ersetzt wie im Backend): {out}"
+        );
+        assert!(
+            out.contains("src="),
+            "es muss ein src ergaenzt werden: {out}"
+        );
+    }
+
+    #[test]
+    fn inject_asset_src_uses_backend_base_not_relative() {
+        let html = format!(r#"<img data-genossi-asset-id="{UUID_A}">"#);
+        let out = inject_asset_src(&html, BACKEND);
+        let expected = asset_bytes_url(BACKEND, UUID_A);
+        assert!(
+            out.contains(&format!(r#" src="{expected}">"#)),
+            "der injizierte src muss mit der backend-Basis beginnen (Pitfall 4: eine \
+             relative URL umgeht config.backend und 404t auf Deployments): {out}"
+        );
+        assert!(expected.starts_with(BACKEND));
+    }
+
+    #[test]
+    fn inject_asset_src_ignores_non_uuid_value() {
+        let html = r#"<img data-genossi-asset-id="nicht-eine-uuid">"#;
+        let out = inject_asset_src(html, BACKEND);
+        assert_eq!(out, html, "Nicht-UUID laesst den Tag unangetastet");
+        assert!(!out.contains("src="));
+    }
+
+    #[test]
+    fn inject_asset_src_rejects_quote_injection_payload() {
+        // So saehe das Markup aus, wenn jemand den Attributwert
+        // `x" onerror="alert(1)` unterzubringen versucht: der Wert bricht aus
+        // dem Attribut aus. `extract_asset_uuid` liest bis zum ersten
+        // Schluss-Anfuehrungszeichen, bekommt `x`, und `Uuid::parse_str`
+        // weist das ab — es wird kein src interpoliert (T-28-07).
+        let html = r#"<img data-genossi-asset-id="x" onerror="alert(1)">"#;
+        let out = inject_asset_src(html, BACKEND);
+        assert_eq!(out, html);
+        assert!(!out.contains("src="));
+    }
+
+    #[test]
+    fn inject_asset_src_handles_multiple_and_duplicate_images() {
+        let html = format!(r#"<img data-genossi-asset-id="{UUID_A}"><p>x</p>"#,)
+            + &format!(
+                r#"<img data-genossi-asset-id="{UUID_B}"><img data-genossi-asset-id="{UUID_A}">"#
+            );
+        let out = inject_asset_src(&html, BACKEND);
+        assert_eq!(
+            out.matches("src=").count(),
+            3,
+            "alle drei Bilder muessen ein src bekommen, auch die doppelte UUID: {out}"
+        );
+    }
+
+    #[test]
+    fn inject_asset_src_leaves_html_without_images_untouched() {
+        // v1.4-Backward-Compat-Garantie: Alt-Templates ohne Bilder kommen
+        // byte-identisch heraus.
+        let html = "<p>Hallo <b>Welt</b></p><ul><li>eins</li><li>zwei</li></ul>";
+        assert_eq!(inject_asset_src(html, BACKEND), html);
+    }
+
+    #[test]
+    fn inject_asset_src_handles_unterminated_tag_without_panic() {
+        let html = format!(r#"<p>vorher</p><img data-genossi-asset-id="{UUID_A}"#);
+        let out = inject_asset_src(&html, BACKEND);
+        assert_eq!(
+            out, html,
+            "unvollstaendiger Tag wird unveraendert angehaengt"
+        );
+        assert!(out.contains("<p>vorher</p>"));
+    }
+
+    #[test]
+    fn inject_asset_src_preserves_surrounding_markup() {
+        let html = format!(r#"<p>davor</p><img data-genossi-asset-id="{UUID_A}"><p>danach</p>"#);
+        let out = inject_asset_src(&html, BACKEND);
+        assert!(out.starts_with("<p>davor</p><img "), "{out}");
+        assert!(out.ends_with("><p>danach</p>"), "{out}");
+    }
+
+    // --- Dokument-Aufbau und CSS-Isolation (PREV-05, D-09, D-10, Pitfall 8) ---
+
+    #[test]
+    fn srcdoc_is_self_contained_no_external_css() {
+        let doc = preview_srcdoc("<p>x</p>");
+        assert!(!doc.contains("<link"), "kein externes Stylesheet: {doc}");
+        assert!(!doc.contains("@import"), "kein @import: {doc}");
+        assert!(
+            !doc.contains("tailwind"),
+            "keine App-Stylesheet-Referenz: {doc}"
+        );
+        assert!(
+            !doc.contains("mail-html-render"),
+            "die Editor-CSS-Klasse darf nicht dupliziert werden (D-10): {doc}"
+        );
+        assert!(
+            doc.contains("<style>"),
+            "das Baseline-Stylesheet muss inline im Dokument stehen: {doc}"
+        );
+    }
+
+    #[test]
+    fn srcdoc_embeds_body_html_verbatim() {
+        // Nagelt D-09 fest: es wird NICHT escaped. Dioxus setzt das Attribut
+        // per setAttribute (kein HTML-Quelltext-Parsing); zusaetzliches
+        // Escaping wuerde im iframe sichtbaren Escape-Text erzeugen.
+        let body = r#"<p class="x">Rot &amp; Gruen</p>"#;
+        let raw = "<p>A & B \"zitiert\"</p>";
+        let doc = preview_srcdoc(raw);
+        assert!(doc.contains(raw), "Body muss 1:1 eingebettet sein: {doc}");
+        assert!(
+            !doc.contains("&amp;"),
+            "kein Escaping des Ampersands: {doc}"
+        );
+        assert!(!doc.contains("&quot;"), "kein Escaping der Quotes: {doc}");
+        // Und ein bereits escapter Body bleibt ebenfalls unveraendert.
+        assert!(preview_srcdoc(body).contains(body));
+    }
+
+    #[test]
+    fn srcdoc_declares_utf8_charset() {
+        let doc = preview_srcdoc("<p>Gr&uuml;&szlig;e</p>");
+        assert!(
+            doc.contains(r#"<meta charset="utf-8">"#),
+            "Kodierungsangabe fehlt (Pitfall 8, deutsche Umlaute): {doc}"
+        );
+        let meta = doc.find("<meta").expect("meta muss existieren");
+        let style = doc.find("<style>").expect("style muss existieren");
+        assert!(
+            meta < style,
+            "die Kodierungsangabe muss vor dem Stylesheet stehen: {doc}"
+        );
+    }
+
+    // --- Konsistenz der beiden Asset-URL-Verwender (D-06) ---
+
+    #[test]
+    fn asset_bytes_url_matches_image_insert_html() {
+        let url = asset_bytes_url(BACKEND, UUID_A);
+        let markup = image_insert_html(BACKEND, UUID_A);
+        assert!(
+            markup.contains(&url),
+            "Editor-Insert und Vorschau muessen dieselbe URL erzeugen — sonst laufen \
+             sie bei einer Route-Aenderung auseinander. url={url} markup={markup}"
+        );
+    }
+}
+
+// Grep-gate tests below — module-level docstring intentionally omitted so no
+// literal needle bytes live in `production_region()`. The full rationale lives
+// in the assertion messages, where it is read when a gate actually trips.
+//
+// Self-reference hazard defence, two layers (pattern from wysiwyg_editor.rs):
+//   (a) slice the source BEFORE the test module marker, so the assertions'
+//       own bytes are outside the search range;
+//   (b) assemble every needle at runtime from fragments, so no single literal
+//       byte sequence in this module could satisfy its own search even if (a)
+//       failed.
+#[cfg(test)]
+mod grep_gate_tests {
+    const FRAME_SRC: &str = include_str!("mail_preview_frame.rs");
+    const TEST_MODULE_MARKER: &str = "mod grep_gate_tests";
+
+    fn production_region() -> &'static str {
+        let cutoff = FRAME_SRC.find(TEST_MODULE_MARKER).expect(
+            "BUG: grep-gate test module marker not found; the marker string must appear \
+             verbatim before `mod grep_gate_tests` opens",
+        );
+        &FRAME_SRC[..cutoff]
+    }
+
+    #[test]
+    fn preview_frame_sets_sandbox_attribute() {
+        let region = production_region();
+        let attr_needle = format!("{q}sandbo{t}{q}", q = "\"", t = "x");
+        let value_needle = format!("allow-same-{t}", t = "origin");
+        assert!(
+            region.contains(&attr_needle),
+            "Grep gate FAILED: expected {attr_needle} on the iframe in \
+             mail_preview_frame.rs (production region). Without a sandbox attribute the \
+             preview document is not isolated at all."
+        );
+        assert!(
+            region.contains(&value_needle),
+            "Grep gate FAILED: expected {value_needle} in the sandbox value in \
+             mail_preview_frame.rs (production region). Without the same-origin token the \
+             browser serialises the iframe origin as `null`, every subresource request \
+             counts as cross-site, and the app's SameSite=Strict session cookie is not \
+             sent — every image in the preview would come back 401."
+        );
+    }
+
+    #[test]
+    fn preview_frame_never_allows_scripts() {
+        let region = production_region();
+        let forbidden = format!("allow-{t}", t = "scripts");
+        assert!(
+            !region.contains(&forbidden),
+            "Grep gate FAILED: {forbidden} appeared in mail_preview_frame.rs (production \
+             region). Combined with the same-origin token it lets the embedded document \
+             remove the sandbox attribute from itself, which voids the isolation \
+             entirely. This is a security invariant (T-28-06), not a style check — do \
+             not silence this test, remove the token."
+        );
+    }
+
+    #[test]
+    fn preview_frame_uses_iframe_srcdoc_not_inner_html() {
+        let region = production_region();
+        let doc_attr = format!("srcdo{t}", t = "c: \"{");
+        let raw_html_attr = format!("dangerous_inner_{t}", t = "html");
+        assert!(
+            region.contains(&doc_attr),
+            "Grep gate FAILED: expected the iframe document attribute ({doc_attr}) in \
+             mail_preview_frame.rs (production region) — not merely the preview_srcdoc \
+             function name. The component must actually feed the document into an iframe."
+        );
+        assert!(
+            !region.contains(&raw_html_attr),
+            "Grep gate FAILED: {raw_html_attr} appeared in mail_preview_frame.rs \
+             (production region). Falling back to raw-HTML embedding drops the nested \
+             browsing context and with it the CSS isolation required by PREV-05 — the \
+             preview would inherit the app stylesheet again."
+        );
+    }
+
+    #[test]
+    fn production_region_excludes_test_module() {
+        let region = production_region();
+        assert!(
+            !region.contains(TEST_MODULE_MARKER),
+            "BUG: production_region() slice still contains the test module marker — the \
+             slice is wrong and every gate above would be a false positive."
+        );
+        assert!(
+            region.len() < FRAME_SRC.len(),
+            "BUG: production_region() covers the whole file"
+        );
+    }
+}
