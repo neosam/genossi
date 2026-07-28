@@ -15005,6 +15005,269 @@ async fn preview_body_html_round_trips_to_response() {
     assert_eq!(raw_json["body"].as_str().unwrap(), "Hallo Max");
 }
 
+// ── Phase 28 Plan 01 — Sanitize-vor-Render im Preview-Pfad (PREV-02, D-01/D-02) ──
+
+/// Phase 28 Plan 01 (PREV-02, D-01/D-02) — Kernbeweis:
+/// `POST /api/mail/preview` schickt das `body_html` ZUERST durch ammonia
+/// (`sanitize_body_html_opt`) und ERST DANACH durch das Jinja-Rendering.
+/// Damit zeigt die Vorschau exakt die Fassung, die der Empfänger bekommt,
+/// und nicht mehr das ungefilterte `contenteditable`-DOM.
+///
+/// Der Request trägt gleichzeitig (a) ein Event-Handler-Attribut, (b) einen
+/// `{{ first_name }}`-Platzhalter im Text-Content und (c) einen `<script>`-Tag
+/// als Geschwisterknoten. Nach der Antwort müssen (a) und (c) weg sein,
+/// während (b) interpoliert und das `<p>` strukturell erhalten ist —
+/// das beweist beide Stufen in der richtigen Reihenfolge.
+#[tokio::test]
+async fn preview_body_html_is_sanitized_before_render() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let mut m = sample_member();
+    m.member_number = 2801;
+    m.first_name = "Annegret".to_string();
+    m.last_name = "Sanitas".to_string();
+    let resp = client
+        .post(server.url("/api/members"))
+        .json(&m)
+        .send()
+        .await
+        .expect("create member POST failed");
+    let created: MemberTO = resp.json().await.expect("decode MemberTO failed");
+    let member_id = created.id.unwrap();
+
+    // subject/body bewusst platzhalterfrei und nicht-leer: kein Repayment-Dummy-Pfad,
+    // kein strict-env-Fehler funkt in die HTML-Assertion hinein.
+    let response = client
+        .post(server.url("/api/mail/preview"))
+        .json(&serde_json::json!({
+            "subject": "Betreff ohne Platzhalter",
+            "body": "Reiner Text ohne Platzhalter",
+            "member_id": member_id.to_string(),
+            "body_html": r#"<p onclick="alert(1)">Hallo {{ first_name }}</p><script>alert(2)</script>"#,
+        }))
+        .send()
+        .await
+        .expect("preview POST failed");
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let json: serde_json::Value = response.json().await.expect("decode preview response");
+    let rendered_html = json["body_html"]
+        .as_str()
+        .expect("body_html must be present and a string when the request supplied one");
+
+    // (a) Event-Handler-Attribut ist weg (ammonia).
+    assert!(
+        !rendered_html.contains("onclick"),
+        "preview must strip the onclick event handler before rendering, got: {:?}",
+        rendered_html
+    );
+    // (c) Script-Tag samt Inhalt ist weg (ammonia clean_content_tags).
+    assert!(
+        !rendered_html.contains("<script"),
+        "preview must strip the <script> tag, got: {:?}",
+        rendered_html
+    );
+    assert!(
+        !rendered_html.contains("alert("),
+        "preview must strip all script payload, got: {:?}",
+        rendered_html
+    );
+    // (b) Jinja-Platzhalter im Text-Content hat ammonia überlebt und wurde
+    //     danach gegen den echten Member interpoliert.
+    assert!(
+        rendered_html.contains("Annegret"),
+        "preview must interpolate {{{{ first_name }}}} after sanitizing, got: {:?}",
+        rendered_html
+    );
+    // Strukturelles Autoren-Markup bleibt erhalten.
+    assert!(
+        rendered_html.contains("<p"),
+        "preview must preserve the <p> element, got: {:?}",
+        rendered_html
+    );
+}
+
+/// Phase 28 Plan 01 (PREV-02, T-28-02) — `<img>`-Härtung wirkt ab jetzt auch
+/// im Preview-Pfad: die externe `https://`-URL im `src` wird von der
+/// Phase-27-ammonia-Policy gestrippt, `data-genossi-asset-id` überlebt.
+///
+/// Doppelter Zweck: (1) die Vorschau kann kein Tracking-Pixel mehr laden
+/// (Information Disclosure), (2) Plan 28-02 findet im Frontend genau die
+/// Form vor, die `inject_asset_src` erwartet.
+#[tokio::test]
+async fn preview_body_html_img_keeps_asset_id_strips_src() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let mut m = sample_member();
+    m.member_number = 2802;
+    m.first_name = "Bertha".to_string();
+    m.last_name = "Bildmann".to_string();
+    let resp = client
+        .post(server.url("/api/members"))
+        .json(&m)
+        .send()
+        .await
+        .expect("create member POST failed");
+    let created: MemberTO = resp.json().await.expect("decode MemberTO failed");
+    let member_id = created.id.unwrap();
+
+    let asset_id = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
+    let body_html = format!(
+        r#"<p><img src="https://tracker.example.com/pixel.png" data-genossi-asset-id="{}"></p>"#,
+        asset_id
+    );
+
+    let response = client
+        .post(server.url("/api/mail/preview"))
+        .json(&serde_json::json!({
+            "subject": "Betreff ohne Platzhalter",
+            "body": "Reiner Text ohne Platzhalter",
+            "member_id": member_id.to_string(),
+            "body_html": body_html,
+        }))
+        .send()
+        .await
+        .expect("preview POST failed");
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let json: serde_json::Value = response.json().await.expect("decode preview response");
+    let rendered_html = json["body_html"]
+        .as_str()
+        .expect("body_html must be present and a string when the request supplied one");
+
+    assert!(
+        rendered_html.contains("data-genossi-asset-id"),
+        "preview must keep the data-genossi-asset-id attribute, got: {:?}",
+        rendered_html
+    );
+    assert!(
+        rendered_html.contains(asset_id),
+        "preview must keep the asset UUID {} intact, got: {:?}",
+        asset_id,
+        rendered_html
+    );
+    assert!(
+        !rendered_html.contains("tracker.example.com"),
+        "preview must strip the external <img> src (no tracking pixel), got: {:?}",
+        rendered_html
+    );
+}
+
+/// Phase 28 Plan 01 (PREV-02, D-02) — nagelt den Jinja-Contract fest:
+/// Platzhalter in TEXT-CONTENT-Position (auch in verschachtelten
+/// Allowlist-Tags) überleben ammonia und werden anschließend interpoliert.
+/// Nach der Antwort darf die Platzhalter-Syntax selbst nicht mehr vorkommen.
+#[tokio::test]
+async fn preview_body_html_jinja_in_text_survives_sanitize() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let mut m = sample_member();
+    m.member_number = 2803;
+    m.first_name = "Clara".to_string();
+    m.last_name = "Jinjamann".to_string();
+    let resp = client
+        .post(server.url("/api/members"))
+        .json(&m)
+        .send()
+        .await
+        .expect("create member POST failed");
+    let created: MemberTO = resp.json().await.expect("decode MemberTO failed");
+    let member_id = created.id.unwrap();
+
+    let response = client
+        .post(server.url("/api/mail/preview"))
+        .json(&serde_json::json!({
+            "subject": "Betreff ohne Platzhalter",
+            "body": "Reiner Text ohne Platzhalter",
+            "member_id": member_id.to_string(),
+            "body_html": "<p>Hallo <b>{{ first_name }}</b> {{ last_name }}</p>",
+        }))
+        .send()
+        .await
+        .expect("preview POST failed");
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let json: serde_json::Value = response.json().await.expect("decode preview response");
+    let rendered_html = json["body_html"]
+        .as_str()
+        .expect("body_html must be present and a string when the request supplied one");
+
+    assert!(
+        rendered_html.contains("Clara"),
+        "nested {{{{ first_name }}}} must survive sanitize and get interpolated, got: {:?}",
+        rendered_html
+    );
+    assert!(
+        rendered_html.contains("Jinjamann"),
+        "{{{{ last_name }}}} must survive sanitize and get interpolated, got: {:?}",
+        rendered_html
+    );
+    assert!(
+        !rendered_html.contains("{{") && !rendered_html.contains("}}"),
+        "no raw Jinja placeholder syntax may remain in the preview, got: {:?}",
+        rendered_html
+    );
+    assert!(
+        rendered_html.contains("<b>"),
+        "nested allowlist markup <b> must survive, got: {:?}",
+        rendered_html
+    );
+}
+
+/// Phase 28 Plan 01 (PREV-02) — None-Pfad des Two-Pass-Some/None-Musters
+/// (Phase 24 Plan 04): ein Request OHNE `body_html`-Key betritt den neuen
+/// Sanitize-Codepfad gar nicht, weil `sanitize_body_html_opt(None)` sofort
+/// `None` liefert. Auf der Wire darf deshalb kein `body_html`-Key erscheinen
+/// und insbesondere kein `Some("")`-Sentinel.
+#[tokio::test]
+async fn preview_without_body_html_stays_backward_compatible() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let mut m = sample_member();
+    m.member_number = 2804;
+    m.first_name = "Dora".to_string();
+    m.last_name = "Kompatibel".to_string();
+    let resp = client
+        .post(server.url("/api/members"))
+        .json(&m)
+        .send()
+        .await
+        .expect("create member POST failed");
+    let created: MemberTO = resp.json().await.expect("decode MemberTO failed");
+    let member_id = created.id.unwrap();
+
+    let response = client
+        .post(server.url("/api/mail/preview"))
+        .json(&serde_json::json!({
+            "subject": "Betreff ohne Platzhalter",
+            "body": "Reiner Text ohne Platzhalter",
+            "member_id": member_id.to_string(),
+        }))
+        .send()
+        .await
+        .expect("preview POST (no body_html) failed");
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let json: serde_json::Value = response.json().await.expect("decode preview response");
+    let obj = json.as_object().expect("preview response is a JSON object");
+    assert!(
+        obj.get("body_html").is_none() || obj["body_html"].is_null(),
+        "body_html must stay absent/null when the request omitted it (no Some(\"\") sentinel), got: {:?}",
+        json
+    );
+    // Sanity: der Plain-Pfad ist unberührt.
+    assert_eq!(
+        json["body"].as_str().expect("body must be string"),
+        "Reiner Text ohne Platzhalter",
+        "plain body path must stay unchanged, got: {:?}",
+        json
+    );
+}
+
 /// Phase 24 Plan 04 Task 2 (EDIT-01, D-01 — inbox reply sanitize-on-store):
 /// POSTing `/api/inbox/{id}/reply` with a `body_html` containing malicious
 /// script MUST be sanitized at the store boundary (Phase 23 D-03 pattern,
