@@ -165,7 +165,7 @@ Plans:
   4. Preview läuft in einem sandboxed `<iframe>` mit fester Breite; kein CSS bleedet zwischen Editor und Vorschau in beide Richtungen (verifizierbar durch bewusst gesetzte Konflikt-Klassen im Editor-Umfeld).
   5. Alle Preview-Modi funktionieren mit bestehenden v1.4-Templates ohne Bilder (Backward-Compat) UND mit den neuen v1.5-Templates mit Listen/Überschriften/Bildern.
 
-**Plans:** 3/5 plans executed
+**Plans:** 4/5 plans executed
 
 Plans:
 **Wave 1**
@@ -179,7 +179,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 28-04-PLAN.md — Call-Site-Verkabelung: `preview_member_id` auf Page-Ebene gehoben, drei Call-Sites verkabelt (D-03 inkl. Ausstiegsklausel für `reply_form.rs`)
+- [x] 28-04-PLAN.md — Call-Site-Verkabelung: `preview_member_id` auf Page-Ebene gehoben, drei Call-Sites verkabelt (D-03 inkl. Ausstiegsklausel für `reply_form.rs`)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
@@ -219,7 +219,7 @@ Plans:
 | 25. Application File Upload + Audited Carryover    | v1.4      | 5/5            | Complete    | 2026-07-03 |
 | 26. Editor-Formatierung vervollständigen           | v1.5      | 3/3 | In Progress|  |
 | 27. Bild-Support Backend + Editor-Upload           | v1.5      | 4/4 | In Progress|  |
-| 28. Desktop/Mobile-Vorschau                        | v1.5      | 3/5 | In Progress|  |
+| 28. Desktop/Mobile-Vorschau                        | v1.5      | 4/5 | In Progress|  |
 
 ---
 
