@@ -238,6 +238,13 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::MailEditorLinkInsert => "Insert".into(),
         Key::MailEditorLinkCancel => "Cancel".into(),
         Key::MailEditorPreviewHtml => "HTML preview".into(),
+        Key::MailEditorModeEdit => "Edit".into(),
+        Key::MailEditorModeDesktop => "Desktop preview".into(),
+        Key::MailEditorModeMobile => "Mobile preview".into(),
+        Key::MailEditorModeDesktopFrameLabel => "Desktop preview (640 px)".into(),
+        Key::MailEditorModeMobileFrameLabel => "Mobile preview (360 px)".into(),
+        Key::MailEditorModeSelectMember => "Select a member for the preview".into(),
+        Key::MailEditorModeLoading => "Loading preview …".into(),
         Key::MailAttachRepaymentLetter => {
             "Attach RepaymentLetter (cover letter) as personal PDF".into()
         }

@@ -28,6 +28,21 @@ use crate::service::config::CONFIG;
 /// the OS file picker without rendering a visible `<input>`.
 const IMAGE_INPUT_ID: &str = "wysiwyg-image-input";
 
+/// Phase 28 (PREV-03, D-06): Single Source of Truth für die browser-sichtbare
+/// Asset-Bytes-URL.
+///
+/// Zwei Stellen erzeugen dieselbe URL in unterschiedlichen Markup-Formen: der
+/// Editor-Insert in [`image_insert_html`] (kompletter `<img>`-Tag) und die
+/// iframe-Vorschau in
+/// `crate::component::mail_compose::mail_preview_frame::inject_asset_src`
+/// (nachträglich eingefügtes `src`-Attribut). Die *Markup*-Formen dürfen
+/// auseinandergehen, die *URL* nicht — eine Route-Änderung darf nicht an zwei
+/// Stellen gepflegt werden müssen, weil die zweite Stelle sonst stillschweigend
+/// zurückbleibt und die Bilder nur in einem der beiden Kontexte laden.
+pub(crate) fn asset_bytes_url(backend: &str, id: &str) -> String {
+    format!("{backend}/api/mail/assets/{id}/bytes")
+}
+
 /// Pure helper producing the inline-image markup inserted at the caret.
 ///
 /// Emits `<img data-genossi-asset-id="{id}" src="{backend}/api/mail/assets/{id}/bytes">`.
@@ -43,7 +58,8 @@ const IMAGE_INPUT_ID: &str = "wysiwyg-image-input";
 /// helper so the inserted shape is identical.
 pub(crate) fn image_insert_html(backend: &str, id: &str) -> String {
     format!(
-        r#"<img data-genossi-asset-id="{id}" src="{backend}/api/mail/assets/{id}/bytes">"#
+        r#"<img data-genossi-asset-id="{id}" src="{src}">"#,
+        src = asset_bytes_url(backend, id)
     )
 }
 

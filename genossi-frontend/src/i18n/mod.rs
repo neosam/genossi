@@ -298,6 +298,18 @@ pub enum Key {
     MailEditorLinkInsert,
     MailEditorLinkCancel,
     MailEditorPreviewHtml,
+    // Phase 28 (PREV-01, PREV-04, D-15): Modus-Umschalter und Device-Rahmen
+    // der Mail-Vorschau. Die ersten drei Keys beschriften die Modus-Buttons,
+    // die beiden Frame-Label-Keys das Label über dem iframe (inkl. Breite),
+    // der Select-Member-Key den D-03-Fallback ohne gewähltes Mitglied und der
+    // Loading-Key den Ladezustand während des Preview-Requests.
+    MailEditorModeEdit,
+    MailEditorModeDesktop,
+    MailEditorModeMobile,
+    MailEditorModeDesktopFrameLabel,
+    MailEditorModeMobileFrameLabel,
+    MailEditorModeSelectMember,
+    MailEditorModeLoading,
     // Quick 260603-e6p: opt-in checkbox to auto-attach the per-recipient
     // DocumentType::RepaymentLetter PDF in the bulk-mail compose flow.
     MailAttachRepaymentLetter,
