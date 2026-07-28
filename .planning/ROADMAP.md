@@ -165,13 +165,13 @@ Plans:
   4. Preview läuft in einem sandboxed `<iframe>` mit fester Breite; kein CSS bleedet zwischen Editor und Vorschau in beide Richtungen (verifizierbar durch bewusst gesetzte Konflikt-Klassen im Editor-Umfeld).
   5. Alle Preview-Modi funktionieren mit bestehenden v1.4-Templates ohne Bilder (Backward-Compat) UND mit den neuen v1.5-Templates mit Listen/Überschriften/Bildern.
 
-**Plans:** 1/5 plans executed
+**Plans:** 2/5 plans executed
 
 Plans:
 **Wave 1**
 
 - [x] 28-01-PLAN.md — Backend: ammonia-Sanitize vor dem Jinja-Rendering im `preview_mail`-Handler (D-01/D-02) plus vier e2e-Tests
-- [ ] 28-02-PLAN.md — Frontend-Primitive: `mail_preview_frame.rs` mit `PreviewMode`, `inject_asset_src`, `preview_srcdoc`, `MailPreviewFrame`, Sandbox-Grep-Gate und sieben i18n-Keys
+- [x] 28-02-PLAN.md — Frontend-Primitive: `mail_preview_frame.rs` mit `PreviewMode`, `inject_asset_src`, `preview_srcdoc`, `MailPreviewFrame`, Sandbox-Grep-Gate und sieben i18n-Keys
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -219,7 +219,7 @@ Plans:
 | 25. Application File Upload + Audited Carryover    | v1.4      | 5/5            | Complete    | 2026-07-03 |
 | 26. Editor-Formatierung vervollständigen           | v1.5      | 3/3 | In Progress|  |
 | 27. Bild-Support Backend + Editor-Upload           | v1.5      | 4/4 | In Progress|  |
-| 28. Desktop/Mobile-Vorschau                        | v1.5      | 1/5 | In Progress|  |
+| 28. Desktop/Mobile-Vorschau                        | v1.5      | 2/5 | In Progress|  |
 
 ---
 

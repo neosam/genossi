@@ -43,3 +43,27 @@ nur Probleme fixen, die direkt durch die Änderungen des aktuellen Tasks entstan
 - **Warum nicht gefixt:** Plan 28-01 fordert `sanitize.rs` explizit als unverändert
   (Acceptance Criteria Task 1). Die von `cargo fmt -p genossi_mail` erzeugte Änderung wurde
   per `git checkout HEAD -- genossi_mail/src/sanitize.rs` zurückgenommen.
+
+## 5. `cargo fmt`-Drift in `genossi-frontend/src/api.rs`
+
+- **Gefunden in:** Plan 28-02, Task 1 (`cd genossi-frontend && cargo fmt -- --check`)
+- **Umfang:** eine Fundstelle, `src/api.rs:405` — die Signatur von `upload_mail_asset`
+  überschreitet die Zeilenlänge und würde von `cargo fmt` dreizeilig umgebrochen.
+- **Vorbestehend:** ja. Die Drift existiert vor jedem Commit dieses Plans; `api.rs` wurde
+  von Plan 28-02 nicht angefasst.
+- **Warum nicht gefixt:** unberührte Datei ohne Phase-28-Bezug. Der repo-spezifische
+  Git-Protokoll-Hinweis verbietet zudem ausdrücklich, mit crate-weitem `cargo fmt`
+  unbeteiligte Dateien in den Diff zu ziehen. Die neu angelegte
+  `mail_preview_frame.rs` wurde stattdessen gezielt mit
+  `rustfmt --edition 2021 <datei>` formatiert und ist fmt-sauber.
+- **Empfohlene Auflösung:** eigener Quick-Task, der `cargo fmt` einmal crate-weit über
+  `genossi-frontend` laufen lässt.
+
+## 6. Nicht genutzter Re-Export `MailPreviewFrame` in `mail_compose/mod.rs`
+
+- **Gefunden in:** Plan 28-02, Task 2
+- **Meldung:** `warning: unused import: mail_preview_frame::MailPreviewFrame`
+- **Warum nicht gefixt:** Der Re-Export ist ein Pflicht-Artefakt dieses Plans (Plan 28-03
+  importiert die Component darüber). `component/mod.rs` trägt bereits acht identische
+  Warnungen für denselben Vorgriffs-Fall — das ist die etablierte Repo-Konvention.
+  Die Warnung verschwindet mit der Verkabelung in Plan 28-03.

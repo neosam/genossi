@@ -29,11 +29,11 @@
 
 ### Desktop/Mobile-Vorschau (Phase 28)
 
-- [ ] **PREV-01**: Vorstand kann im WYSIWYG-Editor zwischen **Bearbeiten**, **Desktop-Vorschau** (~640px) und **Mobile-Vorschau** (~360px) umschalten.
+- [x] **PREV-01**: Vorstand kann im WYSIWYG-Editor zwischen **Bearbeiten**, **Desktop-Vorschau** (~640px) und **Mobile-Vorschau** (~360px) umschalten.
 - [x] **PREV-02**: Vorschau rendert die tatsächlich ammonia-sanitisierte HTML-Fassung des Bodys (nicht `contenteditable`-Roh-DOM); Diskrepanzen zwischen Editor und Empfänger sind damit sichtbar.
-- [ ] **PREV-03**: Vorschau löst `data-genossi-asset-id` zu `/api/mail/assets/{id}/bytes`-Referenzen auf, sodass Bilder korrekt dargestellt werden.
-- [ ] **PREV-04**: Vorschau ist visuell klar von „Bearbeiten"-Modus abgegrenzt (z. B. Frame-Border simuliert Device-Rahmen); Vorstand versteht sofort, dass Klicks/Tippen im Vorschau-Modus nicht editieren.
-- [ ] **PREV-05**: Vorschau nutzt sandboxed `<iframe>` mit fester Breite; kein Preview-CSS bleedet in die Editor-Umgebung und umgekehrt.
+- [x] **PREV-03**: Vorschau löst `data-genossi-asset-id` zu `/api/mail/assets/{id}/bytes`-Referenzen auf, sodass Bilder korrekt dargestellt werden.
+- [x] **PREV-04**: Vorschau ist visuell klar von „Bearbeiten"-Modus abgegrenzt (z. B. Frame-Border simuliert Device-Rahmen); Vorstand versteht sofort, dass Klicks/Tippen im Vorschau-Modus nicht editieren.
+- [x] **PREV-05**: Vorschau nutzt sandboxed `<iframe>` mit fester Breite; kein Preview-CSS bleedet in die Editor-Umgebung und umgekehrt.
 
 ## Future Requirements
 
@@ -83,10 +83,10 @@ Gefüllt vom `gsd-roadmapper` beim Roadmap-Bau am 2026-07-17.
 | IMG-07 | Phase 27 | Bild-Support Backend + Editor-Upload | Complete |
 | IMG-08 | Phase 27 | Bild-Support Backend + Editor-Upload | Complete |
 | IMG-09 | Phase 27 | Bild-Support Backend + Editor-Upload | Complete |
-| PREV-01 | Phase 28 | Desktop/Mobile-Vorschau | Pending |
+| PREV-01 | Phase 28 | Desktop/Mobile-Vorschau | Complete |
 | PREV-02 | Phase 28 | Desktop/Mobile-Vorschau | Complete |
-| PREV-03 | Phase 28 | Desktop/Mobile-Vorschau | Pending |
-| PREV-04 | Phase 28 | Desktop/Mobile-Vorschau | Pending |
-| PREV-05 | Phase 28 | Desktop/Mobile-Vorschau | Pending |
+| PREV-03 | Phase 28 | Desktop/Mobile-Vorschau | Complete |
+| PREV-04 | Phase 28 | Desktop/Mobile-Vorschau | Complete |
+| PREV-05 | Phase 28 | Desktop/Mobile-Vorschau | Complete |
 
 **Coverage:** 19/19 (100%) v1.5 Requirements mapped, keine Orphans, keine Duplikate.
