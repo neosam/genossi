@@ -765,9 +765,26 @@ pub async fn preview_mail<S: MailRestState>(
 
             // Phase 24 (EDIT-05, D-04): if the caller supplied an HTML sibling,
             // render it through the autoescape env (member values escaped, author
-            // markup structurally preserved). Read-only preview — no sanitization
-            // here; ammonia guards the store boundary (Phase 23 D-03).
-            let rendered_body_html: Option<String> = match body.body_html.as_deref() {
+            // markup structurally preserved).
+            //
+            // Phase 28 (PREV-02, D-01/D-02): sanitize BEFORE render — die Vorschau
+            // zeigt exakt die HTML-Fassung, die der Empfänger bekommt, statt des
+            // ungefilterten `contenteditable`-DOMs. Die Reihenfolge ist bindend und
+            // spiegelt die Produktion: ammonia greift am Store-Boundary (Phase 23
+            // D-03), das Jinja-Rendering erst im Send-Worker. Render-dann-sanitize
+            // wäre asymmetrisch, weil Member-Werte in Produktion autoescaped und
+            // nicht sanitisiert werden.
+            // Jinja-Platzhalter im TEXT-Content (`<p>Hallo {{ first_name }}</p>`)
+            // überleben ammonia unverändert (siehe `sanitize.rs` Zeilen 30-34).
+            // Platzhalter in ATTRIBUTEN (`<a href="{{ link }}">`) sind seit Phase 24
+            // out-of-contract und werden hier erstmals sichtbar gestrippt — gewollt,
+            // kein Bug, und laut D-04 ohne Diff-Banner: die Darstellung des
+            // sanitisierten Ergebnisses ist der Beweis.
+            // `sanitize_body_html_opt` garantiert `None` in ⇒ `None` out, deshalb
+            // keine zusätzliche Verzweigung (kein `Some("")`-Sentinel).
+            let sanitized_body_html =
+                crate::service::sanitize_body_html_opt(body.body_html.as_deref());
+            let rendered_body_html: Option<String> = match sanitized_body_html.as_deref() {
                 Some(html_src) => match render_html_template(html_src, &ctx) {
                     Ok(s) => Some(s),
                     Err(e) => {
