@@ -77,11 +77,36 @@ pub fn TemplatePreview(
     // UAT-Defekt #6: optional Repayment-Kontext, damit Live-Preview im
     // Phase-12-Flow `{{ payout_amount }}` etc. korrekt rendert.
     #[props(default)] repayment_phase_id: Option<Uuid>,
+    // Phase 28 (PREV-02, D-03): Die Mitglieds-Auswahl für die Vorschau liegt
+    // seit Phase 28 in der Call-Site, damit sie ZWEI Verbraucher speisen kann:
+    // diese Component (member-aufgelöste Variablen-Prüfung, D-16) und die neue
+    // Device-Vorschau im `WysiwygEditor`. Der Vorstand sieht dadurch genau eine
+    // Auswahl und weiß, welche gilt.
+    //
+    // Bewusst ein schreibbares `Signal` und kein `ReadOnlySignal`: das
+    // Auswahlfeld unten schreibt weiterhin hinein, die Page liest denselben
+    // Wert für die Device-Vorschau. Genau diese Zweiwege-Kopplung ist der Zweck
+    // von D-03.
+    //
+    // Bewusst KEIN `#[props(default)]`, obwohl das sonst das Projektmuster ist
+    // (T-28-23): der Default-Wert eines `Signal` würde bei jedem Render der
+    // Elternkomponente ein neues Signal im Eltern-Scope anlegen — Zustand ginge
+    // verloren und Signale würden akkumulieren. Alle drei Verwender werden
+    // stattdessen im selben Plan mitgezogen.
+    mut preview_member_id: Signal<Option<Uuid>>,
 ) -> Element {
     let i18n = use_i18n();
-    let mut preview_member_id = use_signal(|| None::<Uuid>);
     let mut preview_result = use_signal(|| None::<PreviewResponse>);
     let preview_loading = use_signal(|| false);
+
+    // Phase 28 (PREV-02, D-03): Das `select` muss den GETEILTEN Signalwert
+    // anzeigen. Ohne diese Bindung zeigte das Feld nach einer Auswahl von außen
+    // weiterhin den Platzhalter — genau die Uneindeutigkeit, die D-03 beseitigt.
+    // Dereferenzieren ist zwingend: `Signal::read()` liefert ein `Ref<_>`, und
+    // `Ref::map` würde statt `Option::map` greifen.
+    let selected_member_value = (*preview_member_id.read())
+        .map(|id| id.to_string())
+        .unwrap_or_default();
 
     rsx! {
         div { class: "bg-gray-50 rounded-lg p-4",
@@ -91,6 +116,7 @@ pub fn TemplatePreview(
             div { class: "mb-3",
                 select {
                     class: "w-full border rounded px-3 py-2 text-sm",
+                    value: "{selected_member_value}",
                     onchange: move |e| {
                         let val = e.value();
                         if val.is_empty() {
@@ -251,6 +277,40 @@ mod grep_gate_tests {
             !region.contains(&prose_needle),
             "Grep gate FAILED: the `prose ` class is back in template_preview.rs. \
              It is a no-op because Tailwind Typography is not installed."
+        );
+    }
+
+    /// Phase 28 (PREV-02, D-03, T-28-20) — die Mitglieds-Auswahl MUSS ein Prop
+    /// bleiben. Wird sie wieder lokal angelegt, hebt das die D-03-Kopplung
+    /// lautlos auf: das Auswahlfeld zeigte weiterhin ein Mitglied an, die
+    /// Device-Vorschau im `WysiwygEditor` bekäme aber dauerhaft `None` und
+    /// zeigte für immer die Hinweiszeile `MailEditorModeSelectMember`. Kein
+    /// Compilerfehler, kein sichtbarer Absturz — nur eine Vorschau, die nie
+    /// etwas anzeigt.
+    ///
+    /// Self-Reference-Abwehr wie bei allen Gates dieser Datei: Needles zur
+    /// Laufzeit zusammensetzen UND nur die Produktionsregion durchsuchen.
+    #[test]
+    fn preview_member_id_is_a_prop_not_a_local_signal() {
+        let region = production_region();
+        let prop_needle = format!("preview_member_id: Signal{tail}", tail = "<");
+        let local_needle = format!("use_signal(|| None::<Uui{tail}", tail = "d>)");
+        assert!(
+            region.contains(&prop_needle),
+            "Grep gate FAILED: `preview_member_id` ist kein Prop vom Typ \
+             `Signal<Option<Uuid>>` mehr in template_preview.rs \
+             (Produktionsregion). Ohne dieses Prop kann die Call-Site die \
+             Auswahl nicht mit der Device-Vorschau des WysiwygEditor teilen \
+             (Phase 28, D-03)."
+        );
+        assert!(
+            !region.contains(&local_needle),
+            "Grep gate FAILED: in template_preview.rs wird wieder ein LOKALES \
+             Member-Signal angelegt. Das hebt die D-03-Kopplung lautlos auf: \
+             das Auswahlfeld zeigt ein Mitglied, die Device-Vorschau bleibt \
+             dauerhaft bei der Hinweiszeile, weil sie ein anderes Signal liest. \
+             Die Auswahl gehört in die Call-Site und wird von dort \
+             hereingereicht."
         );
     }
 

@@ -20,6 +20,15 @@
 //!     forwards `body.to_address` (NEVER `member.email`) to
 //!     `MailService::send_test_mail_with_body`.
 //!
+//! Phase 28 (PREV-02, D-03): Die Mitglieds-Auswahl wird seit Phase 28 NICHT
+//! mehr hier lokal gehalten, sondern von der Page als Prop `selected_member_id`
+//! hereingereicht — dieselbe Auswahl speist zugleich die Device-Vorschau im
+//! `WysiwygEditor` und die `TemplatePreview`. Damit verschwindet die frühere
+//! doppelte Mitglieds-Auswahl im Template-Editor. An den drei
+//! Datenschutz-Schichten oben ändert das NICHTS: das jetzt von außen
+//! gesteuerte Signal liefert weiterhin ausschließlich die Template-Variablen
+//! über seine Id und gerät an keiner Stelle in den Empfänger-Pfad (T-28-19).
+//!
 //! Tests at the bottom verify the pure helper `is_valid_test_address`.
 
 use dioxus::prelude::*;
@@ -51,9 +60,18 @@ pub fn TemplateTester(
     // Defaults to an empty ReadOnlySignal via #[props(default)] so existing
     // callers stay source-compat.
     #[props(default)] body_html: ReadOnlySignal<String>,
+    // Phase 28 (PREV-02, D-03): Member-Auswahl kommt von der Page, damit sie
+    // zugleich die Device-Vorschau im `WysiwygEditor` speist. Bewusst KEIN
+    // `#[props(default)]` (T-28-23): ein Default würde bei jedem Render der
+    // Elternkomponente ein neues Signal im Eltern-Scope anlegen, Zustand
+    // verlieren und Signale akkumulieren.
+    //
+    // PRIVACY: dieses Prop liefert ausschließlich die Template-Variablen über
+    // seine Id. Es darf NIE in den Empfänger-Pfad der Test-Mail geraten — der
+    // Empfänger stammt allein aus `test_address` (siehe Modul-Doc, Schicht 2).
+    mut selected_member_id: Signal<Option<Uuid>>,
 ) -> Element {
     let i18n = use_i18n();
-    let mut selected_member_id = use_signal(|| None::<Uuid>);
     let mut test_address = use_signal(String::new);
     let mut sending = use_signal(|| false);
     let mut feedback = use_signal(|| None::<(bool, String)>);
@@ -98,6 +116,11 @@ pub fn TemplateTester(
                     body: body,
                     body_html: body_html,
                     member_ids: vec![mid],
+                    // Phase 28 (PREV-02, D-03): dasselbe Signal wie die
+                    // MemberSearch oben — die Auswahl im Auswahlfeld der
+                    // Vorschau und die Suche hier zeigen ab jetzt denselben
+                    // Zustand. Genau das beendet die doppelte Auswahl.
+                    preview_member_id: selected_member_id,
                 }
             }
 
@@ -204,5 +227,81 @@ mod tests {
     #[test]
     fn test_is_valid_test_address_trims() {
         assert!(is_valid_test_address("  foo@bar.de  "));
+    }
+}
+
+// Grep-gate tests below — muss die LETZTE Modul-Deklaration der Datei bleiben,
+// weil `production_region()` alles ab dem Marker abschneidet. Self-Reference-
+// Abwehr zweischichtig wie in `wysiwyg_editor.rs` und `template_preview.rs`:
+// (a) Source vor dem Marker abschneiden, (b) Needles zur Laufzeit
+// zusammensetzen. Kein Modul-Doc mit Ziel-Literalen, damit keine der Needles
+// versehentlich in der Produktionsregion landet.
+#[cfg(test)]
+mod grep_gate_tests {
+    const TESTER_SRC: &str = include_str!("template_tester.rs");
+    const TEST_MODULE_MARKER: &str = "mod grep_gate_tests";
+
+    fn production_region() -> &'static str {
+        let cutoff = TESTER_SRC
+            .find(TEST_MODULE_MARKER)
+            .expect("BUG: grep-gate test module marker not found");
+        &TESTER_SRC[..cutoff]
+    }
+
+    /// T-28-19 — DATENSCHUTZ. Die Test-Mail darf NIEMALS an die E-Mail-Adresse
+    /// des gewählten Mitglieds gehen, sondern ausschließlich an die im
+    /// Test-Empfänger-Feld eingetragene Adresse. Seit Phase 28 wird die
+    /// Mitglieds-Auswahl von der Page hereingereicht; dieser Gate nagelt fest,
+    /// dass sie dadurch nicht in den Empfänger-Pfad rutscht.
+    ///
+    /// Fenster-Suche: das erste Argument nach der Sende-Funktion muss die aus
+    /// dem Test-Adress-Feld gelesene Variable sein.
+    #[test]
+    fn test_mail_recipient_comes_from_test_address_only() {
+        let region = production_region();
+        let send_needle = format!("send_test_mail_with_templat{tail}", tail = "e(");
+        let addr_needle = format!("&add{tail}", tail = "r,");
+        let idx = region.find(&send_needle).expect(
+            "Grep gate FAILED: der Aufruf der Test-Mail-Sendefunktion fehlt in \
+             template_tester.rs (Produktionsregion) komplett.",
+        );
+        let window = &region[idx..idx.saturating_add(200).min(region.len())];
+        assert!(
+            window.contains(&addr_needle),
+            "Grep gate FAILED: die Empfängeradresse der Test-Mail stammt nicht \
+             mehr aus dem Test-Adress-Feld. DATENSCHUTZREGEL (Genossi, \
+             Datensparsamkeit): die Test-Mail darf niemals an die Adresse des \
+             gewählten Mitglieds gehen — das Mitglied liefert ausschließlich die \
+             Template-Variablen über seine Id. Fenster hinter dem Sende-Aufruf \
+             (erste 200 Zeichen):\n{window}"
+        );
+    }
+
+    /// Phase 28 (PREV-02, D-03) — `TemplateTester` muss sein von der Page
+    /// hereingereichtes Signal tatsächlich an die `TemplatePreview` weitergeben.
+    /// Tut es das nicht, hätte der Template-Editor wieder zwei unabhängige
+    /// Mitglieds-Auswahlen auf derselben Seite — exakt das Problem, das D-03
+    /// behebt.
+    #[test]
+    fn selected_member_id_is_forwarded_to_preview() {
+        let region = production_region();
+        let forward_needle = format!("preview_member_i{tail}", tail = "d:");
+        assert!(
+            region.contains(&forward_needle),
+            "Grep gate FAILED: template_tester.rs reicht seine Member-Auswahl \
+             nicht mehr an TemplatePreview weiter. Damit stünden im \
+             Template-Editor wieder zwei konkurrierende Mitglieds-Auswahlen \
+             nebeneinander (Phase 28, D-03)."
+        );
+    }
+
+    #[test]
+    fn production_region_excludes_test_module() {
+        let region = production_region();
+        assert!(
+            !region.contains(TEST_MODULE_MARKER),
+            "BUG: production_region() slice still contains the test module marker"
+        );
+        assert!(region.len() < TESTER_SRC.len());
     }
 }
