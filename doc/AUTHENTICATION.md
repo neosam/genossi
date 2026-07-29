@@ -258,10 +258,15 @@ pub async fn register_session<RestState: RestStateDef>(
         .expect("Cookies extension not set");
     
     if let Some(oidc_claims) = claims {
-        let username = oidc_claims
-            .preferred_username()
-            .map(|s| s.as_str().to_string())
-            .unwrap_or_else(|| "NoUsername".to_string());
+        // `sub` is the identity source. OIDC Core 1.0 requires it in every ID
+        // token, so it is always present — no fallback value is needed.
+        let Some(username) = normalize_username(oidc_claims.subject().as_str()) else {
+            tracing::error!("OIDC id token carried an empty sub claim - refusing login");
+            return Response::builder()
+                .status(500)
+                .body("Internal Server Error".into())
+                .unwrap();
+        };
             
         let session = rest_state
             .session_service()
