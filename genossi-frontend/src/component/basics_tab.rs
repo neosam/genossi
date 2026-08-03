@@ -51,6 +51,39 @@ pub fn BasicsTab(
     let date_for_reset = date_display.clone();
     let location_for_reset = location_display.clone();
 
+    // Dioxus form+onsubmit+prevent_default loest trotzdem einen Page-Reload aus
+    // (Button-Reload-Bug). Fix analog repayment_phases.rs: div-Wrapper +
+    // r#type:"button" + onclick statt <form>/submit.
+    let submit = move |_| {
+        submitting.set(true);
+        let req = UpdateAssemblyRequest {
+            name: {
+                let n = name_edit.read().trim().to_string();
+                if n.is_empty() { None } else { Some(n) }
+            },
+            date: {
+                let d = date_edit.read().trim().to_string();
+                if d.is_empty() { None } else { Some(d) }
+            },
+            location: {
+                let l = location_edit.read().trim().to_string();
+                if l.is_empty() { None } else { Some(l) }
+            },
+            version: version.unwrap_or_default(),
+        };
+        spawn(async move {
+            let config = CONFIG.read().clone();
+            match api::update_assembly(&config, aid, &req).await {
+                Ok(_) => {
+                    mode.set(BasicsMode::ReadOnly);
+                    on_changed.call(());
+                }
+                Err(err) => on_error.call(err.message),
+            }
+            submitting.set(false);
+        });
+    };
+
     rsx! {
         div { class: "bg-white p-6 rounded-lg border border-gray-200",
             if current_mode == BasicsMode::ReadOnly {
@@ -100,38 +133,8 @@ pub fn BasicsTab(
                     }
                 }
             } else {
-                form {
+                div {
                     class: "flex flex-col gap-3",
-                    onsubmit: move |e| {
-                        e.prevent_default();
-                        submitting.set(true);
-                        let req = UpdateAssemblyRequest {
-                            name: {
-                                let n = name_edit.read().trim().to_string();
-                                if n.is_empty() { None } else { Some(n) }
-                            },
-                            date: {
-                                let d = date_edit.read().trim().to_string();
-                                if d.is_empty() { None } else { Some(d) }
-                            },
-                            location: {
-                                let l = location_edit.read().trim().to_string();
-                                if l.is_empty() { None } else { Some(l) }
-                            },
-                            version: version.unwrap_or_default(),
-                        };
-                        spawn(async move {
-                            let config = CONFIG.read().clone();
-                            match api::update_assembly(&config, aid, &req).await {
-                                Ok(_) => {
-                                    mode.set(BasicsMode::ReadOnly);
-                                    on_changed.call(());
-                                }
-                                Err(err) => on_error.call(err.message),
-                            }
-                            submitting.set(false);
-                        });
-                    },
                     label { class: "flex flex-col gap-1",
                         span { class: "text-sm text-gray-700", "{i18n.t(Key::AssemblyName)}" }
                         input {
@@ -167,7 +170,8 @@ pub fn BasicsTab(
                             "{i18n.t(Key::Cancel)}"
                         }
                         button {
-                            r#type: "submit",
+                            r#type: "button",
+                            onclick: submit,
                             class: "bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded disabled:opacity-50 min-h-[44px]",
                             disabled: *submitting.read(),
                             "{i18n.t(Key::Save)}"

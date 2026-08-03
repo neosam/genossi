@@ -189,6 +189,9 @@ pub fn Button(props: ButtonProps) -> Element {
     rsx! {
         button {
             class: button_class,
+            // r#type:"button" verhindert ungewollten Form-Submit/Page-Reload, falls
+            // dieser Button innerhalb eines <form> gerendert wird (Dioxus-Reload-Bug).
+            r#type: "button",
             onclick: move |evt| {
                 evt.prevent_default();
                 if let Some(on_click) = &props.on_click {

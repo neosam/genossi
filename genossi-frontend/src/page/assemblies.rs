@@ -107,36 +107,39 @@ fn CreateAssemblyForm(
     // Pre-resolve the i18n string used inside the closure (i18n is not Copy).
     let name_required_msg = i18n.t(Key::AssemblyName).to_string();
 
-    rsx! {
-        form {
-            class: "flex flex-col gap-4",
-            onsubmit: move |e| {
-                e.prevent_default();
-                if name.read().trim().is_empty() {
-                    on_error.call(name_required_msg.clone());
-                    return;
-                }
-                submitting.set(true);
-                let req = CreateAssemblyRequest {
-                    name: name.read().trim().to_string(),
-                    date: {
-                        let s = date_str.read().trim().to_string();
-                        if s.is_empty() { None } else { Some(s) }
-                    },
-                    location: {
-                        let s = location.read().trim().to_string();
-                        if s.is_empty() { None } else { Some(s) }
-                    },
-                };
-                spawn(async move {
-                    let config = CONFIG.read().clone();
-                    match api::create_assembly(&config, &req).await {
-                        Ok(_) => on_created.call(()),
-                        Err(e) => on_error.call(e.message),
-                    }
-                    submitting.set(false);
-                });
+    // Dioxus form+onsubmit+prevent_default loest trotzdem einen Page-Reload aus
+    // (Button-Reload-Bug). Fix analog repayment_phases.rs: div-Wrapper +
+    // r#type:"button" + onclick statt <form>/submit.
+    let submit = move |_| {
+        if name.read().trim().is_empty() {
+            on_error.call(name_required_msg.clone());
+            return;
+        }
+        submitting.set(true);
+        let req = CreateAssemblyRequest {
+            name: name.read().trim().to_string(),
+            date: {
+                let s = date_str.read().trim().to_string();
+                if s.is_empty() { None } else { Some(s) }
             },
+            location: {
+                let s = location.read().trim().to_string();
+                if s.is_empty() { None } else { Some(s) }
+            },
+        };
+        spawn(async move {
+            let config = CONFIG.read().clone();
+            match api::create_assembly(&config, &req).await {
+                Ok(_) => on_created.call(()),
+                Err(e) => on_error.call(e.message),
+            }
+            submitting.set(false);
+        });
+    };
+
+    rsx! {
+        div {
+            class: "flex flex-col gap-4",
             h2 { class: "text-xl font-semibold", "{i18n.t(Key::AssemblyCreate)}" }
             label { class: "flex flex-col gap-1",
                 span { class: "text-sm text-gray-700", "{i18n.t(Key::AssemblyName)}" }
@@ -173,7 +176,8 @@ fn CreateAssemblyForm(
                     "{i18n.t(Key::Cancel)}"
                 }
                 button {
-                    r#type: "submit",
+                    r#type: "button",
+                    onclick: submit,
                     class: "bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded disabled:opacity-50 min-h-[44px]",
                     disabled: *submitting.read(),
                     "{i18n.t(Key::Save)}"

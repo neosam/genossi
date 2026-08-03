@@ -26,6 +26,73 @@ pub fn ApplicationCreateForm(on_close: EventHandler<()>, on_created: EventHandle
     let label_class = "block text-sm font-medium text-gray-700 mb-1";
     let input_class = "w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
 
+    // Dioxus form+onsubmit+prevent_default loest trotzdem einen Page-Reload aus
+    // (Button-Reload-Bug). Fix analog repayment_phases.rs: div-Wrapper +
+    // r#type:"button" + onclick statt <form>/submit.
+    let submit = move |_| {
+        spawn(async move {
+            submitting.set(true);
+            error.set(None);
+
+            let shares_val = shares.read().parse::<i32>().unwrap_or(1);
+            let salutation_val = {
+                let s = salutation.read().clone();
+                match s.as_str() {
+                    "Herr" => Some(rest_types::SalutationTO::Herr),
+                    "Frau" => Some(rest_types::SalutationTO::Frau),
+                    "Firma" => Some(rest_types::SalutationTO::Firma),
+                    _ => None,
+                }
+            };
+            let title_val = {
+                let t = title.read().clone();
+                if t.trim().is_empty() { None } else { Some(t) }
+            };
+            let email_val = {
+                let e = email.read().clone();
+                if e.trim().is_empty() { None } else { Some(e) }
+            };
+            let street_val = {
+                let s = street.read().clone();
+                if s.trim().is_empty() { None } else { Some(s) }
+            };
+            let hn_val = {
+                let h = house_number.read().clone();
+                if h.trim().is_empty() { None } else { Some(h) }
+            };
+            let pc_val = {
+                let p = postal_code.read().clone();
+                if p.trim().is_empty() { None } else { Some(p) }
+            };
+            let city_val = {
+                let c = city.read().clone();
+                if c.trim().is_empty() { None } else { Some(c) }
+            };
+            let send = *send_mail.read();
+
+            let request = AdminCreateApplicationRequest {
+                first_name: first_name.read().clone(),
+                last_name: last_name.read().clone(),
+                salutation: salutation_val,
+                title: title_val,
+                email: email_val,
+                street: street_val,
+                house_number: hn_val,
+                postal_code: pc_val,
+                city: city_val,
+                shares: shares_val,
+                send_mail: if send { Some(true) } else { None },
+            };
+
+            let config = CONFIG.read().clone();
+            match api::create_application(&config, &request).await {
+                Ok(_) => on_created.call(()),
+                Err(e) => error.set(Some(format!("{}", e))),
+            }
+            submitting.set(false);
+        });
+    };
+
     rsx! {
         Modal {
             div { class: "flex justify-between items-center mb-4",
@@ -43,72 +110,8 @@ pub fn ApplicationCreateForm(on_close: EventHandler<()>, on_created: EventHandle
                 }
             }
 
-            form {
+            div {
                 class: "space-y-4",
-                onsubmit: move |evt| {
-                    evt.prevent_default();
-                    spawn(async move {
-                        submitting.set(true);
-                        error.set(None);
-
-                        let shares_val = shares.read().parse::<i32>().unwrap_or(1);
-                        let salutation_val = {
-                            let s = salutation.read().clone();
-                            match s.as_str() {
-                                "Herr" => Some(rest_types::SalutationTO::Herr),
-                                "Frau" => Some(rest_types::SalutationTO::Frau),
-                                "Firma" => Some(rest_types::SalutationTO::Firma),
-                                _ => None,
-                            }
-                        };
-                        let title_val = {
-                            let t = title.read().clone();
-                            if t.trim().is_empty() { None } else { Some(t) }
-                        };
-                        let email_val = {
-                            let e = email.read().clone();
-                            if e.trim().is_empty() { None } else { Some(e) }
-                        };
-                        let street_val = {
-                            let s = street.read().clone();
-                            if s.trim().is_empty() { None } else { Some(s) }
-                        };
-                        let hn_val = {
-                            let h = house_number.read().clone();
-                            if h.trim().is_empty() { None } else { Some(h) }
-                        };
-                        let pc_val = {
-                            let p = postal_code.read().clone();
-                            if p.trim().is_empty() { None } else { Some(p) }
-                        };
-                        let city_val = {
-                            let c = city.read().clone();
-                            if c.trim().is_empty() { None } else { Some(c) }
-                        };
-                        let send = *send_mail.read();
-
-                        let request = AdminCreateApplicationRequest {
-                            first_name: first_name.read().clone(),
-                            last_name: last_name.read().clone(),
-                            salutation: salutation_val,
-                            title: title_val,
-                            email: email_val,
-                            street: street_val,
-                            house_number: hn_val,
-                            postal_code: pc_val,
-                            city: city_val,
-                            shares: shares_val,
-                            send_mail: if send { Some(true) } else { None },
-                        };
-
-                        let config = CONFIG.read().clone();
-                        match api::create_application(&config, &request).await {
-                            Ok(_) => on_created.call(()),
-                            Err(e) => error.set(Some(format!("{}", e))),
-                        }
-                        submitting.set(false);
-                    });
-                },
 
                 // Salutation + Title row
                 div { class: "grid grid-cols-3 gap-4",
@@ -252,7 +255,8 @@ pub fn ApplicationCreateForm(on_close: EventHandler<()>, on_created: EventHandle
                     }
                     button {
                         class: "bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded disabled:opacity-50",
-                        r#type: "submit",
+                        r#type: "button",
+                        onclick: submit,
                         disabled: *submitting.read(),
                         if *submitting.read() {
                             {i18n.t(Key::Loading)}

@@ -47,15 +47,18 @@ pub fn ManualCodeInput(
 
     let (_, submit_disabled) = compute_submit_state(&value.read(), submitting);
 
+    // Dioxus form+onsubmit+prevent_default loest trotzdem einen Page-Reload aus
+    // (Button-Reload-Bug). Fix analog repayment_phases.rs: div-Wrapper +
+    // r#type:"button" + onclick statt <form>/submit.
+    let submit = move |_| {
+        if !submit_disabled {
+            on_submit.call((*value.read()).clone());
+        }
+    };
+
     rsx! {
-        form {
+        div {
             class: "flex flex-col gap-3",
-            onsubmit: move |e| {
-                e.prevent_default();
-                if !submit_disabled {
-                    on_submit.call((*value.read()).clone());
-                }
-            },
             label { class: "text-sm font-medium text-gray-700",
                 "{i18n.t(Key::HelperLoginManualHeading)}"
             }
@@ -79,7 +82,8 @@ pub fn ManualCodeInput(
                 p { class: "text-sm text-red-600 -mt-1", "{msg}" }
             }
             button {
-                r#type: "submit",
+                r#type: "button",
+                onclick: submit,
                 class: "bg-blue-600 hover:bg-blue-700 text-white font-medium px-6 py-3 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 min-h-[44px]",
                 disabled: submit_disabled,
                 if submitting {

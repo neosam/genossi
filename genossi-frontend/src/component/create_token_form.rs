@@ -19,26 +19,28 @@ pub fn CreateTokenForm(
     let mut submitting = use_signal(|| false);
     // Pre-resolve i18n strings for closures (i18n is not Copy, can't be moved into multiple closures).
     let memo_required_msg = i18n.t(Key::HelperTokenMemo).to_string();
+    // Dioxus form+onsubmit+prevent_default loest trotzdem einen Page-Reload aus
+    // (Button-Reload-Bug). Fix analog repayment_phases.rs: div-Wrapper +
+    // r#type:"button" + onclick statt <form>/submit.
+    let submit = move |_| {
+        let m = memo.read().trim().to_string();
+        if m.is_empty() {
+            on_error.call(memo_required_msg.clone());
+            return;
+        }
+        submitting.set(true);
+        spawn(async move {
+            let config = CONFIG.read().clone();
+            match api::create_helper_token(&config, assembly_id, m).await {
+                Ok(resp) => on_created.call(resp),
+                Err(e) => on_error.call(e.message),
+            }
+            submitting.set(false);
+        });
+    };
     rsx! {
-        form {
+        div {
             class: "flex flex-col gap-4",
-            onsubmit: move |e| {
-                e.prevent_default();
-                let m = memo.read().trim().to_string();
-                if m.is_empty() {
-                    on_error.call(memo_required_msg.clone());
-                    return;
-                }
-                submitting.set(true);
-                spawn(async move {
-                    let config = CONFIG.read().clone();
-                    match api::create_helper_token(&config, assembly_id, m).await {
-                        Ok(resp) => on_created.call(resp),
-                        Err(e) => on_error.call(e.message),
-                    }
-                    submitting.set(false);
-                });
-            },
             h2 { class: "text-xl font-semibold", "{i18n.t(Key::HelperTokenCreate)}" }
             label { class: "flex flex-col gap-1",
                 span { class: "text-sm text-gray-700", "{i18n.t(Key::HelperTokenMemo)}" }
@@ -59,7 +61,8 @@ pub fn CreateTokenForm(
                     "{i18n.t(Key::Cancel)}"
                 }
                 button {
-                    r#type: "submit",
+                    r#type: "button",
+                    onclick: submit,
                     class: "bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded disabled:opacity-50 min-h-[44px]",
                     disabled: *submitting.read(),
                     "{i18n.t(Key::HelperTokenCreate)}"
