@@ -227,12 +227,12 @@ Plans:
   3. Nach `confirm()` einer Application (→ neues Mitglied) erscheint die zuvor als Antragsteller gesendete Erinnerung in der Mitglieds-Timeline des neuen Mitglieds (e2e: Erinnerung → confirm → sichtbar), gemäß dem in der Planung festgelegten Carry-over-Mechanismus (D2).
   4. Die Migration ist forward-only und additiv (nullable `application_id BLOB` + Index auf `mail_recipients`); bestehende `mail_recipients`-Zeilen ohne `application_id` bleiben byte-identisch (NULL-Legacy-Roundtrip), und jede `mail_recipients`-SQL-Spaltenliste ist auf die neue Spalte geprüft.
 
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 29-01-PLAN.md — `application_id`-Linkage durch `genossi_mail` fädeln: additive Migration (nullable `application_id BLOB` + Index) + `MailRecipient`/`RecipientInput`-Feld + alle 6 `mail_recipients`-SQL-Spaltenlisten (inkl. Test-DDL) + `create_job`-Threading + Roundtrip-/NULL-Legacy-/Namespace-Tests (APHIST-01)
+- [x] 29-01-PLAN.md — `application_id`-Linkage durch `genossi_mail` fädeln: additive Migration (nullable `application_id BLOB` + Index) + `MailRecipient`/`RecipientInput`-Feld + alle 6 `mail_recipients`-SQL-Spaltenlisten (inkl. Test-DDL) + `create_job`-Threading + Roundtrip-/NULL-Legacy-/Namespace-Tests (APHIST-01)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -317,7 +317,7 @@ Plans:
 | 26. Editor-Formatierung vervollständigen           | v1.5      | 3/3 | In Progress|  |
 | 27. Bild-Support Backend + Editor-Upload           | v1.5      | 4/4 | In Progress|  |
 | 28. Desktop/Mobile-Vorschau                        | v1.5      | 4/5 | In Progress|  |
-| 29. DAO/Schema-Foundation (Antragsteller-Historie) | v1.6      | 0/2 | Planned     |  |
+| 29. DAO/Schema-Foundation (Antragsteller-Historie) | v1.6      | 1/2 | In Progress|  |
 | 30. Application-Template-Kontext                   | v1.6      | 0/0 | Not started |  |
 | 31. Service + REST Versand                         | v1.6      | 0/0 | Not started |  |
 | 32. Frontend Compose-Dialog                        | v1.6      | 0/0 | Not started |  |
