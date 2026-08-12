@@ -151,6 +151,17 @@ pub trait MailService: Send + Sync + 'static {
 
     /// Get member IDs that were successfully reached (status = "sent") for a given job.
     async fn get_reached_member_ids(&self, job_id: Uuid) -> Result<Arc<[Uuid]>, MailServiceError>;
+
+    /// Phase 29 (APHIST-03, D2 Option A): Carry-over-Fassade fuer confirm(). Schreibt
+    /// die genuine neue member_id auf alle als Antragsteller (application_id) gesendeten
+    /// mail_recipients-Zeilen zurueck, sodass die Antragsteller-Kommunikation nach
+    /// confirm() in der UNVERAENDERTEN Member-Timeline erscheint. Setzt nie die
+    /// Application-UUID in member_id (Pitfall 2).
+    async fn link_application_recipients_to_member(
+        &self,
+        application_id: Uuid,
+        member_id: Uuid,
+    ) -> Result<(), MailServiceError>;
 }
 
 /// Message-content transfer encoding for outgoing SMTP mail bodies.
@@ -631,6 +642,19 @@ impl<
             .recipient_dao
             .find_sent_member_ids_by_job_id(job_id)
             .await?)
+    }
+
+    async fn link_application_recipients_to_member(
+        &self,
+        application_id: Uuid,
+        member_id: Uuid,
+    ) -> Result<(), MailServiceError> {
+        // Phase 29 (APHIST-03): reine Delegation an den DAO-Back-fill. MailDaoError
+        // wird via From<MailDaoError> zu MailServiceError konvertiert.
+        self.recipient_dao
+            .link_application_to_member(application_id, member_id)
+            .await?;
+        Ok(())
     }
 }
 

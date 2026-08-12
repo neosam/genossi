@@ -558,6 +558,27 @@ impl<Deps: ApplicationServiceDeps> ApplicationService for ApplicationServiceImpl
             }
         }
 
+        // Phase 29 APHIST-03 (D2 Option A) best-effort: schreibe die genuine neue
+        // member_id auf die als Antragsteller (application_id = id) gesendeten
+        // mail_recipients-Zeilen zurueck, sodass die Antragsteller-Kommunikation in
+        // der Timeline des neuen Mitglieds erscheint. Laeuft NACH commit(tx) auf einer
+        // separaten Mail-Pool-Connection — nie atomar in der confirm()-Transaktion.
+        // Ein Fehler loggt nur und rollt confirm() NICHT zurueck (29-RESEARCH.md).
+        // `id` ist die application_id, `member_id` die genuine neue Member-UUID — nie
+        // die Application-UUID in ein member_id-Feld (Pitfall 2).
+        if let Err(e) = self
+            .mail_service
+            .link_application_recipients_to_member(id, member_id)
+            .await
+        {
+            tracing::warn!(
+                application_id = %id,
+                member_id = %member_id,
+                error = ?e,
+                "Failed to carry over applicant communications to new member after confirm (best-effort)",
+            );
+        }
+
         Ok(Application::from(&entity))
     }
 
@@ -988,7 +1009,17 @@ mod tests {
             uuid_service: Arc::new(RngUuid),
             transaction_dao: Arc::new(tx_dao),
             config_service: Arc::new(MockConfigService::new()),
-            mail_service: Arc::new(genossi_mail::service::MockMailService::new()),
+            mail_service: Arc::new({
+                // Phase 29 APHIST-03: confirm()-Erfolgspfade erreichen den post-commit
+                // Carry-over-Hook und rufen link_application_recipients_to_member. Ohne
+                // times()-Untergrenze ist die Erwartung permissiv (0..n): Erfolgs-Tests
+                // laufen durch, perm-denied/rollback-Tests (Hook nie erreicht) bleiben
+                // unberuehrt.
+                let mut m = genossi_mail::service::MockMailService::new();
+                m.expect_link_application_recipients_to_member()
+                    .returning(|_, _| Ok(()));
+                m
+            }),
         }
     }
 
