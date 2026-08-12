@@ -104,6 +104,16 @@ pub trait MailRecipientDao: Send + Sync + 'static {
         &self,
         job_id: Uuid,
     ) -> Result<Arc<[Uuid]>, MailDaoError>;
+    /// Phase 29 (APHIST-03, D2 Option A): Carry-over Back-fill. Setzt member_id auf
+    /// allen mail_recipients-Zeilen mit passendem application_id, deren member_id
+    /// noch NULL ist. Bewusst `member_id IS NULL` gefiltert — bereits zugeordnete
+    /// Zeilen werden nie ueberschrieben. Setzt AUSSCHLIESSLICH die genuine neue
+    /// member_id, nie die Application-UUID (Pitfall 2).
+    async fn link_application_to_member(
+        &self,
+        application_id: Uuid,
+        member_id: Uuid,
+    ) -> Result<(), MailDaoError>;
     /// Quick 260614-b1t: all recipients whose rendered subject AND body are still
     /// NULL (and not soft-deleted). Used by the startup backfill to retroactively
     /// render legacy rows. Includes status='failed' rows — they were rendered at
@@ -286,6 +296,14 @@ pub trait CommunicationDao: Send + Sync + 'static {
     async fn get_member_communications(
         &self,
         member_id: Uuid,
+    ) -> Result<Arc<[CommunicationEntry]>, MailDaoError>;
+    /// Phase 29 (APHIST-01): outbound-only Antragsteller-Timeline. Liefert die als
+    /// Antragsteller (application_id) gesendeten Mails — es gibt bewusst keinen
+    /// inbound-Zweig, da Antragsteller keine assigned_member_id besitzen. Soft-Delete
+    /// (r.deleted / j.deleted) wird respektiert.
+    async fn get_application_communications(
+        &self,
+        application_id: Uuid,
     ) -> Result<Arc<[CommunicationEntry]>, MailDaoError>;
 }
 

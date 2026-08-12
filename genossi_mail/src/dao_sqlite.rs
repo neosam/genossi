@@ -398,6 +398,27 @@ impl MailRecipientDao for MailRecipientDaoSqlite {
             .collect::<Result<Vec<_>, _>>()
             .map(|v| v.into())
     }
+
+    async fn link_application_to_member(
+        &self,
+        application_id: Uuid,
+        member_id: Uuid,
+    ) -> Result<(), MailDaoError> {
+        // Phase 29 (APHIST-03, D2 Option A): schreibt die genuine neue member_id auf
+        // die als Antragsteller gesendeten Zeilen zurueck. `member_id IS NULL` in der
+        // WHERE-Klausel verhindert das Ueberschreiben bereits zugeordneter Zeilen;
+        // gesetzt wird ausschliesslich member_id (nie die Application-UUID, Pitfall 2).
+        sqlx::query(
+            "UPDATE mail_recipients SET member_id = ? WHERE application_id = ? AND member_id IS NULL",
+        )
+        .bind(member_id.as_bytes().to_vec())
+        .bind(application_id.as_bytes().to_vec())
+        .execute(self.pool.as_ref())
+        .await
+        .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
+
+        Ok(())
+    }
 }
 
 // MailRecipientAttachment SQLite
@@ -1095,6 +1116,50 @@ impl CommunicationDao for CommunicationDaoSqlite {
             "#,
         )
         .bind(&member_bytes)
+        .fetch_all(self.pool.as_ref())
+        .await
+        .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
+
+        rows.iter()
+            .map(CommunicationEntry::try_from)
+            .collect::<Result<Arc<[_]>, _>>()
+    }
+
+    async fn get_application_communications(
+        &self,
+        application_id: Uuid,
+    ) -> Result<Arc<[CommunicationEntry]>, MailDaoError> {
+        // Phase 29 (APHIST-01): outbound-only Antragsteller-Timeline. Reduzierter Klon
+        // von get_member_communications OHNE inbound-Zweig (Antragsteller haben keine
+        // assigned_member_id). Filter auf r.application_id; Soft-Delete beibehalten.
+        // Alle 12 Spalten (inkl. NULL-Platzhalter) bleiben, damit CommunicationEntryDb
+        // per FromRow passt.
+        let application_bytes = application_id.as_bytes().to_vec();
+        let rows = sqlx::query_as::<_, CommunicationEntryDb>(
+            r#"
+            SELECT
+                'outbound' AS direction,
+                COALESCE(r.sent_at, r.created) AS date,
+                j.subject,
+                NULL AS inbox_id,
+                NULL AS from_address,
+                NULL AS inbound_done,
+                NULL AS inbound_replied,
+                NULL AS inbound_archived,
+                j.id AS mail_job_id,
+                r.id AS recipient_id,
+                r.to_address,
+                r.status AS outbound_status
+            FROM mail_recipients r
+            JOIN mail_jobs j ON j.id = r.mail_job_id
+            WHERE r.application_id = ?1
+              AND r.deleted IS NULL
+              AND j.deleted IS NULL
+
+            ORDER BY date DESC
+            "#,
+        )
+        .bind(&application_bytes)
         .fetch_all(self.pool.as_ref())
         .await
         .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
@@ -2454,6 +2519,201 @@ mod tests {
         let dao = CommunicationDaoSqlite::new(pool);
         let result = dao.get_member_communications(member_id).await.unwrap();
         assert!(result.is_empty());
+    }
+
+    // ── Phase 29 (APHIST-01/APHIST-03): Antragsteller-Timeline + Carry-over ──
+
+    // Behavior 1: eine als Antragsteller gesendete outbound-Zeile → genau dieser
+    // Eintrag (outbound, korrekte subject/to_address/status).
+    #[tokio::test]
+    async fn test_application_communications_returns_outbound_entry() {
+        let pool = setup_db().await;
+        let application_id = Uuid::new_v4();
+
+        let job_dao = MailJobDaoSqlite::new(pool.clone());
+        let recipient_dao = MailRecipientDaoSqlite::new(pool.clone());
+        let job = sample_job();
+        job_dao.create(&job).await.unwrap();
+
+        let mut recipient = sample_recipient(job.id);
+        recipient.application_id = Some(application_id);
+        recipient.member_id = None;
+        recipient.status = Arc::from("sent");
+        recipient_dao.create(&recipient).await.unwrap();
+
+        let dao = CommunicationDaoSqlite::new(pool);
+        let result = dao
+            .get_application_communications(application_id)
+            .await
+            .unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].direction, CommunicationDirection::Outbound);
+        assert_eq!(result[0].subject.as_ref(), "Test Subject");
+        assert_eq!(result[0].outbound_status.as_deref(), Some("sent"));
+        assert_eq!(result[0].to_address.as_deref(), Some("user@example.com"));
+        assert_eq!(result[0].mail_job_id, Some(job.id));
+        assert_eq!(result[0].recipient_id, Some(recipient.id));
+    }
+
+    // Behavior 2: fremde application_id → leeres Arr.
+    #[tokio::test]
+    async fn test_application_communications_empty_for_foreign_application() {
+        let pool = setup_db().await;
+
+        let job_dao = MailJobDaoSqlite::new(pool.clone());
+        let recipient_dao = MailRecipientDaoSqlite::new(pool.clone());
+        let job = sample_job();
+        job_dao.create(&job).await.unwrap();
+
+        let mut recipient = sample_recipient(job.id);
+        recipient.application_id = Some(Uuid::new_v4());
+        recipient.member_id = None;
+        recipient.status = Arc::from("sent");
+        recipient_dao.create(&recipient).await.unwrap();
+
+        let dao = CommunicationDaoSqlite::new(pool);
+        // Query fuer eine ANDERE application_id → keine Zeilen.
+        let result = dao
+            .get_application_communications(Uuid::new_v4())
+            .await
+            .unwrap();
+        assert!(result.is_empty());
+    }
+
+    // Behavior 3a: Recipient soft-deleted → NICHT zurueckgeliefert.
+    #[tokio::test]
+    async fn test_application_communications_excludes_soft_deleted_recipient() {
+        let pool = setup_db().await;
+        let application_id = Uuid::new_v4();
+
+        let job_dao = MailJobDaoSqlite::new(pool.clone());
+        let recipient_dao = MailRecipientDaoSqlite::new(pool.clone());
+        let job = sample_job();
+        job_dao.create(&job).await.unwrap();
+
+        let mut recipient = sample_recipient(job.id);
+        recipient.application_id = Some(application_id);
+        recipient.member_id = None;
+        recipient.status = Arc::from("sent");
+        recipient_dao.create(&recipient).await.unwrap();
+
+        sqlx::query("UPDATE mail_recipients SET deleted = '2026-04-03T10:00:00' WHERE id = ?")
+            .bind(recipient.id.as_bytes().to_vec())
+            .execute(pool.as_ref())
+            .await
+            .unwrap();
+
+        let dao = CommunicationDaoSqlite::new(pool);
+        let result = dao
+            .get_application_communications(application_id)
+            .await
+            .unwrap();
+        assert!(result.is_empty());
+    }
+
+    // Behavior 3b: zugehoeriger Job soft-deleted → NICHT zurueckgeliefert.
+    #[tokio::test]
+    async fn test_application_communications_excludes_soft_deleted_job() {
+        let pool = setup_db().await;
+        let application_id = Uuid::new_v4();
+
+        let job_dao = MailJobDaoSqlite::new(pool.clone());
+        let recipient_dao = MailRecipientDaoSqlite::new(pool.clone());
+        let job = sample_job();
+        job_dao.create(&job).await.unwrap();
+
+        let mut recipient = sample_recipient(job.id);
+        recipient.application_id = Some(application_id);
+        recipient.member_id = None;
+        recipient.status = Arc::from("sent");
+        recipient_dao.create(&recipient).await.unwrap();
+
+        sqlx::query("UPDATE mail_jobs SET deleted = '2026-04-03T10:00:00' WHERE id = ?")
+            .bind(job.id.as_bytes().to_vec())
+            .execute(pool.as_ref())
+            .await
+            .unwrap();
+
+        let dao = CommunicationDaoSqlite::new(pool);
+        let result = dao
+            .get_application_communications(application_id)
+            .await
+            .unwrap();
+        assert!(result.is_empty());
+    }
+
+    // Behavior 4: kein inbound-Eintrag taucht auf. Ein inbound-Mail mit derselben
+    // UUID als assigned_member_id darf die Antragsteller-Timeline NICHT verfaelschen
+    // (outbound-only Query).
+    #[tokio::test]
+    async fn test_application_communications_is_outbound_only() {
+        let pool = setup_db().await;
+        let application_id = Uuid::new_v4();
+
+        // Ein inbound-Mail, dessen assigned_member_id zufaellig == application_id ist.
+        let inbound_dao = InboundMailDaoSqlite::new(pool.clone());
+        let mut mail = sample_inbound(1, 10);
+        mail.assigned_member_id = Some(application_id);
+        inbound_dao.create(&mail).await.unwrap();
+
+        let dao = CommunicationDaoSqlite::new(pool);
+        let result = dao
+            .get_application_communications(application_id)
+            .await
+            .unwrap();
+        // Kein inbound-Zweig → keine Zeile trotz passender assigned_member_id.
+        assert!(result.is_empty());
+    }
+
+    // Behavior 5: link_application_to_member schreibt genuine member_id gefiltert
+    // zurueck; fremde application_id bleibt unangetastet; danach liefert
+    // get_member_communications(new_member_id) den Eintrag.
+    #[tokio::test]
+    async fn test_link_application_to_member_backfills_and_is_visible_in_member_timeline() {
+        let pool = setup_db().await;
+        let application_id = Uuid::new_v4();
+        let other_application_id = Uuid::new_v4();
+        let new_member_id = Uuid::new_v4();
+
+        let job_dao = MailJobDaoSqlite::new(pool.clone());
+        let recipient_dao = MailRecipientDaoSqlite::new(pool.clone());
+        let job = sample_job();
+        job_dao.create(&job).await.unwrap();
+
+        // Ziel-Zeile: application_id gesetzt, member_id None.
+        let mut target = sample_recipient(job.id);
+        target.application_id = Some(application_id);
+        target.member_id = None;
+        target.status = Arc::from("sent");
+        recipient_dao.create(&target).await.unwrap();
+
+        // Fremd-Zeile: andere application_id — muss unangetastet bleiben.
+        let mut other = sample_recipient(job.id);
+        other.application_id = Some(other_application_id);
+        other.member_id = None;
+        other.status = Arc::from("sent");
+        recipient_dao.create(&other).await.unwrap();
+
+        recipient_dao
+            .link_application_to_member(application_id, new_member_id)
+            .await
+            .unwrap();
+
+        // Ziel-Zeile jetzt via genuiner member_id in der Member-Timeline sichtbar.
+        let comm_dao = CommunicationDaoSqlite::new(pool.clone());
+        let member_timeline = comm_dao
+            .get_member_communications(new_member_id)
+            .await
+            .unwrap();
+        assert_eq!(member_timeline.len(), 1);
+        assert_eq!(member_timeline[0].recipient_id, Some(target.id));
+
+        // Fremd-Zeile blieb member_id NULL → nicht in dieser Member-Timeline.
+        let found = recipient_dao.find_by_job_id(job.id).await.unwrap();
+        let other_row = found.iter().find(|r| r.id == other.id).unwrap();
+        assert_eq!(other_row.member_id, None);
+        let target_row = found.iter().find(|r| r.id == target.id).unwrap();
+        assert_eq!(target_row.member_id, Some(new_member_id));
     }
 
     // ── Phase 10 D-12 / D-03: MailJob template_id + repayment_phase_id ──
