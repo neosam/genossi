@@ -107,7 +107,7 @@ Archive: TBD (bei Milestone-Close)
 
 **Goal:** Vorstände können Personen mit abgegebener Beitrittserklärung (Applications) direkt per E-Mail kontaktieren — insbesondere Zahlungserinnerungen —, mit wiederverwendbaren Vorlagen und nachvollziehbarer Kommunikations-Historie, auch bevor die Person Mitglied ist.
 
-- [ ] **Phase 29: DAO/Schema-Foundation (Kommunikations-Historie pro Antragsteller)** — Migration nullable `application_id BLOB` + Index auf `mail_recipients`; `MailRecipient`/`RecipientInput.application_id`; `create_job` threaded es durch; `CommunicationDao::get_application_communications` (outbound-only); Carry-over-Mechanik bei `confirm()` → Erinnerung erscheint in Mitglieds-Timeline (APHIST-01, APHIST-03)
+- [x] **Phase 29: DAO/Schema-Foundation (Kommunikations-Historie pro Antragsteller)** — Migration nullable `application_id BLOB` + Index auf `mail_recipients`; `MailRecipient`/`RecipientInput.application_id`; `create_job` threaded es durch; `CommunicationDao::get_application_communications` (outbound-only); Carry-over-Mechanik bei `confirm()` → Erinnerung erscheint in Mitglieds-Timeline (APHIST-01, APHIST-03) (completed 2026-08-12)
 - [ ] **Phase 30: Application-Template-Kontext (Antragsteller-Vorlagen)** — eigener „Antragsteller"-Vorlagentyp via `application_to_template_context`; extrahierter generischer `validate_rendered`-Kern (Member-Tests bleiben grün); `format_eur_de`-Helper; `share_value_cents` aus derselben Config wie `send_confirmation_mail`; geseedete Standard-Vorlage „Zahlungserinnerung" (APTPL-01..04)
 - [ ] **Phase 31: Service + REST Versand (Versand + Guardrails)** — `ApplicationService::send_mail` → `Result<_, ServiceError>` (nicht das stille `()`-Pattern); Status-Guard `Offen`-only (409); `POST /api/applications/{id}/mail` + `GET /api/applications/{id}/communications`, admin-only; „zuletzt gesendet"-Daten; Service-/E2E-Tests (APMAIL-01..02, APCMP-01..02, APHIST-02)
 - [ ] **Phase 32: Frontend Compose-Dialog** — `api.rs`-Funktionen (dediziert, nicht member-umgeleitet); neuer Application-Mail-Compose-Dialog mit Wiederverwendung `mail_compose/*` + `communication_timeline.rs`; „E-Mail senden"-Button + Last-Sent-Anzeige auf `application_detail.rs`; Live-Preview + Confirm-before-send; deaktiviert-ohne-Adresse & deaktiviert-während-pending (APMAIL-03..04, APUI-01..03)
@@ -227,7 +227,7 @@ Plans:
   3. Nach `confirm()` einer Application (→ neues Mitglied) erscheint die zuvor als Antragsteller gesendete Erinnerung in der Mitglieds-Timeline des neuen Mitglieds (e2e: Erinnerung → confirm → sichtbar), gemäß dem in der Planung festgelegten Carry-over-Mechanismus (D2).
   4. Die Migration ist forward-only und additiv (nullable `application_id BLOB` + Index auf `mail_recipients`); bestehende `mail_recipients`-Zeilen ohne `application_id` bleiben byte-identisch (NULL-Legacy-Roundtrip), und jede `mail_recipients`-SQL-Spaltenliste ist auf die neue Spalte geprüft.
 
-**Plans:** 2/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 **Wave 1**
@@ -317,7 +317,7 @@ Plans:
 | 26. Editor-Formatierung vervollständigen           | v1.5      | 3/3 | In Progress|  |
 | 27. Bild-Support Backend + Editor-Upload           | v1.5      | 4/4 | In Progress|  |
 | 28. Desktop/Mobile-Vorschau                        | v1.5      | 4/5 | In Progress|  |
-| 29. DAO/Schema-Foundation (Antragsteller-Historie) | v1.6      | 2/2 | In Progress|  |
+| 29. DAO/Schema-Foundation (Antragsteller-Historie) | v1.6      | 2/2 | Complete    | 2026-08-12 |
 | 30. Application-Template-Kontext                   | v1.6      | 0/0 | Not started |  |
 | 31. Service + REST Versand                         | v1.6      | 0/0 | Not started |  |
 | 32. Frontend Compose-Dialog                        | v1.6      | 0/0 | Not started |  |

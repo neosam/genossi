@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Antragsteller-Kommunikation
-current_phase: 29
-current_phase_name: dao-schema-foundation-kommunikations-historie-pro-antragstel
-status: executing
-stopped_at: Completed 29-02-PLAN.md
-last_updated: "2026-08-12T15:44:33Z"
+current_phase: 30
+current_phase_name: Antragsteller-Vorlagen
+status: planning
+stopped_at: Completed 29-01-PLAN.md
+last_updated: "2026-08-12T15:56:16.980Z"
 last_activity: 2026-08-12
-last_activity_desc: Completed 29-02 (get_application_communications Read + confirm() Carry-over)
+last_activity_desc: Phase 29 complete, transitioned to Phase 30
 progress:
   total_phases: 1
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 2
   completed_plans: 2
 ---
@@ -31,10 +31,10 @@ See: `.planning/PROJECT.md` (updated 2026-08-12 mit v1.6 Current Milestone)
 
 ## Current Position
 
-Phase: 29 (dao-schema-foundation-kommunikations-historie-pro-antragstel) — EXECUTING
-Plan: 2 of 2
-Status: 29-01 complete (application_id-Linkage persistiert); 29-02 complete (Read-Methode + confirm()-Carry-over)
-Last activity: 2026-08-12 — 29-02 abgeschlossen (get_application_communications outbound-only + link_application_to_member + confirm()-post-commit-Hook + e2e Carry-over; 3 Tasks, genossi_mail 288 + genossi_service_impl 437 grün, e2e neuer Test grün)
+Phase: 30 — Application-Template-Kontext (Antragsteller-Vorlagen)
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-08-12 — Phase 29 complete, transitioned to Phase 30
 
 ### v1.6 Phase Structure (Phases 29-32, granularity: coarse)
 
