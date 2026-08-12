@@ -18,29 +18,33 @@ Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachv
 - ✅ **v1.3 Posteingang-Benachrichtigung & Reply-Komfort** (2026-06-28) — Inbox-Anhänge persistieren/anzeigen/herunterladen (Phase 19), täglicher Inbox-Digest-Worker (`genossi_mail/src/digest.rs`: konfigurierbare Empfänger + Uhrzeit, Ein-Versand-pro-Kalendertag, Deep-Link auf `/inbox`, kein Versand bei leerem Posteingang/ohne Empfänger), und Reply im vollflächigen `Modal` (X-Header + «Abbrechen» + Dirty-Check-Confirm, Body-Editor unverändert `h-40`). Audit `passed` (11/11 REQs, Integration 8/8 sauber, E2E-Flow Digest→Inbox→Anhänge→Reply, Live-Browser-Smoke-Test bestanden). Phase-21-Code-Review fand+fixte 1 Critical (Footer-Load überschrieb getippten Reply-Body → Datenverlust).
 - ✅ **v1.4 Mail-Formatierung & Antrags-Dokumente** (2026-07-03) — `build_message`-Factory in `genossi_mail::send` + opt-in 8bit-Encoding (MAIL-01..05); `multipart/alternative` mit `ammonia`-Sanitization + autoescape-`html_env` + FMT-01 deutsches Datumsformat (HTML-01..05, FMT-01); wiederverwendbare Dioxus-`WysiwygEditor`-Component mit ammonia-safer Toolbar (styleWithCSS=false), In-App-Modal-Link-Dialog + plain-text-Paste, ersetzt alle 3 `MailBodyEditor`-Verwender (EDIT-01..05); `application_documents`-Single-Slot mit auditiertem Carryover-`MemberDocument` bei `confirm()` inkl. CR-02-Fix (APDOC-01..05). Audit `passed` (20/21 REQs — MAIL-04 by design als Verify-in-Prod-Runbook). Live-Browser-UAT (Phase 24 + 25) deferred zu Vorstand-Smoke-Session.
 
-## Current Milestone: v1.5 Editor-Vervollständigung, Bild-Support & Vorschau
+## Current Milestone: v1.6 Antragsteller-Kommunikation
 
-**Goal:** Der WYSIWYG-Editor bekommt vollen Formatierungs-Umfang (Listen, Überschriften), Vorstand kann Inline-Bilder direkt im Editor hochladen und in HTML-Mails einbetten, und das gerenderte HTML lässt sich in Desktop-/Mobile-Vorschau prüfen bevor die Mail versendet wird.
+**Goal:** Vorstände können Personen mit abgegebener Beitrittserklärung (Applications) direkt per E-Mail kontaktieren — insbesondere Zahlungserinnerungen —, mit wiederverwendbaren Vorlagen und nachvollziehbarer Kommunikations-Historie, auch bevor die Person Mitglied ist.
 
 **Target features:**
-- Editor-Formatierung vervollständigen — Listen (ungeordnet/geordnet), Überschriften (H2/H3), evtl. Zitat; Fix des v1.4-Gaps aus Phase 24 (nur Bold war explizit im UAT-Gate)
-- Bild-Support — dedizierte `mail_asset`-Entität (DAO/Service/REST, keine Auditpflicht), Drag&Drop + Toolbar-Upload im WYSIWYG, ammonia `<img data-genossi-asset-id>`-Regel, Renderer löst zu `cid:` + `multipart/related` auf, Test-Mail-Path bleibt bildfähig
-- Desktop/Mobile-Vorschau — umschaltbar ~600px/~360px, rendert sanitisierte HTML-Fassung (nicht `contenteditable`-Roh-DOM), Bilder via `/api/mail/assets/{id}/bytes`
+- E-Mail an einen einzelnen Antragsteller versenden — Empfänger = `application.email`, `RecipientInput` mit `member_id: None`; neuer REST-Endpoint (z. B. `POST /api/applications/{id}/mail`) auf Basis des bestehenden `MailService::create_job`
+- Wiederverwendbare Vorlagen mit Application-Kontext — `application_to_template_context` mit Platzhaltern (Anrede, Name, Titel, Anzahl Anteile, offener Betrag = Anteile × `share_value_cents`); Wiederverwendung des bestehenden minijinja-Template-Systems, das heute nur Member-Variablen kennt
+- Kommunikations-Historie pro Antragsteller — Timeline auch ohne Mitglied via `application_id`-Bezug an Mail-Job/Communication-Entry; neuer Endpoint `GET /api/applications/{id}/communications`
+- Compose-Dialog auf der Application-Detailseite — „E-Mail senden"-Button + Dialog, maximale Wiederverwendung von `component/mail_compose/` und `communication_timeline.rs` (Vorbild-Button: `member_details.rs`)
 
 **Key context:**
-- Baut auf v1.4 (HTML-Mail-Pipeline Phase 23 + WYSIWYG-Editor Phase 24)
-- Bild-Format-Startvorschlag: PNG/JPEG/GIF, 5 MB/Bild, 25 MB/Mail; kein SVG (XSS-Risiko), kein WebP (Outlook-Kompat)
-- Details für Discuss-Phase je Phase offen: Zugriffsschutz Bytes-Endpoint, Orphan-Cleanup, Preview-CSS-Reset (iframe-Sandbox vs sandboxed div), Template-vs-Job-Bild-Auflösungszeitpunkt
+- Baut auf v1.4 (HTML-Mail-Pipeline + WYSIWYG-Editor) und dem bestehenden Mail-/Template-/Communication-Subsystem (`genossi_mail`)
+- Es existiert bereits eine automatische Bestätigungsmail an Antragsteller (`send_confirmation_mail`, `member_id: None`) — bester Referenz-Code für den Service-Aufruf
+- Kein Massenversand in diesem Milestone — bewusst einzeln pro Antragsteller (Massen-Erinnerung an alle „Offen" = Future-Requirement)
+- Applications haben keine `member_id` → member-basiertes Template-Rendering & Communication-Timeline greifen nicht out-of-the-box; beides muss um Application-Kontext erweitert werden
+- Applications haben kein Zahlungsstatus-Feld (nur Offen/Bestätigt/Abgelehnt) — „offener Betrag" wird berechnet, nicht gespeichert
+- Layered DAO/Service/REST + Component-First einhalten; Application ist bereits auditiert (bestehende Audit-Macros bleiben Pflicht), reine Mail-/Communication-Entities brauchen keine Audit-Macros
 
-**Deferred UAT vor Produktions-Merge (Restposten aus v1.4):**
-- Phase 24 UAT-Checklist (`.planning/milestones/v1.4-phases/24-wysiwyg-frontend-editor/24-UAT-CHECKLIST.md` — noch nicht archiviert, siehe `.planning/phases/24-.../`): 3 HARD FAIL GATES (styleWithCSS=false-Bold, Paste-Plain, In-App-Modal statt window.prompt) + Live-Preview + Template-Save/Reload + multipart/alternative-Delivery
-- Phase 25 UAT-Checklist: 6 HARD FAIL GATES (Upload/Replace/Delete-Flow, Confirm→Carryover→Member-Detail-Sichtbarkeit, Audit-Chain-Grün, CR-02-Regressionstest)
-- MAIL-04: EHLO-`250-8BITMIME`-Check am Produktiv-Relay per Runbook `docs/OPERATIONS.md` VOR `smtp_encoding=8bit`-Aktivierung
+**Offene Design-Fragen für Discuss-Phase(n):**
+- Template-Pool: eigener „Application-Vorlagentyp" vs. gemeinsamer Pool mit Member-Vorlagen (gemeinsame Platzhalter-Teilmenge)
+- Communication-Timeline: `application_id` zusätzlich zu `member_id` am Entry, oder generischerer Subjekt-Bezug
+- Berechtigung des Mail-Endpoints (Vorstand-only, `RequirePrivilege "admin"`)
 
 **Offene Backlog-Kandidaten** (siehe `.planning/ROADMAP.md` Backlog 999.x):
 - 999.1 mock_auth-Deploy-Footgun absichern · 999.2 MailRecipientsTable-Komponente extrahieren · 999.3 Service-Layer für audit_log-/backup-Handler · 999.4 Daten-Lade-Boilerplate in Hook bündeln · 999.5 In-App-Hilfe für Vorstände
 - Carry-forward: CR-02 Permission-Check-Ordering (`gen_auth_admin!`-Helper), Phase-18 UX-Polish, Mail-Subsystem-Triage, deferred Quick-Tasks
-- Housekeeping-Job für verwaiste Application-Files (v1.5+)
+- Housekeeping-Job für verwaiste Application-Files
 
 ## Requirements
 
@@ -108,13 +112,14 @@ Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachv
 
 ### Active
 
-<!-- v1.3 noch nicht definiert. Wird mit `/gsd-new-milestone` initialisiert (questioning → research → requirements → roadmap). -->
+<!-- v1.6 Antragsteller-Kommunikation. REQ-IDs werden in `.planning/REQUIREMENTS.md` definiert (research → requirements → roadmap). -->
 
-v1.3 Posteingang-Benachrichtigung & Reply-Komfort (siehe `.planning/REQUIREMENTS.md` für REQ-IDs):
+v1.6 Antragsteller-Kommunikation (siehe `.planning/REQUIREMENTS.md` für REQ-IDs):
 
-- [ ] Täglicher Inbox-Digest an konfigurierbare Empfänger zu konfigurierbarer Uhrzeit, nur bei nicht-leerem Posteingang, mit Mail-Zusammenfassung (Titel/Absender/Zeitpunkt) + Deep-Link auf `/inbox`
-- [ ] Empfänger-Adressen und Versand-Uhrzeit über das bestehende Config-System (Config-Seite) pflegbar
-- [ ] Antworten auf Mails öffnet in einem vollflächigen Modal statt im schmalen Inline-Feld
+- [ ] Vorstand kann einer einzelnen Beitrittserklärung (Application) eine E-Mail senden (Empfänger = `application.email`)
+- [ ] Wiederverwendbare Vorlagen mit Application-Platzhaltern (Anrede, Name, Titel, Anteile, offener Betrag)
+- [ ] Kommunikations-Historie pro Antragsteller, auch ohne Mitglied
+- [ ] Compose-Dialog auf der Application-Detailseite (Wiederverwendung Mail-Compose + Timeline)
 
 ### Out of Scope
 
@@ -326,4 +331,4 @@ bestehende admin-only Listing-Route `GET /api/assembly/{id}/helper-tokens`).
 
 ---
 
-*Last updated: 2026-06-29 — Milestone v1.4 (Mail-Formatierung & Antrags-Dokumente) gestartet via `/gsd-new-milestone`: 8bit-Mail-Kodierung (`=`-Soft-Breaks weg), HTML-Mail-Backend (`multipart/alternative`), WYSIWYG-Rich-Text-Editor im Frontend, Original-Antrag als Datei-Attachment an Application mit Auto-Übernahme ans Mitglied. Research → Requirements → Roadmap folgen. Vorheriger Stand: 2026-06-28 nach v1.3-Milestone (Posteingang-Benachrichtigung & Reply-Komfort, 3 Phasen/11 Pläne, Audit `passed`, 11/11 REQs satisfied).*
+*Last updated: 2026-08-12 — Milestone v1.6 (Antragsteller-Kommunikation) gestartet via `/gsd-new-milestone`: E-Mail an Antragsteller mit abgegebener Beitrittserklärung (Zahlungserinnerungen), wiederverwendbare Vorlagen mit Application-Kontext, Kommunikations-Historie pro Antragsteller (auch ohne Mitglied), Compose-Dialog auf der Application-Detailseite. Research → Requirements → Roadmap folgen. Vorheriger Stand: v1.5 (Editor-Vervollständigung, Bild-Support & Vorschau) getestet und produktiv deployed.*

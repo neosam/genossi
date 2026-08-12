@@ -1,44 +1,37 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.5
-milestone_name: Editor-Vervollständigung, Bild-Support & Vorschau
-current_phase: 28
-current_phase_name: desktop-mobile-vorschau
-status: executing
-stopped_at: Completed 28-04-PLAN.md
-last_updated: "2026-07-28T05:40:52.321Z"
-last_activity: 2026-07-28
-last_activity_desc: Phase 28 execution started
+milestone: v1.6
+milestone_name: Antragsteller-Kommunikation
+status: planning
+last_updated: "2026-08-12T11:36:59.508Z"
+last_activity: 2026-08-12
 progress:
-  total_phases: 3
-  completed_phases: 2
-  total_plans: 12
-  completed_plans: 11
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
-# State: Genossi — v1.5 Editor-Vervollständigung, Bild-Support & Vorschau (Requirements werden erhoben)
+# State: Genossi — v1.6 Antragsteller-Kommunikation (Requirements werden erhoben)
 
 **Initialized:** 2026-05-02
-**Last Updated:** 2026-07-17 (Milestone v1.5 gestartet — Editor-Fix, mail_asset, Preview)
+**Last Updated:** 2026-08-12 (Milestone v1.6 gestartet — E-Mail an Antragsteller, Vorlagen, Kommunikations-Historie; v1.5 getestet & deployed)
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-07-17 mit v1.5 Current Milestone)
+See: `.planning/PROJECT.md` (updated 2026-08-12 mit v1.6 Current Milestone)
 
 **Core Value:** Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachvollziehbar (Audit-Hashchain), mit weniger manueller Arbeit.
 
-**Current Focus:** Phase 28 — desktop-mobile-vorschau
+**Current Focus:** v1.6 — Requirements-Definition (Antragsteller-Kommunikation)
 
 ## Current Position
 
-Phase: 28 (desktop-mobile-vorschau) — EXECUTING
-Plan: 5 of 5
-Status: Ready to execute
-Last activity: 2026-07-29 — Quick Task 260729-9ld abgeschlossen: OIDC-Login auf sub-Claim umgestellt
-
-**Offener Override (für verify-phase):** Der Decision-Coverage-Gate lief in `reason: "could-not-parse"` — die 28-CONTEXT.md formatiert D-01..D-17 als Fett-Absätze statt als `- **D-NN:**`-Bullets, die der Parser erwartet. Coverage wurde stattdessen per Grep und durch den plan-checker unabhängig belegt (17/17). Kein echter Coverage-Gap.
-
-**Vorbestehender Testfehlschlag (keine Phase-28-Regression):** `test_mail_preview_repayment_no_entries_does_not_default_to_one` (`genossi_bin/tests/e2e_tests.rs:14628`, Meldung `errors must be array`) schlägt schon vor Phase 28 fehl. Die Plans 28-01 und 28-04 nageln Meldung und Fundstelle als unverändert fest.
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-08-12 — Milestone v1.6 started
 
 ### Phase 27 Closure (abgeschlossen)
 
