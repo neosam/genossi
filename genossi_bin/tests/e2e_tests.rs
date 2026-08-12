@@ -6783,6 +6783,113 @@ async fn test_confirm_application_creates_member() {
     assert!(members[0].email.as_deref() == Some("max@example.com"));
 }
 
+/// Phase 29 (APHIST-03 / Success-Kriterium 3, D2 Option A): eine als Antragsteller
+/// (via `application_id`, `member_id = NULL`) gesendete Erinnerung erscheint nach
+/// `confirm()` in der Timeline des neuen Mitglieds — der post-commit Carry-over hat
+/// die GENUINE neue member_id zurueckgeschrieben (Pitfall 2: keine Application-UUID
+/// im member_id-Namespace). Es wird KEIN `POST /api/applications/{id}/mail`-Endpoint
+/// verwendet (der ist Phase-31-Scope); die Erinnerung wird direkt via Pool geseedet.
+#[tokio::test]
+async fn test_application_communication_carries_over_to_member_on_confirm() {
+    use genossi_mail::dao::CommunicationDao;
+
+    let (server, pool) = setup_with_pool().await;
+    let client = reqwest::Client::new();
+    let api_key = setup_api_key(&server, &client).await;
+
+    // 1. Application (Status Offen) via public join anlegen.
+    let resp = client
+        .post(server.url("/api/public/join"))
+        .header("X-Api-Key", &api_key)
+        .json(&sample_join_request())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED);
+    let resp = client
+        .get(server.url("/api/applications"))
+        .send()
+        .await
+        .unwrap();
+    let apps: Vec<ApplicationTO> = resp.json().await.unwrap();
+    let app_id = apps[0].id;
+
+    // 2. Erinnerung seeden: mail_jobs + mail_recipients mit application_id = app_id,
+    //    member_id = NULL, status='sent'. KEIN HTTP-Send-Endpoint (Phase-31-Scope).
+    let job_id = uuid::Uuid::new_v4();
+    let recipient_id = uuid::Uuid::new_v4();
+    let version_id = uuid::Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO mail_jobs (id, created, version, subject, body, status, total_count, sent_count, failed_count) \
+         VALUES (?, '2026-03-15 14:30:00', ?, 'Zahlungserinnerung', 'Bitte Beitrag zahlen', 'completed', 1, 1, 0)",
+    )
+    .bind(job_id.as_bytes().as_slice())
+    .bind(version_id.as_bytes().as_slice())
+    .execute(&*pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO mail_recipients (id, created, version, mail_job_id, to_address, member_id, application_id, status, sent_at) \
+         VALUES (?, '2026-03-15 14:30:00', ?, ?, 'max@example.com', NULL, ?, 'sent', '2026-03-15 14:30:05')",
+    )
+    .bind(recipient_id.as_bytes().as_slice())
+    .bind(version_id.as_bytes().as_slice())
+    .bind(job_id.as_bytes().as_slice())
+    .bind(app_id.as_bytes().as_slice())
+    .execute(&*pool)
+    .await
+    .unwrap();
+
+    // Vorab: Erinnerung ist als outbound-Antragsteller-Eintrag sichtbar.
+    let comm_dao = genossi_mail::dao_sqlite::CommunicationDaoSqlite::new(pool.clone());
+    let app_timeline = comm_dao
+        .get_application_communications(app_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        app_timeline.len(),
+        1,
+        "Antragsteller-Timeline muss die Erinnerung enthalten"
+    );
+    assert_eq!(app_timeline[0].subject.as_ref(), "Zahlungserinnerung");
+
+    // 3. confirm() ueber den regulaeren HTTP-Pfad → neues Mitglied entsteht.
+    let resp = client
+        .post(server.url(&format!("/api/applications/{}/confirm", app_id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // Neue member_id ermitteln.
+    let resp = client.get(server.url("/api/members")).send().await.unwrap();
+    let members: Vec<MemberTO> = resp.json().await.unwrap();
+    assert_eq!(members.len(), 1);
+    let new_member_id = members[0].id.unwrap();
+
+    // 4. Assert: Erinnerung erscheint jetzt in der Member-Timeline (Back-fill lief).
+    let member_timeline = comm_dao
+        .get_member_communications(new_member_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        member_timeline.len(),
+        1,
+        "Erinnerung muss nach confirm() in der Timeline des neuen Mitglieds erscheinen"
+    );
+    assert_eq!(member_timeline[0].subject.as_ref(), "Zahlungserinnerung");
+    assert_eq!(member_timeline[0].recipient_id, Some(recipient_id));
+
+    // Pitfall 2: die Sichtbarkeit laeuft ueber die GENUINE new_member_id, NICHT ueber
+    // eine Application-UUID-in-member_id-Kopplung. Eine Abfrage mit der Application-UUID
+    // als member_id liefert daher keine Zeile.
+    let via_app_uuid = comm_dao.get_member_communications(app_id).await.unwrap();
+    assert!(
+        via_app_uuid.is_empty(),
+        "Application-UUID darf nie im member_id-Namespace auftauchen (Pitfall 2)"
+    );
+}
+
 // ============================================================================
 // Phase 25 (APDOC-05) — E2E tests for the single-slot Application document
 // cascade. Three tests pin the audit-critical behavior end-to-end:
