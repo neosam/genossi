@@ -1,178 +1,185 @@
-# Feature Research — v1.4 Mail-Formatierung & Antrags-Dokumente
+# Feature Research
 
-**Domain:** Admin/back-office mail composition + document attachment for a small German cooperative board (Vorstand, non-technical), inside an existing Rust/Axum + Dioxus app
-**Researched:** 2026-06-29
-**Confidence:** HIGH (grounded in existing Genossi codebase + standard email/WYSIWYG domain knowledge; no external research needed for these well-established patterns)
+**Domain:** Applicant-facing reminder/dunning email + prospect communication in a small German-cooperative (Genossenschaft) member-management tool
+**Milestone:** v1.6 Antragsteller-Kommunikation
+**Researched:** 2026-08-12
+**Confidence:** HIGH (domain + German legal grounding), MEDIUM on exact template-variable set (product decision for discuss-phase)
 
-> Scope note: This research is strictly about the four named v1.4 features. It does NOT propose new unrelated scope. Complexity is rated against the *existing* Genossi infrastructure, which already does most of the heavy lifting.
+## Framing: what this actually is
 
-## What already exists (foundation for all four features)
+This is **not** an email-marketing / CRM feature and must not be scoped as one. The target user is a Vorstand of a small cooperative sending a **one-off, human-triggered, transactional email** to a specific person who has **already signed a Beitrittserklärung** — most often a friendly *Zahlungserinnerung* ("you signed up, please pay your Geschäftsanteil"). The whole design center is: reuse the existing member-mail machinery, add an Application recipient path, and add guardrails so nobody accidentally spams anyone.
 
-Verified by reading the codebase — this is why several "table stakes" are LOW complexity:
+Two legal facts anchor everything below:
 
-- **Mail sending** (`genossi_mail/src/worker.rs`): uses `lettre` with `SinglePart::plain` + `MultiPart::mixed()` for attachments. Text body already forced to `text/plain; charset=utf-8` (GMX-Android umlaut fix). A test already asserts current encoding is `quoted-printable` (~line 1002) — that test is the natural pivot point for the 8bit feature.
-- **Templating**: `minijinja` (strict mode, `{% if X is defined %}` pattern) already renders subject/body with member + payout variables. Round-trip via serde_json/BTreeMap.
-- **Frontend compose UI** (`genossi-frontend/src/component/mail_compose/`): already componentized — `body_editor.rs` (currently a plain `<textarea h-40>`), `subject_input.rs`, `template_selector.rs`, `template_preview.rs`, `template_var_buttons.rs`, `template_tester.rs`, `attachment_picker.rs`. The WYSIWYG work is **replacing one existing component**, not greenfield.
-- **Attachments**: `attachment_picker` already selects existing MemberDocuments + StaticDocuments (per project memory — mail "attachments" = document selection, not local upload). Mail worker loads files via `DocumentStorage::load(relative_path)`.
-- **Document storage** (`genossi_service_impl/src/document_storage.rs`): `FilesystemDocumentStorage` with `save(relative_path, data)` / `load`. `relative_path` convention = `{doc_id}.{ext}`. MemberDocument upload already exists via multipart (`genossi_rest/src/member_document.rs` + `member_document.rs::upload`).
-- **MemberDocument entity**: `member_id, document_type, description, file_name, mime_type, relative_path, ...` — auditable.
-- **Application activation** (`genossi_service_impl/src/application.rs` ~line 303): single-tx flow that `audited_create!`s Member + Eintritt + Aufstockung actions and `audited_update!`s Application to `Bestaetigt`, all under shared `APPLICATION_SERVICE_PROCESS`. This is exactly where attachment carry-over hooks in.
+1. A Beitrittserklärung is a **binding written declaration** in which the applicant obligates themselves to pay their share (§§ 15, 15a GenG). So the applicant is a **person with a pre-contractual/contractual obligation at their own request**, not a cold prospect. A reminder about *their own declared payment* is transactional under **Art. 6(1)(b) DSGVO** (and defensibly 6(1)(f)) — it does **not** require separate consent and is **not** §7-UWG advertising.
+2. That protection is **content-scoped**. It covers reminders and process communication about *this person's own application*. It does **not** cover newsletters, "become a member" promotion, or unrelated marketing — those would be advertising to a non-member and need consent. This line is the single most important anti-feature boundary in this milestone.
 
 ## Feature Landscape
 
 ### Table Stakes (Users Expect These)
 
+Features the Vorstand assumes exist. Missing = feature feels broken.
+
 | Feature | Why Expected | Complexity | Notes |
 |---------|--------------|------------|-------|
-| **multipart/alternative (text + HTML)** | Modern mail clients render HTML; a board sending member comms expects bold/links to show up. Plain-text fallback non-negotiable for accessibility + deliverability. | **MEDIUM** | `lettre` natively supports `MultiPart::alternative()`. Part-tree: `alternative(plain, html)`; when file attachments present, wrap as `mixed(alternative(...), attachments...)`. Touches `worker.rs` + `service.rs` build paths. Real cost = restructuring the existing `mixed`-only builder to nest correctly. |
-| **Plain-text auto-derived from HTML** | Board should write once, not maintain two bodies. Non-technical users will not hand-author a text version. | **MEDIUM** | Decision flagged in the todo. Recommended: derive text from the WYSIWYG HTML server-side (strip tags, `<br>/<p>`→newline, `<a href>`→"text (url)", `<li>`→"- "). Server-side derive = one source of truth. Small HTML→text helper in `genossi_mail`. |
-| **Template variables interpolate inside HTML** | Existing `{{ payout_amount }}` etc. must work in the HTML body too, or HTML mail regresses current text mail. | **MEDIUM** | minijinja auto-escaping is the trap: values rendered into HTML must be HTML-escaped (names with `&`, `<`), but the author's own markup must NOT be escaped. Autoescape on for `.html` templates, off for text. The single most error-prone sub-task — call it out for the roadmap. |
-| **8bit encoding (no visible `=` soft-breaks)** | Current quoted-printable leaks `=`-line-wrap artifacts into some clients; board sees ugly mails. Direct user complaint driving the milestone. | **LOW–MEDIUM** | Set `ContentTransferEncoding::EightBit` on the SinglePart(s). Caveat: 8bit requires the SMTP relay to advertise `8BITMIME` (most do; verify production relay). Risk: non-8BITMIME relay rejects/re-encodes. Update the existing quoted-printable assertion test. |
-| **Live preview of the formatted result** | Non-technical users cannot reason about HTML source; they need to see the rendered mail. `template_preview.rs` already exists for text. | **LOW** | For true WYSIWYG (contenteditable), the editor *is* the preview. For template-variable preview, extend `template_preview`/`template_tester` to render HTML. |
-| **WYSIWYG toolbar: bold, italic, bullet/numbered list, link** | Literal milestone goal — board formats "fett/kursiv/Links/Listen" without HTML knowledge. | **MEDIUM–HIGH** | Dominant cost/risk of the milestone. See WYSIWYG section below. |
-| **Link insertion UX (select text → add URL)** | Lists + links are the named formatting set; links are the fiddliest for non-technical users. | **MEDIUM** | Minimal: prompt for URL on a "link" button applied to selection; auto-prefix `https://`; validate. |
-| **Sanitized HTML output** | Editor output becomes a mail body; must not carry junk markup or unsafe constructs; keeps derived text clean. | **MEDIUM** | Whitelist tags/attributes (`b/strong, i/em, a[href], ul/ol/li, p, br, h2/h3`). Sanitize **server-side** regardless of frontend. Prevents paste-garbage and client breakage. |
-| **Single file upload on Application (scanned PDF)** | A membership application is one signed document; board scans it to one PDF. Storing it on the Application is the point of todo #2. | **LOW–MEDIUM** | Mirror existing MemberDocument multipart upload. Store via `DocumentStorage`, not DB (explicit in todo). Add `relative_path/file_name/mime_type` columns to Application (migration). Application already auditable → `audited_update!`. |
-| **Auto-carry attachment to Member on activation** | Core value: "ohne erneutes manuelles Hochladen direkt am Mitglied verfügbar". Without it the upload feature is half-built. | **MEDIUM** | On activate (existing single-tx), if Application has an attachment: **copy** the file to a new MemberDocument `relative_path` and `audited_create!` a MemberDocument under `APPLICATION_SERVICE_PROCESS`. See carry-over semantics below. |
-| **Attachment visible/downloadable on Application AND Member detail** | Board needs it where they work; Member-side download already exists for MemberDocuments. | **LOW** | Member side reuses existing MemberDocument UI. Application side needs a small view/download affordance (reuse Phase-19 attachment component per todo). |
+| Send a single email to one applicant, recipient = `application.email` | The literal milestone goal; "E-Mail senden" button on Application-Detail | LOW | Reuse `MailService::create_job` + `send_confirmation_mail` path (already does `member_id: None`). New `POST /api/applications/{id}/mail` |
+| Compose dialog reusing member mail-compose UI (subject + WYSIWYG body) | Vorstand already knows this UI from member mailing; consistency expected | LOW | Reuse `component/mail_compose/` + v1.4 `WysiwygEditor`. Component-First: no forked compose |
+| Reusable reminder templates with applicant placeholders | Vorstand won't retype the same Zahlungserinnerung each time; already have member templates | MEDIUM | Reuse minijinja system; add `application_to_template_context`. Placeholders: Anrede, Name, Titel, Anzahl Anteile, offener Betrag |
+| "Offener Betrag" computed, not stored | Applications have no payment-status field; amount = shares × `share_value_cents` | LOW–MEDIUM | Pure computed value. Decide share-value source (config/current RepaymentPhase default `10000`?) in discuss-phase |
+| Per-applicant communication history / timeline | "Have we already reminded them? when?" is the core question a reminder feature must answer | MEDIUM | Reuse `communication_timeline.rs`; entries need `application_id` (applications have no `member_id`). New `GET /api/applications/{id}/communications` |
+| Visible "last email/reminder sent on …" | Prevents duplicate/annoying reminders; single most-cited expectation for dunning UX | LOW | Derived from the timeline; surface latest entry prominently on Application-Detail |
+| Confirm-before-send | Emailing a real person is irreversible; Vorstand expects a review step | LOW | Follow the v1.x preview-confirm pattern already used across the app |
+| Correct sender identity / Absender | Recipient must see it's from the cooperative, not a random address | LOW | Already handled by `genossi_mail` SMTP config; verify From/Reply-To sane |
+| Handle "no email address" gracefully | Some applicants submit on paper; button must not silently fail | LOW | Disable/annotate send when `application.email` empty; do not fabricate. (No paper-letter generation this milestone) |
+| Admin-only gate | Member PII + outbound mail must be Vorstand-only | LOW | `RequirePrivilege "admin"`. Note carry-forward CR-02 permission-ordering caveat when wiring |
 
 ### Differentiators (Competitive Advantage)
 
+Small, cheap touches that make this feel purpose-built for a Genossenschaft — not a generic mailer. Align with Core Value (less manual work, nachvollziehbar).
+
 | Feature | Value Proposition | Complexity | Notes |
 |---------|-------------------|------------|-------|
-| **Paste-from-Word/Outlook cleanup** | Board members will compose in Word/Outlook and paste. Raw paste injects `mso-` styles, smart quotes, nested spans → broken mail. Cleaning paste is the difference between "usable" and "support nightmare". | **MEDIUM** | Strip on paste: keep text + basic formatting, drop style/class/font tags. High real-world value for this exact user group — near-table-stakes here despite the label. |
-| **Saved/reusable HTML templates** | Templating already exists for text; letting board save formatted HTML templates (Begrüßung, Antragsbestätigung) compounds the WYSIWYG value. | **MEDIUM** | Largely free — extend the existing template system to store an HTML body alongside text. Main work is the HTML/autoescape rendering already required for table stakes. |
-| **Branding / letterhead (logo + footer in HTML)** | A consistent header/footer makes board mail look official to members. | **MEDIUM** | Needs image embedding decision (CID vs. hosted URL). Defer unless explicitly requested — adds CID/MIME complexity. |
-| **Inline image embedding (CID)** | Logos/photos inside the body. | **HIGH** | `multipart/related` wrapping + CID references; significant MIME nesting on top of alternative+mixed. Anti-feature-adjacent for v1.4 — defer. |
-| **Multiple files on one Application** | Some applications have addenda (ID copy, SEPA mandate). | **LOW (incremental)** | Start single-file (matches todo). The carry-over loop generalizes naturally if needed. Design the column/relation so multi is not a rewrite. |
+| Prefilled "Zahlungserinnerung" template as first-class default | Turns the #1 use case into ~2 clicks; the actual reason this milestone exists | LOW | One good German template shipped as seed content beats a template editor nobody fills |
+| Live template preview with resolved placeholders before send | Vorstand sees real Anrede/Name/Betrag, catches "{{ }}" mistakes and wrong amounts | MEDIUM | Reuse minijinja render; render into the compose preview. Guards against embarrassing mis-merges |
+| "Offener Betrag" shown in the UI (not just in the mail) | Vorstand verifies the number before it goes out; ties reminder to the concrete obligation | LOW | Same computed value; display in compose header |
+| Correct German salutation from `Salutation` + `title` | "Sehr geehrte Frau Dr. …" done right signals professionalism to a not-yet-member | LOW | Enum already exists on member side; mirror for application context |
+| Timeline entry records template used + subject | "We sent the standard 1st reminder on 03.07." is exactly the audit story a Vorstand wants | LOW–MEDIUM | Store subject + template id on the communication entry |
+| Deep-link from timeline entry back to the sent content | Answer "what exactly did we write?" without digging in the mail server | MEDIUM | Depends on how much of the body is persisted; may store body snapshot like member mail already does |
 
 ### Anti-Features (Commonly Requested, Often Problematic)
 
+Document these explicitly to stop scope creep. Everything here is out of scope for v1.6.
+
 | Feature | Why Requested | Why Problematic | Alternative |
 |---------|---------------|-----------------|-------------|
-| **Full drag-and-drop email builder (Mailchimp-style blocks, columns, responsive grid)** | "Make our mails look like a newsletter." | Massive scope; responsive HTML-email is its own discipline (tables, inline CSS, Outlook/Gmail/Apple quirks). Wildly out of proportion for a small board sending member notices. | Simple rich-text body (bold/italic/list/link) + optional fixed letterhead. Keep to the named feature set. |
-| **Authoring two separate bodies (text AND HTML by hand)** | "Full control over both versions." | Non-technical users let the text version rot or leave it empty → broken fallback; double maintenance. | Auto-derive plain text from HTML (table stakes). One source of truth. |
-| **Heavy JS WYSIWYG lib via wasm-bindgen (TinyMCE/CKEditor/Quill)** | "Use a battle-tested editor." | Bundling a large JS editor into a Dioxus/WASM app adds JS interop surface, asset weight, version coupling; output still needs sanitizing. Overkill for 4 formatting commands. | Thin Dioxus `contenteditable` wrapper using `execCommand`/Selection via `web-sys` for the ~5 commands; a tiny vetted lib only if execCommand proves too painful. One reusable component. |
-| **Storing uploaded application files in the DB (BLOB)** | "Simpler, one place." | DB bloat, backup size, contradicts existing `DocumentStorage` filesystem pattern. | Filesystem via `DocumentStorage` (explicit in todo). |
-| **Move (not copy) the file on activation** | "Avoid duplicate storage." | Destroys the Application's record of what was submitted; breaks audit story and re-display on the Application; fragile if activation is re-examined. | **Copy** to a new MemberDocument relative_path. Application keeps its attachment; Member gets an independent one. Disk cost negligible. |
-| **Rich HTML inbox digest immediately** | "Make the digest pretty too." | `digest.rs` builds a plain string body today; HTML-ifying it is extra surface with low payoff for an internal board-only mail. | Land HTML infra for member-facing comms first; HTML digest is a trivial follow-on once `multipart/alternative` exists. Don't gate v1.4 on it. |
+| Bulk / mass reminder to all "Offen" applicants | "Just remind everyone who hasn't paid" | Milestone is deliberately single-send; bulk = recipient-selection UI, throttling, partial-failure handling, per-recipient audit — a whole separate milestone. Also raises the spam risk this feature is trying to avoid | Send individually; explicitly a Future-Requirement (PROJECT.md already states this) |
+| Automated dunning schedule / auto-escalation (reminder → 2nd → Mahnung) | "The system should chase them automatically" | Time-triggered outbound mail to individuals is high-risk (wrong-amount, already-paid, deceased, withdrawn). Needs payment-status tracking the data model doesn't have. One bad cron = many angry non-members | Keep it human-triggered. Vorstand decides when to remind, sees last-sent date |
+| Tracking pixels / open + click tracking | "Did they read it?" | DSGVO-hostile (needs consent, Aufsichtsbehörden actively warn), pure overhead for a nonprofit tool, erodes trust | None. Out of scope. Rely on the fact that a payment either arrives or doesn't |
+| Newsletter / "become a member" marketing to applicants | "While we have their email…" | This crosses from transactional into **advertising to a non-member** → §7 UWG consent territory. Exactly the case where the Warenkorb-Erinnerung rulings bite | Keep every applicant email tied to *their own application/payment*. No promotional content |
+| Formal legal "Mahnung" with Verzug/interest/fees | "Make it a real dunning notice" | Legal formality (Verzug, §288 interest, fees) is inappropriate for a first friendly reminder and for a cooperative's relationship tone; risk of overstating claims | Ship a *friendly Zahlungserinnerung* tone. Formal Mahnung, if ever, is a manual Vorstand decision outside the tool |
+| Stored payment-status field on Application (paid/unpaid) | "Track who paid so we know who to remind" | Real payment reconciliation (bank matching) is a large separate feature; a half-tracked flag rots and misleads reminders | Compute "offener Betrag" on the fly; Vorstand judges paid/unpaid from their own bank view. Defer real tracking |
+| Attachments / generated PDF letters to applicants | "Attach the invoice / Beitrittsbestätigung" | v1.4 already added application-document carryover on confirm; adding attach-on-send here widens scope and file-lifecycle concerns | Plain formatted HTML mail (v1.4 pipeline). Attachments are Future-Requirement |
+| Free-text arbitrary recipient (email to anyone) | "Let me just type an address" | Bypasses the applicant binding that makes this transactional-and-lawful; turns the feature into an open mailer | Recipient is always `application.email` of the specific Application |
+| Reply/inbox threading for applicant replies | "See their reply here too" | Inbox/reply is the v1.3 subsystem scoped to the general inbox; wiring applicant-reply threading is separate | Applicant replies land in the existing inbox; not threaded into the applicant timeline this milestone |
 
 ## Feature Dependencies
 
 ```
-8bit encoding (worker.rs/service.rs)
-    └── independent, smallest; can ship first as a self-contained slice
+Send single email to Application
+    └──requires──> Application recipient path (RecipientInput member_id: None)   [exists: send_confirmation_mail]
+    └──requires──> MailService::create_job                                       [exists]
+    └──requires──> Admin permission gate                                         [exists: RequirePrivilege "admin"]
 
-multipart/alternative (text + HTML) backend
-    ├──requires──> HTML→text derive helper (one source of truth)
-    └──requires──> minijinja HTML-autoescape handling (escape vars, not markup)
+Reusable applicant templates
+    └──requires──> application_to_template_context (Anrede/Name/Titel/Anteile/Betrag)   [NEW]
+    └──requires──> minijinja template system                                     [exists, member-only today]
+    └──enhances──> Send single email (prefilled body)
 
-WYSIWYG editor (frontend, replaces body_editor.rs)
-    ├──produces──> sanitized HTML  ──feeds──> multipart/alternative HTML part
-    ├──enhanced by──> paste-from-Word cleanup
-    └──enhanced by──> live preview (editor is its own preview)
+"Offener Betrag" placeholder
+    └──requires──> share-value source decision (config vs RepaymentPhase default)  [DECISION]
+    └──computed from──> application.shares × share_value_cents
 
-Saved HTML templates ──enhances──> WYSIWYG + multipart/alternative (reuses autoescape work)
+Per-applicant communication history
+    └──requires──> application_id on Mail-Job / communication entry              [NEW: model + migration]
+    └──requires──> GET /api/applications/{id}/communications                     [NEW]
+    └──enables──> "last reminder sent on …" display
+    └──reuses──> communication_timeline.rs component                             [exists]
 
-Application file upload (new columns + DocumentStorage)
-    └──requires──> activation carry-over (copy → MemberDocument, audited_create!)
-                       └──reuses──> existing Application activation single-tx flow
-                       └──reuses──> existing MemberDocument display on Member detail
+Compose dialog on Application-Detail
+    └──requires──> component/mail_compose/ + WysiwygEditor                       [exists]
+    └──requires──> all of the above wired to Application context
+
+Bulk reminder  ──conflicts/deferred──> single-send scope (explicitly Future)
+Auto-dunning   ──conflicts/deferred──> human-triggered design (explicitly out)
 ```
 
 ### Dependency Notes
 
-- **HTML mail backend is the keystone for three sub-features** (HTML part, template HTML rendering, eventual HTML digest). Build the MIME part-tree + autoescape once, correctly.
-- **WYSIWYG depends on the backend accepting an HTML body**, but they can be built in parallel if the API contract (send both text+html) is fixed early. The editor's output format (sanitized HTML subset) must match what the backend sanitizes / derives text from.
-- **8bit is fully independent** — no dependency on HTML; a standalone first slice that de-risks the milestone early. When both HTML and text parts exist, the encoding choice applies per-part.
-- **Application upload and carry-over are a self-contained vertical** with zero dependency on the mail features — a parallel workstream / separate phase.
-- **The two halves of the milestone (mail formatting vs. application documents) are independent** and can be sequenced either way.
+- **The timeline is the load-bearing new data work.** Everything else is largely reuse. The one genuinely new persistence concern is attaching `application_id` (applications have no `member_id`) to mail-job / communication entries so the timeline and "last sent" can exist. Get the model/migration right early; the rest layers on cheaply.
+- **Template context is the second real piece of new code.** `application_to_template_context` mirrors the member context but sources fields from Application. Keep the placeholder set a **subset** shared with member templates where names overlap (Anrede, Name, Titel) so a shared pool stays viable.
+- **"Offener Betrag" has one open decision:** where `share_value_cents` comes from (a config value, or the latest RepaymentPhase default `DEFAULT_SHARE_VALUE_CENT=10000`, or a per-Genossenschaft setting). Flag for discuss-phase; it's a small decision but it's a *money number in an email*, so it must be deliberate.
+- **Compose reuse depends on Component-First discipline.** Do not fork `mail_compose/`; extend it to accept an Application-context source. Forking would duplicate the WYSIWYG + preview and violate the project's hardest-learned lesson.
 
 ## MVP Definition
 
-### Launch With (v1.4 core)
+### Launch With (v1.6)
 
-- [ ] **8bit encoding** — direct complaint; smallest self-contained win; ship first.
-- [ ] **multipart/alternative (HTML + auto-derived plain text)** — the keystone; includes HTML→text helper and minijinja autoescape-correctness.
-- [ ] **Template variables work inside HTML body** — otherwise HTML mail regresses existing payout/member templating.
-- [ ] **WYSIWYG editor component** (bold, italic, bullet + numbered list, link) — named feature set; replaces `body_editor.rs`; output sanitized to a tag whitelist.
-- [ ] **Application single-file upload** (scanned PDF) via DocumentStorage + new Application columns + multipart upload (mirror MemberDocument).
-- [ ] **Auto-carry to Member on activation** (copy → MemberDocument via `audited_create!` in existing activation tx) with edge cases below handled.
-- [ ] **View/download of the attachment on Application and Member detail.**
+- [ ] Send single transactional email to an Application (recipient = `application.email`), admin-only — the core deliverable
+- [ ] Compose dialog on Application-Detail reusing `mail_compose/` + `WysiwygEditor` — no forked UI
+- [ ] Reusable templates with applicant placeholders (Anrede, Name, Titel, Anteile, offener Betrag) via `application_to_template_context`
+- [ ] Live preview with resolved placeholders + confirm-before-send — prevents mis-merges and accidental sends
+- [ ] Per-applicant communication timeline (`application_id`-linked) + `GET /api/applications/{id}/communications`
+- [ ] Prominent "last email sent on …" on Application-Detail — the anti-spam guardrail users expect
+- [ ] Graceful "no email address" handling (disabled/annotated button)
+- [ ] One shipped default Zahlungserinnerung template (German, friendly tone)
 
 ### Add After Validation (v1.x)
 
-- [ ] **Paste-from-Word cleanup** — strongly recommended for v1.4 given the user group; acceptable as a fast follow if it threatens timeline.
-- [ ] **Saved HTML templates** — extend existing template store to hold HTML; cheap once autoescape exists.
-- [ ] **HTML inbox digest** — trivial reuse of the new alternative-part builder.
-- [ ] **Multiple files per Application** — generalize the carry-over loop.
+- [ ] Template used + subject recorded on timeline entry (richer history) — add if Vorstand asks "which reminder did we send?"
+- [ ] Body snapshot / deep-link to exact sent content — add if reconstructing sent mails becomes a real need
+- [ ] Second/reminder-tier template variants (still manual send) — add once first-reminder flow is proven
 
 ### Future Consideration (v2+)
 
-- [ ] **Branding/letterhead + inline image embedding (CID / multipart/related)** — defer; meaningful MIME complexity.
-- [ ] **Drag-and-drop email builder** — explicitly an anti-feature for this product.
-
-## Activation Carry-Over Semantics (concrete spec for downstream)
-
-Highest-edge-case sub-feature. Behavior the board expects:
-
-- **Copy, not move.** Application retains its attachment; activation creates an **independent** MemberDocument (new `id`, new `relative_path = {new_doc_id}.{ext}`, file bytes copied via `DocumentStorage::load` then `save`). Rationale: audit integrity + re-display on Application; disk cost negligible.
-- **Same transaction.** The copy + `audited_create!(MemberDocument)` happen inside the existing single activation tx under `APPLICATION_SERVICE_PROCESS`, so the hash-chain ties "Application bestätigt" and "MemberDocument angelegt" together. If the file copy fails, the whole activation rolls back (no half-activated member).
-- **Naming / typing.** MemberDocument `document_type` = a stable value like `"membership_application"` (Antragsoriginal); `description` e.g. "Originaler Mitgliedsantrag"; `file_name` carried from the upload. Recognizable in the existing MemberDocument list.
-- **Audit visibility.** Via `audited_create!`, the new MemberDocument appears in the audit log with the activating user as actor — consistent with how Member/Eintritt/Aufstockung are already logged in the same flow.
-
-### Edge cases (must be specified in requirements)
-
-- **Activation with NO attachment** — must succeed normally; carry-over skipped silently (common case for existing applications). No error, no empty MemberDocument.
-- **Re-activation / non-Offen status** — already guarded: activate returns `Conflict` unless status is `Offen`. Double-carry-over cannot happen via the normal path; no duplicate MemberDocument.
-- **File missing on disk at activation time** (DB row points to a deleted file) — decide: fail activation (safest, atomic) vs. activate + warn. Recommend fail-and-roll-back so the board isn't silently missing the document; surface a clear error.
-- **Replacing the Application attachment before activation** — uploading a second file should overwrite/supersede the first (single-file model), not accumulate orphans. Define overwrite semantics.
-- **Application rejected (`Abgelehnt`)** — no member, no carry-over; attachment stays only on the Application.
-- **Large file / wrong type** — enforce size limit + MIME/extension allow-list (PDF, common image types) at upload, mirroring/extending MemberDocument upload validation. Scanned PDF is the primary case.
-- **Soft-delete interaction** — MemberDocument carries standard `deleted`/`version` fields; carry-over creates a live (non-deleted) doc.
-
-## WYSIWYG: minimal viable spec for non-technical board users
-
-- **Toolbar (exactly the named set, nothing more):** Bold, Italic, Bullet list, Numbered list, Insert link. Optionally a paragraph/heading toggle and "remove formatting". Resist font/color/size — bloats output and breaks mail rendering.
-- **Implementation lean:** thin Dioxus `contenteditable` wrapper as a single reusable component (replacing `body_editor.rs`), driving the ~5 commands via `web-sys`/Selection (or `execCommand` as a pragmatic baseline). Avoid bundling a heavy JS editor (anti-feature).
-- **Link UX:** select text → click link → prompt for URL → auto-prefix `https://` if scheme missing → validate. Show links visibly styled in the editor.
-- **Paste handling:** intercept paste, strip styles/classes/`mso-*`/font tags, keep text + whitelisted formatting. Smart-quote normalization optional.
-- **Output contract:** sanitized HTML limited to `{b/strong, i/em, a[href], ul, ol, li, p, br, h2, h3}`. Sanitize **server-side too** — never trust frontend output for the mail body.
-- **Fallback derivation:** same sanitized HTML is the single source; plain text derived from it server-side.
+- [ ] Bulk reminder to all "Offen" applicants — explicitly deferred in PROJECT.md; needs selection UI + throttling + per-recipient audit
+- [ ] Real applicant payment-status tracking (bank reconciliation) — large separate feature; only then does auto-dunning become defensible
+- [ ] Attachments / generated PDF to applicants — depends on file-lifecycle work
+- [ ] Applicant-reply threading into the timeline — depends on v1.3 inbox integration
 
 ## Feature Prioritization Matrix
 
 | Feature | User Value | Implementation Cost | Priority |
 |---------|------------|---------------------|----------|
-| 8bit encoding | MEDIUM (direct complaint) | LOW | P1 |
-| multipart/alternative + text-derive | HIGH | MEDIUM | P1 |
-| Template vars in HTML (autoescape-correct) | HIGH | MEDIUM | P1 |
-| WYSIWYG editor (bold/italic/list/link) | HIGH | MEDIUM–HIGH | P1 |
-| Output sanitization | HIGH (safety) | MEDIUM | P1 |
-| Application single-file upload | HIGH | LOW–MEDIUM | P1 |
-| Activation carry-over (copy→MemberDocument) | HIGH | MEDIUM | P1 |
-| Attachment view/download (App + Member) | MEDIUM | LOW | P1 |
-| Paste-from-Word cleanup | HIGH (this user group) | MEDIUM | P1/P2 |
-| Saved HTML templates | MEDIUM | MEDIUM | P2 |
-| HTML inbox digest | LOW | LOW | P2 |
-| Multiple files per Application | LOW | LOW | P3 |
-| Branding/letterhead + CID images | MEDIUM | HIGH | P3 |
-| Drag-and-drop email builder | LOW | HIGH | Never (anti-feature) |
+| Single send to Application (recipient path + endpoint) | HIGH | LOW | P1 |
+| Compose dialog reuse on Application-Detail | HIGH | LOW | P1 |
+| Applicant template context + placeholders | HIGH | MEDIUM | P1 |
+| "Offener Betrag" computed + shown | HIGH | LOW–MEDIUM | P1 |
+| Communication timeline (`application_id`) + endpoint | HIGH | MEDIUM | P1 |
+| "Last sent on …" display | HIGH | LOW | P1 |
+| Confirm-before-send + live preview | HIGH | LOW–MEDIUM | P1 |
+| Default Zahlungserinnerung seed template | MEDIUM | LOW | P1 |
+| No-email graceful handling | MEDIUM | LOW | P1 |
+| Template/subject recorded on timeline entry | MEDIUM | LOW–MEDIUM | P2 |
+| Body snapshot / deep-link to sent content | MEDIUM | MEDIUM | P2 |
+| Bulk reminder | MEDIUM | HIGH | P3 |
+| Auto-dunning schedule | LOW (risky) | HIGH | P3 (anti) |
+| Open/click tracking | LOW | MEDIUM | P3 (anti) |
 
-## Complexity & risk callouts for the roadmap
+## Compliance Notes (German / DSGVO — for the requirements author)
 
-- **Highest risk: minijinja autoescape in HTML templates.** Escaping member-provided values (names with `&`/`<`) while preserving author markup is the easiest place to ship an XSS-y or visually-broken mail. Flag for deeper attention.
-- **Second risk: WYSIWYG output stability** across the contenteditable lifecycle in Dioxus/WASM (cursor jumps, re-render clobbering the DOM — the project already has a Dioxus button-reload-bug lesson; expect similar `contenteditable` quirks). Component-First mandate applies.
-- **8bit deliverability:** confirm the production SMTP relay advertises `8BITMIME` before flipping the default; otherwise gate it.
-- **Everything else is mostly extension of proven code paths** (lettre multipart, DocumentStorage, audited_create!, existing upload + activation flows), which is why most items are LOW/MEDIUM rather than HIGH.
+These are requirements, not background. Group them under a "Compliance / Guardrails" heading.
+
+- **Legal basis is transactional, content-scoped.** A payment reminder about the applicant's *own* Beitrittserklärung is lawful under Art. 6(1)(b) DSGVO (pre-contractual/contractual at the data subject's request) without separate consent — because the join declaration binds them to pay (§§ 15/15a GenG). **Requirement:** keep all applicant email content tied to *their own application and payment*. No marketing, no newsletter, no cross-promotion.
+- **Do not import the "abandoned cart" rule by mistake.** Case law (Aufsichtsbehörden, IT-Recht) that says reminder emails to a prospect need §7-UWG consent applies to *merchant-initiated marketing to someone with no obligation*. That is a different situation from a signed Beitrittserklärung. The distinguishing test for every email: **is this about fulfilling a duty the person already declared, or is it promotion?** Only the former is in scope.
+- **Data minimization.** Template placeholders should stay limited to what a reminder needs (Anrede, Name, Titel, Anteile, offener Betrag). Don't expose more applicant PII than necessary — consistent with the project's DSGVO-whitelist pattern.
+- **Transparency / sender identity.** Emails must show a clear cooperative Absender and a real Reply-To so the recipient can respond or object. (Absender already handled by `genossi_mail` SMTP config — verify, don't rebuild.)
+- **Right to object / stop contacting.** A person can ask not to be emailed. For a small manual tool this is a **process guardrail, not automation**: the visible timeline + human-triggered send means the Vorstand can honor a "don't email me" request by simply not sending. No suppression-list engine needed at this scale — but the requirement to respect it should be stated.
+- **Audit scope unchanged.** Application is already an audited entity (existing audit macros stay mandatory for Application writes). Pure mail/communication entities do **not** need audit macros (per PROJECT.md). Sending an email is not an Application mutation — don't accidentally pull it into the audit hashchain, but do record it in the (non-audited) communication timeline.
+
+## Scope-Creep Flags (explicit — for the roadmap)
+
+Anything below is **beyond single-send reminders** and should be pushed back if it appears in requirements:
+
+1. Any recipient selection / multi-select / "send to all Offen" → bulk, deferred.
+2. Any time-triggered or worker-driven outbound applicant mail → auto-dunning, out.
+3. Any open/click/pixel tracking → DSGVO-hostile, out.
+4. Any promotional/newsletter content to applicants → §7-UWG risk, out.
+5. Any persisted payment-status flag or bank reconciliation → separate feature, out.
+6. Any attachment/PDF-to-applicant generation → depends on file lifecycle, out.
+7. Any formal Mahnung mechanics (Verzug/interest/fees) → wrong tone + legal complexity, out.
+8. Any free-text arbitrary-recipient mailer → breaks the transactional/lawful binding, out.
 
 ## Sources
 
-- Genossi codebase (verified 2026-06-29): `genossi_mail/src/worker.rs` (lettre MultiPart/SinglePart, quoted-printable test), `genossi_mail/src/digest.rs`, `genossi_service_impl/src/application.rs` (activation single-tx), `genossi_service_impl/src/document_storage.rs`, `genossi_service_impl/src/member_document.rs`, `genossi_dao/src/member_document.rs`, `genossi-frontend/src/component/mail_compose/*` (incl. current `body_editor.rs` textarea).
-- `.planning/todos/pending/2026-06-28-html-mail-support-statt-nur-textmails.md`, `.planning/todos/pending/2026-06-27-originalen-mitgliedsantrag-als-datei-attachment-an-applicati.md`
-- `.planning/PROJECT.md` (milestone v1.4 definition, existing-feature inventory, Component-First + audit constraints)
-- Standard email/MIME + WYSIWYG-for-non-technical-users domain knowledge (multipart/alternative, 8BITMIME, paste sanitization).
+- [Beitrittserklärung/Beteiligungserklärung (§§ 7a, 15, 15a, 15b GenG) — GV Weser-Ems](https://www.gvweser-ems.de/DE/Beraten/gruendungsberatung/Praxistipps/BeitrittserklrungundbertragungvonGeschftsguthaben.pdf)
+- [Genossenschaftsgesetz (GenG) — gesetze-im-internet.de](https://www.gesetze-im-internet.de/geng/GenG.pdf)
+- [Begründung und Beendigung der Mitgliedschaft in der Genossenschaft — wohnungswirtschaft.online](https://wohnungswirtschaft.online/begruendung-und-beendigung-der-mitgliedschaft-in-der-genossenschaft/)
+- [Zahlungserinnerung: Vorlagen, Tipps und rechtliche Grundlagen — acquisa](https://www.acquisa.de/magazin/zahlungserinnerung)
+- [Warenkorberinnerungen per E-Mail: unzulässige Werbung (Aufsichtspraxis, DSGVO, UWG) — IT-Recht Kanzlei](https://www.it-recht-kanzlei.de/warenkorberinnerungen-per-email-unzulaessig.html)
+- [Warenkorb-Erinnerungsmails zwischen Aufsichtspraxis, DSGVO und UWG — SLK Rechtsanwälte](https://www.slk-rechtsanwaelte.de/blog/warenkorb-erinnerungsmails-im-onlinehandel-zwischen-aufsichtspraxis-dsgvo-und-uwg/)
+- [Können Mitglieder oder Kund*innen per Mail angeschrieben werden? — Datenschutzbeauftragter Hamburg](https://datenschutzbeauftragter-hamburg.de/2022/12/koennen-mitglieder-oder-kundinnen-per-mail-angeschrieben-werden/)
+- Project context: `.planning/PROJECT.md` (v1.6 milestone + existing member-mail/template/communication subsystem), `CLAUDE.md` (audit + DSGVO + Component-First constraints)
 
 ---
-*Feature research for: admin mail formatting + application document attachment (Genossi v1.4)*
-*Researched: 2026-06-29*
+*Feature research for: applicant-facing transactional reminder email in a small German-cooperative tool*
+*Researched: 2026-08-12*

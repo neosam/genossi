@@ -1,245 +1,251 @@
 # Pitfalls Research
 
-**Domain:** Adding HTML/8bit mail formatting + WYSIWYG editor + application-document upload/carryover to a Rust/Axum/SQLite + Dioxus-WASM membership system (Genossi v1.4)
-**Researched:** 2026-06-29
-**Confidence:** HIGH (grounded in this repo's actual mail/render/storage/application code; lettre 0.11 + minijinja behavior verified against source)
+**Domain:** Applicant-email + reminder-templates + per-applicant communication history for a production German Genossenschaft member-mgmt app (Rust layered DAO/Service/REST + Dioxus, milestone v1.6)
+**Researched:** 2026-08-12
+**Confidence:** HIGH — every pitfall is grounded in the actual v1.6-relevant code paths (`genossi_service_impl/src/application.rs::send_confirmation_mail`, `genossi_mail/src/template.rs`, `genossi_mail/src/dao_sqlite.rs::get_member_communications`, `genossi_mail/src/service.rs::create_job`, `genossi_dao/src/application.rs`).
 
-> Scope note: every pitfall below is specific to ADDING the four v1.4 features to THIS codebase. The relevant existing code is cited so the roadmapper can map each pitfall to a concrete phase and write a verification check.
+> **Phase labels below** are feature-area labels (roadmap not yet drawn):
+> **P-TMPL** = Application template context & rendering · **P-AMT** = outstanding-amount computation · **P-HIST** = communication history / `application_id` linkage (DAO+migration) · **P-SEND** = mail send endpoint/service (dedup, status-guard, DSGVO) · **P-FE** = frontend compose dialog + timeline reuse.
 
 ---
 
 ## Critical Pitfalls
 
-### Pitfall 1: Reusing the existing strict minijinja env for HTML bodies → unescaped member data (XSS + broken HTML)
+### Pitfall 1: `member_to_template_context` is `MemberEntity`-typed — there is no application path, and strict-env turns every missing variable into a hard render failure
 
 **What goes wrong:**
-`genossi_mail/src/template.rs::strict_env()` builds `Environment::new()` with `UndefinedBehavior::Strict` but **never sets autoescape**. minijinja only auto-enables HTML escaping when a template is loaded with an `.html`/`.htm`/`.xml` *name*; templates here are loaded with `template_from_str` (no name), so **autoescape is OFF**. That is correct for the current plain-text mails. The moment the same `render_template()` path produces an HTML body, `{{ last_name }}` for a member named `Müller & <b>Co</b>` or `O'Brien <script>…</script>` is injected verbatim into HTML — corrupting layout at best, and at worst rendering attacker/member-controlled markup in the mail and in any in-app HTML preview.
+`member_to_template_context(entity: &MemberEntity)` (template.rs:16) and `validate_template(subject, body, members: &[MemberEntity])` (template.rs:126) are hard-typed to `MemberEntity`. An `ApplicationEntity` cannot be passed. Worse, the render env is `UndefinedBehavior::Strict` (template.rs:65–69): any `{{ member_number }}`, `{{ current_shares }}`, `{{ join_date }}`, `{{ current_balance }}` in a template renders → **render error**, not empty string. If a shared template pool (member + application) is used, an application-context render of a member template dies on the first member-only variable. The worker path turns that into `mark_recipient_failed`; a direct-send path turns it into a 500 / silent non-send.
 
 **Why it happens:**
-The render pipeline is shared (worker live-send AND startup backfill both call `render_template`, per `render.rs`). The "obvious" implementation reuses it for HTML too. Autoescape being name-driven is a silent minijinja footgun: nothing errors, output just isn't escaped.
+The whole template subsystem was built for the bulk member/repayment flow. "Reuse the existing minijinja system" reads as free, but the context builder and the validator are the seam that is member-shaped. Developers copy `member_to_template_context`, delete a few fields, and forget the strict-env contract (`{% if X is defined %}` is required — plain `{% if X %}` on an undefined var still errors under strict; see the locked test `test_repayment_variable_missing_with_if_guard_renders_empty` at template.rs:693).
 
 **How to avoid:**
-- Add a **separate HTML environment** with `env.set_auto_escape_callback(|_| AutoEscape::Html)` (or `set_autoescape`) used ONLY for HTML bodies. Keep `strict_env()` exactly as-is for plain text and subject lines.
-- Critical mental model: the WYSIWYG/editor HTML is the **template source** (literal markup, passes through), while member fields are **variables** (must be escaped). Autoescape escapes variable output, not literal template text — so autoescape ON is exactly right and does NOT escape the editor's `<b>`/`<a>` tags.
-- Subjects must NEVER be HTML-escaped (they are header text) — keep subject rendering on the plain env.
-- Add a unit test mirroring `template.rs` style: render an HTML template with a member whose `last_name = "<script>alert(1)</script> & Co"` and assert the output contains `&lt;script&gt;` and `&amp;`.
+- Add `application_to_template_context(&ApplicationEntity) -> minijinja::Value` next to the member one. Expose only fields Applications actually have: `first_name`, `last_name`, `salutation` (map via `Salutation::as_str()` so `{% if salutation == "Herr" %}` keeps working — same `Salutation` type is shared), `title`, `shares`, plus the computed `outstanding_amount`/`share_value` strings. Do **not** expose `member_number`/`join_date`/`current_shares`/`current_balance`.
+- Add an `application`-specific `validate_template_for_application(subject, body, &[ApplicationEntity])` mirroring `validate_template`, so the template editor probe-renders against the *application* context, not members.
+- **Decide the template-pool question explicitly** (it is already flagged as an open design question in PROJECT.md): a separate "Antragsteller" template type is far safer than a shared pool, because a shared pool means every member-only variable is a latent strict-render bomb for application sends. If a shared pool is chosen, restrict the variable-button UI (see Pitfall 12) and validate against *both* contexts.
 
 **Warning signs:**
-Mail HTML breaks for members with `&`, `<`, `>`, `"`, `'` in name/company/comment/address; raw `<` appears in rendered preview; security review flags `dangerous_inner_html` fed by un-sanitized render output.
+Template render errors mentioning `member_number`/`current_shares`/`join_date`; recipients stuck in `failed` with "undefined" errors; a copy of `member_to_template_context` that silently fills member fields with dummy/empty values.
 
-**Phase to address:** HTML-mail backend phase (the phase that introduces `multipart/alternative`).
+**Phase to address:** P-TMPL
 
 ---
 
-### Pitfall 2: 8bit encoding without SMTP 8BITMIME negotiation → corrupted/rejected mail
+### Pitfall 2: Faking `member_id` (nil-UUID or `application_id`) to shoehorn applications through the member-shaped pipeline
 
 **What goes wrong:**
-The current send path (`worker.rs::send_mail_for_recipient`) uses `SinglePart::plain(body)`, and lettre auto-selects `Content-Transfer-Encoding: quoted-printable` (the existing tests at `worker.rs:1001` and `:1095` assert QP-or-base64). To get "8bit, no `=` soft-breaks", you must explicitly set the `ContentTransferEncoding::EightBit` header on the part. **lettre's SMTP transport does NOT inspect the server's EHLO `8BITMIME` capability and does NOT downgrade** an 8bit part to quoted-printable when the relay lacks 8BITMIME. If the configured relay (operator-supplied SMTP — unknown server) does not advertise 8BITMIME, raw 8-bit bytes either get silently mangled (high bit stripped → broken umlauts: `Müller` → `M?ller`) or the message is rejected.
+`RecipientInput.member_id: Option<Uuid>` and `MailRecipient.member_id: Option<Uuid>` are the join key for the *member* communication timeline (`get_member_communications` JOINs `WHERE r.member_id = ?1`, dao_sqlite.rs:1082) and for `find_sent_member_ids_by_job_id` (used to attribute `MemberDocument`s). A developer wanting the timeline/attribution "to just work" is tempted to stuff the application's UUID into `member_id`. This poisons the member namespace: `find_sent_member_ids_by_job_id` (dao_sqlite.rs:357, filters `member_id IS NOT NULL`) starts returning application IDs; any future member with an id-collision assumption breaks; and the mail becomes forensically indistinguishable from a real member mail.
 
 **Why it happens:**
-Developers assume the mail library negotiates transfer encoding like a browser negotiates content. lettre does not; encoding is a build-time choice on the message, independent of the live SMTP session.
+`send_confirmation_mail` already sets the *correct* precedent — `RecipientInput { member_id: None }` (application.rs:132–135). But the moment you need a *timeline*, `member_id: None` produces an un-queryable orphan, so the pressure to reuse `member_id` is high.
 
 **How to avoid:**
-- Treat 8bit as **opt-in, configurable, with a safe default**. Add a config flag (reuse the existing Config system, like `mail_send_interval_seconds`) e.g. `mail_text_encoding = quoted-printable|8bit`, defaulting to the current QP behavior so production is unchanged until the operator opts in.
-- Document/verify the production relay (`shifty.nebenan-unverpackt.de`'s configured SMTP) advertises 8BITMIME before enabling 8bit. If feasible, log the EHLO capabilities once at startup so the operator can confirm.
-- Keep the body strictly UTF-8 (it already is). 8bit + UTF-8 is fine ONLY across an 8BITMIME path.
-- Update the two encoding-assertion tests so they don't hard-fail when 8bit is the chosen mode — make the assertion mode-aware.
+Keep `member_id: None` for all application sends (it is the existing, correct pattern). Add a **separate** `application_id: Option<Uuid>` column to `mail_recipients` (see Pitfall 6) and query the application timeline on that column. Never overload `member_id`.
 
 **Warning signs:**
-Umlauts arrive corrupted at some recipients but not others (relay-dependent); SMTP 554/500 rejects after enabling 8bit; line-length-related `data` errors.
+`RecipientInput { member_id: Some(app.id) }`; application UUIDs appearing in member communication timelines; `find_sent_member_ids_by_job_id` returning ids that are not in the `members` table.
 
-**Phase to address:** 8bit-encoding phase (do this phase FIRST and in isolation — it is the smallest, highest-deliverability-risk change and a clean place to add the encoding-mode config that the HTML phase also benefits from).
+**Phase to address:** P-HIST (must be settled before P-SEND wires the endpoint)
 
 ---
 
-### Pitfall 3: Broken multipart nesting for HTML + attachments → unreadable mail or lost text fallback
+### Pitfall 3: Silent no-send — modelling the reminder on `send_confirmation_mail`, which returns `()` and swallows every failure
 
 **What goes wrong:**
-The current code builds `MultiPart::mixed().singlepart(text)` then appends attachments. The correct structure for "text + HTML + optional attachments" is nested:
-- No attachments: `multipart/alternative` { text/plain, text/html } — **text part FIRST**, html SECOND (clients pick the last part they understand).
-- With attachments: `multipart/mixed` { `multipart/alternative` { plain, html }, attachment, … }.
-
-If you flatten this (e.g. put html as a sibling of attachments under `mixed`, or omit the alternative wrapper), clients show the raw HTML source, show only the attachment, or drop the HTML. Reversing alternative order makes clients prefer plain text and the formatting is never seen.
+`send_confirmation_mail` returns nothing and on *every* failure branch (`no email`, `share_value_cents` missing/unparseable, `bank_iban`/`bank_name`/`genossenschaft_name` config missing, `create_job` error) it does `tracing::error!(...) ; return;` (application.rs:44–156). That is acceptable for a fire-and-forget confirmation, but if the Vorstand's "Zahlungserinnerung senden" button is wired the same way, the REST handler returns **200 OK while nothing was sent** — the Vorstand believes a reminder went out. For a payment reminder with legal/financial weight, that is the worst failure mode.
 
 **Why it happens:**
-The existing attachment loop (`worker.rs:675-697`) is written for the single-text-part case; bolting HTML on without restructuring produces a wrong tree. MIME `alternative` ordering semantics are non-obvious.
+`send_confirmation_mail` is explicitly called out in PROJECT.md as "bester Referenz-Code für den Service-Aufruf." Copying it wholesale copies the swallow-and-return error handling.
 
 **How to avoid:**
-- Build a helper that always emits `alternative(plain, html)` and wraps it in `mixed` only when attachments exist. Always include BOTH parts (see Pitfall 4).
-- Keep the existing `SinglePart::plain` with explicit `charset=utf-8` (the comment at `worker.rs:653` and the tests guard this — preserve it for the plain leg).
-- Test the serialized message bytes (the existing tests already do `email.formatted()` string assertions — extend them) for: presence of `multipart/alternative`, plain-before-html order, and that attachments sit under `mixed`.
+The new mail-send service method must return `Result<MailJob, ServiceError>` and propagate: missing email → `ValidationError`/`BadRequest` (400), missing config → `InternalError` (500), `create_job` error → surfaced. The REST layer returns the created `MailJob` (id + status) so the frontend can show a real confirmation and link into the timeline. Do **not** reuse the `()`-returning helper for the user-triggered path.
 
 **Warning signs:**
-Recipients see HTML tags as literal text; HTML mail with a PDF attached shows only the PDF; some clients (Apple Mail vs GMX vs Outlook) render differently.
+A send handler whose success path can't tell "queued" from "silently skipped"; frontend toast "E-Mail gesendet" with no job id; `tracing::error!` as the only signal that a reminder failed.
 
-**Phase to address:** HTML-mail backend phase.
+**Phase to address:** P-SEND
 
 ---
 
-### Pitfall 4: Missing or mismatched plain-text alternative → spam score + accessibility/regression
+### Pitfall 4: Pre-membership history does NOT carry over — the member timeline shows nothing after `confirm()`
 
 **What goes wrong:**
-Sending HTML-only mail (no text/plain leg), or a text leg that is empty / says "view in HTML", sharply raises spam score and breaks plain-text clients and screen readers. Worse for this project: an empty or placeholder text part is a **silent regression** of the current plain-text product, and the audited `MemberDocument` record (created in `worker.rs::try_create_member_document_audited`) would no longer reflect a meaningful body.
+`confirm()` mints a **brand-new** member with `id = uuid_service.new_v4()` (application.rs:326), unrelated to `application.id`. Application mails were sent with `member_id: None` and (per Pitfall 2) keyed on `application_id`. `get_member_communications(new_member_id)` JOINs on `mail_recipients.member_id` — which is `None` for those rows — so **the newly-created member's timeline is empty**, even though the person received reminders as an applicant. The Vorstand loses the payment-reminder history exactly at the moment it matters (member just joined after a reminder).
 
 **Why it happens:**
-WYSIWYG produces HTML; generating a faithful plain-text twin is extra work and easy to skip.
+There is no link between `Application` and the `Member` it becomes — `confirm()` copies fields but stores no `application_id` on the member and no `member_id` back on the application. The two timelines are keyed on different columns with no bridge.
 
-**How to avoid:**
-- Always generate a real text/plain alternative. Either (a) keep authoring the plain body as today and let HTML be additive, or (b) derive plain text from the editor model (strip tags, convert `<a href>` to `text (url)`, lists to `- ` lines). Do NOT ship `text = ""`.
-- Decide explicitly what the audited `MemberDocument` stores (plain text is the sensible canonical record; document the decision).
+**How to avoid:** Pick one, decide it in P-HIST:
+- **(a) Back-fill at confirm:** inside the `confirm()` transaction, `UPDATE mail_recipients SET member_id = ?new_member_id WHERE application_id = ?app_id` so the history flows into the member timeline. Clean, but mixes member+application keys on the row (both set).
+- **(b) Union at read time:** the member timeline query also `UNION`s outbound rows whose `application_id` matches an application that converted into this member — requires storing `application_id` on the member (or a link table).
+- **(c) Store `member_id` on the Application at confirm** (link column) and have the member timeline union on it.
+Whichever is chosen, add an e2e test: applicant gets a reminder → confirm → member timeline shows the reminder.
 
 **Warning signs:**
-Spamassassin `MIME_HTML_ONLY` / `MPART_ALT_DIFF` hits; blank previews in plain-text clients; audit records with empty bodies.
+E2E gap: no test covering "reminder before membership → visible after confirm"; member detail timeline empty for members created via application-confirm.
 
-**Phase to address:** HTML-mail backend phase (text-fallback generation) + WYSIWYG phase (plain-text derivation from the editor model).
+**Phase to address:** P-HIST (linkage design) + verified in P-SEND/P-FE
 
 ---
 
-### Pitfall 5: Server-side HTML sanitization missing or done only in the frontend (stored XSS)
+### Pitfall 5: No status guard — reminding `Abgelehnt` / already-`Bestaetigt` (now-member) / withdrawn applicants
 
 **What goes wrong:**
-The WYSIWYG editor emits HTML that gets stored (mail template body / job body) and later (a) rendered into outgoing mail and (b) displayed back in the Dioxus admin UI. If sanitization happens only in the WASM frontend, an attacker (or a paste-from-Word blob, or a crafted API call — the API is reachable independently of the UI) can store `<script>`, `<img onerror>`, `<a href="javascript:…">`, `<iframe>`, `<style>`, event handlers, etc. This is classic **stored XSS** in the board-facing admin app, which is the highest-trust surface in the system (it can read all member PII, IBANs, audit log).
+`confirm()` and `reject()` both guard `status == Offen` and return 409 otherwise (application.rs:314, 583). A naive mail endpoint has **no** such guard, so the Vorstand can fire a payment reminder at a rejected applicant (no legal basis — DSGVO problem, see Pitfall 8) or at a confirmed applicant who is now a Member and already gets member mail on a different channel (duplicate/confusing). Soft-deleted applications (`deleted.is_some()`) must also be unreachable — but `find_by_id` already filters `deleted.is_none()` (application.rs:126–136), so route the endpoint through the service `get`/`find_by_id`, not a raw dump.
 
 **Why it happens:**
-"The editor only produces safe HTML" is false — the editor is a UI convenience, not a security boundary. The REST endpoint accepts arbitrary `body` strings (see `MailTemplateService::create/update` which take `body: &str` with zero sanitization today).
+Reminders feel "always allowed"; the state machine lives on `confirm`/`reject` and is easy to omit on a new verb. Payment reminders only make sense for `Offen` (awaiting payment).
 
 **How to avoid:**
-- **Sanitize on the server, at the service/REST boundary, as the mandatory gate.** Add the `ammonia` crate (not currently a dependency) and sanitize HTML on write (template create/update, mail job create) AND/OR on render. Sanitizing on write keeps stored data clean; sanitizing on render is defense-in-depth — do both if cheap, but the write-side gate is non-negotiable.
-- Configure ammonia tightly: allow only formatting tags the editor actually produces (`b/strong, i/em, u, a, ul/ol/li, p, br, span`), strip all event handlers, allow `href` only with `http/https/mailto` schemes (ammonia's `url_schemes` allowlist — this kills `javascript:`/`data:` URIs), force `rel="noopener noreferrer"` on links.
-- Note `minijinja` autoescape (Pitfall 1) protects member *variables*; it does NOT sanitize the *template body itself* (the editor HTML is literal template text and passes through un-escaped by design). So autoescape and ammonia are complementary, not redundant — you need both.
-- Treat existing plain-text templates as plain: do not run ammonia over a template that is declared plain-text (it would mangle `<` in legitimate text like `a < b`). Track a per-template/per-job content-type flag.
+In the send service method, load via `application_dao.find_by_id` (gets soft-delete filtering for free) and gate: allow send for `Offen`; for `Bestaetigt`/`Abgelehnt` either block (409) or require an explicit override flag with a warning in the UI. Add unit tests mirroring the existing `status != Offen → Conflict` tests.
 
 **Warning signs:**
-A stored template renders `<script>` when previewed; pen-test of `POST /api/mail/templates` with `<img src=x onerror=alert(1)>` survives round-trip; `javascript:` links present in stored bodies.
+Send handler that never reads `application.status`; reminders landing on rejected applicants; QA can send to a soft-deleted application id.
 
-**Phase to address:** HTML-mail backend phase (server-side ammonia gate) — must land BEFORE or WITH the WYSIWYG phase, never after.
+**Phase to address:** P-SEND
 
 ---
 
-### Pitfall 6: Rendering inbound/stored HTML in Dioxus via `dangerous_inner_html` without sanitization
+### Pitfall 6: `mail_recipients` migration — the new `application_id` column must be nullable, forward-only, and every verbatim column list must be updated
 
 **What goes wrong:**
-The inbox already parses `raw_html_body: Option<String>` and `has_html_body` (`genossi_mail/src/inbox.rs:182-183`), and the inbox page currently only shows `body_text` (`inbox_page.rs:333`). v1.4's HTML focus will tempt rendering inbound HTML, or rendering the WYSIWYG preview, via Dioxus `dangerous_inner_html`. Inbound mail HTML is **fully attacker-controlled** (anyone can email the cooperative). Piping it into `dangerous_inner_html` is direct XSS in the board app. Dioxus normally HTML-escapes `{interpolation}` (noted in `mail_recipient_rendered_content.rs:9`); `dangerous_inner_html` bypasses that — it is the only XSS vector in the WASM UI and is already used for QR SVG (`qr_card.rs:63`, where input is controlled).
+The timeline linkage needs `application_id BLOB NULL` on `mail_recipients`. Three traps:
+1. **NOT NULL** would break every legacy/member row (all pre-v1.6 recipients have no application) and the member send path.
+2. SQLite here is **forward-only, no down-migration, no `DROP COLUMN`** (established policy, PROJECT.md ADR-2026-05-06). Get the column shape right the first time.
+3. `dao_sqlite.rs` has the `mail_recipients` column list written out **verbatim in ~5 places** (INSERT at :272, SELECT by job at :295, next_pending at :311, backfill at :379, and the timeline UNION at :1067–1082). Miss one and you get a silent column-count/order mismatch or the new field never populated. `CommunicationEntryDb` / `CommunicationEntry` / `CommunicationEntryTO` (dao.rs:259, communication_rest.rs:29) must all learn the new field too if it is surfaced.
 
 **Why it happens:**
-"We need to show formatting" → reach for `dangerous_inner_html`. The QR-card precedent makes it look blessed.
+No ORM; hand-written SQL with duplicated column lists is a known maintenance hazard in this codebase (v1.1 already logged `format_dt` duplication debt).
 
 **How to avoid:**
-- Never feed un-sanitized HTML to `dangerous_inner_html`. Sanitize on the **server** before it reaches the frontend (the frontend is WASM — bundling/maintaining a sanitizer there is worse than doing it server-side where ammonia already lives after Pitfall 5).
-- For inbound mail specifically: prefer continuing to show `body_text`; if HTML display is wanted, render server-sanitized HTML, and consider an iframe sandbox / stripping remote `<img>` (tracking-pixel + privacy concern) and all links-to-scripts.
-- Keep a single documented rule: "HTML reaches `dangerous_inner_html` only after passing the server ammonia gate."
+Add `application_id BLOB NULL`. Grep every `mail_recipients` SQL string and update all of them in one commit. Extend the timeline query with an application branch (`WHERE r.application_id = ?1`) analogous to the member branch. Keep the existing `r.deleted IS NULL AND j.deleted IS NULL` soft-delete filters (dao_sqlite.rs:1083–1084) on the new branch.
 
 **Warning signs:**
-New `dangerous_inner_html` call sites whose data originates from inbound mail or user input; a test email with `<script>`/`<img onerror>` executes in the inbox view.
+`SELECT`/`INSERT` column-count mismatch panics in tests; new column always NULL after send; a migration that tries `ALTER ... NOT NULL` or a down-migration file.
 
-**Phase to address:** WYSIWYG/preview phase (admin-authored preview) and any inbox-HTML phase. If inbound-HTML rendering is in scope, make it its own gated decision.
+**Phase to address:** P-HIST
 
 ---
 
-### Pitfall 7: Orphaned files / partial carryover on application activation (file-vs-DB atomicity)
+### Pitfall 7: Outstanding-amount arithmetic — negative/zero shares, cent modulo, and German formatting inconsistency
 
 **What goes wrong:**
-`ApplicationService::confirm()` (`application.rs:280-420`) runs a single SQLite transaction: create Member + Eintritt + Aufstockung + update Application, all audited. v1.4 adds "copy the uploaded application file into a `MemberDocument` on activation." Filesystem writes (via `FilesystemDocumentStorage::save`) are **not transactional with SQLite**. Two failure shapes:
-1. File copied to disk, then the DB tx rolls back → orphaned file, no DB row, no audit (disk leak; the project already has a noted orphan/leak class of bug, e.g. Phase 13 `std::mem::forget(tempdir)`).
-2. DB row committed referencing a `relative_path`, but the file copy failed/was skipped → a `MemberDocument` that 404s on download (`DocumentStorage::load` → `StorageError::NotFound`).
+The reference computation is `total_cents = share_value_cents * app.shares as i64; euros = total_cents/100; cents = total_cents%100; format!("{},{:02} €", euros, cents)` (application.rs:99–102). Issues when reused broadly:
+- **Negative shares:** `shares` is `i32`. The API validates `shares >= 1` on submit/update (application.rs:184, 625), but imported/legacy DB rows or a future path could carry `0` or negative. With a negative total, `total_cents % 100` is **negative**, producing garbage like `"0,-5 €"`. `{:02}` does not fix a negative value.
+- **Zero shares:** yields `"0,00 €"` — a "please pay 0,00 €" reminder is nonsensical but not a crash; guard it.
+- **Formatting inconsistency:** the confirmation path formats `"{},{:02} €"` (comma decimal, trailing €, **no** thousands separator → `1234,00 €`), while the repayment template path uses `format_payout_eur` / the `merge_repayment_context` strings `"X,YZ"` **without** the € sign (template.rs:180–202). If application templates borrow the repayment variables, authors get a different format than the confirmation mail. Pick one euro-formatter and reuse it.
 
 **Why it happens:**
-Mixing a non-transactional resource (FS) into a carefully-atomic DB cascade. The temptation is to `save()` the file inside the tx block.
+i64-cent math is correct for the happy path (the v1.1 decision to use i64 cents specifically to avoid float rounding is sound), so the edge cases (sign, zero, thousands separator, €-vs-no-€) get skipped.
 
 **How to avoid:**
-- Prefer **reusing the already-on-disk application file** rather than re-uploading: if the upload at application-attach time already stored the bytes at a stable path, the carryover can create a copy BEFORE `commit`, with cleanup-on-rollback. Pick one ordering and stick to it:
-  - Recommended: write the new member-document file to disk first (idempotent, content-addressed by new UUID path), THEN run the DB tx; on tx error, best-effort `delete()` the just-written file (log on failure). Net effect: a rolled-back activation may transiently leak one file, but never produces a dangling DB row (the worse, user-visible failure).
-- Verify the file exists/loads before creating the row (cheap `load`/metadata check) so you never persist a 404 document.
-- Add the `MemberDocument` create to the SAME audited cascade (it is an audited entity) using the existing `audited_create!` pattern, sharing `APPLICATION_SERVICE_PROCESS` so the carryover is forensically linked to the activation.
+Extract a single `format_eur_de(cents: i64) -> String` helper (reuse the existing repayment formatter if the € placement is reconciled), compute `total = share_value_cents.checked_mul(shares.max(0) as i64)`, treat `shares <= 0` as an explicit validation/skip case, and unit-test negative, zero, and > 1000-euro inputs. Feed the formatted string into `application_to_template_context` as `outstanding_amount` so templates never do arithmetic.
 
 **Warning signs:**
-`MemberDocument` rows whose download 404s; `documents/` dir grows with files no row references; audit log shows a member doc create with no corresponding activation.
+`"…,-N €"` in a preview; two different euro formats between confirmation and reminder mails; no test for `shares = 0`.
 
-**Phase to address:** Application-document phase (the carryover sub-feature).
+**Phase to address:** P-AMT (helper) consumed by P-TMPL
 
 ---
 
-### Pitfall 8: Duplicate carryover on re-activation / re-confirm
+### Pitfall 8: DSGVO — emailing non-members without a lawful basis, and leaking member-only data into applicant templates
 
 **What goes wrong:**
-If activation is ever retried, or a rejected/re-opened application is confirmed again, the carryover could attach the original document to the member twice (the project explicitly allows multiple `MemberDocument` rows; there is no uniqueness constraint, mirroring the deliberate `RepaymentEntry` no-unique-PK decision). The current `confirm()` guards `status != Offen → Conflict` (`application.rs:303`), which today blocks double-confirm — but the carryover MUST be added strictly inside that guard, and any future "re-open" path must be considered.
+Applicants are **not** members. Two distinct risks:
+1. **Lawful basis:** an applicant who submitted a Beitrittserklärung has a contract-initiation basis (Art. 6(1)(b) — Vertragsanbahnung) for a *payment reminder while `Offen`*. A **rejected** or withdrawn applicant has **no** such basis — reminding them is an unlawful send (ties directly to Pitfall 5's status guard). This is the DSGVO angle the Vorstand will be judged on.
+2. **Data minimization / leakage:** if a shared template pool exposes member-only fields (bank account, balances) and those ever resolve for an application, or if the preview/test path echoes the applicant's real email, PII leaks. The codebase already has a hard rule for this in the member test-mail path: the test recipient is the **explicit** address from the request, *never* the resolved member email (template.rs docstring + `send_test_mail_with_template` note at service.rs:126–130). The same rule must bind the application preview/test path.
 
 **Why it happens:**
-The status guard exists for the member-creation cascade; a new sub-feature can accidentally be wired before/outside it, or a retry-on-transient-error loop can re-run the side effect.
+"It's just a reminder" hides the consent question; the confirmation mail already exists so emailing applicants feels pre-blessed — but confirmation (transactional, at submit) and reminder (Vorstand-initiated, repeatable, to any status) are different legal animals.
 
 **How to avoid:**
-- Place the carryover entirely within the existing `status == Offen` guarded block, in the same tx, so it cannot run twice for an already-confirmed application.
-- If idempotency beyond the status guard is desired, key the carried `MemberDocument` by a deterministic marker (e.g. `document_type = "join_application"` + source application id in description) and skip if one already exists — analogous to `find_repayment_letter_for_recipient`'s fingerprint pattern (`worker.rs:84`).
-- Add an E2E test: confirm once → 1 doc; confirm again → `Conflict`, still 1 doc.
+- Restrict sends to `Offen` (Pitfall 5); require explicit override for other states with a UI warning.
+- Application template context exposes only `first_name/last_name/salutation/title/shares/outstanding_amount` — no member financial fields.
+- Preview/test-send uses an explicit operator-supplied address, never `application.email` auto-resolved (mirror the member rule).
+- Endpoint is Vorstand-only. Note: existing application methods gate on `MANAGE_MEMBERS_PRIVILEGE` (application.rs:24) — reuse that, not a new ad-hoc check.
 
 **Warning signs:**
-Two identical application PDFs on one member; audit log shows two carryover creates for one application.
+Send path with no status check; template var buttons offering `bank_account`/`current_balance` on an application; preview endpoint that emails the applicant's stored address.
 
-**Phase to address:** Application-document phase.
+**Phase to address:** P-SEND (basis + status) + P-TMPL (minimization)
 
 ---
 
-### Pitfall 9: Unauthenticated / unvalidated file upload (the application submit path is PUBLIC)
+### Pitfall 9: Accidental duplicate/spam sends — no idempotency on the compose button + the Dioxus form-reload footgun
 
 **What goes wrong:**
-`ApplicationService::submit()` is called with actor `"PUBLIC"` (`application.rs:222`) — applications can be created without auth. If the file-upload endpoint is naively attached to the public submission flow, you get an **unauthenticated arbitrary-file-upload**: disk-fill DoS, malware storage, oversized multipart memory blowups. Even on an admin-only upload, missing limits/validation are dangerous: Axum multipart will buffer large bodies; a client-supplied filename used in the storage path enables path traversal; a spoofed `Content-Type` lets an executable masquerade as a PDF.
+`create_job` has no idempotency key; two clicks → two jobs → two reminder emails to the same applicant. On the frontend, the project has a **recorded, recurring** bug: `form` + `onsubmit` + `prevent_default` still reloads the page (MEMORY: `dioxus-form-onsubmit-page-reload`; hotfixes `c6f41fd`, `e245013`), which can re-fire a send or lose state. The Vorstand double-sending a payment reminder is both embarrassing and a (mild) DSGVO annoyance.
 
 **Why it happens:**
-The milestone text ("Vorstand hinterlegt den Antrag") implies admin-only, but the existing application create is public, so the boundary is ambiguous and easy to get wrong. File validation is tedious and often deferred.
+The compose dialog reuses `component/mail_compose/`; if it's dropped into a `<form onsubmit>` the reload bug reappears, and without a disabled-while-pending button the send is trivially double-firable.
 
 **How to avoid:**
-- Make the upload endpoint **admin-only** (privilege `manage_members`, same as the other application mutations), attaching the file to an existing application — do NOT bolt it onto the public `submit`.
-- **Fix the permission-ordering carry-forward (CR-02)** here: existing methods call `current_user_id()` BEFORE `check_permission()` (`application.rs:287-294`). New upload/carryover methods must check permission first (extract the planned `gen_auth_admin!` helper) to avoid the documented side-channel + `"SYSTEM"` audit-fallback smell.
-- Enforce a max upload size (Axum `DefaultBodyLimit` / multipart field limit) and reject early.
-- Validate the file type by **content sniffing**, not the client `Content-Type` or extension (check magic bytes; allow PDF + common image types only). Store the validated/normalized mime, not the client-claimed one.
-- **Never put the client filename in the storage path.** Generate a server-side UUID path (the codebase already uses `static_documents/<uuid>` and `MemberDocument.relative_path` conventions). `FilesystemDocumentStorage::full_path` has path-clean traversal protection (`document_storage.rs:25-59`) — rely on it, but still derive the path from a UUID, keeping the original filename only as the display `file_name`.
+Use the established pattern: `div` + `onclick` + `r#type: "button"` (never a submitting form); disable the send button while the request is in flight and after success; show the created job id as confirmation (ties to Pitfall 3). Optionally block re-send of an identical reminder within a short window at the service layer.
 
 **Warning signs:**
-Upload reachable without a session; 100 MB upload OOMs the server; a `.pdf` that is actually HTML/JS; storage paths containing user-controlled segments.
+`form { onsubmit: ... }` in the compose dialog; send button that stays enabled during the request; two identical mail jobs for one applicant in `get_jobs`.
 
-**Phase to address:** Application-document phase (upload sub-feature) — and it is the right place to land the CR-02 `gen_auth_admin!` fix.
+**Phase to address:** P-FE (mostly) + P-SEND (optional dedup)
 
 ---
 
-### Pitfall 10: WYSIWYG ↔ Dioxus signal desync and paste-from-Word junk
+### Pitfall 10: Adding a field to the audited `ApplicationEntity` (e.g. `last_reminded_at`) ripples into the audit hash-chain and breaks locked tests
 
 **What goes wrong:**
-`contenteditable` maintains its own DOM; Dioxus owns a virtual DOM driven by signals. If you bind `contenteditable` naively and also write the signal back on every `oninput`, Dioxus re-renders and resets the caret to position 0 (classic contenteditable cursor jump), or the editor and signal diverge so the body that gets sent ≠ what the board saw. Pasting from Word/Outlook injects huge `<o:p>`, `mso-` styles, `<font>`, nested `<span style>` garbage that bloats the stored body and defeats narrow sanitization.
+`ApplicationEntity` implements `Auditable` and `audit_fields()` returns exactly 11 fields; `test_auditable_fields_count` asserts `len == 11` (application.rs:69–92, 173). If someone tracks reminder state by adding a column to `Application` (e.g. `last_reminded_at`, `reminder_count`), they must (a) decide whether it belongs in `audit_fields()`, (b) update the locked count test, and (c) accept that every reminder now writes audit-log rows on a Member/Application-audited entity — noise in the verband-facing audit trail. The constraint is explicit: **new mail/communication entities are NOT audited; existing audited entities keep the macros.**
 
 **Why it happens:**
-contenteditable is notoriously hard to make declarative; Dioxus's reactive model fights the browser's direct DOM mutation. This bites EVERY contenteditable integration.
+"Just add a column to Application" is the path of least resistance for reminder bookkeeping, but Application is audited and mail entities deliberately are not.
 
 **How to avoid:**
-- Do not round-trip the signal into the DOM on every keystroke. Read the editor's HTML on demand (on blur / before submit) rather than two-way binding every input.
-- Follow the existing Dioxus button/reload lesson (`r#type: "button"` + onclick, never form-submit — project memory `feedback_dioxus_button_type.md`) so the editor's toolbar buttons don't reload the page.
-- Strongly consider a small, battle-tested JS editor (lightweight contenteditable lib) wrapped as ONE Dioxus component (Component-First — `genossi-frontend/src/component/`), with a clean `value`/`onchange` boundary, rather than hand-rolling contenteditable in RSX.
-- Clean paste: strip on paste (or rely fully on the server ammonia gate to discard `mso-`/`<font>`/`style` — ensure the ammonia config strips `style` and `class` unless explicitly needed).
-- Accessibility: provide labels, keyboard operability for toolbar, and an HTML/source fallback; contenteditable without ARIA is unusable for screen readers.
+Keep reminder/communication state **out** of `ApplicationEntity`. Track it on the (non-audited) `mail_recipients`/`mail_jobs` rows via the new `application_id` linkage. Do not touch `audit_fields()` unless a genuinely audit-worthy application attribute is added — and then update the lock test deliberately.
 
 **Warning signs:**
-Caret jumps to start while typing; sent body differs from on-screen; stored bodies balloon to tens of KB after a paste; toolbar click reloads the page.
+New nullable columns on `application`; `test_auditable_fields_count` edited to a new number; audit-verify output showing reminder events on `application` entities.
 
-**Phase to address:** WYSIWYG phase.
+**Phase to address:** P-HIST (data-model decision)
 
 ---
 
-### Pitfall 11: Missing List-Unsubscribe and bulk-send deliverability hygiene
+### Pitfall 11: Optimistic-lock version handling on any application write path (documented footgun from Plan 25-05)
 
 **What goes wrong:**
-The system does **bulk** sends (Massenmail to members; `worker.rs` loops recipients). HTML bulk mail without `List-Unsubscribe` (and ideally `List-Unsubscribe-Post` for one-click) scores higher as spam and, for larger lists, risks the configured relay's reputation. Long HTML lines (>~990 chars, common in WYSIWYG output) violate RFC 5322 line-length limits and, on a non-8BITMIME path, force re-encoding or get the message rejected.
+`update_application` requires `entity.version == update.version` (application.rs:654) and the DAO uses the **old** version in the optimistic-lock WHERE clause while generating a fresh v4 internally as the new version. The `confirm()` code carries an explicit warning comment (application.rs:496–502): passing a *new* UUID as the version to a DAO `update` makes every write blow up with `ConflictError("Version mismatch")` → 409. Any new application-side write introduced for v1.6 (unlikely if Pitfall 10 is heeded, but e.g. an "email edited before send" flow) that mishandles the version repeats this bug.
 
 **Why it happens:**
-Transactional-mail mindset carried into bulk; lettre won't add `List-Unsubscribe` for you; WYSIWYG emits unwrapped long lines.
+The "pass old version, DAO bumps it" convention is codebase-wide but non-obvious; it already bit the team once in e2e Plan 25-05.
 
 **How to avoid:**
-- Add `List-Unsubscribe` (mailto and/or URL) on bulk jobs. For a small cooperative an unsubscribe *mailbox*/contact may suffice operationally, but the header still helps deliverability.
-- Ensure the HTML part uses a transfer encoding that handles long lines safely (quoted-printable wraps automatically; if you choose 8bit per Pitfall 2, confirm the relay accepts long lines or wrap them).
-- This is a deliverability hygiene item, not a correctness blocker — but flag it so the roadmapper doesn't ship HTML bulk mail blind.
+If v1.6 adds no application write, this is moot — prefer that. If it does, follow the convention: pass the loaded entity's existing `version` to `update`; let the DAO mint the new one. Reuse the `update_application` version-check pattern verbatim.
 
 **Warning signs:**
-Mails landing in spam after the HTML switch; relay rate-limiting/reputation warnings; `data` command errors on long-line messages.
+Spurious 409s on save; a hand-set `version = new_v4()` right before a DAO `update`.
 
-**Phase to address:** HTML-mail backend phase (headers) — verify during the HTML send phase's UAT against a real client.
+**Phase to address:** P-SEND (only if an application write is added)
+
+---
+
+### Pitfall 12: Frontend — reusing member-bound `mail_compose` var-buttons and member API fns for applications
+
+**What goes wrong:**
+Two mismatches when maximizing reuse (a stated v1.6 goal):
+1. `component/mail_compose/template_var_buttons.rs` / `template_selector` / `template_tester` present **member** variables. Dropped onto an application compose dialog, they let the Vorstand insert `{{ member_number }}`/`{{ current_shares }}` that are undefined in application context → strict-render failure at send (Pitfall 1).
+2. `api.rs` is entirely `/api/members/{member_id}/...` shaped (fetch actions/documents/communications). There is no application-mail or application-communications client fn; reusing member fetchers silently hits the wrong URL. New endpoints are `POST /api/applications/{id}/mail` and `GET /api/applications/{id}/communications`.
+Conversely, `CommunicationTimeline(entries: Vec<CommunicationEntryTO>)` (communication_timeline.rs:8) is **already decoupled** — it takes entries as a prop, so it *is* reusable as-is; the risk there is only that inbound rows can't exist for applications (assignment is member-only via `assigned_member_id`), so the application timeline is outbound-only — fine, but don't build inbound UI expecting data.
+
+**Why it happens:**
+"Maximum reuse of `mail_compose/` and `communication_timeline`" (PROJECT.md) is the plan; the timeline is genuinely reusable, which lulls one into assuming the var-buttons and API layer are too.
+
+**How to avoid:**
+- Give the compose dialog an **application variable set** (subset that exists in application context). If the template pool is shared, filter the var-buttons by context.
+- Add dedicated `api.rs` fns for the two new application endpoints; do not reroute member fns.
+- Reuse `CommunicationTimeline` directly (prop-based); expect outbound-only entries.
+- Follow Pitfall 9's `div`+`onclick`+`r#type:"button"` and the Component-First rule (extract, don't inline-duplicate the compose block onto the application detail page — `component/application_detail.rs` already exists to host it).
+
+**Warning signs:**
+Member variable buttons on an application dialog; application compose calling `/api/members/...`; inline-copied compose RSX on the application page instead of a shared component.
+
+**Phase to address:** P-FE
 
 ---
 
@@ -247,116 +253,89 @@ Mails landing in spam after the HTML switch; relay rate-limiting/reputation warn
 
 | Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
 |----------|-------------------|----------------|-----------------|
-| Sanitize HTML only in the WASM frontend | Fast; no new Rust dep | Stored XSS via direct API calls; security boundary bypassed | Never — server-side ammonia is mandatory |
-| Reuse `strict_env()` for HTML bodies | One render path | Unescaped member PII/markup in mail + previews | Never for HTML; keep it for plain text |
-| Enable 8bit globally, no config flag | Simpler code | Corrupted umlauts / rejects on non-8BITMIME relays; production regression | Never — must be opt-in with QP default |
-| `save()` the carryover file inside the DB tx | Looks atomic | Orphan files on rollback; or 404 docs | Never — order FS-before-DB with rollback cleanup |
-| Use client filename in storage path | Preserves name | Path traversal; collisions | Never — UUID path, filename as display only |
-| Trust client `Content-Type` for uploads | Less code | Spoofed executables stored as "PDF" | Only with content sniffing added later (track as debt) |
-| Skip plain-text alternative (HTML-only) | Half the authoring | Spam score, a11y, audit-record regression | Never |
-| Hand-roll contenteditable in RSX | No JS dep | Caret bugs, signal desync, paste junk, a11y gaps | Prototype only; productionize as a wrapped component |
-| Keep `current_user_id()` before `check_permission()` in new upload methods | Matches existing code | Carries forward CR-02 side-channel + SYSTEM-audit smell | Never in new code — fix via `gen_auth_admin!` |
+| Reuse `member_id` column for applications (skip new column) | No migration; timeline "just works" | Poisons member namespace; `find_sent_member_ids_by_job_id` returns non-members; forensically indistinguishable mails | **Never** |
+| Copy `send_confirmation_mail` verbatim for the reminder | Fast; "reference code" | Swallows all errors → 200-OK-but-not-sent for a financially significant mail | **Never** for user-triggered send |
+| Shared member+application template pool | One template list, less UI | Every member-only var is a strict-render bomb for application sends | Only with context-filtered var-buttons + dual-context validation |
+| Track reminder state on `ApplicationEntity` | One place, familiar | Audit-chain noise + breaks locked field-count test | **Never** — use non-audited mail rows |
+| Format euro inline per call site | Trivial | Confirmation mail (`… €`) and template vars (`X,YZ`, no €) diverge | Only if a single shared formatter is used everywhere |
+| Inline the compose block on the application detail page | Skip a component | Violates Component-First; RSX duplication vs. member compose | **Never** (rule in CLAUDE.md) |
 
 ## Integration Gotchas
 
 | Integration | Common Mistake | Correct Approach |
 |-------------|----------------|------------------|
-| lettre 0.11 SMTP | Assuming it negotiates/downgrades 8BITMIME | It does not; choose encoding at build time, gate 8bit behind relay capability/config |
-| lettre MultiPart | Flattening html as sibling of attachments under `mixed` | Nest `alternative(plain,html)` inside `mixed` with attachments; plain part first |
-| lettre SinglePart | Dropping the explicit `charset=utf-8` on the plain part | Keep `SinglePart::plain` (preserves charset; guarded by tests `worker.rs:978`,`:1062`) |
-| minijinja 2.x | Expecting autoescape from `template_from_str` | Name-less templates are NOT auto-escaped; set an explicit HTML autoescape env |
-| ammonia | Default allowlist too permissive (allows `img`, `class`, remote refs) | Restrict to editor's tags; allowlist url schemes to http/https/mailto; strip `style`/`on*` |
-| Axum multipart | No body-size limit; buffering full upload in memory | `DefaultBodyLimit` + size check; validate before persist |
-| FilesystemDocumentStorage | Assuming FS write joins the SQLite tx | It doesn't; sequence FS-then-DB with rollback cleanup; verify file loadable before row commit |
-| Dioxus `dangerous_inner_html` | Feeding inbound/user HTML directly | Only server-sanitized HTML; default to escaped `{text}` |
-| IMAP inbound `raw_html_body` | Rendering attacker-controlled HTML to look feature-complete | Keep `body_text` default; sanitize + sandbox if HTML display is truly required |
+| minijinja strict-env | `{% if payout_amount %}` to guard an undefined var | Use `{% if X is defined %}` (strict errors on plain `{% if undefined %}`) |
+| `config_service.get("share_value_cents")` | Assume present/parseable; use in a `()`-returning path | Propagate `ConfigMissing`/parse errors as `ServiceError` to the caller |
+| `mail_recipients` SQL (hand-written, ~5 copies) | Update one column list, miss the others | Grep all `mail_recipients` strings; update in one commit; add a round-trip test |
+| `application.email` | Treat as always-present `String` | It is `Option<Arc<str>>`; None → 400, never silent success |
+| Salutation in templates | New enum mapping for applications | Reuse `Salutation::as_str()` (same type) so `== "Herr"/"Frau"` templates stay compatible |
 
-## Performance Traps
-
-| Trap | Symptoms | Prevention | When It Breaks |
-|------|----------|------------|----------------|
-| Buffering large uploads fully in memory | RAM spike per upload | Body-size limit; reject early | A single multi-MB scan on a small self-hosted box |
-| ammonia-sanitizing on every render in the bulk loop | Slower per-recipient send | Sanitize once on write; render is already per-recipient (`worker.rs` loop) | Large repayment bulk sends (hundreds of members) |
-| HTML body bloat from paste-from-Word | Multi-KB rows; bigger mails | Strip on paste + ammonia `style`/`class` removal | After board pastes formatted Word content |
-| Re-reading application file from disk per carryover unnecessarily | Extra IO at activation | Single read; one copy | Negligible at this scale, but avoid in a loop |
-
-## Security Mistakes
+## Security / Privacy Mistakes
 
 | Mistake | Risk | Prevention |
 |---------|------|------------|
-| No server-side HTML sanitization | Stored XSS in the highest-trust admin app (PII/IBAN/audit access) | Mandatory ammonia gate at service/REST write |
-| Rendering inbound mail HTML unsanitized | XSS from anyone who can email the co-op | Sanitize server-side; prefer text; sandbox if rendered |
-| `javascript:`/`data:` URIs in links | Script execution / phishing via stored links | ammonia url-scheme allowlist (http/https/mailto only) |
-| Public/unauthenticated file upload | DoS, malware storage | Admin-only endpoint; auth before side effects |
-| Client filename in storage path | Path traversal / overwrite | UUID-based server path; rely on `full_path` clean-check |
-| Content-Type spoofing | Executable stored as PDF | Magic-byte sniffing; store validated mime |
-| Member data unescaped in HTML mail | Injection / mail corruption / phishing | minijinja HTML autoescape for variables |
-| New upload code repeats CR-02 ordering | Permission side-channel + `"SYSTEM"` audit attribution | Check permission before `current_user_id`/work (`gen_auth_admin!`) |
-| Carryover not audited | Document on member with no audit trail (Application/MemberDocument are audited) | Use `audited_create!` in the activation cascade |
+| Reminder to `Abgelehnt`/withdrawn applicant | Unlawful send (no Art. 6(1)(b) basis) | Status guard: default-allow only `Offen` |
+| Shared pool exposes member financial fields to application render | PII leak / data-minimization breach | Application context excludes bank/balance fields |
+| Preview/test emails the applicant's stored address | Unintended send to data subject | Explicit operator-supplied test address only (mirror member rule) |
+| Endpoint not Vorstand-gated | Applicant PII exposed | Gate on `MANAGE_MEMBERS_PRIVILEGE` like other application methods |
 
 ## UX Pitfalls
 
 | Pitfall | User Impact | Better Approach |
 |---------|-------------|-----------------|
-| Caret jumps while typing in editor | Board can't write a mail | Don't two-way-bind contenteditable per keystroke |
-| Toolbar button reloads page | Lost draft (project has a history of this exact bug) | `r#type:"button"` + onclick, never form-submit |
-| HTML preview differs from what recipients see | Board sends mis-formatted mail | Render preview through the SAME server render+sanitize path |
-| No plain-text fallback shown to plain clients | Some members see blank/garbled mail | Always generate real plain text |
-| Inbound HTML mail shows nothing or raw tags | Board can't read replies | Show sanitized HTML or fall back to `body_text` (current behavior) |
-| Editor not keyboard/screen-reader accessible | Excludes some board members | ARIA labels, keyboard toolbar, source fallback |
+| No send confirmation (silent no-send) | Vorstand thinks reminder went out; applicant never paid-chased | Return + display the created `MailJob` id/status |
+| Double-click / form-reload double send | Duplicate reminders to applicant | Disable-on-pending + `div`+`onclick`+`r#type:"button"` |
+| Empty member timeline after confirm | "We never contacted them" despite reminders sent | Carry history over (Pitfall 4) with an e2e test |
+| "Please pay 0,00 €" for 0-share edge | Nonsensical reminder | Guard `shares <= 0` before send |
 
 ## "Looks Done But Isn't" Checklist
 
-- [ ] **HTML mail:** Often missing the text/plain alternative — verify both parts present and ordered plain-then-html in `email.formatted()`.
-- [ ] **HTML escaping:** Often missing variable escaping — verify a member named `<script> & Co` renders as `&lt;script&gt; &amp;` in the HTML body.
-- [ ] **Sanitization:** Often only in frontend — verify `POST` of `<img src=x onerror=alert(1)>` to the template/job API is stripped server-side.
-- [ ] **8bit:** Often missing relay-capability gate — verify default stays quoted-printable and 8bit is config-opt-in; confirm relay 8BITMIME before enabling.
-- [ ] **Upload:** Often missing size limit + content sniffing — verify oversized and spoofed-type uploads are rejected; auth required.
-- [ ] **Storage path:** Often uses client filename — verify path is UUID-derived and traversal attempts return `ValidationError`.
-- [ ] **Carryover atomicity:** Often leaves orphans/404s — verify rollback leaves no dangling DB row, and a confirmed app's document downloads.
-- [ ] **Re-confirm:** Often duplicates — verify second confirm returns Conflict and produces no second document.
-- [ ] **Audit:** Often skipped for carryover — verify an `audited_create!` entry exists for the member document linked to the activation process string.
-- [ ] **Backward compat:** Often regresses plain text — verify existing plain templates, the application confirmation mail (`application.rs:108`), the digest worker, and reply mails still send as before with default config.
-- [ ] **List-Unsubscribe:** Often absent on bulk — verify header present on bulk HTML jobs.
-- [ ] **dangerous_inner_html:** Often un-audited new call sites — grep for new uses and confirm each is fed only server-sanitized data.
+- [ ] **Template rendering:** works for a normal applicant — verify it does NOT error on a template referencing a member-only var (strict-env), and that `{% if X is defined %}` guards are documented for authors.
+- [ ] **Outstanding amount:** verify `shares = 0`, negative, and > 1000-euro inputs; verify € format matches the confirmation mail.
+- [ ] **Timeline linkage:** verify an application reminder appears in the applicant timeline AND (post-`confirm`) in the resulting member's timeline.
+- [ ] **Status guard:** verify send is blocked/warned for `Abgelehnt` and `Bestaetigt`, and impossible for soft-deleted applications.
+- [ ] **Send confirmation:** verify the handler distinguishes "queued" from "config missing / no email" (no silent 200).
+- [ ] **Idempotency:** verify double-click produces one job, not two; verify no `form onsubmit` reload.
+- [ ] **Migration:** verify `application_id` is nullable, legacy member rows still send, and every `mail_recipients` SQL list is updated.
+- [ ] **Audit untouched:** verify no new audit-log rows on `application` for a reminder; `test_auditable_fields_count` still 11.
 
 ## Recovery Strategies
 
 | Pitfall | Recovery Cost | Recovery Steps |
 |---------|---------------|----------------|
-| Stored XSS in templates/jobs | MEDIUM | Add ammonia gate; one-time sanitize sweep of existing stored bodies; audit who could have injected |
-| 8bit corrupting mail in production | LOW | Flip config back to quoted-printable (default); resend affected mails |
-| Orphaned files | LOW | Reconciliation job: list `documents/` vs `MemberDocument.relative_path`; delete unreferenced |
-| 404 documents (row without file) | MEDIUM | Identify rows whose `load()` fails; re-derive from source application file or soft-delete + re-carry |
-| Duplicate carryover | LOW | Soft-delete the duplicate `MemberDocument` (existing soft-delete pattern) |
-| HTML-only mail in spam | LOW | Add text/plain part + List-Unsubscribe; warm relay reputation |
-| contenteditable desync shipping wrong bodies | MEDIUM | Switch to read-on-submit; add test comparing editor output to payload |
+| `member_id` overloaded with app ids (shipped) | HIGH | Migration to move ids to new `application_id`; scrub member timelines; audit `find_sent_member_ids_by_job_id` consumers |
+| Silent no-send in production | MEDIUM | Add error propagation + return job status; re-send affected reminders once identified from logs |
+| History doesn't carry over (shipped) | MEDIUM | Back-fill `mail_recipients.member_id` for converted applications by matching `application_id` → member link |
+| Strict-render failures on shared pool | LOW | Split application template type OR add `is defined` guards + context-filtered var-buttons |
+| Negative/zero-share formatting bug | LOW | Add `format_eur_de` with sign/zero handling + tests |
 
 ## Pitfall-to-Phase Mapping
 
 | Pitfall | Prevention Phase | Verification |
 |---------|------------------|--------------|
-| 8bit without 8BITMIME (P2) | 8bit-encoding phase (first) | Config defaults to QP; encoding-mode tests pass; relay 8BITMIME confirmed |
-| Unescaped member data in HTML (P1) | HTML-mail backend phase | Test: malicious member name appears escaped |
-| Broken multipart nesting (P3) | HTML-mail backend phase | `email.formatted()` shows `alternative` in `mixed`, plain-first |
-| Missing text fallback (P4) | HTML-mail backend + WYSIWYG | Non-empty text/plain part asserted |
-| No server-side sanitization (P5) | HTML-mail backend phase | API injection test stripped; ammonia config reviewed |
-| `dangerous_inner_html` XSS (P6) | WYSIWYG/preview (+ inbox-HTML if scoped) | Grep call sites; `<script>` email doesn't execute |
-| Orphan/partial carryover (P7) | Application-document phase | Rollback test: no dangling row; doc downloads |
-| Duplicate carryover (P8) | Application-document phase | Re-confirm → Conflict, 1 doc |
-| Unauthenticated/unsafe upload (P9) | Application-document phase | Auth required; size/type/path tests; CR-02 ordering fixed |
-| contenteditable desync / paste junk (P10) | WYSIWYG phase | Caret/typing test; sent==shown; paste sanitized |
-| Missing List-Unsubscribe / long lines (P11) | HTML-mail backend phase | Header present; real-client deliverability check |
-| Plain-text backward-compat regression (cross-cutting) | Every phase (UAT gate) | Existing plain mails/digest/reply unchanged with default config |
+| 1 Member-typed context / strict-env | P-TMPL | Render test: application template with member-only var fails loudly; application context renders Anrede correctly |
+| 2 Fake `member_id` | P-HIST | No application id in `member_id`; member timeline excludes application mails |
+| 3 Silent no-send | P-SEND | Handler returns job id; config-missing → error, not 200 |
+| 4 History carry-over | P-HIST + P-SEND | E2E: reminder → confirm → visible in member timeline |
+| 5 Status guard | P-SEND | Unit: send to `Abgelehnt`/`Bestaetigt`/deleted rejected |
+| 6 Migration/column | P-HIST | `application_id` nullable; all `mail_recipients` SQL updated; round-trip test |
+| 7 Amount arithmetic | P-AMT | Unit: 0, negative, >1000€; format matches confirmation |
+| 8 DSGVO basis/minimization | P-SEND + P-TMPL | Status-gated; context has no financial fields; test-send uses explicit address |
+| 9 Duplicate send / reload | P-FE (+P-SEND) | Double-click → one job; no `form onsubmit` |
+| 10 Audit ripple | P-HIST | No audit rows on `application`; field-count test intact |
+| 11 Optimistic-lock version | P-SEND (if app write added) | No spurious 409; old-version convention followed |
+| 12 Frontend member-bound reuse | P-FE | App var-button set; dedicated app API fns; timeline reused via prop |
 
 ## Sources
 
-- This repository (HIGH): `genossi_mail/src/worker.rs` (send path, encoding tests, audited MemberDocument), `genossi_mail/src/render.rs` + `template.rs` (minijinja `strict_env`, no autoescape), `genossi_service_impl/src/document_storage.rs` (path-clean traversal guard), `genossi_service_impl/src/application.rs` (confirm() activation cascade, PUBLIC submit, CR-02 ordering), `genossi_mail/src/inbox.rs` (`raw_html_body`/`has_html_body`), `genossi-frontend/src/page/inbox_page.rs` + `component/qr_card.rs` + `component/mail_recipient_rendered_content.rs` (`dangerous_inner_html` usage), `Cargo.toml` (lettre 0.11, no ammonia).
-- `.planning/PROJECT.md` (HIGH): v1.4 goal, constraints, CR-02 carry-forward, soft-delete/audit/Component-First patterns.
-- Project memory (HIGH): `feedback_dioxus_button_type.md` (button-reload bug), `feedback_component_first.md`.
-- lettre 0.11 behavior re: 8BITMIME non-negotiation and build-time transfer encoding (MEDIUM — based on library design; verify against the configured production relay before enabling 8bit).
-- General mail/MIME/XSS domain knowledge: MIME multipart/alternative ordering, RFC 5322 line limits, List-Unsubscribe, ammonia allowlisting (MEDIUM-HIGH).
+- `genossi_service_impl/src/application.rs` — `send_confirmation_mail` (amount/config/`member_id: None` reference), `confirm()` (new-member minting, optimistic-lock warning comment, status guards), `Auditable` field-count lock — HIGH
+- `genossi_mail/src/template.rs` — `member_to_template_context`, `validate_template`, strict-env + `is defined` locked tests, `merge_repayment_context` euro formatting, test-send privacy note — HIGH
+- `genossi_mail/src/dao_sqlite.rs` — `get_member_communications` UNION query (`WHERE r.member_id`, soft-delete filters), duplicated `mail_recipients` column lists — HIGH
+- `genossi_mail/src/service.rs` — `create_job` signature, `RecipientInput.member_id`, explicit-address privacy rule — HIGH
+- `genossi_dao/src/application.rs` — `ApplicationStatus` (Offen/Bestaetigt/Abgelehnt, no payment field), `Auditable` impl, soft-delete filtering in `all`/`find_by_id` — HIGH
+- `genossi-frontend/src/component/{communication_timeline.rs, mail_compose/*}`, `api.rs` — prop-based timeline reuse, member-shaped var-buttons/API — HIGH
+- Project memory: `dioxus-form-onsubmit-page-reload`; PROJECT.md constraints (audit rules, DSGVO whitelist, forward-only SQLite, open design questions) — HIGH
 
 ---
-*Pitfalls research for: HTML/8bit mail + WYSIWYG + application-document carryover in Genossi (Rust/Axum/SQLite + Dioxus-WASM)*
-*Researched: 2026-06-29*
+*Pitfalls research for: applicant-email + reminder-templates + per-applicant communication history (genossi v1.6)*
+*Researched: 2026-08-12*

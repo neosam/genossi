@@ -1,175 +1,150 @@
 # Project Research Summary
 
-**Project:** Genossi v1.4 — Mail-Formatierung & Antrags-Dokumente
-**Domain:** HTML mail formatting (8bit + multipart/alternative), WYSIWYG editor (Dioxus/WASM), HTML sanitization, Application file upload with audited carryover
-**Researched:** 2026-06-29
+**Project:** Genossi — Milestone v1.6 "Antragsteller-Kommunikation"
+**Domain:** Applicant-facing transactional email (payment reminders) in an existing layered Rust/Axum/SQLx/SQLite + Dioxus-WASM member-management app
+**Researched:** 2026-08-12
 **Confidence:** HIGH
 
 ## Executive Summary
 
-Genossi v1.4 adds HTML mail composition and application file storage to an existing Rust/Axum/SQLite + Dioxus-WASM cooperative management system. The research is grounded entirely in the existing codebase — almost everything needed is already present: `lettre 0.11` for MIME multipart, `axum` multipart feature, `web-sys`/`js-sys`, a fully componentized mail-compose UI, and a proven `DocumentStorage` + upload pattern in `member_document.rs`. The net new production dependency is exactly one crate: `ammonia 4.1` for server-side HTML sanitization.
+This milestone is pure integration work, not greenfield. Genossi already has a complete, battle-tested mail subsystem - a template engine (minijinja), a mail queue+worker, a per-member communication timeline, and even the exact precedent for sending mail to a not-yet-member (`send_confirmation_mail`, which already sends to an `Application` with `member_id: None`). The job for v1.6 is to generalize that one existing path into a user-triggered, single-send "E-Mail senden" action on the Application-Detail page, backed by a new `application_id` linkage so a per-applicant communication history can exist. No new crates, no version bumps - the stack conclusion is literally "add nothing."
 
-The recommended approach is a four-phase sequential build for mail features (P1 -> P2 -> P3) with the application-document track (P4) running independently and parallelizable. P1 extracts a shared `mail_body.rs` helper that forces 8bit encoding across all three current send paths, eliminating quoted-printable `=` soft-breaks while fixing an existing charset bug in `service.rs`. P2 wires HTML mail backend: new nullable `body_html` columns, a separate HTML-autoescaping minijinja environment, server-side ammonia sanitization, and `multipart/alternative` emission. P3 replaces the existing `body_editor.rs` textarea with a `contenteditable`+`execCommand` component using the already-present `web-sys`. P4 adds a `MemberDocument`-mirrored `application_documents` entity, upload endpoint, and an audited carryover cascade inside the existing `confirm()` transaction.
+The domain itself is narrow and legally anchored: an applicant who has signed a Beitrittserklärung already has a contractual obligation to pay their Geschäftsanteil (§§ 15/15a GenG), so a payment reminder about *their own declared payment* is lawful under Art. 6(1)(b) DSGVO without separate consent - but only while their status is `Offen`, and only about their own obligation. This content-scoping is the single most important boundary: it rules out bulk sends, auto-dunning, tracking, newsletters, and anything not tied to the applicant's own application. The feature set is deliberately small: single compose-and-send, reusable applicant-context templates, a computed (never stored) "offener Betrag," and a communication timeline - all built by threading `application_id` through the mail path exactly as `member_id` already flows.
 
-The three open questions requiring explicit decisions before implementation: (a) whether the production SMTP relay advertises `8BITMIME` (determines whether 8bit can be the default or must be config-opt-in with quoted-printable fallback); (b) the plain-text fallback strategy (research recommends keeping the existing authored `body` as the text part, with HTML additive, avoiding `html2text`); and (c) the `DocumentType` for the carried-over application file (recommend `Other` with description "Originaler Mitgliedsantrag" to avoid collision with the `JoinDeclaration` singleton guard).
+The main risk is not "can we build this" but "will we quietly copy the wrong parts of the existing member-mail machinery." Research surfaced two load-bearing hazards: (1) the current template context/validator is hard-typed to `MemberEntity` with strict-undefined rendering, so an application-context render must get its own context builder and validator, not a copy with fields deleted; and (2) history does **not** automatically carry over when an applicant is confirmed into a member - `confirm()` mints a brand-new member UUID with no link back to the application, so the linkage design decided in the DAO/schema phase must explicitly solve carry-over (back-fill at confirm, union-at-read, or a stored link), or the Vorstand loses reminder history at the exact moment it matters. Everything else (status-guard against reminding rejected/converted applicants, `Result`-returning send instead of the silent-`()` confirmation-mail pattern, correct euro-cent arithmetic, and Component-First frontend reuse) is well-understood and low-risk, following established codebase conventions.
 
 ## Key Findings
 
 ### Recommended Stack
 
-No new framework and no JS libraries are required. All MIME work uses `lettre 0.11` (already present) via explicit `SinglePart::builder().header(ContentTransferEncoding::EightBit)` construction — the convenience constructor `MultiPart::alternative_plain_html()` MUST NOT be used because it silently reverts to quoted-printable. The WYSIWYG editor uses `web-sys`/`js-sys` (already present) via `document.execCommand` and requires zero new frontend dependencies. File upload reuses the `axum` multipart feature (already active) and `DocumentStorage` trait.
+**Add nothing.** All required capabilities are pure reuse of dependencies already present: `minijinja = "2"` for templates (add a sibling `application_to_template_context` next to `member_to_template_context`), `sqlx = "0.8"` for a schema migration adding a nullable `application_id BLOB` to `mail_recipients` (mirrors existing nullable `member_id`), `lettre`/the existing worker for delivery (untouched), and `dioxus = "0.6.3"` + existing `mail_compose/` + `communication_timeline.rs` components for the frontend. The only infrastructure change in the entire milestone is one SQL migration plus `cargo sqlx prepare`.
 
-**Core technologies:**
-- `lettre 0.11` (existing): 8bit encoding + `multipart/alternative` — controlled via explicit `SinglePart::builder()`, NOT `MultiPart::alternative_plain_html()`
-- `ammonia 4.1` (NEW, backend only): server-side HTML sanitization — whitelist-based, default config matches the editor's tag set; NEVER compiled to WASM; requires `rustc >= 1.80` (verify Nix toolchain)
-- `web-sys`/`js-sys` (existing, frontend): `contenteditable` + `execCommand` WYSIWYG editor — `styleWithCSS` must be disabled before editing so browser emits semantic tags (`<b>`,`<i>`) not `<span style>` (which ammonia would strip)
-- `axum` multipart (existing): application file upload — identical pattern to `member_document.rs:115`
-- `minijinja 2.x` (existing): dual-render with separate environments — existing `strict_env()` for text/subject (unchanged), new HTML-autoescape env for HTML body only
+**Core technologies (unchanged versions, reused as-is):**
+- minijinja `2` - subject/body rendering; context-agnostic, only needs a new context-builder function
+- sqlx `0.8` - new nullable column + one new UNION-style query, cloning `get_member_communications`
+- axum + utoipa `0.8.3`/`5.0` - two new routes following existing handler/OpenAPI patterns
+- dioxus `0.6.3` - new compose dialog assembled from existing building blocks, no new UI library
 
 ### Expected Features
 
-**Must have (table stakes):**
-- 8bit Content-Transfer-Encoding on all send paths (shared `mail_body.rs` helper) — direct user complaint
-- `multipart/alternative` with correct MIME nesting: `mixed(alternative(plain, html), attachments...)`
-- Separate minijinja HTML-autoescape environment — member variables escaped, template markup literal
-- Server-side ammonia sanitization at write (template/job create+update), ammonia gate mandatory before WYSIWYG phase ships
-- WYSIWYG editor: bold, italic, bullet list, numbered list, link insert — replaces `body_editor.rs` textarea; Component-First (one reusable component shared by compose + reply flows)
-- Real plain-text fallback always present in multipart (spam/accessibility/audit requirement) — existing authored `body` is the text part
-- Application single-file upload (PDF) stored via `DocumentStorage` in `application_documents` table (NOT DB BLOB)
-- Audited carryover of application file to `MemberDocument` on `confirm()` — same transaction as existing Member/MemberAction/Application cascade; uses `audited_create!`
-- Attachment view/download on Application detail page
-- CR-02 permission-ordering fix in all new upload/carryover methods (`check_permission()` before `current_user_id()`)
+**Must have (table stakes, v1.6 launch scope):**
+- Single transactional email to one Application (`recipient = application.email`), admin-only, via `POST /api/applications/{id}/mail`
+- Compose dialog reusing `mail_compose/` + WYSIWYG - no forked UI
+- Reusable applicant templates (Anrede, Name, Titel, Anzahl Anteile, offener Betrag) via `application_to_template_context`
+- "Offener Betrag" computed on the fly (`shares × share_value_cents`) - never stored on Application
+- Per-applicant communication timeline (`application_id`-linked), `GET /api/applications/{id}/communications`, reusing `communication_timeline.rs` unmodified
+- Prominent "last email sent on ..." display - the core anti-spam/anti-duplicate guardrail
+- Confirm-before-send + live preview with resolved placeholders
+- Graceful "no email address" handling (disabled/annotated button, never silent failure)
+- One shipped default German "Zahlungserinnerung" template
 
-**Should have (competitive):**
-- Paste-from-Word cleanup (strip `mso-`/`style`/`class`/`font` on paste) — high real-world value for non-technical board
-- Saved HTML templates (extend existing template store to hold `body_html`; autoescape work is already done)
+**Should have (v1.x follow-up, not this milestone):** template/subject recorded on the timeline entry; body snapshot / deep-link to exact sent content; second-tier reminder template variants.
 
-**Defer (v2+):**
-- Branding/letterhead + inline CID images (`multipart/related` — significant MIME complexity)
-- Multiple files per Application (design table to allow it, ship single-file first)
-- HTML inbox digest (trivial once `multipart/alternative` helper exists)
-- Drag-and-drop email builder (explicit anti-feature for this product)
+**Explicit anti-features (out of scope, push back if requested):** bulk/mass reminder to all "Offen" applicants; automated dunning schedule/auto-escalation; open/click tracking pixels; newsletter/marketing content to applicants (§7 UWG risk); formal legal Mahnung mechanics (Verzug/interest/fees); a stored payment-status field on Application; attachments/generated PDFs to applicants; free-text arbitrary-recipient mailer; reply/inbox threading into the applicant timeline.
 
 ### Architecture Approach
 
-The milestone is an integration exercise within the existing DAO -> Service -> REST -> Frontend layer pattern. All new components follow established patterns: `mail_body.rs` is a pure sync module; `application_documents` entity mirrors `MemberDocument` shape exactly; the upload endpoint mirrors `member_document.rs:115`; and the activation carryover extends `ApplicationServiceImpl::confirm()` using `audited_create!` inside the existing single transaction.
+Thread `application_id` through the existing mail pipeline exactly the way `member_id` already flows, without touching the working member path. `RecipientInput`/`MailRecipient` gain a sibling nullable `application_id: Option<Uuid>` (never overload `member_id`). A new `ApplicationService::send_mail` mirrors the proven `send_confirmation_mail` scaffold (resolve entity -> permission check -> render -> `create_job`) but must return `Result<MailJob, ServiceError>` instead of swallowing errors. `CommunicationDao` gets one new outbound-only query (applicants have no inbound-mail assignment). The frontend adds one new compose-dialog component and modifies `application_detail.rs` to host a send button + reused timeline - the timeline component itself needs zero changes since it's already prop-driven and entity-agnostic.
 
-**Major new/modified components:**
-1. `genossi_mail/src/mail_body.rs` (NEW) — pure MIME body builder; single source of truth for all three send paths; `build_mail_content(text, html: Option, attachments) -> MailContent`
-2. `genossi_mail/src/render.rs` + `template.rs` (modified) — `resolve_rendered_content` returns `(subject, text_body, Option<html_body>)`; new `render_html_template` with HTML-autoescape env
-3. `genossi_mail/src/sanitize.rs` (NEW) — ammonia wrapper at create/update; URL scheme allowlist (http/https/mailto); strips `style`/`class`/event handlers
-4. `genossi-frontend/src/component/wysiwyg_editor.rs` (NEW) — `contenteditable` + `execCommand` via `web-sys`; `styleWithCSS` disabled on mount; read-on-blur not two-way-bound; toolbar buttons have `r#type: "button"`
-5. `genossi_dao/src/application_document.rs` + SQLite impl (NEW) — mirrors MemberDocument DAO; NOT audited (per milestone constraint; the carryover MemberDocument IS audited)
-6. `genossi_rest/src/application.rs` (modified) — adds `POST/GET/GET/{doc_id}/DELETE /{id}/documents`; sub-routes registered BEFORE `/{id}` catch-all (v1.2 route-ordering lesson)
-7. `genossi_service_impl/src/application.rs::confirm()` (modified) — file copy (FS-before-DB) then `audited_create!(MemberDocument)` per ApplicationDocument; `ApplicationServiceDeps` gains `MemberDocumentDao` + `DocumentStorage`; wired in `genossi_bin/src/lib.rs`
-
-**Two SQLite migrations needed (forward-only, no down migrations):**
-- `20260630000000_mail_html_body.sql`: nullable `body_html` on `mail_templates` + `mail_jobs` (NULL = plain-text send, fully backward-compatible)
-- `20260630000100_create_application_documents_table.sql`: new `application_documents` table with index on `application_id`
+**Major components:**
+1. `mail_recipients` schema + `RecipientInput`/`MailRecipient` - additive `application_id` column/field (DAO layer)
+2. `application_to_template_context` + extracted generic `validate_rendered` core in `genossi_mail/src/template.rs` (template layer, keeps `validate_template`'s signature unchanged for the ~40 existing member template tests)
+3. `ApplicationService::send_mail` in `genossi_service_impl/src/application.rs` - the authoritative place permission, status-guard, config-read, and linkage all happen (service layer)
+4. Two new REST endpoints (`POST /api/applications/{id}/mail`, `GET /api/applications/{id}/communications`) following existing handler/OpenAPI conventions (REST layer)
+5. New `application_mail_dialog` component assembling existing `mail_compose/*` blocks + reused `CommunicationTimeline`, wired into `application_detail.rs` (frontend)
 
 ### Critical Pitfalls
 
-1. **minijinja autoescape OFF for nameless templates** — `strict_env()` uses `template_from_str` (no file name), so autoescape is never triggered. Reusing it for HTML bodies silently injects raw member names into HTML. Prevention: separate `render_html_template` with explicit HTML autoescape callback. Unit test required: `last_name = "<script>alert(1)</script> & Co"` must appear as `&lt;script&gt;` in output.
-
-2. **8bit sent to non-8BITMIME relay** — `lettre` does NOT negotiate or downgrade 8bit; it sends whatever is set at build time. On a 7bit-only relay, high bytes are stripped or rejected. Prevention: 8bit must be config-opt-in with quoted-printable default until relay is verified.
-
-3. **No server-side HTML sanitization (stored XSS)** — REST endpoint accepts arbitrary `body` strings independently of the UI; the admin app accesses all member PII/IBANs/audit log. Prevention: ammonia gate mandatory at service/REST write boundary. Frontend-only sanitization is never sufficient. ammonia and minijinja autoescape are complementary, not redundant.
-
-4. **Broken `multipart/alternative` nesting with attachments** — bolting HTML onto the existing `MultiPart::mixed().singlepart(text)` attachment loop produces a wrong tree. Prevention: `mail_body.rs` always emits `alternative(plain, html)` nested inside `mixed` with attachments; plain part first in the alternative.
-
-5. **File-before-DB ordering violated in carryover** — `FilesystemDocumentStorage::save` is not transactional with SQLite. `audited_create!(MemberDocument)` before the file copy can produce a DB row pointing at a missing file. Prevention: copy file first (FS), then `audited_create!` in tx; on tx rollback, best-effort delete the written file.
-
-6. **`styleWithCSS` not disabled -> ammonia strips formatting** — browsers emit `<span style="font-weight:bold">` by default; ammonia strips `style` attributes. Prevention: `document.exec_command("styleWithCSS", false, "false")` on editor mount so browser emits `<b>`/`<i>` that ammonia's whitelist preserves.
-
-7. **`contenteditable` <-> Dioxus signal desync** — two-way binding per `oninput` triggers Dioxus re-render resetting caret to position 0. Prevention: read `innerHTML` via `onmounted` ref on blur/before-submit only; toolbar buttons use `r#type: "button"` + onclick (project button-reload-bug pattern).
-
-8. **CR-02 permission ordering repeated in new methods** — existing `confirm()` calls `current_user_id()` before `check_permission()`. New upload/carryover code must call `check_permission()` first via `gen_auth_admin!` pattern.
+1. **Member-typed template context + strict-undefined rendering** - `member_to_template_context`/`validate_template` are hard-typed to `MemberEntity`, and minijinja's strict env turns any undefined variable into a hard render error. Build a dedicated `application_to_template_context` exposing only fields Applications actually have (no `member_number`/`current_balance`/etc.), and a matching `validate_application_template`. Decide explicitly whether templates are a shared pool or a separate "Antragsteller" type - a shared pool needs context-filtered variable buttons and dual-context validation or it's a latent render bomb.
+2. **History carry-over gap at `confirm()`** - `confirm()` mints a brand-new member UUID with no stored link to the originating application, so a naive design leaves the new member's timeline empty even though reminders were sent as an applicant. This must be decided in the DAO/schema phase (back-fill `mail_recipients.member_id` at confirm, union-at-read, or a stored link column) and verified with an e2e test: reminder -> confirm -> visible in member timeline.
+3. **Silent no-send** - `send_confirmation_mail` is explicitly the reference code, but it returns `()` and swallows every failure (`tracing::error!` + `return`). The user-triggered reminder send must return `Result<MailJob, ServiceError>` and propagate real errors so the REST layer never returns 200-OK-but-nothing-sent for a financially significant mail.
+4. **No status guard** - nothing currently stops emailing a rejected, already-confirmed (now-member), or soft-deleted applicant. Gate the send on `status == Offen` (mirroring the existing `confirm`/`reject` 409 pattern) - this is also the DSGVO lawful-basis boundary, not just a UX nicety.
+5. **Faking the linkage via `member_id`** - never stuff an application's UUID into `RecipientInput.member_id` to make the timeline "just work"; it poisons the member namespace (`find_sent_member_ids_by_job_id` and future member-id assumptions). Always add and use a separate nullable `application_id` column.
 
 ## Implications for Roadmap
 
-Based on research, suggested phase structure:
+Based on combined research, the dependency-respecting build order from ARCHITECTURE.md and PITFALLS.md converges cleanly onto **four phases**, matching the "Suggested Build Order" already validated in ARCHITECTURE.md:
 
-### Phase 1: 8bit + Shared Mail-Body Helper
-**Rationale:** Smallest, most self-contained slice; fixes the direct user complaint (`=` soft-breaks) and an existing charset bug in `service.rs::send_test_mail` (no `charset=utf-8`). Establishes the single MIME-body builder that all later mail phases reuse — without it, P2/P3 risk three divergent HTML implementations. Zero schema changes.
-**Delivers:** `genossi_mail/src/mail_body.rs` with `build_mail_content(text, html, attachments)`; refactored `worker.rs::send_mail_for_recipient`, `service.rs::send_test_mail`, `service.rs::send_test_mail_with_body`; 8bit encoding config flag (default: quoted-printable, opt-in: 8bit); updated encoding-assertion tests.
-**Avoids:** Pitfall 2 (8BITMIME opt-in), Pitfall 4 (correct nesting via helper), backward-compat regression (QP default unchanged).
+### Phase 1: DAO / Schema Foundation (P-HIST)
+**Rationale:** The service can't set a field the DAO doesn't persist, and the load-bearing history-linkage design decision (Pitfall 2 + Pitfall 4: carry-over at `confirm()`) must be settled before anything is built on top of it.
+**Delivers:** Migration adding nullable `application_id BLOB` + index to `mail_recipients`; `MailRecipient`/`RecipientInput.application_id` field; `create_job` mapping it through; `CommunicationDao::get_application_communications` (outbound-only UNION branch); explicit decision + implementation for member-timeline carry-over at confirm.
+**Addresses:** Per-applicant communication history, "last sent on ..." (FEATURES.md table stakes)
+**Avoids:** Pitfall 2 (fake `member_id` linkage), Pitfall 4 (history carry-over gap), Pitfall 6 (migration/column-list traps - grep every `mail_recipients` SQL string), Pitfall 10 (don't track reminder state on the audited `ApplicationEntity`)
 
-### Phase 2: HTML Mail Backend
-**Rationale:** Keystone for three sub-features (HTML part, template HTML rendering, eventual HTML digest). Must land before the frontend editor (P3) has a `body_html` wire to post to. The ammonia sanitization gate MUST land here — before any HTML is accepted and stored.
-**Delivers:** SQLite migration (nullable `body_html` on `mail_templates`, `mail_jobs`); `render_html_template` with HTML-autoescape env; `genossi_mail/src/sanitize.rs` (ammonia gate at write); `worker.rs` emitting `multipart/alternative` via P1 helper; REST endpoints accepting `body_html`; extended `validate_template*` probing HTML template; `List-Unsubscribe` header on bulk jobs.
-**Uses:** `ammonia 4.1` (only new production dependency added to this milestone); `lettre 0.11` `MultiPart::alternative()` + explicit 8bit `SinglePart::builder()`.
-**Implements:** Dual-render architecture (same context object, two minijinja envs, two template columns).
-**Avoids:** Pitfalls 1 (autoescape), 3 (MIME nesting), 4 (text fallback always present), 5 (server-side sanitization in place before WYSIWYG ships), 11 (List-Unsubscribe).
+### Phase 2: Template Context (P-TMPL, P-AMT)
+**Rationale:** Both the service send and the frontend preview depend on the rendering context existing; can run in parallel with Phase 1.
+**Delivers:** `application_to_template_context(&ApplicationEntity, share_value_cents)`; extracted generic `validate_rendered` core (keeping `validate_template`'s signature unchanged); `validate_application_template`; a single `format_eur_de` helper handling negative/zero/thousands-separator correctly; default seeded "Zahlungserinnerung" template.
+**Addresses:** Reusable applicant templates, computed "offener Betrag" (FEATURES.md table stakes + differentiators)
+**Avoids:** Pitfall 1 (member-typed strict-render bomb), Pitfall 7 (euro arithmetic edge cases), Pitfall 8 (data minimization - no member financial fields in the context)
 
-### Phase 3: WYSIWYG Frontend Editor
-**Rationale:** Depends on P2's `body_html` field existing. Replaces a single existing component (`body_editor.rs` textarea) — not greenfield. Component-First mandate: one reusable `wysiwyg_editor` component shared by compose and reply flows.
-**Delivers:** `genossi-frontend/src/component/wysiwyg_editor.rs` (contenteditable + execCommand via web-sys; `styleWithCSS` disabled on mount; read-on-blur; toolbar: bold/italic/bullet/numbered/link); updated `body_editor.rs` to use the new component; paste cleanup (strip `mso-`/`style`/`class`); seeding of plain-text `body` signal from HTML at compose time.
-**Uses:** `web-sys`/`js-sys` (existing); zero new frontend dependencies.
-**Avoids:** Pitfalls 6 (`styleWithCSS` + ammonia compatibility), 7 (`dangerous_inner_html` only for server-sanitized data), 10 (no per-keystroke signal write; r#type:button on toolbar).
-**Fallback:** If `contenteditable` proves too inconsistent in UAT, switch to Markdown-toolbar + `pulldown-cmark` (backend); ammonia gate remains unchanged; no new frontend deps.
+### Phase 3: Service + REST (P-SEND)
+**Rationale:** Depends on both Phase 1 (linkage) and Phase 2 (context/formatting); this is where permission, status-guard, and DSGVO lawful-basis enforcement live.
+**Delivers:** `ApplicationService::send_mail` returning `Result<MailJob, ServiceError>` (never the silent-`()` pattern); status guard restricting sends to `Offen`; `POST /api/applications/{id}/mail`; `GET /api/applications/{id}/communications`; service/e2e tests.
+**Addresses:** Single-send core deliverable, admin-only gate, confirm-before-send precondition (FEATURES.md P1 items)
+**Avoids:** Pitfall 3 (silent no-send), Pitfall 5 (no status guard -> unlawful/duplicate sends), Pitfall 8 (DSGVO basis), Pitfall 11 (optimistic-lock version convention, only if any application write is added)
 
-### Phase 4: Application Upload + Audited Carryover
-**Rationale:** Fully independent of mail features — can run in parallel with P1-P3. Contains the audit-critical `confirm()` cascade extension and the CR-02 permission-ordering fix. Best isolated as its own slice with its own UAT.
-**Delivers:** SQLite migration (`application_documents` table); `ApplicationDocument` DAO + SQLite impl (not audited); `ApplicationDocumentService` (upload/list/download/delete, admin-only); REST endpoints `POST/GET/GET/{doc_id}/DELETE /api/applications/{id}/documents` (sub-routes before `/{id}` catch-all); `confirm()` cascade with FS-before-DB file copy + `audited_create!(MemberDocument)` in existing activation tx under `APPLICATION_SERVICE_PROCESS`; `ApplicationServiceDeps` extended with `MemberDocumentDao` + `DocumentStorage` wired in `genossi_bin/src/lib.rs`; frontend upload UI on applications detail; CR-02 `gen_auth_admin!` fix applied to all new methods.
-**Avoids:** Pitfalls 7 (FS-before-DB ordering), 8 (carryover inside status guard prevents duplicate), 9 (admin-only upload, content sniffing, UUID storage path, CR-02 fix).
+### Phase 4: Frontend Dialog (P-FE)
+**Rationale:** Needs a real endpoint to call; last because it's pure consumption of Phases 1-3.
+**Delivers:** `api.rs` functions for the two new endpoints (dedicated, not rerouted member fns); new `application_mail_dialog` component assembling `mail_compose/*` blocks with an application-scoped variable-button set; `application_detail.rs` modified to add send button + reused `CommunicationTimeline` section; live preview + confirm-before-send UX; disabled-while-pending send button.
+**Addresses:** Compose dialog reuse, live preview, last-sent display, graceful no-email handling (FEATURES.md P1 items)
+**Avoids:** Pitfall 9 (duplicate sends / Dioxus `form onsubmit` reload footgun - use `div`+`onclick`+`r#type:"button"`), Pitfall 12 (member-bound variable buttons/API fns leaking into the application dialog)
 
 ### Phase Ordering Rationale
 
-- P1 before P2: shared helper prevents three divergent HTML implementations; P2 cannot reuse what does not exist.
-- P2 before P3: frontend editor needs the `body_html` API wire; ammonia gate must exist before any HTML is accepted from the editor.
-- P4 is independent: shares no code with the mail track; running in parallel with P2 or P3 is the most efficient timeline.
-- Ammonia gate (P2) must land strictly before or with WYSIWYG (P3) — never after. Hard ordering constraint.
+- **Schema before service before frontend** is a hard dependency chain: the `application_id` field must exist and be persisted before the service can stamp it, and the service endpoints must exist before the dialog has anything to call.
+- **Template context is decoupled from schema** (Phase 1 and 2 can run in parallel) but both must land before Phase 3, since the send service renders through the template context and writes the linkage.
+- **History carry-over (Pitfall 4) is deliberately placed in Phase 1**, not left as a frontend afterthought, because it's a data-model decision (which column, which timing) that would require a migration change if discovered late.
+- **The `Result`-returning send (Pitfall 3) is called out in Phase 3's plan explicitly** so nobody defaults to copying `send_confirmation_mail`'s `()`-returning error-swallowing pattern just because it's the cited reference code.
 
 ### Research Flags
 
-Phases with standard patterns (skip research during planning):
-- **Phase 1:** Pure refactor of existing lettre code; lettre API verified against docs.rs; all integration points cited to file:line.
-- **Phase 4 (upload/DAO/REST):** Exact mirror of `member_document.rs`; copy-and-adapt, no unknowns.
+Phases likely needing deeper research during planning:
+- **None flagged as needing external research.** All four phases have HIGH-confidence, directly-verified precedent in the existing codebase (ARCHITECTURE.md and PITFALLS.md cite exact file:line references throughout). This is integration work against known internal patterns, not unfamiliar territory.
 
-Phases needing deeper attention during planning:
-- **Phase 2 (minijinja dual-env):** Autoescape footgun requires explicit unit testing before shipping; verify `validate_template` helpers correctly reject invalid HTML templates.
-- **Phase 3 (contenteditable in Dioxus):** Highest-uncertainty technical area; consider a proof-of-concept component before full planning. Markdown-toolbar fallback documented if UAT reveals issues.
-- **Phase 4 (activation carryover atomicity):** FS-before-DB ordering and rollback cleanup need explicit test coverage: rollback test (no dangling row), re-confirm test (Conflict + 1 doc).
+Phases with standard, well-documented patterns (safe to skip `--research-phase`):
+- **Phase 1 (DAO/Schema):** Directly clones `get_member_communications` and the existing `member_id` column convention.
+- **Phase 2 (Template Context):** Directly clones `member_to_template_context` shape and `merge_repayment_context` euro-formatting idiom.
+- **Phase 3 (Service/REST):** Directly clones `send_confirmation_mail` scaffold (with the one explicit correction: error propagation instead of swallowing) and existing REST handler/OpenAPI patterns.
+- **Phase 4 (Frontend):** Directly clones `mail_compose/` + `communication_timeline.rs` + `member_details.rs`'s send/fetch wiring pattern, with the known `div`+`onclick`+`r#type:"button"` fix already documented in project memory.
+
+One open product decision to surface explicitly during requirements/discuss-phase (not a research gap, a decision): **shared vs. separate template pool for member and applicant templates**, and **which linkage strategy resolves history carry-over at `confirm()`** (back-fill / union-at-read / stored link column) - both are flagged as open in PROJECT.md and should be settled before Phase 1/2 planning locks in schema details.
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | All APIs verified against codebase + docs.rs. `ContentTransferEncoding::EightBit` confirmed to exist; `SinglePart::eight_bit()` confirmed NOT to exist in 0.11 (was lettre 0.10). `ammonia 4.1` confirmed on crates.io. |
-| Features | HIGH | Grounded in codebase verification + existing todo files. Scope is conservative — extends proven paths. |
-| Architecture | HIGH | Integration points cited to exact file:line. Data model matches established entity patterns. Migration strategy follows existing forward-only migration files. |
-| Pitfalls | HIGH | Each pitfall cites the specific code location where it occurs or can occur. lettre 8BITMIME non-negotiation behavior verified against library design. |
+| Stack | HIGH | Verified directly against `Cargo.toml` files and existing source (`template.rs`, `service.rs`, `dao_sqlite.rs`); "add nothing" conclusion is unambiguous |
+| Features | HIGH (domain/legal), MEDIUM (exact template-variable set) | Legal grounding (GenG, DSGVO Art. 6(1)(b), UWG distinction) is well-sourced; exact placeholder list and share-value source are flagged as small product decisions for discuss-phase |
+| Architecture | HIGH | Every component/pattern verified against direct source reading with file:line citations; no external/uncertain sources used |
+| Pitfalls | HIGH | Every pitfall grounded in actual v1.6-relevant code paths already read for this research; includes locked-test awareness (`test_auditable_fields_count`, strict-env guard tests) |
 
 **Overall confidence:** HIGH
 
 ### Gaps to Address
 
-Three open questions that must be resolved before or during requirements definition:
-
-- **8BITMIME relay support (open question a):** Verify whether the production SMTP relay advertises `8BITMIME` in its EHLO. If not, 8bit must remain permanently config-opt-in with quoted-printable default. Resolution: test against the relay during P1 UAT before enabling 8bit.
-
-- **Plain-text fallback strategy (open question b):** Research recommends keeping the existing authored `body` as the text/plain part and making `body_html` strictly additive. This avoids `html2text`/`pulldown-cmark` dependencies and keeps the text part high-quality. The alternative (derive plain from HTML) adds a dependency and produces lower-quality text. Confirm product preference before designing the P3 compose UI.
-
-- **DocumentType for carried-over application file (open question c):** Research recommends `DocumentType::Other` with `description = "Originaler Mitgliedsantrag"` to avoid collision with the `JoinDeclaration` singleton guard (used for the generated join-declaration PDF). If product wants the scan under `JoinDeclaration`, the singleton guard in `member_document.rs:114` must be explicitly handled. Confirm intent before implementing P4 carryover.
+- **Template pool structure (shared vs. separate "Antragsteller" type):** flagged in both FEATURES.md and PITFALLS.md as an explicit open design question in PROJECT.md - resolve during requirements/discuss-phase, before Phase 2 planning finalizes the context-builder/validator shape.
+- **History carry-over strategy at `confirm()`:** three viable approaches identified (back-fill, union-at-read, stored link column) with trade-offs but no single research-mandated winner - this is a genuine product/architecture decision to make explicitly in Phase 1 planning, not defer.
+- **`share_value_cents` source for "offener Betrag":** config value vs. RepaymentPhase default (`DEFAULT_SHARE_VALUE_CENT=10000`) vs. per-Genossenschaft setting - small decision, but it's a money figure in an outbound email, so it must be deliberate rather than assumed during Phase 2 planning.
 
 ## Sources
 
-### Primary (HIGH confidence)
-- Genossi codebase (verified 2026-06-29): `genossi_mail/src/worker.rs`, `service.rs`, `render.rs`, `template.rs`, `digest.rs`, `inbox.rs`; `genossi_rest/src/member_document.rs:115/209/242`, `application.rs:479`; `genossi_service_impl/src/application.rs:280`, `document_storage.rs`; `genossi_dao/src/member_document.rs`, `auditable.rs`; `genossi-frontend/src/component/mail_compose/*`; `Cargo.toml:36,60`; migration `20260601000000_extend_mail_job_template_phase.sql`
-- `.planning/todos/pending/2026-06-28-html-mail-support-statt-nur-textmails.md`, `.planning/todos/pending/2026-06-27-originalen-mitgliedsantrag-als-datei-attachment-an-applicati.md`
-- `.planning/PROJECT.md` — milestone v1.4 definition, audit constraints, CR-02 carry-forward, route-ordering lesson
+### Primary (HIGH confidence - direct codebase reading)
+- `genossi_mail/Cargo.toml`, root `Cargo.toml` - current dependency versions
+- `genossi_mail/src/template.rs` - `member_to_template_context`, strict/html envs, `validate_template`, `merge_repayment_context`, locked guard tests
+- `genossi_mail/src/service.rs` - `MailService::create_job`, `RecipientInput`, explicit-address privacy rule for test-sends
+- `genossi_mail/src/dao.rs`, `dao_sqlite.rs` - `MailRecipient`, `get_member_communications` UNION query, duplicated column-list locations
+- `genossi_service_impl/src/application.rs` - `send_confirmation_mail` (reference scaffold and its error-swallowing anti-pattern), `confirm()` (new-member minting, optimistic-lock warning), `Auditable` field-count lock
+- `genossi_dao/src/application.rs` - `ApplicationEntity` fields, `ApplicationStatus`, soft-delete filtering
+- `genossi-frontend/src/component/{communication_timeline.rs, mail_compose/*, application_detail.rs}`, `page/member_details.rs` - reusable component boundaries
+- `migrations/sqlite/20260403000004_create_mail_recipients_table.sql` - existing `member_id` column to mirror
+- `.planning/PROJECT.md`, `CLAUDE.md` - milestone scope, audit rules, Component-First and forward-only-SQLite constraints
+- Project memory: `dioxus-form-onsubmit-page-reload.md` - documented Dioxus form-reload footgun
 
-### Secondary (MEDIUM confidence)
-- docs.rs `lettre 0.11` — `ContentTransferEncoding` variants, `SinglePart` constructors verified
-- crates.io `ammonia 4.1` — html5ever-based, whitelist defaults, URL scheme allowlist behavior verified
-- minijinja 2.x docs — autoescape behavior for `template_from_str` (nameless = no autoescape) verified
-- Project memory: `feedback_dioxus_button_type.md`, `feedback_component_first.md`
-
-### Tertiary (MEDIUM — domain knowledge)
-- RFC 1341/1521 — Content-Transfer-Encoding rules for multipart; `alternative` ordering (least-preferred first)
-- lettre 8BITMIME non-negotiation — based on library design; verify against production relay
-- MDN — `document.execCommand` deprecated but stable; `styleWithCSS` behavior across browsers
+### Secondary (MEDIUM confidence - German legal/domain sourcing)
+- Genossenschaftsgesetz (GenG) §§ 7a, 15, 15a, 15b - Beitrittserklärung as binding written obligation
+- IT-Recht Kanzlei / SLK Rechtsanwälte - Warenkorb-Erinnerung case law, distinguished as inapplicable (no pre-existing obligation) vs. this milestone's transactional basis
+- Datenschutzbeauftragter Hamburg - member/customer email lawful-basis guidance
 
 ---
-*Research completed: 2026-06-29*
+*Research completed: 2026-08-12*
 *Ready for roadmap: yes*

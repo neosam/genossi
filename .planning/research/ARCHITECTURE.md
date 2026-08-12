@@ -1,303 +1,283 @@
 # Architecture Research
 
-**Domain:** Mail formatting (8bit + HTML multipart) & Application file-attachment carryover — integration into the existing layered Rust/Axum/SQLx/Dioxus codebase (Genossi v1.4)
-**Researched:** 2026-06-29
-**Confidence:** HIGH (integration points are codebase-verified; lettre API verified against docs.rs)
-
-> This is an **integration** architecture document for a subsequent milestone. The DAO→Service→REST→Frontend layering, audit-macro discipline, and Component-First frontend rule are already established and are **not** re-researched here. The focus is exactly four features and where each one touches existing code.
-
----
+**Domain:** Applicant-email integration into an existing layered Rust (DAO → Service → REST → Dioxus) codebase — Milestone v1.6 "Antragsteller-Kommunikation"
+**Researched:** 2026-08-12
+**Confidence:** HIGH (all findings from direct source reading of the current codebase; no external/uncertain sources)
 
 ## Standard Architecture
 
-### System Overview — what the four features touch
+This is **integration research**, not greenfield. The system already has every building block the milestone needs — a mail queue+worker, a template engine, a per-member communication timeline, and an Application entity whose service already depends on `config_service` + `mail_service`. The job is to thread `application_id` through the mail path the same way `member_id` already flows, and to add a parallel template context. The strong recommendation is **reuse + extend, do not rebuild**.
+
+### System Overview
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│  FRONTEND (Dioxus WASM)                                                │
-│  ┌────────────────────────┐        ┌──────────────────────────────┐   │
-│  │ component/mail_compose/ │        │ page/applications_page.rs    │   │
-│  │  + NEW wysiwyg_editor   │        │  + NEW application file-upload│  │
-│  │    (produces HTML)      │        │    + attachment list/download │  │
-│  └───────────┬────────────┘        └───────────────┬──────────────┘   │
-├──────────────┼──────────────────────────────────────┼─────────────────┤
-│  REST (Axum) │                                       │                 │
-│  genossi_mail/src/rest.rs               genossi_rest/src/application.rs │
-│   send-bulk / template (+ body_html)     + NEW POST /{id}/documents     │
-│                                          (multipart, mirrors            │
-│                                           member_document.rs:115)       │
-├──────────────┼──────────────────────────────────────┼─────────────────┤
-│  SERVICE     │                                       │                 │
-│  genossi_mail: service.rs / worker.rs / digest.rs    genossi_service_  │
-│   render.rs (dual render) + NEW mail_body.rs helper  impl/application.rs│
-│   + NEW sanitize step (ammonia, server-side)          confirm() cascade│
-│                                                       → audited MemberDoc│
-├──────────────┼──────────────────────────────────────┼─────────────────┤
-│  DAO (SQLx / SQLite)                                  │                 │
-│  mail_templates(+body_html)  mail_jobs(+body_html)    + NEW             │
-│  mail_recipients(+rendered_body_html?)                application_      │
-│                                                        documents table   │
-├──────────────────────────────────────────────────────┼─────────────────┤
-│  FILESYSTEM  DocumentStorage (save/load/delete by relative_path)        │
-│   member docs: "<uuid>.<ext>"   static: "static_documents/<uuid>"       │
-│   + NEW application docs: "application_documents/<uuid>.<ext>"          │
-└──────────────────────────────────────────────────────────────────────┘
+│                         FRONTEND (Dioxus WASM)                        │
+│  ┌────────────────────┐   ┌────────────────────┐  ┌────────────────┐ │
+│  │ application_detail  │   │ NEW MailCompose-   │  │ Communication- │ │
+│  │  (MODIFY: +button,  │──▶│  Dialog (compose   │  │ Timeline       │ │
+│  │   +timeline section)│   │  building blocks)  │  │ (REUSE as-is)  │ │
+│  └─────────┬───────────┘   └─────────┬──────────┘  └───────┬────────┘ │
+│            │  api::send_application_mail / get_application_communications│
+├────────────┼──────────────┼───────────────────────────────┼──────────┤
+│                              REST (Axum)                               │
+│  genossi_rest/src/application.rs        genossi_mail/communication_rest │
+│  ┌──────────────────────────┐          ┌───────────────────────────┐  │
+│  │ NEW POST /{id}/mail       │          │ NEW GET                    │  │
+│  │  (+ optional GET /{id}/    │          │ /api/applications/{id}/    │  │
+│  │   communications wrapper)  │          │  communications            │  │
+│  └────────────┬─────────────┘          └────────────┬──────────────┘  │
+├───────────────┼──────────────────────────────────────┼────────────────┤
+│                            SERVICE                                     │
+│  genossi_service_impl/src/application.rs   genossi_mail/src/service.rs │
+│  ┌───────────────────────────┐            ┌────────────────────────┐  │
+│  │ NEW send_mail(id, ...)     │───────────▶│ create_job(...) REUSE  │  │
+│  │  (mirrors send_confirma-   │            │  RecipientInput +      │  │
+│  │   tion_mail; renders app   │            │  application_id (MOD)  │  │
+│  │   context; queues job)     │            └────────────────────────┘  │
+│  │ genossi_mail/template.rs:   │                                        │
+│  │  NEW application_to_        │                                        │
+│  │  template_context + generic │                                        │
+│  │  validate core             │                                        │
+│  └───────────────────────────┘                                        │
+├───────────────────────────────────────────────────────────────────────┤
+│                          DAO / SQLite                                  │
+│  genossi_mail/src/dao.rs + dao_sqlite.rs                              │
+│  ┌────────────────────────────────────────────────────────────────┐  │
+│  │ mail_recipients: ADD application_id BLOB (nullable) + index      │  │
+│  │ MailRecipient struct: + application_id: Option<Uuid>             │  │
+│  │ CommunicationDao: + get_application_communications(app_id)       │  │
+│  └────────────────────────────────────────────────────────────────┘  │
+└───────────────────────────────────────────────────────────────────────┘
 ```
 
-### Component Responsibilities (new vs modified)
+### Component Responsibilities
 
-| Component | New / Modified | Responsibility | File |
-|-----------|----------------|----------------|------|
-| `mail_body` helper | **NEW** | Pure, sync MIME-body builder: 8bit text part, optional multipart/alternative (text+html), fold in attachments. Single source of truth for all send paths. | `genossi_mail/src/mail_body.rs` |
-| `send_mail_for_recipient` | Modified | Call `mail_body` helper instead of inline `SinglePart::plain` + `MultiPart::mixed`. | `genossi_mail/src/worker.rs:627` |
-| `send_test_mail` / `send_test_mail_with_body` | Modified | Replace `.body(...)` (currently no charset, no SinglePart) with the `mail_body` helper → fixes existing charset bug + adds 8bit. | `genossi_mail/src/service.rs:415,447` |
-| `resolve_rendered_content` | Modified | Return `(subject, text_body, Option<html_body>)`; render the HTML template with the same context via a new autoescaping render fn. | `genossi_mail/src/render.rs:48` |
-| `render_html_template` | **NEW** | minijinja render with HTML autoescape ON (variables escaped, template tags literal). | `genossi_mail/src/template.rs` |
-| HTML sanitizer | **NEW** | Server-side allow-list sanitization of WYSIWYG HTML (ammonia). Applied at `create_job` and template create/update. | `genossi_mail/src/sanitize.rs` (or `service.rs`) |
-| `wysiwyg_editor` | **NEW** | Reusable Dioxus component emitting HTML; feeds existing compose flow. | `genossi-frontend/src/component/` |
-| `ApplicationDocument` entity + DAO | **NEW** | 0..n files attached to an Application; mirrors `MemberDocument` shape; **not** audited. | `genossi_dao/src/application_document.rs` (+ sqlite impl) |
-| Application upload/list/download endpoints | **NEW** | multipart upload → DocumentStorage; mirrors `member_document.rs`. | `genossi_rest/src/application.rs` |
-| `confirm()` carryover cascade | Modified | On activation, copy each ApplicationDocument file to a member-doc path and create a **`audited_create!`** MemberDocument in the same tx. | `genossi_service_impl/src/application.rs:280` |
+| Component | Responsibility | New / Modified / Reuse |
+|-----------|----------------|------------------------|
+| `mail_recipients` table | Store per-recipient linkage; already has nullable `member_id` | **MODIFY**: add nullable `application_id` + index |
+| `MailRecipient` / `RecipientInput` | Carry recipient identity into the queue | **MODIFY**: add `application_id: Option<Uuid>` |
+| `MailService::create_job` | Queue a job + recipients | **REUSE**: no signature change — `application_id` rides on `RecipientInput` per recipient |
+| `CommunicationDao` | Timeline query | **MODIFY**: add `get_application_communications`; the `CommunicationEntry` struct is already subject-agnostic |
+| `application_to_template_context` | Build minijinja `Value` for an Application | **NEW** in `genossi_mail/src/template.rs` |
+| `ApplicationService::send_mail` | Resolve app, render template, queue mail with `application_id` | **NEW** (mirrors existing `send_confirmation_mail`) |
+| REST `POST /api/applications/{id}/mail` | Compose endpoint | **NEW** in `genossi_rest/src/application.rs` |
+| REST `GET /api/applications/{id}/communications` | Timeline endpoint | **NEW** in `genossi_mail/communication_rest.rs` |
+| `CommunicationTimeline` (frontend) | Render a timeline from `Vec<CommunicationEntryTO>` | **REUSE as-is** — the component is prop-driven, NOT member-bound |
+| `mail_compose/*` building blocks | Subject input, WYSIWYG, template selector | **REUSE**; assemble into a NEW compose dialog |
+| `application_detail.rs` | Application detail modal | **MODIFY**: add send button + compose dialog + timeline section |
 
----
+## Recommended Project Structure
 
-## Architectural Patterns (the decisions to make)
+Changes stay inside existing crates/modules — no new crate.
 
-### (a) Shared "build mail body" helper — location & signature
+```
+genossi_mail/
+├── src/
+│   ├── dao.rs                 # MOD: MailRecipient.application_id; CommunicationDao method
+│   ├── dao_sqlite.rs          # MOD: persist application_id; NEW query
+│   ├── service.rs             # MOD: RecipientInput.application_id (create_job maps it through)
+│   ├── template.rs            # NEW: application_to_template_context + generic validate core
+│   ├── communication_rest.rs  # NEW: get_application_communications + application router
+│   └── rest_templates.rs      # (only if applicant templates need a scoped list/validate)
+migrations/sqlite/
+│   └── 20260812xxxxxx_mail_recipients_add_application_id.sql   # NEW
+genossi_service/
+│   └── src/application.rs      # MOD: trait — add send_mail(...)
+genossi_service_impl/
+│   └── src/application.rs      # MOD: impl send_mail (reuse send_confirmation_mail scaffold)
+genossi_rest/
+│   ├── src/application.rs      # NEW: POST /{id}/mail handler + route + OpenAPI
+│   └── src/lib.rs             # MOD: mount GET /api/applications/{id}/communications
+genossi-frontend/
+│   └── src/
+│       ├── component/
+│       │   ├── mail_compose/…          # REUSE building blocks
+│       │   └── application_mail_dialog.rs   # NEW compose dialog component
+│       ├── component/application_detail.rs  # MOD: button + timeline + dialog wiring
+│       └── api.rs             # NEW: send_application_mail, get_application_communications
+rest-types/
+│   └── (add ApplicationMailRequest TO; CommunicationEntryTO already exists)
+```
 
-**Problem today:** Three send paths build the lettre body three different ways and are inconsistent:
-- `worker.rs::send_mail_for_recipient` (line 627): builds `SinglePart::plain(body)`; if attachments, `MultiPart::mixed().singlepart(text).singlepart(attachment…)`. Correct charset, but auto transfer-encoding = quoted-printable (the `=` soft-breaks v1.4 wants gone).
-- `service.rs::send_test_mail` (415) and `send_test_mail_with_body` (447): use `Message::builder().body(String)` — **no `SinglePart::plain`, so no `charset=utf-8`** (the exact GMX-umlaut bug the worker tests guard against). The digest worker calls `send_test_mail_with_body`, so it inherits this.
+### Structure Rationale
 
-**Decision — place a pure, sync helper in a new module `genossi_mail/src/mail_body.rs`.** It is the single source of truth, unit-testable without SMTP, and consumed by all three paths. Keep file I/O (DocumentStorage `.load`) in the async caller; pass already-loaded attachment parts in.
+- **Communication concerns stay in `genossi_mail/communication_rest.rs`:** it already owns `CommunicationEntryTO`, `CommunicationDao`, and the timeline abstraction. Adding an application variant there keeps the timeline single-sourced rather than forking a copy into `application.rs`.
+- **The send action lives in `ApplicationService`, not `/api/mail`:** the service already holds `config_service` + `mail_service` and already has the proven `send_confirmation_mail` scaffold (`member_id: None` recipient). Sending from here means the endpoint resolves the `ApplicationEntity`, applies the `manage_members` permission check, computes the outstanding amount from config, and sets `recipient.application_id` in one authoritative place.
 
-**Proposed signature:**
+## Architectural Patterns
 
+### Pattern 1: Recipient-scoped linkage (member_id ⟂ application_id)
+
+**What:** `mail_recipients` already carries a nullable `member_id`. Add a sibling nullable `application_id`. A given recipient row links to a member **or** an applicant (mutually exclusive), never both. Timeline queries filter on whichever column is relevant.
+**When to use:** any time an outbound mail must be attributable to a domain entity for history.
+**Trade-offs:** two nullable FK-ish columns instead of a polymorphic `(subject_type, subject_id)` pair. Chosen because it mirrors the existing `member_id` convention exactly (lowest cognitive + migration cost) and SQLite has no real FK enforcement here anyway. A polymorphic column would be a gratuitous refactor of the working member path.
+
+**Example:**
 ```rust
-use lettre::message::{Message, MessageBuilder, MultiPart, SinglePart};
-use lettre::message::header::{ContentType, ContentTransferEncoding};
-
-/// One assembled MIME body, ready to attach to a MessageBuilder.
-pub enum MailContent {
-    Single(SinglePart),   // plain text only, no attachments
-    Multi(MultiPart),     // alternative (text+html) and/or mixed (attachments)
+// genossi_mail/src/service.rs
+pub struct RecipientInput {
+    pub address: String,
+    pub member_id: Option<Uuid>,
+    pub application_id: Option<Uuid>,   // NEW — additive, defaults None everywhere
 }
-
-/// Build the body. `text` is always required (the plain-text fallback part).
-/// `html` Some → multipart/alternative. `attachments` non-empty → wrap in mixed.
-/// Both text and html parts are emitted with charset=utf-8 and 8bit encoding.
-pub fn build_mail_content(
-    text: &str,
-    html: Option<&str>,
-    attachments: Vec<SinglePart>,   // pre-built via lettre Attachment::new(..).body(bytes, ct)
-) -> MailContent;
-
-impl MailContent {
-    /// Fold the content into the builder, choosing singlepart vs multipart.
-    pub fn into_message(self, builder: MessageBuilder)
-        -> Result<Message, lettre::error::Error>;
-}
+// create_job already loops recipients building MailRecipient — just copy the field.
 ```
 
-**8bit forcing** (verified on docs.rs — `ContentTransferEncoding::EightBit` exists, but lettre auto-selects quoted-printable unless you set it manually):
+### Pattern 2: Parallel template context, shared validate core
 
+**What:** `member_to_template_context(&MemberEntity) -> Value` is the single source for member templates. Add `application_to_template_context(&ApplicationEntity, share_value_cents: i64) -> Value` producing the **same variable names where they overlap** (`first_name`, `last_name`, `salutation`, `title`, `email`, `shares`) plus applicant-specific `outstanding_amount` (German-formatted `shares × share_value_cents`). Do **not** invent a generic "one context for both" — the field sets genuinely differ (Member has ~20 fields incl. `member_number`, `join_date`, `current_shares`; Application has ~10 and no membership history).
+**When to use:** distinct entities that share some but not all template variables.
+**Trade-offs:** a little duplication in the two context builders vs. a leaky generic. Overlapping names keep the template author's mental model consistent (a salutation block written for members works for applicants).
+
+**Keeping `validate_template` working:** `validate_template(subject, body, &[MemberEntity])` builds member contexts internally. Extract a generic core `validate_rendered(subject, body, contexts: &[Value]) -> Result<(), Vec<String>>` (strict-env syntax check + probe-render loop) and have the existing member wrapper delegate to it — **its public signature is unchanged**, so all existing tests and call sites keep compiling. Add an applicant wrapper `validate_application_template(subject, body, &[ApplicationEntity])` that builds application contexts (with a sample/dummy `share_value_cents`, mirroring the `dummy_repayment_context` sentinel pattern) and calls the same core.
+
+**Example:**
 ```rust
-fn text_part(s: &str) -> SinglePart {
-    SinglePart::builder()
-        .header(ContentType::parse("text/plain; charset=utf-8").unwrap())
-        .header(ContentTransferEncoding::EightBit)
-        .body(s.to_string())
+// template.rs
+fn validate_rendered(subject: &str, body: &str, contexts: &[Value]) -> Result<(), Vec<String>> { … }
+pub fn validate_template(subject, body, members: &[MemberEntity]) -> Result<(), Vec<String>> {
+    let ctxs = members.iter().map(member_to_template_context).collect::<Vec<_>>();
+    validate_rendered(subject, body, &ctxs)   // signature preserved
 }
-// html part identical but ContentType::parse("text/html; charset=utf-8")
-// alternative: MultiPart::alternative().singlepart(text_part).singlepart(html_part)
 ```
 
-Note: lettre also offers `MultiPart::alternative_plain_html(plain, html)`, but it does **not** let you set 8bit, so build the two `SinglePart`s explicitly and combine with `MultiPart::alternative()`.
+### Pattern 3: Send-via-service, mirroring `send_confirmation_mail`
 
-**Trade-off / pitfall:** 8bit requires the SMTP relay to advertise `8BITMIME`. Most do; if a configured relay does not, lettre will still send 8bit bytes and the server may reject or silently mangle. **Flag as a deploy-time verification item** (test against the production relay early in the HTML-mail phase). This is the one genuine risk in feature (a).
-
-### (b) minijinja dual-render — render two templates, do NOT derive text from HTML
-
-**Decision: render an authored text template AND an authored HTML template against the *same* context. Do not derive plain text from rendered HTML.**
-
-Rationale:
-- The existing `body` field is already a clean, authored, jinja-variable text template (`render.rs` + `template.rs` are built around it, strict-env, repayment-var merge). It is the guaranteed `text/plain` fallback. Keep it.
-- HTML→text derivation (e.g. `html2text`) is lossy, adds a dependency, and produces worse output than the already-authored text. There is no upside.
-- The same `minijinja::Value` context (`member_to_template_context` + `merge_repayment_context`) feeds both renders with zero new context plumbing.
-
-**Change to `resolve_rendered_content`** (`render.rs:48`): return `(String, String, Option<String>)` = (subject, text_body, html_body?). Render the HTML template only when the job carries an HTML template (`job.body_html`). Worker passes the `Option<String>` straight into `build_mail_content`.
-
-**Autoescape:** `render_template` (template.rs:67) uses a non-autoescaping env — correct for plain text. Add `render_html_template` using an env with HTML autoescape ON so member values (`{{ first_name }}`) are HTML-escaped while the template's own markup stays literal. Repayment vars (`payout_amount` etc.) are also escaped harmlessly.
-
-**Plain-text fallback source:** the existing `body` column / `job.body`. The WYSIWYG flow should *seed* `body` with a tag-stripped text version of the HTML at compose time so the Vorstand authors once, but `body` remains the authoritative text part (round-trippable, editable, audit-clear). This keeps both renders symmetric and strict-env-validatable via the existing `validate_template` / `validate_template_with_repayment` helpers (extend them to also probe the HTML template).
-
-### (c) Data model & migrations (forward-only SQLite)
-
-**Mail HTML — add nullable columns, mirroring the existing `20260601000000_extend_mail_job_template_phase.sql` pattern (ALTER TABLE … ADD COLUMN … NULL, no down-migration).**
-
-```sql
--- NEW migration e.g. 20260630000000_mail_html_body.sql
-ALTER TABLE mail_templates ADD COLUMN body_html TEXT NULL;   -- authored HTML template
-ALTER TABLE mail_jobs      ADD COLUMN body_html TEXT NULL;   -- snapshot at send-time, mirrors `body`
--- optional, for "what did this recipient receive" parity with rendered_subject/body:
-ALTER TABLE mail_recipients ADD COLUMN rendered_body_html TEXT NULL;
-```
-
-Why columns, not "derive at send-time from a stored format": the codebase **already snapshots** subject+body into `mail_jobs` at `create_job` and per-recipient rendered output into `mail_recipients`. HTML must follow the same snapshot discipline (a template edit after a job is queued must not change what goes out). So `body_html` is a stored authored template on `mail_templates`, snapshotted onto `mail_jobs` exactly like `body`. Legacy rows = NULL → single-part text mail (fully backward compatible: digest, confirmation mail, old jobs all keep NULL and render as today).
-
-**Application attachment — NEW table (not a single column).** An applicant may submit more than one document, and the codebase's consistent pattern is an entity table with soft-delete + version (mirrors `MemberDocument`). A `member_documents`-style table is the lowest-surprise choice.
-
-```sql
--- NEW migration e.g. 20260630000100_create_application_documents_table.sql
-CREATE TABLE application_documents (
-    id             BLOB PRIMARY KEY,
-    application_id BLOB NOT NULL,
-    document_type  TEXT NOT NULL,      -- e.g. "other"/"join_declaration"
-    description    TEXT NULL,
-    file_name      TEXT NOT NULL,
-    mime_type      TEXT NOT NULL,
-    relative_path  TEXT NOT NULL,      -- "application_documents/<uuid>.<ext>"
-    created        TEXT NOT NULL,
-    deleted        TEXT NULL,
-    version        BLOB NOT NULL
-);
-CREATE INDEX idx_application_documents_application_id ON application_documents(application_id);
-```
-
-**Audit:** `ApplicationDocument` is a NEW entity → per the milestone constraint it does **not** need the `Auditable` trait / audit macros (same exemption as the GV entities). The **carryover MemberDocument is audited** (MemberDocument is an audited entity), and the `confirm()` Application status flip already uses `audited_update!`.
-
-### (d) Application attachment — endpoints + activation cascade
-
-**Upload endpoint — mirror the proven member-document upload.** The exact pattern to copy is `genossi_rest/src/member_document.rs:115` (`upload_document`): `Multipart` extractor, `while multipart.next_field()`, extension whitelist via `lookup_allowed_mime` / `allowed_extensions`, `DefaultBodyLimit::max(50 MB)` layer (member_document.rs:41,49), service creates the entity, **then the REST handler calls `document_storage().save(&relative_path, &data)`** (member_document.rs:209). Add to `genossi_rest/src/application.rs`:
-
-```
-POST   /api/applications/{id}/documents          (multipart upload)
-GET    /api/applications/{id}/documents          (list)
-GET    /api/applications/{id}/documents/{doc_id} (download — mirror member_document.rs:242)
-DELETE /api/applications/{id}/documents/{doc_id} (soft-delete)
-```
-
-**Route-ordering pitfall:** the existing router (`application.rs:479`) has `/{id}` (GET/PUT), `/{id}/confirm`, `/{id}/reject`. The new `/{id}/documents` and `/{id}/documents/{doc_id}` are more-specific and safe, but follow the v1.2 lesson (PROJECT.md Key Decisions: "all sub-routes BEFORE `/{id}` catch-all") — register them and add E2E asserts that `/{id}/documents` is not parsed as a UUID.
-
-**Activation cascade — the audit-critical piece.** Today `ApplicationServiceImpl::confirm` (application.rs:280) opens one tx, creates Member + two MemberActions + flips Application status, all via `audited_create!`/`audited_update!` sharing `APPLICATION_SERVICE_PROCESS` + `user_id`. To carry files over, extend `ApplicationServiceDeps` with **`MemberDocumentDao`** and **`DocumentStorage`** (DocumentStorage is currently only wired into `MemberDocumentService` / mail; it must be added to the application service's deps and `RestStateImpl::new()` in `genossi_bin/src/lib.rs`).
-
-Sequence inside `confirm`, after the member is created:
-
-```
-for app_doc in application_document_dao.find_by_application_id(id, tx):
-    1. bytes = document_storage.load(&app_doc.relative_path)          // before write
-    2. new_path = "<new_uuid>.<ext>"                                  // member-doc namespace
-    3. document_storage.save(&new_path, &bytes)                       // copy file (non-transactional)
-    4. build MemberDocumentEntity { member_id, document_type, relative_path: new_path, .. }
-    5. audited_create!(self, self.member_document_dao, &entity,
-                       APPLICATION_SERVICE_PROCESS, &user_id, tx)      // same tx, same process
-```
-
-**Why copy the file (load+save) rather than reuse the ApplicationDocument's path:** the MemberDocument must own its file independently — a later soft-delete/cleanup of the application or its document must not orphan the member's document. Copy **before** `audited_create!` so a storage failure leaves at most a harmless orphan file (GC-able), never a DB row pointing at a missing file. This matches the existing upload flow's failure class (DB row then storage save).
-
-**DocumentType for the carried-over doc:** recommend `DocumentType::Other` with `description = "Originaler Mitgliedsantrag"`. Reason: `JoinDeclaration` is a **singleton** type (`is_singleton()` true, member_document.rs:114) and is also the type of the *generated* `join_declaration.typ` PDF — a carryover under `JoinDeclaration` would collide with the singleton guard if a declaration was generated. `Other` avoids the collision and reads clearly in the audit log. (Alternative: `JoinDeclaration` if product wants it to occupy that slot — but then handle the singleton conflict.)
-
----
+**What:** the closest existing pattern is `ApplicationServiceImpl::send_confirmation_mail(&app)` — it reads `share_value_cents`/bank config, computes the total, builds a body, and calls `mail_service.create_job(subject, body, None, vec![RecipientInput{ member_id: None }], …)`. The new `send_mail(id, req, ctx)` does the same but: (1) resolves the app by id, (2) checks `manage_members`, (3) renders a chosen template (or ad-hoc subject/body) against `application_to_template_context`, (4) sets `application_id: Some(id)` on the recipient.
+**When to use:** any transactional/entity-scoped mail send.
+**Trade-offs:** the send stays fire-and-forget (queue + worker) exactly like confirmation mail — no new delivery machinery.
 
 ## Data Flow
 
-### HTML mass-mail (compose → send)
+### Compose → Send Flow
 
 ```
-Vorstand types in WYSIWYG (HTML) + text seed
-        ↓  POST /api/mail/send-bulk { subject, body(text), body_html, recipients, ... }
-REST rest.rs → MailService::create_job (sanitize body_html server-side via ammonia)
-        ↓  persist mail_jobs.{subject, body, body_html} + mail_recipients(pending)
-worker.rs loop → resolve_rendered_content(recipient, job)  [render.rs]
-        ↓  (subject, text_body, Option<html_body>)  — same ctx, dual render
-build_mail_content(text, html, attachments)  [mail_body.rs]
-        ↓  multipart/alternative (8bit text + 8bit html) [+ mixed if attachments]
-lettre transport.send → SMTP (relay must support 8BITMIME)
-        ↓  audited MemberDocument anchor (existing Phase-10 path, unchanged)
+[Vorstand clicks "E-Mail senden" on Application detail]
+    ↓
+MailComposeDialog (subject/body/template)  ── api::send_application_mail(app_id, req) ──▶
+    ↓
+POST /api/applications/{id}/mail  →  ApplicationService::send_mail
+    ↓ (permission: manage_members; resolve app; read share_value_cents)
+render template against application_to_template_context(app, share_value_cents)
+    ↓
+MailService::create_job(subject, body, body_html, [RecipientInput{ address: app.email, member_id: None, application_id: Some(id) }], …)
+    ↓                                                        ↓
+mail_jobs + mail_recipients rows (application_id set)   →  worker sends via SMTP (unchanged)
+    ↓
+202 Accepted (MailJobTO)
 ```
 
-### Application attachment carryover
+### Timeline Read Flow
 
 ```
-Vorstand uploads file on Application detail
-        ↓  POST /api/applications/{id}/documents (multipart)
-REST application.rs → ApplicationDocumentService.create + document_storage.save
-        ↓  row in application_documents (NOT audited)
-... later: Vorstand confirms application ...
-        ↓  POST /api/applications/{id}/confirm
-ApplicationServiceImpl::confirm (one tx)
-   create Member (audited) → MemberActions (audited)
-   → for each app_doc: copy file + audited_create! MemberDocument  ← NEW
-   → audited_update! Application status=Bestaetigt
-        ↓  commit
+[Application detail opens] ── api::get_application_communications(app_id) ──▶
+GET /api/applications/{id}/communications → CommunicationDao::get_application_communications
+    ↓  SELECT … FROM mail_recipients r JOIN mail_jobs j WHERE r.application_id = ?1 (outbound only)
+Vec<CommunicationEntryTO>  ─▶  CommunicationTimeline { entries }   (component REUSED verbatim)
 ```
 
----
+### Key Data Flows
 
-## Recommended Build Order (phases)
+1. **Linkage write:** `application_id` is set once, at `create_job` time, from `RecipientInput`. Everything downstream (worker, status updates) is agnostic to it.
+2. **Applicant timeline is outbound-only:** inbound mails link via `inbound_mails.assigned_member_id` (members only). Applicants have no inbox assignment, so `get_application_communications` can drop the inbound `UNION` branch of the member query entirely — simpler and correct. (If inbound-to-applicant is ever wanted, it becomes a later, separate change.)
 
-Ordering respects DAO→Service→REST→Frontend and isolates the audit-bearing work. Features (a)+(b)+(c) are sequential (each builds on the shared helper / schema); feature (d) is independent and can run in parallel.
+## Scaling Considerations
 
-| Phase | Scope | Depends on | Layer span | Audit? |
-|-------|-------|-----------|------------|--------|
-| **P1 — 8bit + shared mail-body helper** | NEW `mail_body.rs`; refactor `worker.rs::send_mail_for_recipient`, `service.rs::send_test_mail(_with_body)` to use it; force 8bit. Fixes existing test/digest charset bug as a bonus. | — | Service (mail) only, no schema | No |
-| **P2 — HTML mail backend** | Migration (`body_html` on mail_templates+mail_jobs, optional `rendered_body_html`); DAO field plumbing; `create_job`/template signatures; `render_html_template` + dual `resolve_rendered_content`; worker emits multipart/alternative; REST send-bulk/template carry `body_html`; **server-side sanitize (ammonia)**; extend `validate_template*` to probe HTML. | P1 | DAO→Service→REST | No |
-| **P3 — WYSIWYG editor (frontend)** | Reusable Dioxus `wysiwyg_editor` component → HTML into compose flow; preview; seed plain-text `body` from HTML. Component-First (no inline RSX). | P2 (needs `body_html` wire) | Frontend | No |
-| **P4 — Application attachment + carryover** | Migration (`application_documents`); NEW DAO + sqlite impl; `ApplicationDocumentService` (upload/list/download/delete); add `MemberDocumentDao`+`DocumentStorage` to `ApplicationServiceDeps` and wire in `genossi_bin/src/lib.rs`; **`confirm()` cascade with `audited_create!` MemberDocument**; REST endpoints (mirror member_document.rs); frontend upload UI on applications_page. | independent (can parallel P1–P3) | DAO→Service→REST→Frontend | **Yes** (carryover MemberDocument) |
+| Scale | Architecture Adjustments |
+|-------|--------------------------|
+| Current (single co-op, hundreds of applicants) | No change. The `WHERE application_id = ?` query with the new index is O(log n); the queue+worker already handles bulk member sends. |
+| 10k+ applications | The added `idx_mail_recipients_application_id` index keeps timeline reads flat; no other change. |
 
-**Why this order:** P1 is a low-risk pure refactor that establishes the one body-builder all later mail work reuses; doing it first prevents three divergent HTML implementations. P2 cannot precede P1 (it needs the helper). P3 needs P2's `body_html` field to exist. P4 shares nothing with the mail features and touches the audit-critical confirm cascade, so it is best isolated as its own slice with its own UAT.
+### Scaling Priorities
 
----
+1. **Index the new column** (mirror `idx_mail_recipients_member_id`) — the only performance-relevant step. Without it the timeline query full-scans `mail_recipients`.
+2. Nothing else — the mail path is already queue-backed and worker-throttled.
 
-## Anti-Patterns (specific to this integration)
+## Anti-Patterns
 
-### Building HTML/8bit inline in each send path
-**Don't** add HTML/8bit logic separately in `worker.rs`, `service.rs`, and the digest. They will drift (they already have — the `.body()` charset bug). **Do** route every send through `mail_body.rs::build_mail_content`.
+### Anti-Pattern 1: Rendering the applicant body in the frontend and posting it to `/api/mail/send`
 
-### Deriving plain text from rendered HTML
-**Don't** drop the authored text template and `html2text` the HTML. **Do** render both authored templates against the same context; `body` stays the authoritative text fallback.
+**What people do:** reuse the generic single-send endpoint by pre-rendering the template client-side.
+**Why it's wrong:** (1) `/api/mail/send` sets `member_id: None` and has no `application_id` slot, so the mail never appears in the applicant timeline; (2) template rendering + `share_value_cents` config would leak to the client; (3) bypasses the `manage_members` permission check that the application service enforces.
+**Do this instead:** send through `ApplicationService::send_mail`, which renders server-side and stamps `application_id`.
 
-### Trusting the WYSIWYG HTML from the client
-**Don't** persist/send the editor's HTML unsanitized, and don't rely on WASM-side sanitization as the security boundary. **Do** sanitize server-side with an allow-list (ammonia, native-only) at `create_job` and template create/update — the email is sent to members, so the boundary is the backend.
+### Anti-Pattern 2: Auditing the new mail linkage / GV-style over-engineering
 
-### Interpolating member values into HTML without autoescape
-**Don't** reuse the non-autoescaping `render_template` for the HTML part. **Do** use an HTML-autoescaping env so `{{ first_name }}` etc. are escaped while template markup stays literal.
+**What people do:** add `Auditable` + audit macros to `mail_recipients` because "everything writes are audited."
+**Why it's wrong:** per CLAUDE.md only Member, MemberAction, MemberDocument, Application are audited; mail jobs/recipients are **not** audited today, and the milestone constraint explicitly exempts new GV entities. Adding audit here breaks the established boundary and the hash-chain scope.
+**Do this instead:** treat `mail_recipients.application_id` as a plain additive column, consistent with the un-audited `member_id`.
 
-### Skipping audit macros on the carryover MemberDocument
-**Don't** call `member_document_dao.create()` directly in `confirm()`. **Do** use `audited_create!` with the shared `APPLICATION_SERVICE_PROCESS` + `user_id` + the confirm tx — MemberDocument is an audited entity and the cascade must stay forensically consistent.
+### Anti-Pattern 3: A polymorphic `(subject_type, subject_id)` rewrite of `mail_recipients`
 
-### DB-write-before-file-copy in the cascade
-**Don't** `audited_create!` the MemberDocument and then copy the file — a copy failure leaves a DB row pointing at a missing file. **Do** copy (load+save) first, then `audited_create!` in the tx.
+**What people do:** "unify" member + applicant linkage into one polymorphic column.
+**Why it's wrong:** it refactors the working, tested member timeline for zero functional gain and forces a data migration of existing rows.
+**Do this instead:** add a sibling nullable `application_id`, mirroring `member_id`.
 
----
+### Anti-Pattern 4: Forking `CommunicationTimeline` for applicants
+
+**What people do:** copy the timeline component because "it's for members."
+**Why it's wrong:** the component takes `entries: Vec<CommunicationEntryTO>` and is entirely presentation — the member coupling lives only in the *API call* in `member_details.rs`, not the component. Forking violates the component-first principle in CLAUDE.md.
+**Do this instead:** reuse `CommunicationTimeline` unchanged; only the data source (a different fetch) differs.
 
 ## Integration Points
 
-### External / infrastructure
+### New vs. Modified — explicit, per layer
 
-| Service | Integration | Notes / gotchas |
-|---------|-------------|-----------------|
-| SMTP relay (lettre 0.11) | `MultiPart::alternative()` of two 8bit `SinglePart`s; `ContentTransferEncoding::EightBit`, `ContentType … charset=utf-8` set manually | **Verify relay advertises 8BITMIME** before shipping P2 — 8bit on a 7bit-only relay risks rejection/mangling. `MultiPart::alternative_plain_html` exists but can't set 8bit. |
-| DocumentStorage (filesystem) | `save/load/delete(relative_path)` — non-transactional | Carryover must copy-before-commit; reuse `application_documents/<uuid>.<ext>` namespace convention. |
-| ammonia (NEW dep) | server-side HTML sanitization | Native-only (html5ever) — add to `genossi_mail`/server crate, **never** the WASM frontend. |
+| Layer | File | New / Modified | Change |
+|-------|------|----------------|--------|
+| Migration | `migrations/sqlite/20260812xxxxxx_…add_application_id.sql` | NEW | `ALTER TABLE mail_recipients ADD COLUMN application_id BLOB;` + `CREATE INDEX idx_mail_recipients_application_id` |
+| DAO | `genossi_mail/src/dao.rs` | MODIFY | `MailRecipient.application_id: Option<Uuid>`; `CommunicationDao::get_application_communications(app_id)` |
+| DAO | `genossi_mail/src/dao_sqlite.rs` | MODIFY | persist/read `application_id` in recipient create + row mapping; NEW query (outbound-only) |
+| Service | `genossi_mail/src/service.rs` | MODIFY | `RecipientInput.application_id`; `create_job` maps it onto `MailRecipient` (no signature change) |
+| Service | `genossi_mail/src/template.rs` | NEW/MODIFY | NEW `application_to_template_context`; extract generic `validate_rendered` core; NEW `validate_application_template`; keep `validate_template` signature |
+| Service | `genossi_service/src/application.rs` | MODIFY | add `send_mail(...)` to `ApplicationService` trait |
+| Service | `genossi_service_impl/src/application.rs` | MODIFY | impl `send_mail` (reuse `send_confirmation_mail` scaffold: config read, context render, `create_job` with `application_id`) |
+| REST | `genossi_rest/src/application.rs` | NEW | `POST /{id}/mail` handler, route in `generate_route`, OpenAPI path/schema |
+| REST | `genossi_mail/src/communication_rest.rs` | NEW | `get_application_communications` handler + application router + OpenAPI |
+| REST | `genossi_rest/src/lib.rs` | MODIFY | `.nest("/api/applications/{application_id}/communications", …)` + register OpenAPI doc |
+| Types | `rest-types` | NEW | `ApplicationMailRequest` TO (subject/body/body_html/template_id); `CommunicationEntryTO` already exists and is reused |
+| Frontend | `genossi-frontend/src/api.rs` | NEW | `send_application_mail(config, app_id, req)`; `get_application_communications(config, app_id)` |
+| Frontend | `genossi-frontend/src/component/application_mail_dialog.rs` | NEW | compose dialog assembling `MailSubjectInput` + `WysiwygEditor` + `TemplateSelector` + send |
+| Frontend | `genossi-frontend/src/component/application_detail.rs` | MODIFY | "E-Mail senden" button, dialog wiring, `CommunicationTimeline` section (reused) |
 
-### Internal boundaries
+### Internal Boundaries
 
 | Boundary | Communication | Notes |
 |----------|---------------|-------|
-| worker / service / digest → `mail_body` | direct sync call | New single source of truth; pure + unit-testable without SMTP. |
-| `render.rs` → `template.rs` | `render_template` + NEW `render_html_template` | Same context object; HTML render adds autoescape only. |
-| `ApplicationService` → `MemberDocumentDao` + `DocumentStorage` | NEW deps via `gen_service_impl!` | Must be wired in `genossi_bin/src/lib.rs RestStateImpl::new()`. |
-| REST application docs → service | multipart, mirrors `member_document.rs:115` | Reuse `lookup_allowed_mime`/`allowed_extensions`/`DefaultBodyLimit`. |
+| REST → Service (send) | `ApplicationService::send_mail` | Keeps permission + config + linkage server-side (Anti-Pattern 1) |
+| Service → MailService | `create_job` with `RecipientInput{ application_id }` | Only touch-point where the linkage is written |
+| DAO → REST (timeline) | `CommunicationDao::get_application_communications` → `CommunicationEntryTO` | `CommunicationEntry` is already subject-agnostic; no TO change |
+| Frontend component ↔ data | `CommunicationTimeline { entries }` | Component reused verbatim; only the fetch differs |
 
----
+## Reuse-Clean vs. Refactor-Warranted (for the Roadmapper)
+
+- **Clean reuse (no change):** `CommunicationTimeline` component, `CommunicationEntry`/`CommunicationEntryTO` (already subject-agnostic), `MailService::create_job` signature, the queue+worker+SMTP send path, `mail_compose/*` building blocks, the `send_confirmation_mail` scaffold as a template.
+- **Additive, low-risk:** `mail_recipients.application_id` column + index; `MailRecipient`/`RecipientInput` field; `ApplicationService::send_mail`; the two new REST endpoints; frontend api + dialog.
+- **Warranted small abstraction:** extract `validate_rendered(contexts)` core so both member and applicant validation share it **without** changing `validate_template`'s signature. This is the one refactor that touches existing tested code — flag it for care (the member path has ~40 template tests that must stay green).
+- **Explicitly rejected refactors:** polymorphic recipient linkage; a unified generic template context; auditing the mail linkage.
+
+## Suggested Build Order (dependency-respecting)
+
+1. **Phase A — DAO/schema foundation.** Migration (`application_id` + index) → `MailRecipient`/`RecipientInput` field → `create_job` maps it → `CommunicationDao::get_application_communications` + sqlite query + DAO tests. *(Schema/DAO before service — the service can't set a field the DAO doesn't persist.)*
+2. **Phase B — Template context.** `application_to_template_context`; extract `validate_rendered`; `validate_application_template`; unit tests. *(Template context before both the service send and the frontend, since both render/validate against it.)*
+3. **Phase C — Service + REST.** `ApplicationService::send_mail` (renders app context, queues job with `application_id`); `POST /api/applications/{id}/mail`; `GET /api/applications/{id}/communications`; mount routes + OpenAPI; service/e2e tests.
+4. **Phase D — Frontend dialog.** api.rs calls; NEW `application_mail_dialog` composing mail_compose blocks; MODIFY `application_detail.rs` to add the send button + a communications section reusing `CommunicationTimeline`.
+
+Rationale: **migration/DAO before service** (field must persist first), **template context before frontend and before the service send** (both depend on it), **backend endpoints before the frontend dialog** (the dialog needs something to call). Phases A/B are independent and could run in parallel; C depends on both; D depends on C.
 
 ## Sources
 
-- Codebase (HIGH): `genossi_mail/src/{worker.rs:627,service.rs:415/447,render.rs:48,template.rs:67,digest.rs}`, `genossi_rest/src/{application.rs:479,member_document.rs:115/209/242}`, `genossi_service_impl/src/{application.rs:280,member_document.rs:53}`, `genossi_service/src/member_document.rs:49` (DocumentType), `genossi_dao/src/auditable.rs`, migration `20260601000000_extend_mail_job_template_phase.sql`.
-- lettre 0.11 docs (MEDIUM-HIGH, verified): `MultiPart::alternative_plain_html` and `ContentTransferEncoding::EightBit` confirmed on docs.rs (`/lettre/0.11/lettre/message/`).
-- Project context (HIGH): `.planning/PROJECT.md` (v1.4 goal, audit constraints, route-ordering lesson), `CLAUDE.md` (audit system, Component-First, layering).
+- `genossi_mail/src/service.rs` — `MailService::create_job`, `RecipientInput{ address, member_id }` (HIGH)
+- `genossi_mail/src/template.rs` — `member_to_template_context`, `validate_template`, `merge_repayment_context`, strict/html envs, `dummy_repayment_context` (HIGH)
+- `genossi_mail/src/dao.rs` / `dao_sqlite.rs` — `CommunicationEntry`, `CommunicationDao`, `get_member_communications` UNION query, `mail_recipients.member_id` (HIGH)
+- `genossi_mail/src/communication_rest.rs` — `CommunicationEntryTO`, `CommunicationRestState`, `generate_route` (HIGH)
+- `genossi_service_impl/src/application.rs` — `send_confirmation_mail` (`member_id: None`, config read, amount compute), `gen_service_impl!` deps incl. `config_service` + `mail_service` (HIGH)
+- `genossi_dao/src/application.rs` — `ApplicationEntity` fields, `Auditable` impl (HIGH)
+- `genossi_rest/src/application.rs` + `genossi_rest/src/lib.rs` — `generate_route`, `.nest("/api/applications…")`, communication route mounting at line 648 (HIGH)
+- `genossi-frontend/src/component/{application_detail,communication_timeline,mail_compose/mod}.rs`, `page/member_details.rs` — prop-driven timeline, compose building blocks, member send/fetch pattern (HIGH)
+- `migrations/sqlite/20260403000004_create_mail_recipients_table.sql`, `20260411000001_add_member_communication_indexes.sql` — existing `member_id` column + index to mirror (HIGH)
 
 ---
-*Architecture research for: Genossi v1.4 — Mail-Formatierung & Antrags-Dokumente*
-*Researched: 2026-06-29*
+*Architecture research for: applicant-email integration (Genossi v1.6)*
+*Researched: 2026-08-12*
