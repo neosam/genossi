@@ -72,8 +72,23 @@ Explizit ausgeschlossen — dokumentiert, um Scope-Creep zu verhindern.
 
 ## Traceability
 
-Wird vom `gsd-roadmapper` beim Roadmap-Bau gefüllt.
+Phase-Mapping aus `.planning/ROADMAP.md` (v1.6 Phases 29-32, fortlaufende Nummerierung nach v1.5). Coverage: 16/16 Requirements gemappt, keine Orphans, keine Duplikate.
 
 | Requirement | Phase | Phase Name | Status |
 |-------------|-------|------------|--------|
-| _(pending roadmap)_ | | | |
+| APHIST-01 | Phase 29 | DAO/Schema-Foundation (Kommunikations-Historie pro Antragsteller) | Pending |
+| APHIST-03 | Phase 29 | DAO/Schema-Foundation (Kommunikations-Historie pro Antragsteller) | Pending |
+| APTPL-01 | Phase 30 | Application-Template-Kontext (Antragsteller-Vorlagen) | Pending |
+| APTPL-02 | Phase 30 | Application-Template-Kontext (Antragsteller-Vorlagen) | Pending |
+| APTPL-03 | Phase 30 | Application-Template-Kontext (Antragsteller-Vorlagen) | Pending |
+| APTPL-04 | Phase 30 | Application-Template-Kontext (Antragsteller-Vorlagen) | Pending |
+| APMAIL-01 | Phase 31 | Service + REST Versand (Versand + Guardrails) | Pending |
+| APMAIL-02 | Phase 31 | Service + REST Versand (Versand + Guardrails) | Pending |
+| APCMP-01 | Phase 31 | Service + REST Versand (Versand + Guardrails) | Pending |
+| APCMP-02 | Phase 31 | Service + REST Versand (Versand + Guardrails) | Pending |
+| APHIST-02 | Phase 31 | Service + REST Versand (Versand + Guardrails) | Pending |
+| APMAIL-03 | Phase 32 | Frontend Compose-Dialog | Pending |
+| APMAIL-04 | Phase 32 | Frontend Compose-Dialog | Pending |
+| APUI-01 | Phase 32 | Frontend Compose-Dialog | Pending |
+| APUI-02 | Phase 32 | Frontend Compose-Dialog | Pending |
+| APUI-03 | Phase 32 | Frontend Compose-Dialog | Pending |

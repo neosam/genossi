@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Antragsteller-Kommunikation
 status: planning
-last_updated: "2026-08-12T11:36:59.508Z"
+last_updated: "2026-08-12T13:09:44.000Z"
 last_activity: 2026-08-12
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
-  total_plans: 0
+  total_plans: 2
   completed_plans: 0
   percent: 0
 ---
 
-# State: Genossi — v1.6 Antragsteller-Kommunikation (Requirements werden erhoben)
+# State: Genossi — v1.6 Antragsteller-Kommunikation (Phase 29 geplant — 2 Pläne, bereit für Execute)
 
 **Initialized:** 2026-05-02
 **Last Updated:** 2026-08-12 (Milestone v1.6 gestartet — E-Mail an Antragsteller, Vorlagen, Kommunikations-Historie; v1.5 getestet & deployed)
@@ -24,14 +24,33 @@ See: `.planning/PROJECT.md` (updated 2026-08-12 mit v1.6 Current Milestone)
 
 **Core Value:** Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachvollziehbar (Audit-Hashchain), mit weniger manueller Arbeit.
 
-**Current Focus:** v1.6 — Requirements-Definition (Antragsteller-Kommunikation)
+**Current Focus:** v1.6 — Phase 29 geplant (2 Pläne, 2 Wellen); bereit für `/gsd-execute-phase 29`
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-08-12 — Milestone v1.6 started
+Phase: 29 (DAO/Schema-Foundation) — planned, ready to execute
+Plan: 2 Pläne (29-01 Wave 1, 29-02 Wave 2) — 0/2 ausgeführt
+Status: Planned & verified (plan-checker VERIFICATION PASSED, keine Blocker) — ready for `/gsd-execute-phase 29`
+Last activity: 2026-08-12 — Phase 29 geplant (Research HIGH + Patterns + 2 Pläne; D2 = Option A Back-fill post-commit best-effort)
+
+### v1.6 Phase Structure (Phases 29-32, granularity: coarse)
+
+| Phase | Goal | Requirements | Depends on |
+|-------|------|--------------|------------|
+| 29. DAO/Schema-Foundation (Antragsteller-Historie) | nullable `application_id BLOB` + Index auf `mail_recipients`; `RecipientInput/MailRecipient.application_id`; `create_job` threaded; `get_application_communications` (outbound-only); Carry-over bei `confirm()` -> Mitglieds-Timeline | APHIST-01, APHIST-03 | -- (baut auf `genossi_mail`) |
+| 30. Application-Template-Kontext | eigener „Antragsteller"-Vorlagentyp via `application_to_template_context`; extrahierter `validate_rendered`-Kern (Member-Tests grün); `format_eur_de`; `share_value_cents` aus `send_confirmation_mail`-Config; Seed „Zahlungserinnerung" | APTPL-01..04 | -- (parallel zu 29, vor 31) |
+| 31. Service + REST Versand | `ApplicationService::send_mail -> Result<_, ServiceError>`; Status-Guard `Offen`-only (409); `POST /api/applications/{id}/mail` + `GET /api/applications/{id}/communications` admin-only; „zuletzt gesendet"-Daten | APMAIL-01..02, APCMP-01..02, APHIST-02 | Phase 29 + Phase 30 |
+| 32. Frontend Compose-Dialog | dedizierte `api.rs`-Fns; Application-Mail-Compose-Dialog (Reuse `mail_compose/*` + `communication_timeline.rs`); „E-Mail senden"-Button + Last-Sent auf `application_detail.rs`; Live-Preview + confirm-before-send; disabled-ohne-Adresse/während-pending | APMAIL-03..04, APUI-01..03 | Phase 31 |
+
+**Build order:** 29 (Schema/Linkage) ∥ 30 (Template-Kontext) -> 31 (Service+REST) -> 32 (Frontend). Harte Dependency-Kette: `application_id` muss existieren+persistiert sein, bevor der Service es stempelt; Endpoints müssen existieren, bevor der Dialog aufruft. 29 und 30 sind entkoppelt (parallel), müssen aber beide vor 31 landen.
+
+**Audit scope (v1.6):** Kein Audit-Log für die `application_id`-Linkage oder Mail-/Communication-Entities. KEIN neues Zahlungsstatus-Feld auf dem auditierten `ApplicationEntity` (offener Betrag berechnet, nie gespeichert). Neue Backend-Dependency: keine („add nothing" — pure Wiederverwendung von `genossi_mail`).
+
+**Guardrails (DSGVO/Content-Scoping):** Versand nur bei Status `Offen` (409 sonst); kein Massenversand, kein Freitext-Empfänger (immer `application.email`), keine Newsletter/Marketing, kein Tracking. Timeline outbound-only.
+
+**Load-bearing Entscheidungen:** D1 eigener Antragsteller-Vorlagentyp (Phase 30) · D2 Historie-Carry-over bei `confirm()`, Mechanismus in Phase-29-Planung (Phase 29) · D3 `share_value_cents` aus `send_confirmation_mail`-Config (Phase 30).
+
+**Coverage:** 16/16 REQs gemappt (APMAIL-01..04, APTPL-01..04, APHIST-01..03, APCMP-01..02, APUI-01..03), keine Orphans/Duplikate.
 
 ### Phase 27 Closure (abgeschlossen)
 
