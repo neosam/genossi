@@ -27,7 +27,7 @@
 
 - [x] **APHIST-01**: Alle an eine Application gesendeten Mails werden in einer Kommunikations-Historie pro Antragsteller erfasst — über `application_id`-Linkage an `mail_recipients`/Communication-Entry, kein `member_id`-Overload; Endpoint `GET /api/applications/{id}/communications`.
 - [ ] **APHIST-02**: Der Vorstand sieht auf der Application-Detailseite prominent „zuletzt gesendet am …" — der zentrale Anti-Doppelversand-/Spam-Guard.
-- [ ] **APHIST-03**: Nach Bestätigung (`confirm` → Mitglied) erscheint die als Antragsteller gesendete Erinnerungs-Kommunikation **in der Mitglieds-Timeline** des neuen Mitglieds (Carry-over, Entscheid D2). *(Mechanismus — Back-fill `member_id` beim Bestätigen / Union-at-read / Link-Spalte — wird in Phase 1 Planung entschieden; verifiziert per e2e: Erinnerung → confirm → sichtbar in Member-Timeline.)*
+- [x] **APHIST-03**: Nach Bestätigung (`confirm` → Mitglied) erscheint die als Antragsteller gesendete Erinnerungs-Kommunikation **in der Mitglieds-Timeline** des neuen Mitglieds (Carry-over, Entscheid D2). *(Mechanismus — Back-fill `member_id` beim Bestätigen / Union-at-read / Link-Spalte — wird in Phase 1 Planung entschieden; verifiziert per e2e: Erinnerung → confirm → sichtbar in Member-Timeline.)*
 
 ### Compliance / Guardrails (APCMP)
 
@@ -77,7 +77,7 @@ Phase-Mapping aus `.planning/ROADMAP.md` (v1.6 Phases 29-32, fortlaufende Nummer
 | Requirement | Phase | Phase Name | Status |
 |-------------|-------|------------|--------|
 | APHIST-01 | Phase 29 | DAO/Schema-Foundation (Kommunikations-Historie pro Antragsteller) | Complete |
-| APHIST-03 | Phase 29 | DAO/Schema-Foundation (Kommunikations-Historie pro Antragsteller) | Pending |
+| APHIST-03 | Phase 29 | DAO/Schema-Foundation (Kommunikations-Historie pro Antragsteller) | Complete |
 | APTPL-01 | Phase 30 | Application-Template-Kontext (Antragsteller-Vorlagen) | Pending |
 | APTPL-02 | Phase 30 | Application-Template-Kontext (Antragsteller-Vorlagen) | Pending |
 | APTPL-03 | Phase 30 | Application-Template-Kontext (Antragsteller-Vorlagen) | Pending |

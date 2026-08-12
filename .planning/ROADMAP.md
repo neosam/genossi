@@ -227,7 +227,7 @@ Plans:
   3. Nach `confirm()` einer Application (→ neues Mitglied) erscheint die zuvor als Antragsteller gesendete Erinnerung in der Mitglieds-Timeline des neuen Mitglieds (e2e: Erinnerung → confirm → sichtbar), gemäß dem in der Planung festgelegten Carry-over-Mechanismus (D2).
   4. Die Migration ist forward-only und additiv (nullable `application_id BLOB` + Index auf `mail_recipients`); bestehende `mail_recipients`-Zeilen ohne `application_id` bleiben byte-identisch (NULL-Legacy-Roundtrip), und jede `mail_recipients`-SQL-Spaltenliste ist auf die neue Spalte geprüft.
 
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans executed
 
 Plans:
 **Wave 1**
@@ -236,7 +236,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 29-02-PLAN.md — Timeline-Read + D2-Carry-over: `get_application_communications` (outbound-only) + `link_application_to_member` (UPDATE) + `MailService::link_application_recipients_to_member` + post-commit best-effort Carry-over-Hook in `confirm()` (D2 Option A) + e2e Erinnerung→confirm→sichtbar (APHIST-01, APHIST-03)
+- [x] 29-02-PLAN.md — Timeline-Read + D2-Carry-over: `get_application_communications` (outbound-only) + `link_application_to_member` (UPDATE) + `MailService::link_application_recipients_to_member` + post-commit best-effort Carry-over-Hook in `confirm()` (D2 Option A) + e2e Erinnerung→confirm→sichtbar (APHIST-01, APHIST-03)
 
 **Waves:** 1 (29-01) → 2 (29-02, hängt an 29-01 wegen application_id-Spalte + Datei-Overlap auf `genossi_mail`)
 
@@ -317,7 +317,7 @@ Plans:
 | 26. Editor-Formatierung vervollständigen           | v1.5      | 3/3 | In Progress|  |
 | 27. Bild-Support Backend + Editor-Upload           | v1.5      | 4/4 | In Progress|  |
 | 28. Desktop/Mobile-Vorschau                        | v1.5      | 4/5 | In Progress|  |
-| 29. DAO/Schema-Foundation (Antragsteller-Historie) | v1.6      | 1/2 | In Progress|  |
+| 29. DAO/Schema-Foundation (Antragsteller-Historie) | v1.6      | 2/2 | In Progress|  |
 | 30. Application-Template-Kontext                   | v1.6      | 0/0 | Not started |  |
 | 31. Service + REST Versand                         | v1.6      | 0/0 | Not started |  |
 | 32. Frontend Compose-Dialog                        | v1.6      | 0/0 | Not started |  |

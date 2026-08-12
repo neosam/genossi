@@ -5,15 +5,15 @@ milestone_name: Antragsteller-Kommunikation
 current_phase: 29
 current_phase_name: dao-schema-foundation-kommunikations-historie-pro-antragstel
 status: executing
-stopped_at: Completed 29-01-PLAN.md
-last_updated: "2026-08-12T15:23:09.637Z"
+stopped_at: Completed 29-02-PLAN.md
+last_updated: "2026-08-12T15:44:33Z"
 last_activity: 2026-08-12
-last_activity_desc: Completed 29-01 (application_id DAO/schema foundation)
+last_activity_desc: Completed 29-02 (get_application_communications Read + confirm() Carry-over)
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 2
-  completed_plans: 1
+  completed_plans: 2
 ---
 
 # State: Genossi — v1.6 Antragsteller-Kommunikation (Phase 29 geplant — 2 Pläne, bereit für Execute)
@@ -33,8 +33,8 @@ See: `.planning/PROJECT.md` (updated 2026-08-12 mit v1.6 Current Milestone)
 
 Phase: 29 (dao-schema-foundation-kommunikations-historie-pro-antragstel) — EXECUTING
 Plan: 2 of 2
-Status: 29-01 complete (application_id-Linkage persistiert); 29-02 bereit für Execute
-Last activity: 2026-08-12 — 29-01 abgeschlossen (application_id DAO/Schema-Foundation, 3 Tasks, 282 genossi_mail-Tests grün)
+Status: 29-01 complete (application_id-Linkage persistiert); 29-02 complete (Read-Methode + confirm()-Carry-over)
+Last activity: 2026-08-12 — 29-02 abgeschlossen (get_application_communications outbound-only + link_application_to_member + confirm()-post-commit-Hook + e2e Carry-over; 3 Tasks, genossi_mail 288 + genossi_service_impl 437 grün, e2e neuer Test grün)
 
 ### v1.6 Phase Structure (Phases 29-32, granularity: coarse)
 
@@ -97,6 +97,14 @@ Phase 27 (bild-support-backend-editor-upload) — COMPLETE (verifiziert, UAT def
 - D-05-Falle umgesetzt: Dirty-Check-Baseline (subject+body) wird INNERHALB des Footer-use_effect NACH dem Body-Compose gesnapshottet — pure `is_draft_dirty`-Helfer mit 4 Unit-Tests.
 - D-07: nativer `web_sys::window().confirm_with_message` als Verwerfen-Bestätigung (kein verschachteltes In-App-Modal).
 - D-08: `MailBodyEditor` unverändert (h-40, von Compose geteilt); mehr Schreibfläche kommt aus dem breiten Modal-Kontext.
+
+### Decisions (Phase 29 Plan 02)
+
+- D2 = Option A (Carry-over via Back-fill echter member_id): nach `confirm()` schreibt `link_application_to_member` die genuine neue member_id auf `mail_recipients`-Zeilen mit passendem `application_id` (WHERE `member_id IS NULL`). Einzige Variante ohne Audit-Ripple und ohne Umbau der getesteten Member-Timeline-Query (Option C brauchte ein Feld auf der auditierten ApplicationEntity, Option B faktisch denselben Stored-Link).
+- Carry-over-Hook laeuft post-commit best-effort in `confirm()` (nach `commit(tx)`, neben dem Datei-Cleanup): `tracing::warn!` statt `?`, kein Rollback — Mail-DAO auf separater Pool-Connection, nie atomar in der Service-Tx. Mitglied bleibt bei Back-fill-Fehler korrekt erstellt (T-29-06 accept).
+- `get_application_communications` ist outbound-only (inbound/UNION-Zweig bewusst weggelassen — Antragsteller haben keine assigned_member_id); `WHERE r.application_id = ?1` + Soft-Delete-Filter. Member-Timeline-Query bleibt unveraendert. KEIN REST-Endpoint in Phase 29 (kommt Phase 31).
+- Mock-Erwartung `link_application_recipients_to_member` permissiv (0..n) zentral in `build_service` statt per-Test — funktional identisch zum Plan-Ziel, ohne build_service-Signaturaenderung (Deviation Rule 3).
+- Pre-existing (nicht 29-02): zwei `/api/mail/preview`-e2e-Failures (Markdown-Bold-Strip + `errors`-Array) reproduzieren am Baseline `4f7940e`; korrespondieren zu deferred quick_task `260602-c19...`. Dokumentiert in `deferred-items.md`, out of scope.
 
 ### Decisions (Phase 25 Plan 02)
 
