@@ -1623,6 +1623,82 @@ mod tests {
         assert_eq!(found.len(), 2);
     }
 
+    // Phase 29 (APHIST-01): application_id-Roundtrip — eine an einen Antragsteller
+    // gesendete Mail wird mit gesetztem application_id (member_id: None) persistiert
+    // und byte-gleich wieder ausgelesen.
+    #[tokio::test]
+    async fn test_recipient_roundtrip_application_id() {
+        let pool = setup_db().await;
+        let job_dao = MailJobDaoSqlite::new(pool.clone());
+        let recipient_dao = MailRecipientDaoSqlite::new(pool);
+
+        let job = sample_job();
+        job_dao.create(&job).await.unwrap();
+
+        let app_uuid = Uuid::new_v4();
+        let mut r = sample_recipient(job.id);
+        r.application_id = Some(app_uuid);
+        r.member_id = None;
+        recipient_dao.create(&r).await.unwrap();
+
+        let found = recipient_dao.find_by_job_id(job.id).await.unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].application_id, Some(app_uuid));
+        assert_eq!(found[0].member_id, None);
+    }
+
+    // Phase 29 (APHIST-01, T-29-04): NULL-Legacy-Roundtrip — ein Recipient wie vor der
+    // Migration (nur member_id gesetzt, kein application_id) liest application_id=NULL
+    // byte-identisch zurueck; bestehende member_id-Semantik unberuehrt.
+    #[tokio::test]
+    async fn test_recipient_roundtrip_null_legacy_application_id() {
+        let pool = setup_db().await;
+        let job_dao = MailJobDaoSqlite::new(pool.clone());
+        let recipient_dao = MailRecipientDaoSqlite::new(pool);
+
+        let job = sample_job();
+        job_dao.create(&job).await.unwrap();
+
+        let mid = Uuid::new_v4();
+        let mut r = sample_recipient(job.id);
+        r.member_id = Some(mid);
+        r.application_id = None;
+        recipient_dao.create(&r).await.unwrap();
+
+        let found = recipient_dao.find_by_job_id(job.id).await.unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].application_id, None);
+        assert_eq!(found[0].member_id, Some(mid));
+    }
+
+    // Phase 29 (APHIST-01, T-29-01, Pitfall 2): Namespace-Gate — ein Antragsteller-Send
+    // trennt die Namespaces sauber. Beweist per Persistenz-Roundtrip, dass eine
+    // Application-UUID nie in member_id gelangt (member_id.is_none() bei gesetztem
+    // application_id).
+    #[tokio::test]
+    async fn test_recipient_application_send_keeps_member_id_namespace_clean() {
+        let pool = setup_db().await;
+        let job_dao = MailJobDaoSqlite::new(pool.clone());
+        let recipient_dao = MailRecipientDaoSqlite::new(pool);
+
+        let job = sample_job();
+        job_dao.create(&job).await.unwrap();
+
+        let app_uuid = Uuid::new_v4();
+        let mut r = sample_recipient(job.id);
+        r.application_id = Some(app_uuid);
+        r.member_id = None;
+        recipient_dao.create(&r).await.unwrap();
+
+        let found = recipient_dao.find_by_job_id(job.id).await.unwrap();
+        assert_eq!(found.len(), 1);
+        assert!(
+            found[0].member_id.is_none(),
+            "Application-Send darf member_id nicht vergiften"
+        );
+        assert_eq!(found[0].application_id, Some(app_uuid));
+    }
+
     #[tokio::test]
     async fn test_recipient_next_pending() {
         let pool = setup_db().await;
