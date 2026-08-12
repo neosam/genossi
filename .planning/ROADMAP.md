@@ -1,6 +1,6 @@
 # Roadmap: Genossi
 
-Mitgliederverwaltungs-Software für Genossenschaften. Aktiver Stand: fünf ausgelieferte Milestones — v1.0..v1.4 — plus aktiver Milestone **v1.5 Editor-Vervollständigung, Bild-Support & Vorschau** (Phases 26-28). Offene Kandidaten siehe Backlog (999.x).
+Mitgliederverwaltungs-Software für Genossenschaften. Aktiver Stand: fünf ausgelieferte Milestones — v1.0..v1.4 — plus v1.5 (Editor-Vervollständigung, Bild-Support & Vorschau, Phases 26-28, getestet & deployed) und aktiver Milestone **v1.6 Antragsteller-Kommunikation** (Phases 29-32). Offene Kandidaten siehe Backlog (999.x).
 
 ## Milestones
 
@@ -9,7 +9,8 @@ Mitgliederverwaltungs-Software für Genossenschaften. Aktiver Stand: fünf ausge
 - ✅ **v1.2 Mitgliedschaft-Anpassungen** — Phases 14-18 (shipped 2026-06-07)
 - ✅ **v1.3 Posteingang-Benachrichtigung & Reply-Komfort** — Phases 19-21 (shipped 2026-06-28)
 - ✅ **v1.4 Mail-Formatierung & Antrags-Dokumente** — Phases 22-25 (shipped 2026-07-03)
-- 🚧 **v1.5 Editor-Vervollständigung, Bild-Support & Vorschau** — Phases 26-28 (planning 2026-07-17)
+- 🚧 **v1.5 Editor-Vervollständigung, Bild-Support & Vorschau** — Phases 26-28 (getestet & deployed 2026-07-17)
+- 🚧 **v1.6 Antragsteller-Kommunikation** — Phases 29-32 (planning 2026-08-12)
 
 ## Phases
 
@@ -82,8 +83,8 @@ Archive: `.planning/milestones/v1.4-ROADMAP.md` · `v1.4-REQUIREMENTS.md` · `v1
 
 </details>
 
-<details open>
-<summary>🚧 v1.5 Editor-Vervollständigung, Bild-Support & Vorschau (Phases 26-28) — PLANNING 2026-07-17</summary>
+<details>
+<summary>🚧 v1.5 Editor-Vervollständigung, Bild-Support & Vorschau (Phases 26-28) — GETESTET & DEPLOYED 2026-07-17</summary>
 
 **Goal:** Der WYSIWYG-Editor bekommt vollen Formatierungs-Umfang (Listen, Überschriften), Vorstand kann Inline-Bilder direkt im Editor hochladen und in HTML-Mails einbetten, und das gerenderte HTML lässt sich in Desktop-/Mobile-Vorschau prüfen bevor die Mail versendet wird.
 
@@ -96,6 +97,32 @@ Archive: `.planning/milestones/v1.4-ROADMAP.md` · `v1.4-REQUIREMENTS.md` · `v1
 **Audit scope (v1.5):** Kein Audit-Log für die neue `mail_asset`-Entität (Non-Kern-Entität, analog `application_documents`-Pattern aus v1.4 Phase 25). Bestehende auditierte Entitäten (Member/MemberAction/MemberDocument/Application) bleiben unverändert. Neue Backend-Dependency: keine — `ammonia` (Phase 23) wird nur um Regeln erweitert.
 
 **Backward-Compat:** v1.4-Templates ohne Bilder senden weiterhin OHNE `multipart/related`-Wrapper (IMG-09). Bestehende WYSIWYG-Component wird erweitert, nicht ersetzt. Ammonia bleibt server-side only (kein WASM-Bundle).
+
+Archive: TBD (bei Milestone-Close)
+
+</details>
+
+<details open>
+<summary>🚧 v1.6 Antragsteller-Kommunikation (Phases 29-32) — PLANNING 2026-08-12</summary>
+
+**Goal:** Vorstände können Personen mit abgegebener Beitrittserklärung (Applications) direkt per E-Mail kontaktieren — insbesondere Zahlungserinnerungen —, mit wiederverwendbaren Vorlagen und nachvollziehbarer Kommunikations-Historie, auch bevor die Person Mitglied ist.
+
+- [ ] **Phase 29: DAO/Schema-Foundation (Kommunikations-Historie pro Antragsteller)** — Migration nullable `application_id BLOB` + Index auf `mail_recipients`; `MailRecipient`/`RecipientInput.application_id`; `create_job` threaded es durch; `CommunicationDao::get_application_communications` (outbound-only); Carry-over-Mechanik bei `confirm()` → Erinnerung erscheint in Mitglieds-Timeline (APHIST-01, APHIST-03)
+- [ ] **Phase 30: Application-Template-Kontext (Antragsteller-Vorlagen)** — eigener „Antragsteller"-Vorlagentyp via `application_to_template_context`; extrahierter generischer `validate_rendered`-Kern (Member-Tests bleiben grün); `format_eur_de`-Helper; `share_value_cents` aus derselben Config wie `send_confirmation_mail`; geseedete Standard-Vorlage „Zahlungserinnerung" (APTPL-01..04)
+- [ ] **Phase 31: Service + REST Versand (Versand + Guardrails)** — `ApplicationService::send_mail` → `Result<_, ServiceError>` (nicht das stille `()`-Pattern); Status-Guard `Offen`-only (409); `POST /api/applications/{id}/mail` + `GET /api/applications/{id}/communications`, admin-only; „zuletzt gesendet"-Daten; Service-/E2E-Tests (APMAIL-01..02, APCMP-01..02, APHIST-02)
+- [ ] **Phase 32: Frontend Compose-Dialog** — `api.rs`-Funktionen (dediziert, nicht member-umgeleitet); neuer Application-Mail-Compose-Dialog mit Wiederverwendung `mail_compose/*` + `communication_timeline.rs`; „E-Mail senden"-Button + Last-Sent-Anzeige auf `application_detail.rs`; Live-Preview + Confirm-before-send; deaktiviert-ohne-Adresse & deaktiviert-während-pending (APMAIL-03..04, APUI-01..03)
+
+**Build order:** 29 (Schema/Linkage) und 30 (Template-Kontext) können parallel laufen, müssen aber beide vor 31 landen. 31 (Service + REST) hängt an 29+30. 32 (Frontend) hängt an 31. Harte Dependency-Kette: das `application_id`-Feld muss existieren und persistiert werden, bevor der Service es stempeln kann; die Endpoints müssen existieren, bevor der Dialog etwas aufrufen kann.
+
+**Load-bearing Entscheidungen (aus Research + Produkt-Entscheiden 2026-08-12):**
+
+- **D1 — Eigener „Antragsteller"-Vorlagentyp** (getrennt vom Member-Pool) — vermeidet die strict-render-Bombe durch Member-only-Platzhalter. → Phase 30
+- **D2 — Historie-Carry-over bei `confirm()`** — als Antragsteller gesendete Erinnerungen erscheinen nach der Bestätigung in der Mitglieds-Timeline. Konkreter Mechanismus (Back-fill `member_id` / Union-at-read / Link-Spalte) wird in Phase-29-Planung festgelegt; e2e-verifiziert: Erinnerung → confirm → sichtbar in Member-Timeline. → Phase 29
+- **D3 — `share_value_cents`-Quelle** — dieselbe Config-Quelle wie `send_confirmation_mail` (Konsistenz). → Phase 30
+
+**Audit scope (v1.6):** Kein Audit-Log für die neue `application_id`-Linkage oder Mail-/Communication-Entities (reine Non-Kern-Mail-Daten). Bestehende auditierte Entitäten (Member/MemberAction/MemberDocument/Application) bleiben unverändert — insbesondere KEIN neues Zahlungsstatus-Feld auf dem auditierten `ApplicationEntity` (offener Betrag wird berechnet, nie gespeichert). Neue Backend-Dependency: keine („add nothing" — pure Wiederverwendung des bestehenden Mail-/Template-/Communication-Subsystems).
+
+**Guardrails (DSGVO/Content-Scoping):** Versand nur bei Status `Offen` (409 sonst) — deckt die transaktionale Rechtsgrundlage. Kein Massenversand, kein Freitext-Empfänger (immer `application.email`), keine Newsletter/Marketing-Inhalte, kein Open-/Click-Tracking. Timeline ist outbound-only (Antragsteller haben keine Inbound-Zuordnung).
 
 Archive: TBD (bei Milestone-Close)
 
@@ -188,6 +215,76 @@ Plans:
 **Waves:** 1 (28-01, 28-02 parallel) → 2 (28-03) → 3 (28-04) → 4 (28-05)
 **UI hint:** yes
 
+### Phase 29: DAO/Schema-Foundation (Kommunikations-Historie pro Antragsteller)
+
+**Goal:** Alle an einen Antragsteller gesendeten Mails werden über eine eigene `application_id`-Linkage erfasst und bleiben auch nach der Bestätigung zum Mitglied in dessen Timeline sichtbar — ohne den `member_id`-Namespace zu vergiften.
+**Depends on:** Nothing (erste Phase von v1.6; baut auf dem bestehenden Mail-/Communication-Subsystem `genossi_mail` auf)
+**Requirements:** APHIST-01, APHIST-03
+**Success Criteria** (what must be TRUE):
+
+  1. Eine gesendete Mail mit gesetztem `application_id` (und `member_id: None`) wird persistiert und über `GET /api/applications/{id}/communications` (outbound-only) als Historie-Eintrag zurückgeliefert.
+  2. Der `member_id`-Namespace bleibt sauber — eine Application-UUID landet niemals in `RecipientInput.member_id`; das ist per Test/Grep-Gate gegen Pitfall 5 abgesichert.
+  3. Nach `confirm()` einer Application (→ neues Mitglied) erscheint die zuvor als Antragsteller gesendete Erinnerung in der Mitglieds-Timeline des neuen Mitglieds (e2e: Erinnerung → confirm → sichtbar), gemäß dem in der Planung festgelegten Carry-over-Mechanismus (D2).
+  4. Die Migration ist forward-only und additiv (nullable `application_id BLOB` + Index auf `mail_recipients`); bestehende `mail_recipients`-Zeilen ohne `application_id` bleiben byte-identisch (NULL-Legacy-Roundtrip), und jede `mail_recipients`-SQL-Spaltenliste ist auf die neue Spalte geprüft.
+
+**Plans:** 2 plans
+
+Plans:
+**Wave 1**
+
+- [ ] 29-01-PLAN.md — `application_id`-Linkage durch `genossi_mail` fädeln: additive Migration (nullable `application_id BLOB` + Index) + `MailRecipient`/`RecipientInput`-Feld + alle 6 `mail_recipients`-SQL-Spaltenlisten (inkl. Test-DDL) + `create_job`-Threading + Roundtrip-/NULL-Legacy-/Namespace-Tests (APHIST-01)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 29-02-PLAN.md — Timeline-Read + D2-Carry-over: `get_application_communications` (outbound-only) + `link_application_to_member` (UPDATE) + `MailService::link_application_recipients_to_member` + post-commit best-effort Carry-over-Hook in `confirm()` (D2 Option A) + e2e Erinnerung→confirm→sichtbar (APHIST-01, APHIST-03)
+
+**Waves:** 1 (29-01) → 2 (29-02, hängt an 29-01 wegen application_id-Spalte + Datei-Overlap auf `genossi_mail`)
+
+### Phase 30: Application-Template-Kontext (Antragsteller-Vorlagen)
+
+**Goal:** Vorlagen können gegen einen eigenen Application-Kontext gerendert werden, und der Vorstand hat eine mitgelieferte deutsche „Zahlungserinnerung" mit korrekt berechnetem, korrekt formatiertem offenem Betrag.
+**Depends on:** Nothing (entkoppelt von Phase 29; kann parallel laufen, muss aber vor Phase 31 landen)
+**Requirements:** APTPL-01, APTPL-02, APTPL-03, APTPL-04
+**Success Criteria** (what must be TRUE):
+
+  1. Eine Vorlage rendert mit Application-Platzhaltern (Anrede, Vorname, Nachname, Titel, Anzahl Anteile, offener Betrag) über eine eigene `application_to_template_context`-Funktion — als eigener „Antragsteller"-Vorlagentyp, getrennt vom Member-Pool (D1).
+  2. Der „offene Betrag" wird zur Laufzeit als `Anteile × share_value_cents` berechnet (Quelle: dieselbe Config wie `send_confirmation_mail`, D3), in korrektem deutschem Euro-Format angezeigt (Tausenderpunkt, Dezimalkomma, Null-/Negativ-Fall korrekt) und niemals auf der Application gespeichert.
+  3. Eine deutsche Standard-Vorlage „Zahlungserinnerung" ist als Seed vorhanden und rendert den Haupt-Use-Case ohne manuelle Konfiguration.
+  4. Die Validierung einer Antragsteller-Vorlage schlägt bei unbekannten oder Member-only-Platzhaltern kontrolliert fehl (kein `strict`-Render-Crash beim Versand); die ~40 bestehenden Member-Template-Tests bleiben grün (die `validate_template`-Signatur ändert sich nicht).
+
+**Plans:** TBD
+
+### Phase 31: Service + REST Versand (Versand + Guardrails)
+
+**Goal:** Der Vorstand kann einer Application mit Status `Offen` eine einzelne E-Mail senden — mit echtem Erfolg/Fehler-Feedback, Admin-Gate und Status-/DSGVO-Guard — und der Anti-Doppelversand-Guard („zuletzt gesendet") hat seine Daten.
+**Depends on:** Phase 29 (application_id-Linkage) + Phase 30 (Template-Kontext/Formatierung)
+**Requirements:** APMAIL-01, APMAIL-02, APCMP-01, APCMP-02, APHIST-02
+**Success Criteria** (what must be TRUE):
+
+  1. `POST /api/applications/{id}/mail` versendet an `application.email` (`RecipientInput` mit `member_id: None` + gesetztem `application_id`), nur für Vorstand (`admin`-Rolle); Nicht-Admins erhalten 403.
+  2. Der Versand gibt echten Erfolg/Fehler zurück (`ApplicationService::send_mail -> Result<_, ServiceError>`) — bei fehlendem SMTP / fehlender Config sieht der Vorstand einen Fehler, nie ein stilles 200-OK-ohne-Versand (nicht das `()`-schluckende `send_confirmation_mail`-Pattern).
+  3. Versand ist nur bei Status `Offen` möglich; abgelehnte oder bereits bestätigte (jetzt Mitglied) Antragsteller liefern HTTP 409 (analog `confirm`/`reject`) — zugleich die DSGVO-Rechtsgrundlage-Grenze.
+  4. Der Service liefert pro Application die „zuletzt gesendet am …"-Information (aus der outbound-Historie), damit der Anti-Doppelversand-/Spam-Guard auf der Detailseite angezeigt werden kann.
+  5. Es gibt keinen Massenversand- und keinen Freitext-Empfänger-Pfad; Empfänger ist immer die Application selbst (Content-Scoping), kein Open-/Click-Tracking — verifiziert per Service-/E2E-Tests.
+
+**Plans:** TBD
+
+### Phase 32: Frontend Compose-Dialog
+
+**Goal:** Der Vorstand kann auf der Application-Detailseite eine Erinnerung komponieren, in Live-Vorschau prüfen, bewusst bestätigen und absenden — mit sichtbarer Kommunikations-Historie und sauberem No-Email-Handling.
+**Depends on:** Phase 31
+**Requirements:** APMAIL-03, APMAIL-04, APUI-01, APUI-02, APUI-03
+**Success Criteria** (what must be TRUE):
+
+  1. Ein „E-Mail senden"-Button auf der Application-Detailseite öffnet einen Compose-Dialog (Vorbild-Pattern: `member_details.rs`); bei fehlender `application.email` ist der Button deaktiviert/annotiert, nie ein stiller Fehlversuch.
+  2. Der Dialog nutzt die bestehenden `component/mail_compose/`-Bausteine (Betreff-Input, WYSIWYG-Editor, Template-Selector, Preview) — kein geforktes UI (Component-First); die API-Aufrufe sind dedizierte `api.rs`-Funktionen, nicht umgeleitete Member-Funktionen.
+  3. Vor dem Absenden sieht der Vorstand eine Live-Vorschau mit aufgelösten Platzhaltern und bestätigt den Versand bewusst (confirm-before-send).
+  4. Die Kommunikations-Historie wird über die unveränderte, prop-getriebene `communication_timeline.rs`-Komponente auf der Application-Detailseite/im Dialog angezeigt, inklusive prominenter „zuletzt gesendet am …"-Anzeige.
+  5. Der Senden-Button ist während eines laufenden Requests deaktiviert (kein Doppelversand), und die Dioxus-`form onsubmit`-Reload-Falle wird via `div`+`onclick`+`r#type:"button"` vermieden.
+
+**Plans:** TBD
+**UI hint:** yes
+
 ## Progress
 
 | Phase                                              | Milestone | Plans Complete | Status      | Completed  |
@@ -220,6 +317,10 @@ Plans:
 | 26. Editor-Formatierung vervollständigen           | v1.5      | 3/3 | In Progress|  |
 | 27. Bild-Support Backend + Editor-Upload           | v1.5      | 4/4 | In Progress|  |
 | 28. Desktop/Mobile-Vorschau                        | v1.5      | 4/5 | In Progress|  |
+| 29. DAO/Schema-Foundation (Antragsteller-Historie) | v1.6      | 0/2 | Planned     |  |
+| 30. Application-Template-Kontext                   | v1.6      | 0/0 | Not started |  |
+| 31. Service + REST Versand                         | v1.6      | 0/0 | Not started |  |
+| 32. Frontend Compose-Dialog                        | v1.6      | 0/0 | Not started |  |
 
 ---
 
@@ -284,4 +385,4 @@ Plans:
 
 ---
 
-_Last updated: 2026-07-17 — v1.5 Editor-Vervollständigung, Bild-Support & Vorschau gestartet (Phases 26-28, fortlaufende Nummerierung nach v1.4 Phase 25). 19 REQs (EDIT-06..10, IMG-01..09, PREV-01..05) auf 3 Phasen gemappt, 100% Coverage. Build-Order 26→27→28 strikt sequenziell (ammonia-Regeln-Konflikt zwischen 26/27; Preview braucht 27's Assets-Bytes-Endpoint). v1.0-v1.4 Historie + Backlog 999.x unverändert erhalten._
+_Last updated: 2026-08-12 — v1.6 Antragsteller-Kommunikation gestartet (Phases 29-32, fortlaufende Nummerierung nach v1.5 Phase 28). 16 REQs (APMAIL-01..04, APTPL-01..04, APHIST-01..03, APCMP-01..02, APUI-01..03) auf 4 Phasen gemappt, 100% Coverage, keine Orphans/Duplikate. Build-Order: 29 (Schema) ∥ 30 (Template-Kontext) → 31 (Service+REST) → 32 (Frontend); harte Dependency-Kette Schema→Service→Frontend. „Add nothing"-Stack (pure Wiederverwendung `genossi_mail`), kein neues Audit-Feld auf `ApplicationEntity`, Versand-Guardrails DSGVO-transaktional (`Offen`-only, kein Bulk/Tracking). v1.0-v1.5 Historie + Backlog 999.x unverändert erhalten._
