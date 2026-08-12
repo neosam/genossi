@@ -213,6 +213,8 @@ struct MailRecipientDb {
     mail_job_id: Vec<u8>,
     to_address: String,
     member_id: Option<Vec<u8>>,
+    // Phase 29 (APHIST-01): optional Application-Linkage, spiegelbildlich zu member_id
+    application_id: Option<Vec<u8>>,
     status: String,
     error: Option<String>,
     sent_at: Option<String>,
@@ -237,6 +239,7 @@ impl TryFrom<&MailRecipientDb> for MailRecipient {
             mail_job_id: parse_uuid(&db.mail_job_id)?,
             to_address: Arc::from(db.to_address.as_str()),
             member_id: parse_optional_uuid(&db.member_id)?,
+            application_id: parse_optional_uuid(&db.application_id)?,
             status: Arc::from(db.status.as_str()),
             error: db.error.as_deref().map(Arc::from),
             sent_at: parse_optional_datetime(&db.sent_at)?,
@@ -267,10 +270,11 @@ impl MailRecipientDao for MailRecipientDaoSqlite {
         let created = format_datetime(&recipient.created)?;
         let mail_job_id = recipient.mail_job_id.as_bytes().to_vec();
         let member_id = recipient.member_id.map(|m| m.as_bytes().to_vec());
+        let application_id = recipient.application_id.map(|a| a.as_bytes().to_vec());
 
         sqlx::query(
-            "INSERT INTO mail_recipients (id, created, deleted, version, mail_job_id, to_address, member_id, status, error, sent_at, message_id, rendered_subject, rendered_body, rendered_reconstructed, rendered_html_body) \
-             VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, NULL)",
+            "INSERT INTO mail_recipients (id, created, deleted, version, mail_job_id, to_address, member_id, application_id, status, error, sent_at, message_id, rendered_subject, rendered_body, rendered_reconstructed, rendered_html_body) \
+             VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, NULL)",
         )
         .bind(id)
         .bind(created)
@@ -278,6 +282,7 @@ impl MailRecipientDao for MailRecipientDaoSqlite {
         .bind(mail_job_id)
         .bind(recipient.to_address.as_ref())
         .bind(member_id)
+        .bind(application_id)
         .bind(recipient.status.as_ref())
         .bind(recipient.error.as_deref())
         .bind(Option::<String>::None) // sent_at is NULL on creation
@@ -292,7 +297,7 @@ impl MailRecipientDao for MailRecipientDaoSqlite {
     async fn find_by_job_id(&self, job_id: Uuid) -> Result<Arc<[MailRecipient]>, MailDaoError> {
         let job_id_bytes = job_id.as_bytes().to_vec();
         let rows = sqlx::query_as::<_, MailRecipientDb>(
-            "SELECT id, created, deleted, version, mail_job_id, to_address, member_id, status, error, sent_at, message_id, rendered_subject, rendered_body, rendered_reconstructed, rendered_html_body \
+            "SELECT id, created, deleted, version, mail_job_id, to_address, member_id, application_id, status, error, sent_at, message_id, rendered_subject, rendered_body, rendered_reconstructed, rendered_html_body \
              FROM mail_recipients WHERE mail_job_id = ? ORDER BY created ASC",
         )
         .bind(job_id_bytes)
@@ -308,7 +313,7 @@ impl MailRecipientDao for MailRecipientDaoSqlite {
 
     async fn next_pending(&self) -> Result<Option<MailRecipient>, MailDaoError> {
         let row = sqlx::query_as::<_, MailRecipientDb>(
-            "SELECT r.id, r.created, r.deleted, r.version, r.mail_job_id, r.to_address, r.member_id, r.status, r.error, r.sent_at, r.message_id, r.rendered_subject, r.rendered_body, r.rendered_reconstructed, r.rendered_html_body \
+            "SELECT r.id, r.created, r.deleted, r.version, r.mail_job_id, r.to_address, r.member_id, r.application_id, r.status, r.error, r.sent_at, r.message_id, r.rendered_subject, r.rendered_body, r.rendered_reconstructed, r.rendered_html_body \
              FROM mail_recipients r \
              INNER JOIN mail_jobs j ON r.mail_job_id = j.id \
              WHERE r.status = 'pending' AND j.status = 'running' \
@@ -358,6 +363,9 @@ impl MailRecipientDao for MailRecipientDaoSqlite {
         &self,
         job_id: Uuid,
     ) -> Result<Arc<[Uuid]>, MailDaoError> {
+        // Phase 29 (APHIST-01): bewusst UNVERAENDERT — selektiert ausschliesslich
+        // member_id (nie application_id). Der member_id-Namespace bleibt sauber,
+        // Application-Sends (member_id IS NULL) tauchen hier nie auf (Pitfall 2).
         let job_id_bytes = job_id.as_bytes().to_vec();
         let rows: Vec<(Vec<u8>,)> = sqlx::query_as(
             "SELECT member_id FROM mail_recipients \
@@ -376,7 +384,7 @@ impl MailRecipientDao for MailRecipientDaoSqlite {
 
     async fn find_recipients_without_rendered(&self) -> Result<Arc<[MailRecipient]>, MailDaoError> {
         let rows = sqlx::query_as::<_, MailRecipientDb>(
-            "SELECT id, created, deleted, version, mail_job_id, to_address, member_id, status, error, sent_at, message_id, rendered_subject, rendered_body, rendered_reconstructed, rendered_html_body \
+            "SELECT id, created, deleted, version, mail_job_id, to_address, member_id, application_id, status, error, sent_at, message_id, rendered_subject, rendered_body, rendered_reconstructed, rendered_html_body \
              FROM mail_recipients \
              WHERE rendered_subject IS NULL AND rendered_body IS NULL AND deleted IS NULL \
              ORDER BY created ASC",
@@ -1346,6 +1354,7 @@ mod tests {
                 mail_job_id BLOB NOT NULL REFERENCES mail_jobs(id),
                 to_address TEXT NOT NULL,
                 member_id BLOB,
+                application_id BLOB,
                 status TEXT NOT NULL,
                 error TEXT,
                 sent_at TEXT,
@@ -1477,6 +1486,7 @@ mod tests {
             mail_job_id: job_id,
             to_address: Arc::from("user@example.com"),
             member_id: None,
+            application_id: None,
             status: Arc::from("pending"),
             error: None,
             sent_at: None,

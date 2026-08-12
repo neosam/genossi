@@ -703,6 +703,7 @@ where
             mail_job_id: job.id,
             to_address: mail.from_address.clone(),
             member_id: mail.assigned_member_id,
+            application_id: None,
             status: Arc::from("pending"),
             error: None,
             sent_at: None,

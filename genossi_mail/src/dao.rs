@@ -60,6 +60,11 @@ pub struct MailRecipient {
     pub mail_job_id: Uuid,
     pub to_address: Arc<str>,
     pub member_id: Option<Uuid>,
+    // Phase 29 (APHIST-01): nullable Geschwisterspalte zu member_id. Gesetzt (Some)
+    // wenn diese Mail an einen Antragsteller (Application) geht; sonst None. Trennt
+    // den Application-Namespace sauber vom member_id-Namespace (eine Application-UUID
+    // landet NIE in member_id).
+    pub application_id: Option<Uuid>,
     pub status: Arc<str>,
     pub error: Option<Arc<str>>,
     pub sent_at: Option<time::PrimitiveDateTime>,

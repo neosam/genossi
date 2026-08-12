@@ -54,6 +54,10 @@ pub trait InlineImageByteLoader: Send + Sync {
 pub struct RecipientInput {
     pub address: String,
     pub member_id: Option<Uuid>,
+    // Phase 29 (APHIST-01): optional Application-Linkage, spiegelbildlich zu member_id.
+    // Phase 31 setzt hier Some(application.id) fuer Antragsteller-Sends; member_id bleibt
+    // dann None (Namespace-Trennung, Pitfall 2).
+    pub application_id: Option<Uuid>,
 }
 
 pub struct AttachmentInput {
@@ -438,6 +442,7 @@ impl<
                 mail_job_id: job.id,
                 to_address: Arc::from(input.address.as_str()),
                 member_id: input.member_id,
+                application_id: input.application_id,
                 status: Arc::from("pending"),
                 error: None,
                 sent_at: None,
@@ -708,10 +713,12 @@ mod tests {
                     RecipientInput {
                         address: "a@example.com".into(),
                         member_id: None,
+                        application_id: None,
                     },
                     RecipientInput {
                         address: "b@example.com".into(),
                         member_id: None,
+                        application_id: None,
                     },
                 ],
                 vec![],
@@ -876,6 +883,7 @@ mod tests {
             mail_job_id: job_id,
             to_address: Arc::from("fail@example.com"),
             member_id: None,
+            application_id: None,
             status: Arc::from("failed"),
             error: Some(Arc::from("Connection refused")),
             sent_at: None,
@@ -893,6 +901,7 @@ mod tests {
             mail_job_id: job_id,
             to_address: Arc::from("ok@example.com"),
             member_id: None,
+            application_id: None,
             status: Arc::from("sent"),
             error: None,
             sent_at: Some(now),
@@ -1159,6 +1168,7 @@ mod tests {
                 vec![RecipientInput {
                     address: "a@example.com".into(),
                     member_id: Some(Uuid::new_v4()),
+                    application_id: None,
                 }],
                 vec![
                     AttachmentInput {
@@ -1210,10 +1220,12 @@ mod tests {
                     RecipientInput {
                         address: "a@example.com".into(),
                         member_id: None,
+                        application_id: None,
                     },
                     RecipientInput {
                         address: "b@example.com".into(),
                         member_id: None,
+                        application_id: None,
                     },
                 ],
                 vec![AttachmentInput {
@@ -1282,6 +1294,7 @@ mod tests {
                 vec![RecipientInput {
                     address: "a@example.com".into(),
                     member_id: Some(Uuid::new_v4()),
+                    application_id: None,
                 }],
                 vec![],
                 vec![],
@@ -1401,6 +1414,7 @@ mod tests {
                 vec![RecipientInput {
                     address: "a@example.com".into(),
                     member_id: Some(Uuid::new_v4()),
+                    application_id: None,
                 }],
                 vec![],
                 vec![],
@@ -1455,6 +1469,7 @@ mod tests {
                 vec![RecipientInput {
                     address: "a@example.com".into(),
                     member_id: Some(Uuid::new_v4()),
+                    application_id: None,
                 }],
                 vec![],
                 vec![],

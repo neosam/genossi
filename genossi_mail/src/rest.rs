@@ -460,6 +460,7 @@ pub async fn send_mail<S: MailRestState>(
                     vec![RecipientInput {
                         address: body.to_address,
                         member_id: None,
+                        application_id: None,
                     }],
                     vec![],
                     vec![],
@@ -503,6 +504,7 @@ pub async fn send_bulk_mail<S: MailRestState>(
                 .map(|r| RecipientInput {
                     address: r.address,
                     member_id: r.member_id.and_then(|id| uuid::Uuid::parse_str(&id).ok()),
+                    application_id: None,
                 })
                 .collect();
 

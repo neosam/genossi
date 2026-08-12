@@ -1201,6 +1201,7 @@ mod tests {
             mail_job_id: uuid::Uuid::new_v4(),
             to_address: Arc::from("dst@example.com"),
             member_id: Some(uuid::Uuid::new_v4()),
+            application_id: None,
             status: Arc::from("pending"),
             error: None,
             sent_at: None,

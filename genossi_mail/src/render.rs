@@ -437,6 +437,7 @@ mod tests {
             mail_job_id: Uuid::new_v4(),
             to_address: Arc::from("max@example.com"),
             member_id,
+            application_id: None,
             status: Arc::from("pending"),
             error: None,
             sent_at: None,

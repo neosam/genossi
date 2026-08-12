@@ -132,6 +132,10 @@ impl<Deps: ApplicationServiceDeps> ApplicationServiceImpl<Deps> {
         let recipient = genossi_mail::service::RecipientInput {
             address: email,
             member_id: None,
+            // Phase 29 (APHIST-01): send_confirmation_mail geht an ein Mitglied, nicht
+            // an einen Antragsteller — application_id bleibt None. Der echte
+            // Application-Send kommt in Phase 31.
+            application_id: None,
         };
 
         if let Err(e) = mail
