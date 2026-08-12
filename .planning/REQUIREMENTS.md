@@ -1,52 +1,52 @@
-# Requirements: Genossi — v1.5 Editor-Vervollständigung, Bild-Support & Vorschau
+# Requirements: Genossi — v1.6 Antragsteller-Kommunikation
 
-**Defined:** 2026-07-17
+**Defined:** 2026-08-12
 **Core Value:** Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachvollziehbar (Audit-Hashchain), mit weniger manueller Arbeit.
 
-**Milestone-Goal:** Der WYSIWYG-Editor bekommt vollen Formatierungs-Umfang (Listen, Überschriften), Vorstand kann Inline-Bilder direkt im Editor hochladen und in HTML-Mails einbetten, und das gerenderte HTML lässt sich in Desktop-/Mobile-Vorschau prüfen bevor die Mail versendet wird.
+**Milestone-Goal:** Vorstände können Personen mit abgegebener Beitrittserklärung (Applications) direkt per E-Mail kontaktieren — insbesondere Zahlungserinnerungen —, mit wiederverwendbaren Vorlagen und nachvollziehbarer Kommunikations-Historie, auch bevor die Person Mitglied ist.
 
-## v1.5 Requirements
+**Research:** `.planning/research/SUMMARY.md` (HIGH confidence; "add nothing" Stack, 4-Phasen-Build-Order, DSGVO transaktional). Kernpunkt: `application_id`-Linkage statt `member_id`-Overload; keine neuen Dependencies.
 
-### Editor-Formatierung (Phase 26)
+## v1.6 Requirements
 
-- [ ] **EDIT-06**: Vorstand kann im WYSIWYG-Editor **ungeordnete Listen** (`<ul><li>`) via Toolbar-Button einfügen; die Struktur überlebt Save/Reload und ammonia-Sanitization.
-- [ ] **EDIT-07**: Vorstand kann im WYSIWYG-Editor **geordnete Listen** (`<ol><li>`) via Toolbar-Button einfügen; die Struktur überlebt Save/Reload und ammonia-Sanitization.
-- [ ] **EDIT-08**: Vorstand kann im WYSIWYG-Editor **Überschriften H2/H3** via Toolbar-Button (Dropdown oder zwei Buttons) einfügen; die Struktur überlebt Save/Reload und ammonia-Sanitization.
-- [x] **EDIT-09**: Toolbar-Buttons für Listen und Überschriften nutzen `document.execCommand` konsistent mit dem bestehenden Bold-Pattern (`styleWithCSS=false`); zusätzlicher Grep-Gate analog EDIT-01/02 aus v1.4.
-- [ ] **EDIT-10**: v1.4 Phase 24 UAT-Checklist wird im Zuge dieser Phase mit-abgehakt (Bold + Paste-Plain + Modal-Link-Dialog + neue Formatierungen als kombinierter Vorstand-Smoke-Test).
+### Versand (APMAIL)
 
-### Bild-Support (Phase 27)
+- [ ] **APMAIL-01**: Vorstand kann einer Beitrittserklärung (Application) mit Status `Offen` eine einzelne E-Mail senden — Empfänger = `application.email`, `RecipientInput` mit `member_id: None` + gesetztem `application_id`; via `POST /api/applications/{id}/mail`, nur für Vorstand (`admin`-Rolle).
+- [ ] **APMAIL-02**: Der Versand gibt echten Erfolg/Fehler zurück (`Result<_, ServiceError>`) — keine stille `200-OK-ohne-Versand`-Falle wie beim bestehenden `send_confirmation_mail`; Fehler (kein SMTP, fehlende Config) werden dem Vorstand sichtbar gemeldet.
+- [ ] **APMAIL-03**: Fehlende E-Mail-Adresse wird sauber behandelt — der „E-Mail senden"-Button ist deaktiviert/annotiert, nie ein stiller Fehlversuch.
+- [ ] **APMAIL-04**: Vorstand sieht vor dem Absenden eine Vorschau mit aufgelösten Platzhaltern und bestätigt den Versand bewusst (confirm-before-send).
 
-- [x] **IMG-01**: Neue `mail_asset`-Entität (SQLite BLOB-Storage: `id, created, deleted, version, filename, mime_type, size_bytes, bytes, uploaded_by`) mit DAO/Service/REST — **kein Audit-Log** (analog Application-Doc-Pattern für Nicht-Kern-Entitäten).
-- [x] **IMG-02**: `POST /api/mail/assets` akzeptiert `multipart/form-data` mit PNG/JPEG/GIF, max 5 MB/Bild, gibt `mail_asset.id` zurück; nur für Vorstand (`admin`-Rolle).
-- [x] **IMG-03**: Vorstand kann im WYSIWYG-Editor Bilder per **Drag&Drop** ODER Toolbar-Button einfügen; Editor fügt `<img data-genossi-asset-id="…" src="/api/mail/assets/{id}/bytes">` in den Body ein.
-- [x] **IMG-04**: `GET /api/mail/assets/{id}/bytes` liefert die Bytes für Editor-Preview; nur für Vorstand (kein Public-Access, kein CID-Bypass).
-- [x] **IMG-05**: `sanitize.rs` `<img>`-Regel härten — erlaubt ausschließlich `data-genossi-asset-id` als Attribut-Referenz; `src` und andere Attribute werden gestrippt bzw. server-seitig injiziert (kein externes HTTP, kein `data:`-URI).
-- [x] **IMG-06**: Renderer transformiert `<img data-genossi-asset-id="X">` zu `<img src="cid:asset-X@genossi">` und hängt die Bytes als `multipart/related` inline-Part mit passender `Content-ID` an; Mail-Struktur wird `multipart/mixed → multipart/related → multipart/alternative`.
-- [x] **IMG-07**: Test-Mail-Versand (bestehender Endpoint) unterstützt Bilder identisch — Vorstand sieht die Bilder in der Test-Mail.
-- [x] **IMG-08**: Gesamtmailgröße wird beim Rendern gegen 25 MB Limit geprüft; Überschreitung liefert klaren Fehler (kein SMTP-Reject später).
-- [x] **IMG-09**: Backward-Compat — bestehende Templates ohne Bilder (v1.4) senden weiterhin ohne `multipart/related`-Wrapper.
+### Vorlagen (APTPL)
 
-### Desktop/Mobile-Vorschau (Phase 28)
+- [ ] **APTPL-01**: Vorlagen können gegen einen Application-Kontext gerendert werden — Platzhalter: Anrede, Vorname, Nachname, Titel, Anzahl Anteile, offener Betrag; über eine eigene `application_to_template_context`-Funktion (kein Member-Kontext mit gelöschten Feldern). Application-Vorlagen sind ein **eigener „Antragsteller"-Vorlagentyp**, getrennt vom Member-Vorlagen-Pool (Entscheid D1).
+- [ ] **APTPL-02**: „Offener Betrag" wird zur Laufzeit berechnet (`Anteile × Anteilswert`), niemals auf der Application gespeichert; `share_value_cents` stammt aus **derselben Config-Quelle wie die bestehende Bestätigungsmail** (`send_confirmation_mail`, Entscheid D3); korrekte deutsche Euro-Formatierung (Tausender, Komma, negativer/Null-Fall korrekt).
+- [ ] **APTPL-03**: Eine deutsche Standard-Vorlage „Zahlungserinnerung" wird mitgeliefert (Seed-Content), sodass der Haupt-Use-Case in wenigen Klicks erledigt ist.
+- [ ] **APTPL-04**: Template-Validierung für Application-Vorlagen schlägt bei unbekannten/Member-only-Platzhaltern kontrolliert fehl (kein `strict`-Render-Crash beim Versand); die ~40 bestehenden Member-Template-Tests bleiben grün.
 
-- [x] **PREV-01**: Vorstand kann im WYSIWYG-Editor zwischen **Bearbeiten**, **Desktop-Vorschau** (~640px) und **Mobile-Vorschau** (~360px) umschalten.
-- [x] **PREV-02**: Vorschau rendert die tatsächlich ammonia-sanitisierte HTML-Fassung des Bodys (nicht `contenteditable`-Roh-DOM); Diskrepanzen zwischen Editor und Empfänger sind damit sichtbar.
-- [x] **PREV-03**: Vorschau löst `data-genossi-asset-id` zu `/api/mail/assets/{id}/bytes`-Referenzen auf, sodass Bilder korrekt dargestellt werden.
-- [x] **PREV-04**: Vorschau ist visuell klar von „Bearbeiten"-Modus abgegrenzt (z. B. Frame-Border simuliert Device-Rahmen); Vorstand versteht sofort, dass Klicks/Tippen im Vorschau-Modus nicht editieren.
-- [x] **PREV-05**: Vorschau nutzt sandboxed `<iframe>` mit fester Breite; kein Preview-CSS bleedet in die Editor-Umgebung und umgekehrt.
+### Kommunikations-Historie (APHIST)
+
+- [ ] **APHIST-01**: Alle an eine Application gesendeten Mails werden in einer Kommunikations-Historie pro Antragsteller erfasst — über `application_id`-Linkage an `mail_recipients`/Communication-Entry, kein `member_id`-Overload; Endpoint `GET /api/applications/{id}/communications`.
+- [ ] **APHIST-02**: Der Vorstand sieht auf der Application-Detailseite prominent „zuletzt gesendet am …" — der zentrale Anti-Doppelversand-/Spam-Guard.
+- [ ] **APHIST-03**: Nach Bestätigung (`confirm` → Mitglied) erscheint die als Antragsteller gesendete Erinnerungs-Kommunikation **in der Mitglieds-Timeline** des neuen Mitglieds (Carry-over, Entscheid D2). *(Mechanismus — Back-fill `member_id` beim Bestätigen / Union-at-read / Link-Spalte — wird in Phase 1 Planung entschieden; verifiziert per e2e: Erinnerung → confirm → sichtbar in Member-Timeline.)*
+
+### Compliance / Guardrails (APCMP)
+
+- [ ] **APCMP-01**: Versand ist nur bei Status `Offen` möglich (sonst HTTP 409, analog `confirm`/`reject`) — deckt zugleich die DSGVO-Rechtsgrundlage (transaktional, bezogen auf die eigene Beitrittserklärung) und verhindert Mails an abgelehnte oder bereits bestätigte (jetzt Mitglied) Antragsteller.
+- [ ] **APCMP-02**: Der Inhalt ist auf die eigene Beitrittserklärung/Zahlung bezogen — kein Massenversand, keine Newsletter/Marketing-Inhalte, kein Open-/Click-Tracking.
+
+### Frontend Dialog (APUI)
+
+- [ ] **APUI-01**: „E-Mail senden"-Button auf der Application-Detailseite öffnet einen Compose-Dialog (Vorbild-Pattern: `member_details.rs`); bei fehlender Adresse deaktiviert.
+- [ ] **APUI-02**: Der Dialog nutzt die bestehenden `component/mail_compose/`-Bausteine (Betreff-Input, WYSIWYG-Editor, Template-Selector, Preview) — kein geforktes UI (Component-First).
+- [ ] **APUI-03**: Die Kommunikations-Historie wird über die bestehende `communication_timeline.rs`-Komponente unverändert (prop-driven) auf der Application-Detailseite/im Dialog angezeigt.
 
 ## Future Requirements
 
-Deferred zu späteren Milestones — sinnvoll, aber nicht kritisch für v1.5.
+Deferred zu späteren Milestones — sinnvoll, aber nicht kritisch für v1.6.
 
-### Bild-Support Erweiterung
-
-- **IMG-FUT-01**: Server-seitige Bild-Verkleinerung/Kompression bei Upload (spart Mail-Größe)
-- **IMG-FUT-02**: Orphan-GC-Job für `mail_asset`-Rows, die in keinem Template/Job mehr referenziert werden — Backlog 999.6
-
-### Preview Erweiterung
-
-- **PREV-FUT-01**: Externe Mail-Client-Simulation via Litmus/Email-on-Acid — falls Kompatibilitäts-Bugs im Betrieb auftreten
+- **APHIST-FUT-01**: Vorlage/Betreff und Body-Snapshot je Timeline-Eintrag speichern (Deep-Link auf exakt gesendeten Inhalt)
+- **APMAIL-FUT-01**: Massen-Erinnerung an alle Antragsteller mit Status `Offen` (Bulk-Send) — bewusst nach v1.6 verschoben
+- **APTPL-FUT-01**: Mehrstufige Erinnerungs-Vorlagen (1./2. Erinnerung mit Eskalationstext)
 
 ## Out of Scope
 
@@ -54,39 +54,26 @@ Explizit ausgeschlossen — dokumentiert, um Scope-Creep zu verhindern.
 
 | Feature | Grund |
 |---|---|
-| SVG-Bilder | XSS-Risiko (inline-Script-Vektoren, SVG-`<use>`-Referenzen), nicht wert für den Use-Case |
-| WebP-Bilder | Outlook-Kompatibilität patchy; PNG/JPEG/GIF reichen für Vorstands-Mails |
-| Externe Bild-URLs im Editor (`http(s):`-src) | Ammonia-Regel schließt das explizit aus — Tracking-Pixel-Risiko, DSGVO |
-| Data-URI-Bilder (`data:image/…;base64,…`) | Gmail strippt sie; Angriffsfläche via SVG-data-URI; CID ist der Standard |
-| Externe Preview-Services (Litmus, Email-on-Acid) | Frame-Preview + Test-Mail-Versand reichen; externe Services out-of-scope |
-| Client-Side-Bild-Editor (Cropping, Rotation) im Frontend | Vorstand bearbeitet Bilder vor Upload; nicht Kern-Value der Software |
-| Automatische Bild-Alt-Texte via AI | Vorstand kann alt-text manuell setzen; automatisierte Beschreibungen nicht im Scope |
-| Bild-Historie/Versionierung pro `mail_asset` | Bilder sind unveränderlich nach Upload; Ersetzen = neues Asset |
+| Massen-/Bulk-Versand an alle „Offen"-Antragsteller | Bewusst einzeln pro Antragsteller in v1.6; Bulk ist Future-Requirement |
+| Automatischer Dunning-Zeitplan / Auto-Eskalation | Vorstand entscheidet manuell wann erinnert wird; kein Scheduler in v1.6 |
+| Open-/Click-Tracking-Pixel | DSGVO-Risiko, kein Mehrwert für den Use-Case |
+| Newsletter-/Marketing-Inhalte an Antragsteller | §7 UWG-Risiko; Rechtsgrundlage deckt nur transaktionale Erinnerung zur eigenen Erklärung |
+| Formale Mahnungs-Mechanik (Verzug, Zinsen, Mahngebühren) | Rechtlich eigenständig, nicht Kern-Value; einfache Zahlungserinnerung genügt |
+| Gespeichertes Zahlungsstatus-Feld auf der Application | „Offener Betrag" wird berechnet; kein neuer Zustand am auditierten `ApplicationEntity` (Audit-Ripple/Locked-Test-Bruch vermeiden) |
+| Datei-Anhänge / generierte PDFs an Antragsteller | Nicht im Erinnerungs-Use-Case; hält den Pfad schlank |
+| Freitext-Versand an beliebige Adressen | Empfänger ist immer die Application selbst (Rechtsgrundlage + Privacy) |
+| Reply-/Posteingang-Threading in die Antragsteller-Timeline | Antragsteller haben keine `assigned_member_id`-Inbound-Zuordnung; Timeline ist outbound-only |
+
+## Getroffene Produkt-Entscheidungen (2026-08-12, mit User)
+
+- **D1 — Template-Pool:** Eigener „Antragsteller"-Vorlagentyp, getrennt vom Member-Pool. Vermeidet die strict-render-Bombe (Member-only-Platzhalter). → APTPL-01
+- **D2 — Historie-Carry-over bei `confirm()`:** Als Antragsteller gesendete Erinnerungen erscheinen nach der Bestätigung in der **Mitglieds-Timeline**. Konkreter Mechanismus (Back-fill / Union-at-read / Link-Spalte) wird in Phase-1-Planung festgelegt. → APHIST-03
+- **D3 — `share_value_cents`-Quelle:** Dieselbe Config-Quelle wie die bestehende Bestätigungsmail (`send_confirmation_mail`) — Konsistenz. → APTPL-02
 
 ## Traceability
 
-Gefüllt vom `gsd-roadmapper` beim Roadmap-Bau am 2026-07-17.
+Wird vom `gsd-roadmapper` beim Roadmap-Bau gefüllt.
 
 | Requirement | Phase | Phase Name | Status |
 |-------------|-------|------------|--------|
-| EDIT-06 | Phase 26 | Editor-Formatierung vervollständigen | Pending |
-| EDIT-07 | Phase 26 | Editor-Formatierung vervollständigen | Pending |
-| EDIT-08 | Phase 26 | Editor-Formatierung vervollständigen | Pending |
-| EDIT-09 | Phase 26 | Editor-Formatierung vervollständigen | Complete |
-| EDIT-10 | Phase 26 | Editor-Formatierung vervollständigen | Pending |
-| IMG-01 | Phase 27 | Bild-Support Backend + Editor-Upload | Complete |
-| IMG-02 | Phase 27 | Bild-Support Backend + Editor-Upload | Complete |
-| IMG-03 | Phase 27 | Bild-Support Backend + Editor-Upload | Complete |
-| IMG-04 | Phase 27 | Bild-Support Backend + Editor-Upload | Complete |
-| IMG-05 | Phase 27 | Bild-Support Backend + Editor-Upload | Pending |
-| IMG-06 | Phase 27 | Bild-Support Backend + Editor-Upload | Complete |
-| IMG-07 | Phase 27 | Bild-Support Backend + Editor-Upload | Complete |
-| IMG-08 | Phase 27 | Bild-Support Backend + Editor-Upload | Complete |
-| IMG-09 | Phase 27 | Bild-Support Backend + Editor-Upload | Complete |
-| PREV-01 | Phase 28 | Desktop/Mobile-Vorschau | Complete |
-| PREV-02 | Phase 28 | Desktop/Mobile-Vorschau | Complete |
-| PREV-03 | Phase 28 | Desktop/Mobile-Vorschau | Complete |
-| PREV-04 | Phase 28 | Desktop/Mobile-Vorschau | Complete |
-| PREV-05 | Phase 28 | Desktop/Mobile-Vorschau | Complete |
-
-**Coverage:** 19/19 (100%) v1.5 Requirements mapped, keine Orphans, keine Duplikate.
+| _(pending roadmap)_ | | | |
