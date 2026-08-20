@@ -19,7 +19,7 @@
 ### Vorlagen (APTPL)
 
 - [ ] **APTPL-01**: Vorlagen können gegen einen Application-Kontext gerendert werden — Platzhalter: Anrede, Vorname, Nachname, Titel, Anzahl Anteile, offener Betrag; über eine eigene `application_to_template_context`-Funktion (kein Member-Kontext mit gelöschten Feldern). Application-Vorlagen sind ein **eigener „Antragsteller"-Vorlagentyp**, getrennt vom Member-Vorlagen-Pool (Entscheid D1).
-- [ ] **APTPL-02**: „Offener Betrag" wird zur Laufzeit berechnet (`Anteile × Anteilswert`), niemals auf der Application gespeichert; `share_value_cents` stammt aus **derselben Config-Quelle wie die bestehende Bestätigungsmail** (`send_confirmation_mail`, Entscheid D3); korrekte deutsche Euro-Formatierung (Tausender, Komma, negativer/Null-Fall korrekt).
+- [x] **APTPL-02**: „Offener Betrag" wird zur Laufzeit berechnet (`Anteile × Anteilswert`), niemals auf der Application gespeichert; `share_value_cents` stammt aus **derselben Config-Quelle wie die bestehende Bestätigungsmail** (`send_confirmation_mail`, Entscheid D3); korrekte deutsche Euro-Formatierung (Tausender, Komma, negativer/Null-Fall korrekt).
 - [ ] **APTPL-03**: Eine deutsche Standard-Vorlage „Zahlungserinnerung" wird mitgeliefert (Seed-Content), sodass der Haupt-Use-Case in wenigen Klicks erledigt ist.
 - [ ] **APTPL-04**: Template-Validierung für Application-Vorlagen schlägt bei unbekannten/Member-only-Platzhaltern kontrolliert fehl (kein `strict`-Render-Crash beim Versand); die ~40 bestehenden Member-Template-Tests bleiben grün.
 
@@ -79,7 +79,7 @@ Phase-Mapping aus `.planning/ROADMAP.md` (v1.6 Phases 29-32, fortlaufende Nummer
 | APHIST-01 | Phase 29 | DAO/Schema-Foundation (Kommunikations-Historie pro Antragsteller) | Complete |
 | APHIST-03 | Phase 29 | DAO/Schema-Foundation (Kommunikations-Historie pro Antragsteller) | Complete |
 | APTPL-01 | Phase 30 | Application-Template-Kontext (Antragsteller-Vorlagen) | Pending |
-| APTPL-02 | Phase 30 | Application-Template-Kontext (Antragsteller-Vorlagen) | Pending |
+| APTPL-02 | Phase 30 | Application-Template-Kontext (Antragsteller-Vorlagen) | Complete |
 | APTPL-03 | Phase 30 | Application-Template-Kontext (Antragsteller-Vorlagen) | Pending |
 | APTPL-04 | Phase 30 | Application-Template-Kontext (Antragsteller-Vorlagen) | Pending |
 | APMAIL-01 | Phase 31 | Service + REST Versand (Versand + Guardrails) | Pending |
