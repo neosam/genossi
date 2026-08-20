@@ -4,11 +4,11 @@ milestone: v1.6
 milestone_name: Antragsteller-Kommunikation
 current_phase: 31
 current_phase_name: Versand + Guardrails
-status: planning
-stopped_at: Phase 31 context gathered
-last_updated: "2026-08-20T16:03:39.339Z"
+status: executing
+stopped_at: Phase 31 planned (3 plans, verified)
+last_updated: "2026-08-20T16:40:06.289Z"
 last_activity: 2026-08-20
-last_activity_desc: Phase 30 complete, transitioned to Phase 31
+last_activity_desc: Phase 31 planned — 3 plans across 3 waves, plan-checker passed
 progress:
   total_phases: 3
   completed_phases: 2
@@ -16,7 +16,7 @@ progress:
   completed_plans: 5
 ---
 
-# State: Genossi — v1.6 Antragsteller-Kommunikation (Phase 30 abgeschlossen — 4/4 verifiziert; Phase 31 bereit für Discuss/Plan)
+# State: Genossi — v1.6 Antragsteller-Kommunikation (Phase 30 abgeschlossen — 4/4 verifiziert; Phase 31 geplant — 3 Pläne, plan-checker passed)
 
 **Initialized:** 2026-05-02
 **Last Updated:** 2026-08-20 (Phase 30 abgeschlossen — Application-Template-Kontext, `format_eur_de`, „Zahlungserinnerung"-Seed; Verifikation 4/4, e2e 319/319)
@@ -32,9 +32,9 @@ See: `.planning/PROJECT.md` (updated 2026-08-12 mit v1.6 Current Milestone)
 ## Current Position
 
 Phase: 31 — Service + REST Versand (Versand + Guardrails)
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-08-20 — Phase 30 complete, transitioned to Phase 31
+Plan: 3 plans (31-01..31-03), plan-checker passed, coverage 13/13 decisions + 5/5 requirements
+Status: Ready to execute
+Last activity: 2026-08-20 — Phase 31 planned (3 plans, 3 waves), research + plan-checker passed
 
 ### v1.6 Phase Structure (Phases 29-32, granularity: coarse)
 

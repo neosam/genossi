@@ -343,20 +343,25 @@ pub struct Application {
 
 **Hinweis:** A1 und A3 sind die zwei Punkte, die vor/während der Planung bewusst entschieden werden sollten.
 
-## Open Questions
+## Open Questions (RESOLVED)
+
+> Alle drei Fragen wurden bei der Planung verbindlich entschieden (siehe `31-02-PLAN.md` §Objective, OQ1–OQ3). Die Empfehlungen wurden jeweils übernommen.
 
 1. **`last_sent_at`: `date` (COALESCE) oder strikt `created`?**
    - What we know: DAO liefert `COALESCE(sent_at, created)`; funktional erfüllt das den Guard.
    - What's unclear: Ob D-07 strikt `created` verlangt oder ob „ist beim Absenden sofort gesetzt" ausreicht.
    - Recommendation: Option A (MAX über bestehende `date`) — kein neuer DAO-Code; nur bei striktem Bedarf Option B.
+   - **RESOLVED → Option A** (31-02, OQ1): `last_sent_at = MAX(entry.date)` über das bestehende `get_application_communications`; kein neuer DAO-Code.
 
 2. **`last_sent_at`-Transport: Feld auf `get_application`-Response oder eigener Endpoint?**
    - What we know: D-08 fordert nur „serverseitig aggregiert"; Transport ist Claude's Discretion.
    - Recommendation: Feld auf der bestehenden `ApplicationTO`/`get_application`-Response (spart einen Roundtrip; Phase 32 zeigt es prominent). Prüfen, ob `get_application` dann eine Extra-Query braucht.
+   - **RESOLVED → Feld auf `get_application`** (31-02 OQ2 + 31-03): serverseitig aggregiert über die neue `ApplicationService::last_sent_at`-Methode.
 
 3. **Preview-Endpoint-Ort: Application-REST (`genossi_rest`) oder Mail-REST (`genossi_mail`)?**
    - What we know: Member-`preview_mail` liegt in `genossi_mail/src/rest.rs`; Application braucht aber ApplicationDao+Config.
    - Recommendation: In `genossi_rest/src/application.rs` (nutzt Application-Service + Admin-Gate konsistent), rendert über die geteilte reine Helferfn aus D-04.
+   - **RESOLVED → `genossi_rest/src/application.rs`** (31-02 OQ3 + 31-03): admin-gated über den Application-Service, Render über den geteilten `render_application_content`-Kernel.
 
 ## Environment Availability
 
