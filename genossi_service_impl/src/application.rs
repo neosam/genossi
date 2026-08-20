@@ -97,9 +97,7 @@ impl<Deps: ApplicationServiceDeps> ApplicationServiceImpl<Deps> {
         };
 
         let total_cents = share_value_cents * app.shares as i64;
-        let euros = total_cents / 100;
-        let cents = total_cents % 100;
-        let amount_str = format!("{},{:02} €", euros, cents);
+        let amount_str = genossi_service::euro::format_eur_de(total_cents);
 
         let salutation_line = match &app.salutation {
             Some(s) => format!("Sehr geehrte/r {} {},", s.as_str(), app.last_name),
