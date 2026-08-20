@@ -8858,6 +8858,15 @@ async fn mail_template_predefined_present_after_migration() {
         templates.iter().any(|t| t.name == "Informelle Anrede"),
         "Expected 'Informelle Anrede' to be seeded"
     );
+
+    // Phase 30 D-14: Antragsteller-Seed „Zahlungserinnerung" mit fester UUID …0003
+    // und template_type 'application' liegt nach den echten Migrationen vor.
+    let zahlungserinnerung = templates
+        .iter()
+        .find(|t| t.id == "00000000-0000-0000-0000-000000000003")
+        .expect("Expected 'Zahlungserinnerung' seed (UUID …0003) to be present");
+    assert_eq!(zahlungserinnerung.name, "Zahlungserinnerung");
+    assert_eq!(zahlungserinnerung.template_type, "application");
 }
 
 // --- Security Headers Tests ---
