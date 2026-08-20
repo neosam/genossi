@@ -1,12 +1,12 @@
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 use std::collections::HashMap;
+use uuid::Uuid;
 
 // Custom serialization module for ISO8601 datetime format
 mod iso8601_datetime {
     use serde::{Deserialize, Deserializer, Serializer};
-    use time::PrimitiveDateTime;
     use time::format_description::well_known::Iso8601;
+    use time::PrimitiveDateTime;
 
     pub fn serialize<S>(
         datetime: &Option<PrimitiveDateTime>,
@@ -116,11 +116,7 @@ pub enum SalutationTO {
 
 impl SalutationTO {
     pub fn all() -> &'static [SalutationTO] {
-        &[
-            SalutationTO::Herr,
-            SalutationTO::Frau,
-            SalutationTO::Firma,
-        ]
+        &[SalutationTO::Herr, SalutationTO::Frau, SalutationTO::Firma]
     }
 
     pub fn as_str(&self) -> &'static str {
@@ -644,7 +640,7 @@ pub struct UserPreferenceTO {
         skip_serializing_if = "Option::is_none",
         default,
         serialize_with = "iso8601_datetime::serialize",
-        deserialize_with = "iso8601_datetime::deserialize",
+        deserialize_with = "iso8601_datetime::deserialize"
     )]
     pub created: Option<time::PrimitiveDateTime>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -767,7 +763,10 @@ mod tests {
     #[test]
     fn test_postal_status_to_roundtrip() {
         for variant in PostalStatusTO::all() {
-            assert_eq!(PostalStatusTO::from_str(variant.as_str()).as_ref(), Some(variant));
+            assert_eq!(
+                PostalStatusTO::from_str(variant.as_str()).as_ref(),
+                Some(variant)
+            );
         }
     }
 
@@ -917,6 +916,12 @@ pub struct CommunicationEntryTO {
     pub to_address: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub outbound_status: Option<String>,
+    // Phase 32 D-06: der bereits gespeicherte, per-Empfaenger gerenderte Body
+    // (kein Re-Render). Wire-kompatibel mit der Backend-CommunicationEntryTO.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rendered_body: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rendered_html_body: Option<String>,
 }
 
 // Audit Log types
@@ -1039,9 +1044,7 @@ mod phase_18_dtos_tests {
             date: Date::from_calendar_date(2026, Month::June, 15).unwrap(),
             shares_change: 0,
             transfer_member_id: None,
-            effective_date: Some(
-                Date::from_calendar_date(2026, Month::December, 31).unwrap(),
-            ),
+            effective_date: Some(Date::from_calendar_date(2026, Month::December, 31).unwrap()),
             comment: None,
             created: None,
             deleted: None,
@@ -1088,8 +1091,7 @@ mod phase_18_dtos_tests {
     #[test]
     fn cancel_request_serializes_iso_date() {
         let req = CancelMembershipRequestTO {
-            willensbekundung_date: Date::from_calendar_date(2026, Month::June, 15)
-                .unwrap(),
+            willensbekundung_date: Date::from_calendar_date(2026, Month::June, 15).unwrap(),
         };
         let json = serde_json::to_string(&req).unwrap();
         assert!(
@@ -1101,8 +1103,7 @@ mod phase_18_dtos_tests {
     #[test]
     fn increase_request_roundtrip_with_shares() {
         let req = IncreaseSharesRequestTO {
-            willensbekundung_date: Date::from_calendar_date(2026, Month::March, 1)
-                .unwrap(),
+            willensbekundung_date: Date::from_calendar_date(2026, Month::March, 1).unwrap(),
             shares: 5,
         };
         let json = serde_json::to_string(&req).unwrap();
@@ -1183,5 +1184,46 @@ mod phase_18_dtos_tests {
         let json = serde_json::to_string(&resp).unwrap();
         let back: TransferSharesResponseTO = serde_json::from_str(&json).unwrap();
         assert_eq!(back.actions.len(), 2);
+    }
+
+    // Phase 32 D-06: CommunicationEntryTO deserialisiert rendered_body/rendered_html_body
+    // aus einer Backend-Payload MIT den Feldern (nach D-06).
+    #[test]
+    fn communication_entry_deserializes_rendered_body_fields() {
+        let json = r#"{
+            "direction": "outbound",
+            "date": "2026-08-21T10:00:00.000Z",
+            "subject": "Willkommen",
+            "outbound_status": "sent",
+            "rendered_body": "Hallo Antragsteller",
+            "rendered_html_body": "<p>Hallo Antragsteller</p>"
+        }"#;
+        let entry: CommunicationEntryTO = serde_json::from_str(json).unwrap();
+        assert_eq!(entry.direction, CommunicationDirection::Outbound);
+        assert_eq!(entry.rendered_body.as_deref(), Some("Hallo Antragsteller"));
+        assert_eq!(
+            entry.rendered_html_body.as_deref(),
+            Some("<p>Hallo Antragsteller</p>")
+        );
+    }
+
+    // Phase 32 D-06: eine Payload OHNE die Felder (Backend vor D-06) deserialisiert
+    // die neuen Felder zu None (Backward-Compat).
+    #[test]
+    fn communication_entry_missing_rendered_body_is_none() {
+        let json = r#"{
+            "direction": "inbound",
+            "date": "2026-08-21T10:00:00.000Z",
+            "subject": "Eingang"
+        }"#;
+        let entry: CommunicationEntryTO = serde_json::from_str(json).unwrap();
+        assert_eq!(entry.direction, CommunicationDirection::Inbound);
+        assert_eq!(entry.rendered_body, None);
+        assert_eq!(entry.rendered_html_body, None);
+
+        // skip_serializing_if: None-Felder erscheinen nicht in der Wire-Form.
+        let out = serde_json::to_string(&entry).unwrap();
+        assert!(!out.contains("rendered_body"));
+        assert!(!out.contains("rendered_html_body"));
     }
 }
