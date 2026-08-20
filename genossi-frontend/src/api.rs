@@ -2987,6 +2987,96 @@ mod tests {
         assert!(json.contains("tmpl-1"));
     }
 
+    // ─── Phase 32 ─── Pure helpers: template filter + last-sent ────────
+
+    fn tmpl(id: &str, template_type: &str) -> MailTemplateTO {
+        MailTemplateTO {
+            id: id.into(),
+            name: format!("Vorlage {id}"),
+            subject: "Betreff".into(),
+            body: "Text".into(),
+            body_html: None,
+            template_type: template_type.into(),
+            version: "v1".into(),
+        }
+    }
+
+    fn outbound_entry(subject: &str, date: &str, status: Option<&str>) -> rest_types::CommunicationEntryTO {
+        rest_types::CommunicationEntryTO {
+            direction: rest_types::CommunicationDirection::Outbound,
+            date: date.into(),
+            subject: subject.into(),
+            inbox_id: None,
+            from_address: None,
+            inbound_status: None,
+            mail_job_id: None,
+            recipient_id: None,
+            to_address: None,
+            outbound_status: status.map(String::from),
+            rendered_body: None,
+            rendered_html_body: None,
+        }
+    }
+
+    #[test]
+    fn test_filter_templates_by_type_keeps_only_application() {
+        let all = vec![
+            tmpl("m1", "member"),
+            tmpl("0003", "application"),
+            tmpl("m2", "member"),
+            tmpl("a2", "application"),
+        ];
+        let filtered = filter_templates_by_type(&all, "application");
+        assert_eq!(filtered.len(), 2);
+        assert!(filtered.iter().all(|t| t.template_type == "application"));
+        assert!(filtered.iter().any(|t| t.id == "0003"));
+    }
+
+    #[test]
+    fn test_filter_templates_by_type_empty_input() {
+        let all: Vec<MailTemplateTO> = vec![];
+        assert!(filter_templates_by_type(&all, "application").is_empty());
+    }
+
+    #[test]
+    fn test_filter_templates_by_type_no_match_returns_empty() {
+        let all = vec![tmpl("m1", "member")];
+        assert!(filter_templates_by_type(&all, "application").is_empty());
+    }
+
+    #[test]
+    fn test_last_outbound_summary_returns_first_entry() {
+        // Aufrufer liefert bereits ORDER BY date DESC — erstes Element = zuletzt gesendet.
+        let entries = vec![
+            outbound_entry("Zahlungserinnerung", "2026-08-20", Some("sent")),
+            outbound_entry("Willkommen", "2026-08-01", Some("sent")),
+        ];
+        let summary = last_outbound_summary(&entries);
+        assert_eq!(
+            summary,
+            Some((
+                "Zahlungserinnerung".to_string(),
+                Some("sent".to_string()),
+                "2026-08-20".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn test_last_outbound_summary_empty_returns_none() {
+        let entries: Vec<rest_types::CommunicationEntryTO> = vec![];
+        assert_eq!(last_outbound_summary(&entries), None);
+    }
+
+    #[test]
+    fn test_last_outbound_summary_status_none_preserved() {
+        let entries = vec![outbound_entry("Ohne Status", "2026-08-20", None)];
+        assert_eq!(
+            last_outbound_summary(&entries),
+            Some(("Ohne Status".to_string(), None, "2026-08-20".to_string()))
+        );
+    }
+
     // ─── Phase 12 ─── Foundation tests ────────────────────────────────
 
     #[test]
