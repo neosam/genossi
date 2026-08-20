@@ -5,7 +5,7 @@ milestone_name: Antragsteller-Kommunikation
 current_phase: 32
 current_phase_name: Frontend Compose-Dialog
 status: verifying
-stopped_at: Completed 32-04-PLAN.md
+stopped_at: Phase 32 ausgeführt (4/4); Verifikation human_needed — UAT-Smoke-Test ausstehend
 last_updated: "2026-08-20T23:16:33.072Z"
 last_activity: 2026-08-21
 last_activity_desc: Phase 32 execution started
@@ -32,8 +32,8 @@ See: `.planning/PROJECT.md` (updated 2026-08-12 mit v1.6 Current Milestone)
 ## Current Position
 
 Phase: 32 (Frontend Compose-Dialog) — EXECUTING
-Plan: 4 of 4
-Status: Phase complete — ready for verification
+Plan: 4 of 4 ausgeführt
+Status: Verifikation human_needed — UAT-Smoke-Test ausstehend (/gsd-verify-work 32)
 Last activity: 2026-08-21 — Phase 32 execution started
 
 ### v1.6 Phase Structure (Phases 29-32, granularity: coarse)
