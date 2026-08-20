@@ -89,6 +89,17 @@ impl<D: MailTemplateDao> MailTemplateService for MailTemplateServiceImpl<D> {
             return Err(MailTemplateError::DuplicateName(Arc::from(name)));
         }
 
+        // Phase 30 D-10 (APTPL-01, additive Injektion): Antragsteller-Templates
+        // werden zur Author-Zeit strict gegen den Antragsteller-Kontext validiert,
+        // damit ein kaputtes Template nie persistiert und erst beim Send crasht
+        // (T-30-03-02). Der Member-Pfad bleibt bewusst validierungsfrei (Member-
+        // Templates werden weiterhin erst zum SEND-Zeitpunkt geprüft).
+        if template_type == "application" {
+            if let Err(errs) = crate::template::validate_application_template(subject, body) {
+                return Err(MailTemplateError::BadRequest(Arc::from(errs.join("; "))));
+            }
+        }
+
         let now = time::OffsetDateTime::now_utc();
         let created = time::PrimitiveDateTime::new(now.date(), now.time());
 
@@ -139,6 +150,15 @@ impl<D: MailTemplateDao> MailTemplateService for MailTemplateServiceImpl<D> {
         if let Some(other) = self.dao.find_by_name(name).await? {
             if other.id != id {
                 return Err(MailTemplateError::DuplicateName(Arc::from(name)));
+            }
+        }
+
+        // Phase 30 D-10: template_type ist nach dem Anlegen unveränderlich — der
+        // Validierungs-Guard keyt auf den bestehenden Typ. Antragsteller-Templates
+        // werden auch beim Update strict validiert; der Member-Pfad bleibt frei.
+        if existing.template_type.as_ref() == "application" {
+            if let Err(errs) = crate::template::validate_application_template(subject, body) {
+                return Err(MailTemplateError::BadRequest(Arc::from(errs.join("; "))));
             }
         }
 
@@ -406,5 +426,117 @@ mod tests {
         let s = persisted.as_ref();
         assert!(s.contains("<p>"), "safe <p> survives, got: {}", s);
         assert!(!s.contains("<script>"), "<script> stripped, got: {}", s);
+    }
+
+    // ── Phase 30 Plan 03 (D-10, APTPL-01): Antragsteller-Template-Validierung
+    //    an create/update, Member-Pfad bleibt validierungsfrei ──
+
+    /// D-10: create mit template_type "application" + member-only-Platzhalter
+    /// (`{{ member_number }}`) wird mit BadRequest abgelehnt — persistiert nie.
+    #[tokio::test]
+    async fn create_application_rejects_member_only_placeholder() {
+        let mut mock = MockMailTemplateDao::new();
+        mock.expect_find_by_name().returning(|_| Ok(None));
+        // dao.create darf NICHT aufgerufen werden.
+        mock.expect_create().never();
+
+        let service = MailTemplateServiceImpl::new(Arc::new(mock));
+        let result = service
+            .create(
+                "broken-app",
+                "Subject",
+                "Hallo {{ member_number }}",
+                None,
+                "application",
+            )
+            .await;
+        assert!(matches!(result, Err(MailTemplateError::BadRequest(_))));
+    }
+
+    /// D-10: create mit template_type "application" + gültigem, guarded Body
+    /// (nur Antragsteller-Keys) → Ok.
+    #[tokio::test]
+    async fn create_application_accepts_valid_applicant_body() {
+        let mut mock = MockMailTemplateDao::new();
+        mock.expect_find_by_name().returning(|_| Ok(None));
+        mock.expect_create().returning(|_| Ok(()));
+
+        let service = MailTemplateServiceImpl::new(Arc::new(mock));
+        let result = service
+            .create(
+                "valid-app",
+                "Zahlungserinnerung",
+                "Hallo {{ first_name }}, offener Betrag: {{ open_amount }}. \
+                 {% if bank_bic %}BIC: {{ bank_bic }}{% endif %}",
+                None,
+                "application",
+            )
+            .await;
+        assert!(result.is_ok(), "unerwartet: {:?}", result);
+    }
+
+    /// D-10: create mit template_type "member" + `{{ member_number }}` → Ok
+    /// (Member-Pfad ist validierungsfrei, unverändert).
+    #[tokio::test]
+    async fn create_member_with_member_number_stays_valid() {
+        let mut mock = MockMailTemplateDao::new();
+        mock.expect_find_by_name().returning(|_| Ok(None));
+        mock.expect_create().returning(|_| Ok(()));
+
+        let service = MailTemplateServiceImpl::new(Arc::new(mock));
+        let result = service
+            .create(
+                "member-tpl",
+                "Subject",
+                "Hallo {{ member_number }}",
+                None,
+                "member",
+            )
+            .await;
+        assert!(
+            result.is_ok(),
+            "Member-Pfad muss validierungsfrei bleiben: {:?}",
+            result
+        );
+    }
+
+    /// D-10: update eines Antragsteller-Templates mit member-only-Platzhalter
+    /// wird mit BadRequest abgelehnt (Guard keyt auf existing.template_type).
+    #[tokio::test]
+    async fn update_application_rejects_member_only_placeholder() {
+        let existing_id = Uuid::new_v4();
+        let existing_version = Uuid::new_v4();
+
+        let mut mock = MockMailTemplateDao::new();
+        let now = time::OffsetDateTime::now_utc();
+        let created = time::PrimitiveDateTime::new(now.date(), now.time());
+        mock.expect_find_by_id().returning(move |_| {
+            Ok(Some(MailTemplate {
+                id: existing_id,
+                created,
+                deleted: None,
+                version: existing_version,
+                name: Arc::from("app-tpl"),
+                subject: Arc::from("Sub"),
+                body: Arc::from("Body"),
+                body_html: None,
+                template_type: Arc::from("application"),
+            }))
+        });
+        mock.expect_find_by_name().returning(|_| Ok(None));
+        mock.expect_update().never();
+
+        let service = MailTemplateServiceImpl::new(Arc::new(mock));
+        let result = service
+            .update(
+                existing_id,
+                "app-tpl",
+                "Sub",
+                "Hallo {{ member_number }}",
+                None,
+                existing_version,
+            )
+            .await;
+        assert!(matches!(result, Err(MailTemplateError::BadRequest(_))));
     }
 }

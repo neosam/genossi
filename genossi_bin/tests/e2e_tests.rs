@@ -8869,6 +8869,38 @@ async fn mail_template_predefined_present_after_migration() {
     assert_eq!(zahlungserinnerung.template_type, "application");
 }
 
+#[tokio::test]
+async fn mail_template_zahlungserinnerung_seed_is_render_safe() {
+    // Phase 30 Plan 03 (APTPL-03, D-14): der TATSÄCHLICH geseedete
+    // „Zahlungserinnerung"-Body (UUID …0003) validiert strict gegen den
+    // Antragsteller-Kontext — kein Content-Drift zwischen Seed-SQL und
+    // application_to_template_context. Beweist, dass die Vorlage beim Send nicht
+    // unter Strict-Render crasht.
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(server.url("/api/mail/templates"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let templates: Vec<MailTemplateTO> = response.json().await.unwrap();
+
+    let tpl = templates
+        .iter()
+        .find(|t| t.id == "00000000-0000-0000-0000-000000000003")
+        .expect("Expected 'Zahlungserinnerung' seed (UUID …0003) to be present");
+
+    let result = genossi_mail::template::validate_application_template(&tpl.subject, &tpl.body);
+    assert!(
+        result.is_ok(),
+        "Der geseedete Zahlungserinnerung-Body muss strict gegen den \
+         Antragsteller-Kontext validieren, got: {:?}",
+        result
+    );
+}
+
 // --- Security Headers Tests ---
 
 #[tokio::test]
