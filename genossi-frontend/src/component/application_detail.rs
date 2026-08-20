@@ -1,9 +1,21 @@
 use dioxus::prelude::*;
 
 use crate::api::{self, ApplicationStatusTO, ApplicationTO};
-use crate::component::{ApplicationDocumentSlot, Modal};
+use crate::component::{ApplicationDocumentSlot, CommunicationTimeline, Modal};
 use crate::i18n::{use_i18n, Key};
+use crate::router::Route;
 use crate::service::config::CONFIG;
+use crate::util::email::is_email_empty;
+
+/// Uebersetztes Status-Label fuer die "zuletzt gesendet"-Zeile. Spiegelt das
+/// Mapping der CommunicationTimeline-Badges (sent/failed/pending).
+fn outbound_status_label(i18n: &crate::i18n::I18n, status: Option<&str>) -> String {
+    match status {
+        Some("sent") => i18n.t(Key::CommunicationStatusSent).to_string(),
+        Some("failed") => i18n.t(Key::CommunicationStatusFailed).to_string(),
+        _ => i18n.t(Key::CommunicationStatusPending).to_string(),
+    }
+}
 
 fn salutation_label(s: &rest_types::SalutationTO) -> &'static str {
     match s {
@@ -27,8 +39,24 @@ pub fn ApplicationDetail(
     let mut show_reject_dialog = use_signal(|| false);
     let mut error = use_signal(|| None::<String>);
 
+    // Phase 32 (D-06/APUI-03): Kommunikations-Historie + Body-Detail-Panel.
+    let mut communications = use_signal(Vec::<rest_types::CommunicationEntryTO>::new);
+    let mut selected_entry = use_signal(|| None::<rest_types::CommunicationEntryTO>);
+
     let is_open = application.status == ApplicationStatusTO::Offen;
     let app_id = application.id;
+    let nav = navigator();
+    let email_empty = is_email_empty(application.email.as_deref());
+
+    // Kommunikation beim Mount laden (Muster get_member_communications).
+    use_effect(move || {
+        spawn(async move {
+            let config = CONFIG.read().clone();
+            if let Ok(data) = api::get_application_communications(&config, app_id).await {
+                communications.set(data);
+            }
+        });
+    });
 
     rsx! {
         Modal {
@@ -154,6 +182,92 @@ pub fn ApplicationDetail(
                             {i18n.t(Key::Loading)}
                         } else {
                             {i18n.t(Key::RejectApplication)}
+                        }
+                    }
+                }
+            }
+
+            // === Phase 32: E-Mail-Kommunikation (D-02/D-06, APMAIL-03/APUI-03) ===
+            div { class: "mt-8 pt-4 border-t",
+                // Header + Senden-Button (primaerer Anker, einziger blauer Akzent)
+                div { class: "flex items-center justify-between mb-4",
+                    h3 { class: "text-xl font-medium", {i18n.t(Key::Communication)} }
+                    div { class: "flex items-center gap-2",
+                        if email_empty {
+                            span { class: "text-sm text-gray-500 italic",
+                                {i18n.t(Key::NoEmailAddressHint)}
+                            }
+                        }
+                        button {
+                            class: "px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed",
+                            disabled: email_empty,
+                            title: if email_empty { i18n.t(Key::NoEmailAddressHint).to_string() } else { String::new() },
+                            onclick: move |_| {
+                                if !email_empty {
+                                    nav.push(Route::ApplicationCompose {
+                                        id: app_id.to_string(),
+                                    });
+                                }
+                            },
+                            "✉ {i18n.t(Key::MailSendButton)}"
+                        }
+                    }
+                }
+
+                // "zuletzt gesendet"-Zeile (D-06, anti-double-send) — Betreff + Status + Datum
+                {
+                    let comms = communications.read();
+                    match api::last_outbound_summary(&comms) {
+                        Some((subject, status, date)) => {
+                            let status_label = outbound_status_label(&i18n, status.as_deref());
+                            let date_str = i18n.format_datetime(&date);
+                            rsx! {
+                                p { class: "text-sm text-gray-600 mb-4",
+                                    span { class: "font-medium", {i18n.t(Key::LastSentSummary)} }
+                                    ": {subject} — {status_label} am {date_str}"
+                                }
+                            }
+                        }
+                        None => rsx! {
+                            p { class: "text-sm text-gray-500 italic mb-4",
+                                {i18n.t(Key::NeverSent)}
+                            }
+                        },
+                    }
+                }
+
+                // Kommunikations-Historie (unveraenderte, prop-getriebene Timeline)
+                CommunicationTimeline {
+                    entries: communications.read().clone(),
+                    on_entry_click: move |entry: rest_types::CommunicationEntryTO| {
+                        selected_entry.set(Some(entry));
+                    },
+                }
+
+                // Body-Detail-Panel (D-06): Inline-Expand, KEIN Modal-in-Modal.
+                // Zeigt den echten gespeicherten Body (kein Re-Render), HTML-escaped
+                // in einem begrenzten Scroll-Container (T-32-03).
+                if let Some(entry) = selected_entry.read().as_ref() {
+                    {
+                        let body = entry
+                            .rendered_body
+                            .clone()
+                            .or_else(|| entry.rendered_html_body.clone())
+                            .unwrap_or_default();
+                        rsx! {
+                            div { class: "mt-4 p-4 bg-gray-50 border border-gray-200 rounded",
+                                div { class: "flex items-center justify-between mb-2",
+                                    h4 { class: "text-xl font-medium", {i18n.t(Key::SentMailBody)} }
+                                    button {
+                                        class: "text-gray-400 hover:text-gray-600 text-2xl leading-none",
+                                        onclick: move |_| selected_entry.set(None),
+                                        "×"
+                                    }
+                                }
+                                div { class: "text-sm whitespace-pre-wrap max-h-96 overflow-auto",
+                                    "{body}"
+                                }
+                            }
                         }
                     }
                 }
