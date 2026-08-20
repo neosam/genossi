@@ -252,7 +252,7 @@ Plans:
   3. Eine deutsche Standard-Vorlage „Zahlungserinnerung" ist als Seed vorhanden und rendert den Haupt-Use-Case ohne manuelle Konfiguration.
   4. Die Validierung einer Antragsteller-Vorlage schlägt bei unbekannten oder Member-only-Platzhaltern kontrolliert fehl (kein `strict`-Render-Crash beim Versand); die ~40 bestehenden Member-Template-Tests bleiben grün (die `validate_template`-Signatur ändert sich nicht).
 
-**Plans:** 2/3 plans executed
+**Plans:** 3/3 plans complete
 
 Plans:
 **Wave 1** *(parallel — kein Datei-Overlap)*
@@ -262,7 +262,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1)*
 
-- [ ] 30-03-PLAN.md — `application_to_template_context` + `dummy_application_context` + `validate_rendered`-Kern + `validate_application_template` + Create/Update-Injection + Seed-Render-Beweis (APTPL-01, APTPL-04, APTPL-03, D-04..D-10)
+- [x] 30-03-PLAN.md — `application_to_template_context` + `dummy_application_context` + `validate_rendered`-Kern + `validate_application_template` + Create/Update-Injection + Seed-Render-Beweis (APTPL-01, APTPL-04, APTPL-03, D-04..D-10)
 
 **Waves:** 1 (30-01, 30-02 parallel) → 2 (30-03, hängt an 30-01 + 30-02 wegen `format_eur_de`, `template_type`-Feld und Datei-Overlap auf `mail_template_service.rs`/`e2e_tests.rs`)
 
@@ -330,7 +330,7 @@ Plans:
 | 27. Bild-Support Backend + Editor-Upload           | v1.5      | 4/4 | In Progress|  |
 | 28. Desktop/Mobile-Vorschau                        | v1.5      | 4/5 | In Progress|  |
 | 29. DAO/Schema-Foundation (Antragsteller-Historie) | v1.6      | 2/2 | Complete    | 2026-08-12 |
-| 30. Application-Template-Kontext                   | v1.6      | 2/3 | In Progress|  |
+| 30. Application-Template-Kontext                   | v1.6      | 3/3 | Complete   | 2026-08-20 |
 | 31. Service + REST Versand                         | v1.6      | 0/0 | Not started |  |
 | 32. Frontend Compose-Dialog                        | v1.6      | 0/0 | Not started |  |
 
