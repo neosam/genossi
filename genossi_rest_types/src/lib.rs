@@ -1135,6 +1135,11 @@ pub struct ApplicationTO {
     )]
     pub deleted: Option<time::PrimitiveDateTime>,
     pub version: Option<Uuid>,
+    /// Server-side aggregated timestamp of the most recent outbound communication
+    /// to this applicant (ISO8601). Anti-double-send guard (APHIST-02). Only the
+    /// `get_application` handler populates this; all other endpoints emit `None`.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub last_sent_at: Option<String>,
 }
 
 impl From<&genossi_service::application::Application> for ApplicationTO {
@@ -1155,8 +1160,44 @@ impl From<&genossi_service::application::Application> for ApplicationTO {
             created: Some(a.created),
             deleted: a.deleted,
             version: Some(a.version),
+            last_sent_at: None,
         }
     }
+}
+
+/// Send an ad-hoc mail to the applicant. Deliberately has NO recipient field
+/// (`address`/`to`/`recipient`) — the recipient is always `application.email`,
+/// resolved server-side (D-13: no free-text recipient, no bulk, no tracking).
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct SendApplicationMailRequest {
+    #[schema(example = "Willkommen bei der Genossenschaft")]
+    pub subject: String,
+    #[schema(example = "Guten Tag, ...")]
+    pub body: String,
+    #[serde(default)]
+    pub body_html: Option<String>,
+    #[serde(default)]
+    pub template_id: Option<Uuid>,
+}
+
+/// Render a preview of an applicant mail against the application context.
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct PreviewApplicationMailRequest {
+    #[schema(example = "Willkommen bei der Genossenschaft")]
+    pub subject: String,
+    #[schema(example = "Offener Betrag: {{ open_amount }}")]
+    pub body: String,
+    #[serde(default)]
+    pub body_html: Option<String>,
+}
+
+/// The resolved preview produced by the shared application render kernel (D-06).
+#[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
+pub struct PreviewApplicationMailResponse {
+    pub subject: String,
+    pub body: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body_html: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, ToSchema)]
