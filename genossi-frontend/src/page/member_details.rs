@@ -17,6 +17,7 @@ use crate::router::Route;
 use crate::service::auth::AUTH;
 use crate::service::config::CONFIG;
 use crate::service::member::{refresh_members, SELECTED_MEMBER_IDS};
+use crate::util::email::is_email_empty;
 
 fn action_type_label(i18n: &crate::i18n::I18n, at: &ActionTypeTO) -> String {
     match at {
@@ -33,13 +34,6 @@ fn action_type_label(i18n: &crate::i18n::I18n, at: &ActionTypeTO) -> String {
 
 fn format_date_input(d: &time::Date) -> String {
     format!("{:04}-{:02}-{:02}", d.year(), d.month() as u8, d.day())
-}
-
-/// Returns true when the given email value is missing or only whitespace.
-/// Used to decide whether the "Mail senden" button is disabled on the
-/// member detail page.
-fn is_email_empty(email: Option<&str>) -> bool {
-    email.map(|s| s.trim().is_empty()).unwrap_or(true)
 }
 
 /// Returns true when the given list of member documents already contains a
@@ -1579,32 +1573,6 @@ fn collect_template_paths(entries: &[FileTreeEntry]) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn is_email_empty_none_is_empty() {
-        assert!(is_email_empty(None));
-    }
-
-    #[test]
-    fn is_email_empty_empty_string_is_empty() {
-        assert!(is_email_empty(Some("")));
-    }
-
-    #[test]
-    fn is_email_empty_whitespace_only_is_empty() {
-        assert!(is_email_empty(Some("   ")));
-        assert!(is_email_empty(Some("\t\n ")));
-    }
-
-    #[test]
-    fn is_email_empty_real_address_is_not_empty() {
-        assert!(!is_email_empty(Some("member@example.org")));
-    }
-
-    #[test]
-    fn is_email_empty_address_with_surrounding_whitespace_is_not_empty() {
-        assert!(!is_email_empty(Some("  member@example.org  ")));
-    }
 
     fn make_document(document_type: &str) -> MemberDocumentTO {
         MemberDocumentTO {
