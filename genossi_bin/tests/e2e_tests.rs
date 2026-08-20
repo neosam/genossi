@@ -14777,10 +14777,18 @@ async fn test_mail_preview_repayment_share_count_aggregates_real_value() {
     );
 }
 
-/// Quick-c19 Regression — D-05 Symmetrie: Member ohne Open/Contacted-Entries
-/// in der Phase → kein Merge des Repayment-Contexts. Verifiziert per
-/// Negativ-Assertion, dass die Vorschau in diesem Fall NICHT auf den alten
-/// Dummy-Pfad ("Anteile: 1") zurückfällt.
+/// Quick-c19 Regression (aktualisiert) — Member ohne Open/Contacted-Entries in
+/// der Phase → `resolve_repayment_context` liefert `None` (share_count == 0,
+/// genossi_bin/src/lib.rs). Seit `260603-kon` greift dann bewusst der
+/// **Dummy-Fallback** (`template::dummy_repayment_context`, share_count=99) mit
+/// `used_dummy_repayment=true`, damit der Vorstand die Template-Struktur auch
+/// ohne echte Daten testen kann; das Frontend zeigt dazu einen amber
+/// Hinweis-Banner. Dieser spätere, ausgelieferte Contract löst die ursprüngliche
+/// c19-Erwartung ("share_count bleibt undefined → strict-render-Fehler") ab.
+///
+/// Der **Kern-c19-Schutz bleibt erhalten**: die Vorschau darf NIE auf den alten
+/// Bug-Wert "Anteile: 1" zurückfallen — der Dummy-Wert ist 99, klar als Dummy
+/// signalisiert.
 #[tokio::test]
 async fn test_mail_preview_repayment_no_entries_does_not_default_to_one() {
     let server = setup().await;
@@ -14801,11 +14809,10 @@ async fn test_mail_preview_repayment_no_entries_does_not_default_to_one() {
     let phase = create_open_repayment_phase(&client, &server, fiscal_year, 12000).await;
 
     let preview_body = serde_json::json!({
+        // Unguarded Template — würde bei echten 0 Entries ohne Dummy-Fallback
+        // strict-env erroren. Mit dem 260603-kon-Fallback rendert es die
+        // Dummy-Werte statt zu erroren.
         "subject": "Plain",
-        // Bewusst KEIN {% if defined %}-Guard — wäre ein versehentliches
-        // Dummy-Merge im Spiel, würde "Anteile: 1" als Render-Success
-        // durchlaufen. Mit dem c19-Fix bleibt share_count undefined und
-        // minijinja strict-env errort den Render.
         "body": "Anteile: {{ share_count }}",
         "member_id": member.id.unwrap().to_string(),
         "repayment_phase_id": phase.id.to_string(),
@@ -14817,29 +14824,39 @@ async fn test_mail_preview_repayment_no_entries_does_not_default_to_one() {
         .send()
         .await
         .expect("preview POST failed");
-    assert_eq!(
-        resp.status(),
-        StatusCode::OK,
-        "preview must return 200 OK even when render errors are collected"
-    );
+    assert_eq!(resp.status(), StatusCode::OK, "preview must return 200 OK");
 
     let json: serde_json::Value = resp.json().await.expect("decode preview response");
-    let errors = json["errors"].as_array().expect("errors must be array");
+    // `errors` wird bei Erfolg weggelassen (skip_serializing_if = Vec::is_empty)
+    // → als leere Liste behandeln.
+    let errors = json["errors"].as_array().cloned().unwrap_or_default();
     let body_text = json["body"].as_str().unwrap_or("");
 
-    // Regression core: must NEVER fall back to "Anteile: 1" (= alter Dummy-Pfad).
+    // Kern-c19-Schutz: darf NIE auf "Anteile: 1" (= alter Dummy-Pfad) zurückfallen.
     assert!(
         !body_text.contains("Anteile: 1"),
-        "BUG c19 regression: with no entries, preview must NOT fall back to share_count=1; got body={:?}, errors={:?}",
+        "BUG c19 regression: preview must NEVER fall back to share_count=1; got body={:?}, errors={:?}",
         body_text,
         errors
     );
-    // Entweder errors-Liste nicht-leer (strict-env errort auf undefined
-    // share_count) ODER body ist leer/Platzhalter — aber NIE "Anteile: 1".
+
+    // Aktueller Contract (260603-kon): Dummy-Fallback ist aktiv → share_count=99,
+    // used_dummy_repayment=true, kein Render-Fehler. Das Frontend warnt per Banner.
+    assert_eq!(
+        json["used_dummy_repayment"].as_bool(),
+        Some(true),
+        "no entries + gesetzte repayment_phase_id → Dummy-Fallback muss used_dummy_repayment=true signalisieren; got json={}",
+        json
+    );
     assert!(
-        !errors.is_empty() || body_text.is_empty(),
-        "with no entries and unguarded template, expected render error OR empty body; got body={:?}, errors={:?}",
+        body_text.contains("Anteile: 99"),
+        "Dummy-Fallback muss share_count=99 rendern (nicht 1, nicht undefined-error); got body={:?}, errors={:?}",
         body_text,
+        errors
+    );
+    assert!(
+        errors.is_empty(),
+        "Dummy-Fallback definiert share_count → kein strict-render-Fehler erwartet; got errors={:?}",
         errors
     );
 }
@@ -15156,11 +15173,17 @@ async fn preview_body_html_round_trips_to_response() {
     assert_eq!(response.status(), StatusCode::OK);
 
     let json: serde_json::Value = response.json().await.expect("decode preview response");
-    // (a) existing plain path unchanged
+    // (a) plain body: seit `0c7cba8 fix(mail): preview + test-mail path also
+    // derive plain from html` wird der Plain-Text — wenn ein `body_html`
+    // mitgeschickt wurde — aus dem gerenderten HTML abgeleitet (Send-Worker-
+    // Symmetrie), nicht mehr unabhängig aus `body`. `plain_from_html` mappt
+    // `<b>` auf `**` (Unit-Test `plain_from_html_bold_becomes_markdown_stars`),
+    // daher "Hallo **Max**". Die reine Plain-Pfad-Prüfung ohne `body_html`
+    // erfolgt in Pass 2 unten (dort weiterhin "Hallo Max").
     assert_eq!(
         json["body"].as_str().expect("body must be string"),
-        "Hallo Max",
-        "plain body must render member first_name",
+        "Hallo **Max**",
+        "plain body derived from body_html must render member first_name (bold → markdown stars)",
     );
     // (b) body_html is Some
     let rendered_html = json["body_html"]
