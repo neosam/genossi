@@ -18,9 +18,9 @@
 
 ### Vorlagen (APTPL)
 
-- [ ] **APTPL-01**: Vorlagen können gegen einen Application-Kontext gerendert werden — Platzhalter: Anrede, Vorname, Nachname, Titel, Anzahl Anteile, offener Betrag; über eine eigene `application_to_template_context`-Funktion (kein Member-Kontext mit gelöschten Feldern). Application-Vorlagen sind ein **eigener „Antragsteller"-Vorlagentyp**, getrennt vom Member-Vorlagen-Pool (Entscheid D1).
+- [x] **APTPL-01**: Vorlagen können gegen einen Application-Kontext gerendert werden — Platzhalter: Anrede, Vorname, Nachname, Titel, Anzahl Anteile, offener Betrag; über eine eigene `application_to_template_context`-Funktion (kein Member-Kontext mit gelöschten Feldern). Application-Vorlagen sind ein **eigener „Antragsteller"-Vorlagentyp**, getrennt vom Member-Vorlagen-Pool (Entscheid D1).
 - [x] **APTPL-02**: „Offener Betrag" wird zur Laufzeit berechnet (`Anteile × Anteilswert`), niemals auf der Application gespeichert; `share_value_cents` stammt aus **derselben Config-Quelle wie die bestehende Bestätigungsmail** (`send_confirmation_mail`, Entscheid D3); korrekte deutsche Euro-Formatierung (Tausender, Komma, negativer/Null-Fall korrekt).
-- [ ] **APTPL-03**: Eine deutsche Standard-Vorlage „Zahlungserinnerung" wird mitgeliefert (Seed-Content), sodass der Haupt-Use-Case in wenigen Klicks erledigt ist.
+- [x] **APTPL-03**: Eine deutsche Standard-Vorlage „Zahlungserinnerung" wird mitgeliefert (Seed-Content), sodass der Haupt-Use-Case in wenigen Klicks erledigt ist.
 - [ ] **APTPL-04**: Template-Validierung für Application-Vorlagen schlägt bei unbekannten/Member-only-Platzhaltern kontrolliert fehl (kein `strict`-Render-Crash beim Versand); die ~40 bestehenden Member-Template-Tests bleiben grün.
 
 ### Kommunikations-Historie (APHIST)
