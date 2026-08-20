@@ -105,6 +105,9 @@ impl<D: MailTemplateDao> MailTemplateService for MailTemplateServiceImpl<D> {
             body: Arc::from(body),
             // Phase 23 D-06: sanitized author HTML (or None for text-only templates).
             body_html: body_html_sanitized,
+            // Phase 30 D-01: Pool-Diskriminator. Task 1 setzt vorerst 'member';
+            // Task 2 fädelt den echten Parameter durch.
+            template_type: Arc::from("member"),
         };
 
         self.dao.create(&template).await?;
@@ -155,6 +158,10 @@ impl<D: MailTemplateDao> MailTemplateService for MailTemplateServiceImpl<D> {
             // prior HTML sibling; `Some(...)` replaces it with the newly
             // sanitized content. Update takes full ownership of body_html.
             body_html: body_html_sanitized,
+            // Phase 30 D-01: template_type ist nach dem Anlegen unveränderlich
+            // (Pitfall 3) — die UPDATE-SQL schreibt die Spalte nicht; die
+            // zurückgegebene Entität trägt den bestehenden Wert weiter.
+            template_type: existing.template_type.clone(),
         };
 
         self.dao.update(&updated).await?;
@@ -228,6 +235,7 @@ mod tests {
                 subject: Arc::from(""),
                 body: Arc::from(""),
                 body_html: None,
+                template_type: Arc::from("member"),
             }))
         });
 
@@ -252,6 +260,7 @@ mod tests {
                 subject: Arc::from(""),
                 body: Arc::from(""),
                 body_html: None,
+                template_type: Arc::from("member"),
             }))
         });
 
@@ -354,6 +363,7 @@ mod tests {
                 subject: Arc::from("Sub"),
                 body: Arc::from("Body"),
                 body_html: None,
+                template_type: Arc::from("member"),
             }))
         });
         mock.expect_find_by_name().returning(|_| Ok(None));

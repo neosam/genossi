@@ -1185,6 +1185,8 @@ struct MailTemplateDb {
     body: String,
     // Phase 23 D-06: optional HTML body
     body_html: Option<String>,
+    // Phase 30 D-01/D-02: Pool-Diskriminator; NOT NULL DEFAULT 'member' → nie Option.
+    template_type: String,
 }
 
 impl TryFrom<&MailTemplateDb> for MailTemplate {
@@ -1201,6 +1203,7 @@ impl TryFrom<&MailTemplateDb> for MailTemplate {
             subject: Arc::from(db.subject.as_str()),
             body: Arc::from(db.body.as_str()),
             body_html: db.body_html.as_deref().map(Arc::from),
+            template_type: Arc::from(db.template_type.as_str()),
         })
     }
 }
@@ -1223,8 +1226,8 @@ impl MailTemplateDao for MailTemplateDaoSqlite {
         let created = format_datetime(&template.created)?;
 
         sqlx::query(
-            "INSERT INTO mail_templates (id, created, deleted, version, name, subject, body, body_html) \
-             VALUES (?, ?, NULL, ?, ?, ?, ?, ?)",
+            "INSERT INTO mail_templates (id, created, deleted, version, name, subject, body, body_html, template_type) \
+             VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?)",
         )
         .bind(id)
         .bind(created)
@@ -1233,6 +1236,7 @@ impl MailTemplateDao for MailTemplateDaoSqlite {
         .bind(template.subject.as_ref())
         .bind(template.body.as_ref())
         .bind(template.body_html.as_deref())
+        .bind(template.template_type.as_ref())
         .execute(self.pool.as_ref())
         .await
         .map_err(|e| MailDaoError::DatabaseError(Arc::from(e.to_string())))?;
@@ -1264,7 +1268,7 @@ impl MailTemplateDao for MailTemplateDaoSqlite {
 
     async fn dump_all(&self) -> Result<Arc<[MailTemplate]>, MailDaoError> {
         let rows = sqlx::query_as::<_, MailTemplateDb>(
-            "SELECT id, created, deleted, version, name, subject, body, body_html FROM mail_templates",
+            "SELECT id, created, deleted, version, name, subject, body, body_html, template_type FROM mail_templates",
         )
         .fetch_all(self.pool.as_ref())
         .await
@@ -1279,7 +1283,7 @@ impl MailTemplateDao for MailTemplateDaoSqlite {
     async fn find_by_id(&self, id: Uuid) -> Result<Option<MailTemplate>, MailDaoError> {
         let id_bytes = id.as_bytes().to_vec();
         let row = sqlx::query_as::<_, MailTemplateDb>(
-            "SELECT id, created, deleted, version, name, subject, body, body_html \
+            "SELECT id, created, deleted, version, name, subject, body, body_html, template_type \
              FROM mail_templates WHERE id = ? AND deleted IS NULL",
         )
         .bind(id_bytes)
@@ -1292,7 +1296,7 @@ impl MailTemplateDao for MailTemplateDaoSqlite {
 
     async fn all(&self) -> Result<Arc<[MailTemplate]>, MailDaoError> {
         let rows = sqlx::query_as::<_, MailTemplateDb>(
-            "SELECT id, created, deleted, version, name, subject, body, body_html \
+            "SELECT id, created, deleted, version, name, subject, body, body_html, template_type \
              FROM mail_templates WHERE deleted IS NULL ORDER BY name ASC",
         )
         .fetch_all(self.pool.as_ref())
@@ -1307,7 +1311,7 @@ impl MailTemplateDao for MailTemplateDaoSqlite {
 
     async fn find_by_name(&self, name: &str) -> Result<Option<MailTemplate>, MailDaoError> {
         let row = sqlx::query_as::<_, MailTemplateDb>(
-            "SELECT id, created, deleted, version, name, subject, body, body_html \
+            "SELECT id, created, deleted, version, name, subject, body, body_html, template_type \
              FROM mail_templates WHERE name = ? AND deleted IS NULL",
         )
         .bind(name)
@@ -3006,5 +3010,110 @@ mod digest_state_tests {
             .await
             .unwrap();
         assert_eq!(count, 1, "upsert must not create a second row");
+    }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// MailTemplate template_type roundtrip (Phase 30 D-01/D-02)
+// ────────────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod mail_template_type_tests {
+    use super::*;
+
+    /// Baut einen In-Memory-Pool aus den echten mail_templates-Migrationen
+    /// (Create-Table + body_html-Add + template_type-Add), damit der Test die
+    /// tatsächliche Migrations-SQL prüft — nicht ein handgepflegtes Test-DDL.
+    async fn setup_mail_templates_pool() -> Arc<SqlitePool> {
+        let pool = SqlitePool::connect("sqlite::memory:")
+            .await
+            .expect("Failed to create in-memory database");
+        for sql in [
+            include_str!("../../migrations/sqlite/20260416100000_create_mail_templates_table.sql"),
+            include_str!("../../migrations/sqlite/20260702000000_mail_templates_add_body_html.sql"),
+            include_str!(
+                "../../migrations/sqlite/20260820000000_mail_templates_add_template_type.sql"
+            ),
+        ] {
+            sqlx::raw_sql(sql)
+                .execute(&pool)
+                .await
+                .expect("mail_templates migration applies");
+        }
+        Arc::new(pool)
+    }
+
+    fn now_pdt() -> PrimitiveDateTime {
+        let now = time::OffsetDateTime::now_utc();
+        PrimitiveDateTime::new(now.date(), now.time())
+    }
+
+    /// D-02 Legacy-Roundtrip: eine Zeile, die OHNE template_type eingefügt wird
+    /// (roher INSERT ohne die neue Spalte), liest über die DAO 'member' zurück.
+    #[tokio::test]
+    async fn mail_template_legacy_row_reads_back_member() {
+        let pool = setup_mail_templates_pool().await;
+
+        // Roher INSERT ohne template_type — simuliert eine bestehende Alt-Zeile.
+        let id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO mail_templates (id, created, version, name, subject, body) \
+             VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind(id.as_bytes().to_vec())
+        .bind(format_datetime(&now_pdt()).unwrap())
+        .bind(Uuid::new_v4().as_bytes().to_vec())
+        .bind("Legacy")
+        .bind("")
+        .bind("Body")
+        .execute(pool.as_ref())
+        .await
+        .expect("legacy insert without template_type");
+
+        let dao = MailTemplateDaoSqlite::new(pool);
+        let found = dao
+            .find_by_id(id)
+            .await
+            .expect("find_by_id ok")
+            .expect("template present");
+        assert_eq!(
+            found.template_type.as_ref(),
+            "member",
+            "legacy row must default to 'member'"
+        );
+    }
+
+    /// D-03 Grounding: eine über die DAO mit template_type 'application' angelegte
+    /// Vorlage liest 'application' zurück (Create-INSERT + SELECT tragen die Spalte).
+    #[tokio::test]
+    async fn mail_template_application_roundtrip() {
+        let pool = setup_mail_templates_pool().await;
+        let dao = MailTemplateDaoSqlite::new(pool);
+
+        let id = Uuid::new_v4();
+        let template = MailTemplate {
+            id,
+            created: now_pdt(),
+            deleted: None,
+            version: Uuid::new_v4(),
+            name: Arc::from("Antrag"),
+            subject: Arc::from("Betreff"),
+            body: Arc::from("Body"),
+            body_html: None,
+            template_type: Arc::from("application"),
+        };
+        dao.create(&template).await.expect("create ok");
+
+        let found = dao
+            .find_by_id(id)
+            .await
+            .expect("find_by_id ok")
+            .expect("template present");
+        assert_eq!(found.template_type.as_ref(), "application");
+
+        // Auch über all() (anderer SELECT) muss der Wert konsistent zurückkommen.
+        let all = dao.all().await.expect("all ok");
+        let via_all = all.iter().find(|t| t.id == id).expect("template in all()");
+        assert_eq!(via_all.template_type.as_ref(), "application");
     }
 }

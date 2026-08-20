@@ -246,6 +246,9 @@ pub struct MailTemplate {
     // Phase 23 D-06: optional HTML body. NULL = text-only template (legacy contract).
     // Sanitized by ammonia at template create/update entry points before it lands here.
     pub body_html: Option<Arc<str>>,
+    // Phase 30 D-01/D-02: Pool-Diskriminator ('member' | 'application'). Nach dem
+    // Anlegen unveränderlich (Pitfall 3). Legacy-Zeilen lesen 'member' (NOT NULL DEFAULT).
+    pub template_type: Arc<str>,
 }
 
 #[automock]
