@@ -23,9 +23,38 @@
 /// - `format_eur_de(123456)` → `"1.234,56 €"`
 /// - `format_eur_de(100000000)` → `"1.000.000,00 €"`
 /// - `format_eur_de(-123456)` → `"-1.234,56 €"`
-pub fn format_eur_de(_cents: i64) -> String {
-    // RED-Stub: noch nicht implementiert.
-    String::new()
+pub fn format_eur_de(cents: i64) -> String {
+    // Betrag über i128 normieren — i64::MIN kann so nicht überlaufen.
+    let neg = cents < 0;
+    let magnitude: u128 = (cents as i128).unsigned_abs();
+
+    let euros = magnitude / 100;
+    let frac = magnitude % 100;
+
+    let grouped = group_thousands(euros);
+
+    let sign = if neg { "-" } else { "" };
+    format!("{sign}{grouped},{frac:02} €")
+}
+
+/// Rendert eine nicht-negative Ganzzahl mit '.' als Tausendertrennzeichen.
+///
+/// Gruppiert die Dezimalstellen von rechts in 3er-Blöcke.
+/// Beispiele: `0` → `"0"`, `1234` → `"1.234"`, `1000000` → `"1.000.000"`.
+fn group_thousands(value: u128) -> String {
+    let digits = value.to_string();
+    let len = digits.len();
+
+    let mut out = String::with_capacity(len + len / 3);
+    for (i, c) in digits.chars().enumerate() {
+        // Punkt vor jeder Stelle, deren Abstand zum Ende ein Vielfaches von 3 ist
+        // (aber nicht ganz am Anfang).
+        if i > 0 && (len - i) % 3 == 0 {
+            out.push('.');
+        }
+        out.push(c);
+    }
+    out
 }
 
 #[cfg(test)]
