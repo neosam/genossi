@@ -49,6 +49,47 @@ impl genossi_mail::template::MemberResolver for PoolMemberResolver {
     }
 }
 
+/// Phase 31 (APMAIL-01, D-04): `ApplicationResolver` impl over `ApplicationDao`
+/// — exact mirror of [`PoolMemberResolver`]. Opens a read tx from the pool,
+/// looks up the Application via `ApplicationDao::find_by_id`, and maps the
+/// entity to the service-layer `Application` (`Ok(None)` when the row is
+/// missing/soft-deleted; DAO errors → `MailServiceError::DataAccess`).
+pub struct PoolApplicationResolver {
+    pool: Arc<SqlitePool>,
+}
+
+impl PoolApplicationResolver {
+    pub fn new(pool: Arc<SqlitePool>) -> Self {
+        Self { pool }
+    }
+}
+
+#[async_trait::async_trait]
+impl genossi_mail::template::ApplicationResolver for PoolApplicationResolver {
+    async fn find_application_by_id(
+        &self,
+        id: UuidType,
+    ) -> Result<
+        Option<genossi_service::application::Application>,
+        genossi_mail::service::MailServiceError,
+    > {
+        use genossi_dao::application::ApplicationDao as _;
+        use genossi_dao::TransactionDao as _;
+        let transaction_dao = TransactionDaoImpl::new(self.pool.clone());
+        let application_dao =
+            genossi_dao_impl_sqlite::application::ApplicationDaoImpl::new(self.pool.clone());
+        let tx = transaction_dao.transaction().await.map_err(|e| {
+            genossi_mail::service::MailServiceError::DataAccess(Arc::from(format!("{:?}", e)))
+        })?;
+        let entity = application_dao.find_by_id(id, tx).await.map_err(|e| {
+            genossi_mail::service::MailServiceError::DataAccess(Arc::from(format!("{:?}", e)))
+        })?;
+        Ok(entity
+            .as_ref()
+            .map(genossi_service::application::Application::from))
+    }
+}
+
 // Type aliases for clarity
 #[cfg(all(feature = "mock_auth", not(feature = "oidc")))]
 type Context = MockContext;
@@ -1636,6 +1677,8 @@ impl RestStateImpl {
         let repayment_context_resolver = self.repayment_context_resolver.clone();
         // Phase 27 (IMG-06/IMG-07): mail-asset DAO for inline-image byte loading.
         let mail_asset_dao = self.worker_mail_asset_dao.clone();
+        // Phase 31 (APMAIL-01, D-04): applicant resolver for the Application-Zweig.
+        let application_resolver = Arc::new(PoolApplicationResolver::new(self.pool.clone()));
         tokio::spawn(async move {
             genossi_mail::worker::start_mail_worker(
                 config_service,
@@ -1658,6 +1701,8 @@ impl RestStateImpl {
                 repayment_context_resolver,
                 // Phase 27: 16th positional arg (AS = MailAssetDao generic).
                 mail_asset_dao,
+                // Phase 31: 17th positional arg (AR = ApplicationResolver generic).
+                application_resolver,
             )
             .await;
         });
@@ -1676,6 +1721,14 @@ impl RestStateImpl {
         let repayment_phase_dao = self.repayment_phase_dao.clone();
         let transaction_dao = self.transaction_dao.clone();
         let repayment_context_resolver = self.repayment_context_resolver.clone();
+        // Phase 31 (APMAIL-01, D-04, Pitfall 4): the backfill threads the two new
+        // resolve_rendered_content args. A fresh ConfigService is built ad-hoc from
+        // the pool (Pattern start_digest_worker); the Application-Zweig is
+        // practically never active here (legacy rows are member-bound), but must
+        // compile identically at both call sites.
+        let application_resolver = Arc::new(PoolApplicationResolver::new(self.pool.clone()));
+        let config_dao = ConfigDao::new(self.pool.clone());
+        let config_service = Arc::new(ConfigService::new(config_dao));
         tokio::spawn(async move {
             genossi_mail::backfill::run_rendered_backfill(
                 recipient_dao,
@@ -1685,6 +1738,8 @@ impl RestStateImpl {
                 repayment_phase_dao,
                 transaction_dao,
                 repayment_context_resolver,
+                application_resolver,
+                config_service,
             )
             .await;
         });
