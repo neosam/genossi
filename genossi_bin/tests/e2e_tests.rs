@@ -8619,6 +8619,8 @@ async fn mail_template_crud_lifecycle() {
     assert_eq!(created.body, "Hallo {{ first_name }}!");
     assert!(!created.id.is_empty());
     assert!(!created.version.is_empty());
+    // Phase 30 D-03: POST ohne template_type → Legacy-Default 'member' auf dem Draht.
+    assert_eq!(created.template_type, "member");
 
     // List (should include seeded + newly created)
     let response = client
@@ -8674,6 +8676,55 @@ async fn mail_template_crud_lifecycle() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn mail_template_type_application_roundtrips_on_wire() {
+    // Phase 30 D-03: POST mit "template_type":"application" liest 'application'
+    // zurück; POST ohne das Feld fällt auf den Legacy-Default 'member' zurück.
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Mit explizitem template_type = 'application'
+    let response = client
+        .post(server.url("/api/mail/templates"))
+        .json(&serde_json::json!({
+            "name": "Antrags-Vorlage",
+            "subject": "Betreff",
+            "body": "Hallo {{ first_name }}!",
+            "template_type": "application"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let created: MailTemplateTO = response.json().await.unwrap();
+    assert_eq!(created.template_type, "application");
+
+    // Read-back über GET by id bleibt 'application'.
+    let response = client
+        .get(server.url(&format!("/api/mail/templates/{}", created.id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let fetched: MailTemplateTO = response.json().await.unwrap();
+    assert_eq!(fetched.template_type, "application");
+
+    // Ohne das Feld → Legacy-Default 'member'.
+    let response = client
+        .post(server.url("/api/mail/templates"))
+        .json(&serde_json::json!({
+            "name": "Mitglieder-Vorlage",
+            "subject": "Betreff",
+            "body": "Hallo {{ first_name }}!"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let created_default: MailTemplateTO = response.json().await.unwrap();
+    assert_eq!(created_default.template_type, "member");
 }
 
 #[tokio::test]

@@ -28,7 +28,18 @@ pub struct MailTemplateTO {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schema(example = "<p>Hallo</p>")]
     pub body_html: Option<String>,
+    /// Phase 30 (APTPL-01, D-03): Pool-Diskriminator ('member' | 'application').
+    /// Read-only auf dem Draht — grundiert den Phase-32-Selektor.
+    #[schema(example = "member")]
+    pub template_type: String,
     pub version: String,
+}
+
+/// Phase 30 (D-03, Open Question Q1): Default für das optionale `template_type`
+/// im Create-Body — bestehende JSON-Posts ohne das Feld bleiben abwärtskompatibel
+/// und landen im Mitglieder-Pool.
+fn default_template_type() -> String {
+    "member".to_string()
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
@@ -41,6 +52,11 @@ pub struct CreateMailTemplateRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schema(example = "<p>Hallo</p>")]
     pub body_html: Option<String>,
+    /// Phase 30 (APTPL-01, D-03, Open Question Q1): optionaler Pool-Diskriminator.
+    /// Fehlt das Feld, greift `default_template_type()` → 'member'.
+    #[serde(default = "default_template_type")]
+    #[schema(example = "application")]
+    pub template_type: String,
 }
 
 #[derive(Clone, Debug, Deserialize, ToSchema)]
@@ -66,6 +82,8 @@ impl From<&MailTemplate> for MailTemplateTO {
             body: t.body.to_string(),
             // Phase 23 Plan 04 (HTML-01): expose the sanitized HTML sibling.
             body_html: t.body_html.as_deref().map(String::from),
+            // Phase 30 D-03: Pool-Diskriminator auf den Lesepfad legen.
+            template_type: t.template_type.to_string(),
             version: t.version.to_string(),
         }
     }
@@ -183,6 +201,7 @@ async fn create_template<S: MailTemplateRestState>(
                     &body.subject,
                     &body.body,
                     body.body_html.clone(),
+                    &body.template_type,
                 )
                 .await?;
             let to = MailTemplateTO::from(&tpl);
@@ -317,6 +336,7 @@ mod tests {
             subject: "S".to_string(),
             body: "B".to_string(),
             body_html: None,
+            template_type: "member".to_string(),
             version: "v1".to_string(),
         };
         let json = serde_json::to_string(&to).unwrap();

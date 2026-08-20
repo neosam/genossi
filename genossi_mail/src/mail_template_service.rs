@@ -45,6 +45,8 @@ pub trait MailTemplateService: Send + Sync + 'static {
         subject: &str,
         body: &str,
         body_html: Option<String>,
+        // Phase 30 D-01/D-03: Pool-Diskriminator, unveränderlich nach dem Anlegen.
+        template_type: &str,
     ) -> Result<MailTemplate, MailTemplateError>;
     /// Phase 23 (HTML-05, D-03 entry point 3):
     /// - `body_html`: optional author HTML sanitized via
@@ -81,6 +83,7 @@ impl<D: MailTemplateDao> MailTemplateService for MailTemplateServiceImpl<D> {
         subject: &str,
         body: &str,
         body_html: Option<String>,
+        template_type: &str,
     ) -> Result<MailTemplate, MailTemplateError> {
         if let Some(_existing) = self.dao.find_by_name(name).await? {
             return Err(MailTemplateError::DuplicateName(Arc::from(name)));
@@ -105,9 +108,8 @@ impl<D: MailTemplateDao> MailTemplateService for MailTemplateServiceImpl<D> {
             body: Arc::from(body),
             // Phase 23 D-06: sanitized author HTML (or None for text-only templates).
             body_html: body_html_sanitized,
-            // Phase 30 D-01: Pool-Diskriminator. Task 1 setzt vorerst 'member';
-            // Task 2 fädelt den echten Parameter durch.
-            template_type: Arc::from("member"),
+            // Phase 30 D-01/D-03: Pool-Diskriminator aus dem Create-Body.
+            template_type: Arc::from(template_type),
         };
 
         self.dao.create(&template).await?;
@@ -212,12 +214,16 @@ mod tests {
         mock.expect_create().returning(|_| Ok(()));
 
         let service = MailTemplateServiceImpl::new(Arc::new(mock));
-        let result = service.create("Test", "Subject", "Body", None).await;
+        let result = service
+            .create("Test", "Subject", "Body", None, "application")
+            .await;
         assert!(result.is_ok());
         let tpl = result.unwrap();
         assert_eq!(tpl.name.as_ref(), "Test");
         assert_eq!(tpl.subject.as_ref(), "Subject");
         assert_eq!(tpl.body.as_ref(), "Body");
+        // Phase 30 D-01/D-03: der übergebene template_type wird durchgefädelt.
+        assert_eq!(tpl.template_type.as_ref(), "application");
     }
 
     #[tokio::test]
@@ -240,7 +246,9 @@ mod tests {
         });
 
         let service = MailTemplateServiceImpl::new(Arc::new(mock));
-        let result = service.create("Existing", "Sub", "Body", None).await;
+        let result = service
+            .create("Existing", "Sub", "Body", None, "member")
+            .await;
         assert!(matches!(result, Err(MailTemplateError::DuplicateName(_))));
     }
 
@@ -327,6 +335,7 @@ mod tests {
                 "Sub",
                 "Body",
                 Some("<p>Hi</p><script>alert(1)</script>".to_string()),
+                "member",
             )
             .await;
         assert!(result.is_ok());
