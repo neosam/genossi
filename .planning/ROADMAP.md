@@ -279,12 +279,12 @@ Plans:
   4. Der Service liefert pro Application die „zuletzt gesendet am …"-Information (aus der outbound-Historie), damit der Anti-Doppelversand-/Spam-Guard auf der Detailseite angezeigt werden kann.
   5. Es gibt keinen Massenversand- und keinen Freitext-Empfänger-Pfad; Empfänger ist immer die Application selbst (Content-Scoping), kein Open-/Click-Tracking — verifiziert per Service-/E2E-Tests.
 
-**Plans:** 3 plans
+**Plans:** 1/3 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 31-01-PLAN.md — KERN-Renderer-Seam (D-04): `ApplicationResolver`-Trait + `render_application_content`-Kernel + Application-Zweig in `resolve_rendered_content` + beide Call-Sites (worker/backfill) + `PoolApplicationResolver`-Wiring (APMAIL-01)
+- [x] 31-01-PLAN.md — KERN-Renderer-Seam (D-04): `ApplicationResolver`-Trait + `render_application_content`-Kernel + Application-Zweig in `resolve_rendered_content` + beide Call-Sites (worker/backfill) + `PoolApplicationResolver`-Wiring (APMAIL-01)
 
 **Wave 2** *(blocked on Wave 1)*
 
@@ -346,7 +346,7 @@ Plans:
 | 28. Desktop/Mobile-Vorschau                        | v1.5      | 4/5 | In Progress|  |
 | 29. DAO/Schema-Foundation (Antragsteller-Historie) | v1.6      | 2/2 | Complete    | 2026-08-12 |
 | 30. Application-Template-Kontext                   | v1.6      | 3/3 | Complete    | 2026-08-20 |
-| 31. Service + REST Versand                         | v1.6      | 0/3 | Planned     |  |
+| 31. Service + REST Versand                         | v1.6      | 1/3 | In Progress|  |
 | 32. Frontend Compose-Dialog                        | v1.6      | 0/0 | Not started |  |
 
 ---

@@ -11,7 +11,7 @@
 
 ### Versand (APMAIL)
 
-- [ ] **APMAIL-01**: Vorstand kann einer Beitrittserklärung (Application) mit Status `Offen` eine einzelne E-Mail senden — Empfänger = `application.email`, `RecipientInput` mit `member_id: None` + gesetztem `application_id`; via `POST /api/applications/{id}/mail`, nur für Vorstand (`admin`-Rolle).
+- [x] **APMAIL-01**: Vorstand kann einer Beitrittserklärung (Application) mit Status `Offen` eine einzelne E-Mail senden — Empfänger = `application.email`, `RecipientInput` mit `member_id: None` + gesetztem `application_id`; via `POST /api/applications/{id}/mail`, nur für Vorstand (`admin`-Rolle).
 - [ ] **APMAIL-02**: Der Versand gibt echten Erfolg/Fehler zurück (`Result<_, ServiceError>`) — keine stille `200-OK-ohne-Versand`-Falle wie beim bestehenden `send_confirmation_mail`; Fehler (kein SMTP, fehlende Config) werden dem Vorstand sichtbar gemeldet.
 - [ ] **APMAIL-03**: Fehlende E-Mail-Adresse wird sauber behandelt — der „E-Mail senden"-Button ist deaktiviert/annotiert, nie ein stiller Fehlversuch.
 - [ ] **APMAIL-04**: Vorstand sieht vor dem Absenden eine Vorschau mit aufgelösten Platzhaltern und bestätigt den Versand bewusst (confirm-before-send).
@@ -82,7 +82,7 @@ Phase-Mapping aus `.planning/ROADMAP.md` (v1.6 Phases 29-32, fortlaufende Nummer
 | APTPL-02 | Phase 30 | Application-Template-Kontext (Antragsteller-Vorlagen) | Complete |
 | APTPL-03 | Phase 30 | Application-Template-Kontext (Antragsteller-Vorlagen) | Complete |
 | APTPL-04 | Phase 30 | Application-Template-Kontext (Antragsteller-Vorlagen) | Complete |
-| APMAIL-01 | Phase 31 | Service + REST Versand (Versand + Guardrails) | Pending |
+| APMAIL-01 | Phase 31 | Service + REST Versand (Versand + Guardrails) | Complete |
 | APMAIL-02 | Phase 31 | Service + REST Versand (Versand + Guardrails) | Pending |
 | APCMP-01 | Phase 31 | Service + REST Versand (Versand + Guardrails) | Pending |
 | APCMP-02 | Phase 31 | Service + REST Versand (Versand + Guardrails) | Pending |
