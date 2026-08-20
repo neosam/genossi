@@ -7,11 +7,17 @@ use axum::{
     Extension, Json, Router,
 };
 use genossi_dao::application::ApplicationStatus;
+use genossi_mail::communication_rest::CommunicationEntryTO;
 use genossi_rest_types::{
-    AdminCreateApplicationRequest, ApplicationStatusTO, ApplicationTO, PublicJoinRequest,
-    PublicJoinResponse, UpdateApplicationRequest, ValidationErrorResponse, ValidationFailureItem,
+    AdminCreateApplicationRequest, ApplicationStatusTO, ApplicationTO,
+    PreviewApplicationMailRequest, PreviewApplicationMailResponse, PublicJoinRequest,
+    PublicJoinResponse, SendApplicationMailRequest, UpdateApplicationRequest,
+    ValidationErrorResponse, ValidationFailureItem,
 };
-use genossi_service::application::{ApplicationService, ApplicationSubmission, ApplicationUpdate};
+use genossi_service::application::{
+    ApplicationMailDraft, ApplicationMailInput, ApplicationService, ApplicationSubmission,
+    ApplicationUpdate,
+};
 use std::sync::Arc;
 use tracing::instrument;
 use utoipa::OpenApi;
@@ -329,17 +335,29 @@ pub async fn get_application<RestState: RestStateDef + ApplicationRestState>(
 ) -> Response {
     error_handler(
         (async {
+            let auth = crate::extract_auth_context(Some(context))?;
             let app = rest_state
                 .application_service()
-                .get(id, crate::extract_auth_context(Some(context))?)
+                .get(id, auth.clone())
                 .await?;
+
+            // APHIST-02: server-side aggregated anti-double-send guard.
+            let last_sent = rest_state
+                .application_service()
+                .last_sent_at(id, auth)
+                .await?;
+
+            let mut to = ApplicationTO::from(&app);
+            to.last_sent_at = last_sent.map(|dt| {
+                dt.assume_utc()
+                    .format(&time::format_description::well_known::Iso8601::DEFAULT)
+                    .unwrap_or_default()
+            });
 
             Ok(Response::builder()
                 .status(200)
                 .header("Content-Type", "application/json")
-                .body(Body::new(serde_json::to_string(&ApplicationTO::from(
-                    &app,
-                ))?))
+                .body(Body::new(serde_json::to_string(&to)?))
                 .unwrap())
         })
         .await,
@@ -476,6 +494,143 @@ pub async fn update_application<RestState: RestStateDef + ApplicationRestState>(
     )
 }
 
+#[instrument(skip(rest_state))]
+#[utoipa::path(
+    post,
+    tag = "Applications",
+    path = "/{id}/mail",
+    request_body = SendApplicationMailRequest,
+    responses(
+        (status = 200, description = "Mail enqueued for the applicant"),
+        (status = 401, description = "Unauthorized"),
+        (status = 404, description = "Not found"),
+        (status = 409, description = "Conflict - application not in Offen status"),
+        (status = 422, description = "Validation error - applicant has no email address"),
+    ),
+)]
+pub async fn send_application_mail<RestState: RestStateDef + ApplicationRestState>(
+    rest_state: State<RestState>,
+    Extension(context): Extension<Context>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<SendApplicationMailRequest>,
+) -> Response {
+    error_handler(
+        (async {
+            let input = ApplicationMailInput {
+                subject: body.subject,
+                body: body.body,
+                body_html: body.body_html,
+                template_id: body.template_id,
+            };
+
+            rest_state
+                .application_service()
+                .send_mail(id, &input, crate::extract_auth_context(Some(context))?)
+                .await?;
+
+            Ok(Response::builder()
+                .status(200)
+                .header("Content-Type", "application/json")
+                .body(Body::new("{\"status\":\"queued\"}".to_string()))
+                .unwrap())
+        })
+        .await,
+    )
+}
+
+#[instrument(skip(rest_state))]
+#[utoipa::path(
+    post,
+    tag = "Applications",
+    path = "/{id}/mail/preview",
+    request_body = PreviewApplicationMailRequest,
+    responses(
+        (status = 200, description = "Rendered mail preview", body = PreviewApplicationMailResponse),
+        (status = 401, description = "Unauthorized"),
+        (status = 404, description = "Not found"),
+    ),
+)]
+pub async fn preview_application_mail<RestState: RestStateDef + ApplicationRestState>(
+    rest_state: State<RestState>,
+    Extension(context): Extension<Context>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<PreviewApplicationMailRequest>,
+) -> Response {
+    error_handler(
+        (async {
+            let draft = ApplicationMailDraft {
+                subject: body.subject,
+                body: body.body,
+                body_html: body.body_html,
+            };
+
+            let rendered = rest_state
+                .application_service()
+                .preview_mail(id, &draft, crate::extract_auth_context(Some(context))?)
+                .await?;
+
+            let response = PreviewApplicationMailResponse {
+                subject: rendered.subject,
+                body: rendered.body,
+                body_html: rendered.body_html,
+            };
+
+            Ok(Response::builder()
+                .status(200)
+                .header("Content-Type", "application/json")
+                .body(Body::new(serde_json::to_string(&response)?))
+                .unwrap())
+        })
+        .await,
+    )
+}
+
+#[instrument(skip(rest_state))]
+#[utoipa::path(
+    get,
+    tag = "Applications",
+    path = "/{id}/communications",
+    responses(
+        (status = 200, description = "Outbound applicant communication timeline", body = Vec<CommunicationEntryTO>),
+        (status = 401, description = "Unauthorized"),
+        (status = 404, description = "Not found"),
+    ),
+)]
+pub async fn get_application_communications<RestState: RestStateDef + ApplicationRestState>(
+    rest_state: State<RestState>,
+    Extension(context): Extension<Context>,
+    Path(id): Path<Uuid>,
+) -> Response {
+    use genossi_mail::dao::CommunicationDao as CommunicationDaoTrait;
+
+    error_handler(
+        (async {
+            // Pitfall 3 (T-31-01): the admin gate runs FIRST via the Application
+            // service `get()` (Permission→401, existence→404) — this handler does
+            // NOT mirror the ungated communication_rest handler.
+            rest_state
+                .application_service()
+                .get(id, crate::extract_auth_context(Some(context))?)
+                .await?;
+
+            let entries = rest_state
+                .communication_dao()
+                .get_application_communications(id)
+                .await
+                .map_err(|e| RestError::InternalError(format!("{:?}", e)))?;
+
+            let tos: Vec<CommunicationEntryTO> = entries.iter().map(Into::into).collect();
+
+            Ok(Response::builder()
+                .status(200)
+                .header("Content-Type", "application/json")
+                .body(Body::new(serde_json::to_string(&tos)?))
+                .unwrap())
+        })
+        .await,
+    )
+}
+
 pub fn generate_route<RestState: RestStateDef + ApplicationRestState>() -> Router<RestState> {
     Router::new()
         .route(
@@ -488,6 +643,15 @@ pub fn generate_route<RestState: RestStateDef + ApplicationRestState>() -> Route
         )
         .route("/{id}/confirm", post(confirm_application::<RestState>))
         .route("/{id}/reject", post(reject_application::<RestState>))
+        .route("/{id}/mail", post(send_application_mail::<RestState>))
+        .route(
+            "/{id}/mail/preview",
+            post(preview_application_mail::<RestState>),
+        )
+        .route(
+            "/{id}/communications",
+            get(get_application_communications::<RestState>),
+        )
 }
 
 #[derive(OpenApi)]
@@ -498,14 +662,21 @@ pub fn generate_route<RestState: RestStateDef + ApplicationRestState>() -> Route
         get_application,
         update_application,
         confirm_application,
-        reject_application
+        reject_application,
+        send_application_mail,
+        preview_application_mail,
+        get_application_communications
     ),
     components(schemas(
         ApplicationTO,
         ApplicationStatusTO,
         AdminCreateApplicationRequest,
         UpdateApplicationRequest,
-        PublicJoinResponse
+        PublicJoinResponse,
+        SendApplicationMailRequest,
+        PreviewApplicationMailRequest,
+        PreviewApplicationMailResponse,
+        CommunicationEntryTO
     ))
 )]
 pub struct ApiDoc;
