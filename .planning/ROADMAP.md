@@ -309,7 +309,11 @@ Plans:
   4. Die Kommunikations-Historie wird über die unveränderte, prop-getriebene `communication_timeline.rs`-Komponente auf der Application-Detailseite/im Dialog angezeigt, inklusive prominenter „zuletzt gesendet am …"-Anzeige.
   5. Der Senden-Button ist während eines laufenden Requests deaktiviert (kein Doppelversand), und die Dioxus-`form onsubmit`-Reload-Falle wird via `div`+`onclick`+`r#type:"button"` vermieden.
 
-**Plans:** TBD
+**Plans:** 4 plans
+- [ ] 32-01-PLAN.md — D-06 Backend-Kette + Wire-Typ (rendered_body/rendered_html_body in beide rest-types-Crates) [Wave 1]
+- [ ] 32-02-PLAN.md — Dedizierte api.rs-Funktionen + template_type-Filter + last-sent-Helfer + i18n-Keys [Wave 1]
+- [ ] 32-03-PLAN.md — Compose-Vollseite (ApplicationCompose) + Route + TemplateSelector-Filter/Preselect [Wave 2]
+- [ ] 32-04-PLAN.md — application_detail Button + last-sent + Timeline-Abschnitt + Body-Panel (on_entry_click) [Wave 3]
 **UI hint:** yes
 
 ## Progress
@@ -347,7 +351,7 @@ Plans:
 | 29. DAO/Schema-Foundation (Antragsteller-Historie) | v1.6      | 2/2 | Complete    | 2026-08-12 |
 | 30. Application-Template-Kontext                   | v1.6      | 3/3 | Complete    | 2026-08-20 |
 | 31. Service + REST Versand                         | v1.6      | 3/3 | Complete    | 2026-08-20 |
-| 32. Frontend Compose-Dialog                        | v1.6      | 0/0 | Not started |  |
+| 32. Frontend Compose-Dialog                        | v1.6      | 0/4 | Planned     |  |
 
 ---
 
