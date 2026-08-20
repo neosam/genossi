@@ -14,7 +14,7 @@
 - [x] **APMAIL-01**: Vorstand kann einer Beitrittserklärung (Application) mit Status `Offen` eine einzelne E-Mail senden — Empfänger = `application.email`, `RecipientInput` mit `member_id: None` + gesetztem `application_id`; via `POST /api/applications/{id}/mail`, nur für Vorstand (`admin`-Rolle).
 - [x] **APMAIL-02**: Der Versand gibt echten Erfolg/Fehler zurück (`Result<_, ServiceError>`) — keine stille `200-OK-ohne-Versand`-Falle wie beim bestehenden `send_confirmation_mail`; Fehler (kein SMTP, fehlende Config) werden dem Vorstand sichtbar gemeldet.
 - [ ] **APMAIL-03**: Fehlende E-Mail-Adresse wird sauber behandelt — der „E-Mail senden"-Button ist deaktiviert/annotiert, nie ein stiller Fehlversuch.
-- [ ] **APMAIL-04**: Vorstand sieht vor dem Absenden eine Vorschau mit aufgelösten Platzhaltern und bestätigt den Versand bewusst (confirm-before-send).
+- [x] **APMAIL-04**: Vorstand sieht vor dem Absenden eine Vorschau mit aufgelösten Platzhaltern und bestätigt den Versand bewusst (confirm-before-send).
 
 ### Vorlagen (APTPL)
 
@@ -37,7 +37,7 @@
 ### Frontend Dialog (APUI)
 
 - [ ] **APUI-01**: „E-Mail senden"-Button auf der Application-Detailseite öffnet einen Compose-Dialog (Vorbild-Pattern: `member_details.rs`); bei fehlender Adresse deaktiviert.
-- [ ] **APUI-02**: Der Dialog nutzt die bestehenden `component/mail_compose/`-Bausteine (Betreff-Input, WYSIWYG-Editor, Template-Selector, Preview) — kein geforktes UI (Component-First).
+- [x] **APUI-02**: Der Dialog nutzt die bestehenden `component/mail_compose/`-Bausteine (Betreff-Input, WYSIWYG-Editor, Template-Selector, Preview) — kein geforktes UI (Component-First).
 - [x] **APUI-03**: Die Kommunikations-Historie wird über die bestehende `communication_timeline.rs`-Komponente unverändert (prop-driven) auf der Application-Detailseite/im Dialog angezeigt.
 
 ## Future Requirements
@@ -88,7 +88,7 @@ Phase-Mapping aus `.planning/ROADMAP.md` (v1.6 Phases 29-32, fortlaufende Nummer
 | APCMP-02 | Phase 31 | Service + REST Versand (Versand + Guardrails) | Complete |
 | APHIST-02 | Phase 31 | Service + REST Versand (Versand + Guardrails) | Complete |
 | APMAIL-03 | Phase 32 | Frontend Compose-Dialog | Pending |
-| APMAIL-04 | Phase 32 | Frontend Compose-Dialog | Pending |
+| APMAIL-04 | Phase 32 | Frontend Compose-Dialog | Complete |
 | APUI-01 | Phase 32 | Frontend Compose-Dialog | Pending |
-| APUI-02 | Phase 32 | Frontend Compose-Dialog | Pending |
+| APUI-02 | Phase 32 | Frontend Compose-Dialog | Complete |
 | APUI-03 | Phase 32 | Frontend Compose-Dialog | Complete |
