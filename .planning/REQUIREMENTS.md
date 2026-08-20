@@ -38,7 +38,7 @@
 
 - [ ] **APUI-01**: „E-Mail senden"-Button auf der Application-Detailseite öffnet einen Compose-Dialog (Vorbild-Pattern: `member_details.rs`); bei fehlender Adresse deaktiviert.
 - [ ] **APUI-02**: Der Dialog nutzt die bestehenden `component/mail_compose/`-Bausteine (Betreff-Input, WYSIWYG-Editor, Template-Selector, Preview) — kein geforktes UI (Component-First).
-- [ ] **APUI-03**: Die Kommunikations-Historie wird über die bestehende `communication_timeline.rs`-Komponente unverändert (prop-driven) auf der Application-Detailseite/im Dialog angezeigt.
+- [x] **APUI-03**: Die Kommunikations-Historie wird über die bestehende `communication_timeline.rs`-Komponente unverändert (prop-driven) auf der Application-Detailseite/im Dialog angezeigt.
 
 ## Future Requirements
 
@@ -91,4 +91,4 @@ Phase-Mapping aus `.planning/ROADMAP.md` (v1.6 Phases 29-32, fortlaufende Nummer
 | APMAIL-04 | Phase 32 | Frontend Compose-Dialog | Pending |
 | APUI-01 | Phase 32 | Frontend Compose-Dialog | Pending |
 | APUI-02 | Phase 32 | Frontend Compose-Dialog | Pending |
-| APUI-03 | Phase 32 | Frontend Compose-Dialog | Pending |
+| APUI-03 | Phase 32 | Frontend Compose-Dialog | Complete |
