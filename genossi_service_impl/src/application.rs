@@ -1602,6 +1602,8 @@ mod tests {
             recipient_id: Some(Uuid::new_v4()),
             to_address: Some(Arc::from("a@b.de")),
             outbound_status: Some(Arc::from("sent")),
+            rendered_body: None,
+            rendered_html_body: None,
         }
     }
 
