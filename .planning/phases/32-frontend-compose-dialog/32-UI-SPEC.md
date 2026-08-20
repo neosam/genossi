@@ -40,44 +40,75 @@ created: 2026-08-20
 **Layout skeleton for the new Compose page (mirror `page/mail_page.rs`):**
 `RequirePrivilege(PRIVILEGE_ADMIN)` → `div.flex.flex-col.min-h-screen` → `TopBar` → `div.flex-1.container.mx-auto.px-4.py-8` → `h1.text-3xl.font-bold.mb-6` title → success/error banners → compose card `div.bg-white.rounded-lg.shadow.p-6.mb-6`.
 
+**Visual hierarchy / focal point:**
+- **Compose page:** the resolved live preview (aufgelöste Platzhalter) is the **primary focal point** — it is
+  the artifact the user reviews before committing (D-05: the preview IS the confirmation). The **"E-Mail
+  senden" button** is the **secondary anchor** (sole blue accent, bottom of the compose card), and the
+  prominent "zuletzt gesendet" line sits directly above/beside it as the anti-double-send cue.
+- **`application_detail` additions:** the **"✉ E-Mail senden" button** is the primary anchor of the new
+  block (sole blue accent); the "zuletzt gesendet" summary is its secondary supporting line, and the
+  communication timeline reads as a calm tertiary section below.
+
 ---
 
 ## Spacing Scale
 
-Tailwind default 4px scale, as used throughout the existing frontend. Declared values (all multiples of 4):
+**Target contract: the standard spacing set only — {4, 8, 16, 24, 32, 48, 64}px.** Every value this phase's
+NEW markup declares is drawn from that set (all multiples of 4):
 
 | Token | Value | Tailwind | Usage in this phase |
 |-------|-------|----------|---------------------|
-| xs | 4px | `gap-1` `mt-1` | Icon/label gaps, chip internal gap |
+| xs | 4px | `gap-1` `mt-1` `py-1` | Icon/label gaps, chip internal gap, status-badge vertical padding |
 | sm | 8px | `gap-2` `py-2` `mb-2` `space-x-2` | Compact element spacing, button vertical padding |
-| md | 12px | `px-3` `px-4` | Horizontal cell/button padding (table cells `px-4 py-3`) |
-| md+ | 16px | `p-4` `mb-4` `space-y-4` `px-4` | Default element/section spacing, form field stack |
+| md | 16px | `p-4` `mb-4` `space-y-4` `px-4` | Default element/section spacing, form field stack, cell/button horizontal padding |
 | lg | 24px | `p-6` `mb-6` | Card interior padding, section breaks |
 | xl | 32px | `p-8` | Modal interior padding (`Modal` component) |
 
-Exceptions:
-- `py-0.5` (2px) — vertical padding **inside status badges only** (`px-2 py-0.5`), an established micro-token from `communication_timeline.rs` / status-badge components. Not a general-purpose value.
-- `px-3` (12px) and `px-4` (16px) are the two horizontal paddings; both are multiples of 4. No 8-point-only restriction is imposed because the whole app already uses the Tailwind 4px scale — matching it is mandatory for visual consistency.
+Status badges in this phase's new markup use **`py-1` (4px)** vertical padding — a standard-set value that
+needs no code exception.
+
+### Inherited pre-existing drift (out of this phase's remit)
+
+These non-standard values live in reused, un-forked components; this phase inherits them verbatim but does NOT
+introduce, expand, or re-declare them as first-class tokens:
+- **`py-0.5` (2px)** — vertical padding inside the existing status badges of `communication_timeline.rs`,
+  reused unchanged. This phase's own badge markup uses `py-1` (4px, above); the 2px value only appears where
+  the pre-existing timeline component renders it.
+- **`px-3` (12px)** — horizontal cell/button padding inside reused table/button components (e.g. existing
+  `px-4 py-3` table cells). Not in the standard set; not introduced by this phase. New markup uses `px-4`
+  (16px). The 12px value is pre-existing codebase drift out of this phase's remit.
 
 ---
 
 ## Typography
 
-Extracted from the established scale used on the compose/detail surfaces. The app legitimately uses three
-weights (`font-medium` 500, `font-semibold` 600, `font-bold` 700); documenting fewer would misdescribe the
-system this phase must match.
+**Target contract: 4 sizes, 2 weights.** This phase's NEW surfaces (Compose page, the `application_detail`
+additions) declare exactly four sizes — **30 / 20 / 14 / 12** — and two weights: **`font-bold` (700)** for the
+display title and primary CTAs, **`font-medium` (500)** for everything else (labels, headings, meta emphasis).
 
 | Role | Size | Weight | Line Height | Tailwind |
 |------|------|--------|-------------|----------|
 | Display (page title) | 30px | 700 bold | ~1.2 (Tailwind default for 3xl) | `text-3xl font-bold` |
-| Heading (card/section) | 20px | 600 semibold | ~1.4 | `text-xl font-semibold` |
-| Sub-heading (dialog/panel) | 18px | 600 semibold | ~1.4 | `text-lg font-semibold` |
+| Heading (card / section / dialog-panel) | 20px | 500 medium | ~1.4 | `text-xl font-medium` |
 | Label | 14px | 500 medium | 1.5 | `text-sm font-medium text-gray-700` |
-| Body / table cell | 14px | 400 regular | 1.5 | `text-sm` |
-| Meta / caption | 12px | 400–500 | 1.4 | `text-xs` (timeline date, status badges, hints `text-xs text-gray-500`) |
+| Body / table cell | 14px | 500 medium | 1.5 | `text-sm` |
+| Meta / caption | 12px | 500 medium | 1.4 | `text-xs` (timeline date, status badges, hints `text-xs text-gray-500`) |
 
-Body copy default: **14px (`text-sm`) at weight 400, line-height 1.5.** Rendered mail body in the detail
+Note: the former "Heading" (20px) and "Sub-heading" (18px) roles are merged into a single 20px heading role
+(`text-lg`/18px is NOT introduced by this phase) so the declared size scale stays at four.
+
+Body copy default: **14px (`text-sm`) at weight 500, line-height 1.5.** Rendered mail body in the detail
 panel uses `text-sm whitespace-pre-wrap` inside a scroll container (see UI Considerations → long-text).
+
+### Inherited pre-existing drift (out of this phase's remit)
+
+The reused, un-forked components carry weight/size values this phase does NOT introduce, expand, or restyle —
+they are pre-existing codebase drift inherited verbatim from `component/*`:
+- **`font-semibold` (600)** on some existing headings and **`font-normal`/regular (400)** as the browser
+  default inside reused inputs, timeline rows, and the `Modal` chrome. Where this phase writes new markup it
+  uses only 700/500; it does not remove or re-declare 600/400 inside components it reuses unchanged.
+- The contract TARGET remains **2 weights / 4 sizes**. Any 600 or 400 that appears at runtime originates in
+  reused components, not in this phase's own additions.
 
 ---
 
