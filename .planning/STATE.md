@@ -16,10 +16,10 @@ progress:
   completed_plans: 5
 ---
 
-# State: Genossi — v1.6 Antragsteller-Kommunikation (Phase 30 geplant — 3 Pläne, bereit für Execute)
+# State: Genossi — v1.6 Antragsteller-Kommunikation (Phase 30 abgeschlossen — 4/4 verifiziert; Phase 31 bereit für Discuss/Plan)
 
 **Initialized:** 2026-05-02
-**Last Updated:** 2026-08-12 (Milestone v1.6 gestartet — E-Mail an Antragsteller, Vorlagen, Kommunikations-Historie; v1.5 getestet & deployed)
+**Last Updated:** 2026-08-20 (Phase 30 abgeschlossen — Application-Template-Kontext, `format_eur_de`, „Zahlungserinnerung"-Seed; Verifikation 4/4, e2e 319/319)
 
 ## Project Reference
 
@@ -27,7 +27,7 @@ See: `.planning/PROJECT.md` (updated 2026-08-12 mit v1.6 Current Milestone)
 
 **Core Value:** Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachvollziehbar (Audit-Hashchain), mit weniger manueller Arbeit.
 
-**Current Focus:** Phase 30 — application-template-kontext-antragsteller-vorlagen
+**Current Focus:** Phase 31 — service-+-rest-versand-(versand-+-guardrails)
 
 ## Current Position
 
