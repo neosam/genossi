@@ -4,11 +4,11 @@ milestone: v1.6
 milestone_name: Antragsteller-Kommunikation
 current_phase: 32
 current_phase_name: Frontend Compose-Dialog
-status: planning
-stopped_at: Phase 32 context gathered
-last_updated: "2026-08-20T21:28:34.952Z"
-last_activity: 2026-08-20
-last_activity_desc: Phase 31 complete, transitioned to Phase 32
+status: executing
+stopped_at: Phase 32 UI-SPEC approved
+last_updated: "2026-08-21T00:00:00.000Z"
+last_activity: 2026-08-21
+last_activity_desc: Phase 32 geplant — 4 Pläne (3 Waves), plan-checker passed
 progress:
   total_phases: 4
   completed_phases: 3
@@ -27,14 +27,14 @@ See: `.planning/PROJECT.md` (updated 2026-08-12 mit v1.6 Current Milestone)
 
 **Core Value:** Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachvollziehbar (Audit-Hashchain), mit weniger manueller Arbeit.
 
-**Current Focus:** Phase 31 — Versand + Guardrails
+**Current Focus:** Phase 32 — Frontend Compose-Dialog (geplant, bereit zur Ausführung)
 
 ## Current Position
 
 Phase: 32 — Frontend Compose-Dialog
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-08-20 — Phase 31 complete, transitioned to Phase 32
+Plan: 4 Pläne (3 Waves), plan-checker passed
+Status: Ready to execute
+Last activity: 2026-08-21 — Phase 32 geplant (Research + Pattern-Map + Plan + Verify)
 
 ### v1.6 Phase Structure (Phases 29-32, granularity: coarse)
 
@@ -533,7 +533,7 @@ Details siehe `.planning/milestones/v1.0-MILESTONE-AUDIT.md` und `.planning/MILE
 
 ## Session Continuity
 
-**Last session:** 2026-08-20T21:28:34.931Z
+**Last session:** 2026-08-20T21:37:21.934Z
 
 **Last action (2026-07-02, Phase 24 Plan 04 — Wave 4, e2e Tests + UAT):** Plan `24-04-PLAN.md` ausgeführt — 2 neue #[tokio::test] am Ende von `genossi_bin/tests/e2e_tests.rs` pinnen Plan 24-01 Backend-Seams: (1) `preview_body_html_round_trips_to_response` POSTet `/api/mail/preview` mit `body_html: "<p>Hallo <b>{{ first_name }}</b></p>"` gegen einen Member mit first_name="Max", assertet dass Response body_html `<b>Max</b>` enthält (autoescape env round-trip + member-variable interpolation in einem Test), und dass ein zweiter POST ohne body_html-Key keine body_html-Response im JSON emitted (skip_serializing_if backward-compat proof); (2) `inbox_reply_body_html_sanitized_and_persisted` seedet 2 InboundMails via `seed_inbound_mail`, POSTet `/api/inbox/{id}/reply` einmal mit `body_html: "<script>alert(1)</script><p>Reply <b>ok</b></p>"` und assertet auf dem persisted MailJob dass `<script>` gestrippt + `<p>`/`<b>ok</b>` preserved sind (ammonia-Gate am store boundary), und ein zweites Mal ohne body_html-Key mit MailJob.body_html.is_none() Assertion. Task 3 erstellt `.planning/phases/24-wysiwyg-frontend-editor/24-UAT-CHECKLIST.md` mit 12 nummerierten Checkbox-Verifikations-Steps über alle 3 Compose-Flows (Massenmail, Inbox-Reply, Mail-Template Editor), Setup-Sektion (backend cargo run --features mock_auth + dx serve + tailwindcss watch), 3 explizit als ⚠️ HARD FAIL GATES markierten Steps (3 styleWithCSS=false Bold produziert `<b>` nicht `<span style>`, 4 paste-from-Word yields plain-text only, 5 Link-Toolbar öffnet in-app Modal statt window.prompt), Known Limitations (execCommand deprecation, TemplateVarButtons signal-sync 1-render lag, TemplateSelector clears body_html, initial-body-with-footer paths leave body_html empty), Regression Check Commands, und Sign-off Block. Task 4 (checkpoint:human-verify) auto-mode-approved per Executor auto-approve-Directive; die browser-interactive UAT walkthrough deferred to Vorstand smoke-test session vor merge, aber der automated regression portion des Checkpoints ran: `cargo test --workspace --exclude genossi-frontend` → 305 pass, 1 fail (pre-existing Phase 22 `test_mail_preview_repayment_no_entries_does_not_default_to_one` per STATE.md dokumentiert, NICHT Phase 24), `cargo build` clean. Eine Deviation Rule-3 (Blocking): `.as_ref()` ambiguity auf `String` → dropped, `assert_eq!` compared direkt gegen &str (PartialEq<&str> for String handled it). Alle 3 code-Commits via `jj describe` (test, test, docs) — atomic mit inline decision-notes: `cfa37941cb24` (Task 1 test), `36defe925031` (Task 2 test), `db9d879c36d6` (Task 3 docs). EDIT-01, EDIT-02, EDIT-03, EDIT-04, EDIT-05 alle als Phase 24 komplett markiert. Nächster Schritt: Phase 25 (Application Upload + Audited Carryover) oder Vorstand-Smoke-Test der 24-UAT-CHECKLIST.
 
@@ -659,8 +659,8 @@ Details siehe `.planning/milestones/v1.0-MILESTONE-AUDIT.md` und `.planning/MILE
 
 **Last action (2026-05-29, Phase 07 Plan 02):** Plan `07-02-PLAN.md` ausgeführt — `RepaymentPhaseDaoImpl` (SQLite-Impl des Plan-01-Traits) angelegt mit `RepaymentPhaseDb`-Row, `TryFrom` mit guarded i32-Cast (T-07-02-05), `dump_all`/`create`/`update` inkl. Pre-Exists-Check + Optimistic-Locking via `rows_affected == 0 → ConflictError("Version mismatch")`. ORDER BY ist `fiscal_year DESC, created DESC` (Phase-7-spezifisch). `parse_datetime` via `use crate::assembly::parse_datetime` reused (kein Duplikat). 4 grüne Tokio-Integrationstests gegen in-memory SQLite. Modul-Decl in `genossi_dao_impl_sqlite/src/lib.rs` alphabetisch eingefügt. Commit `6f6bf0f` (feat: 367 LOC added).
 
-**Stopped At:** Phase 32 context gathered
-**Resume File:** .planning/phases/32-frontend-compose-dialog/32-CONTEXT.md
+**Stopped At:** Phase 32 UI-SPEC approved
+**Resume File:** .planning/phases/32-frontend-compose-dialog/32-UI-SPEC.md
 **Resume File:** None
 
 **Last action (2026-06-01, Phase 11 Plan 06):** Plan `11-06-PLAN.md` ausgeführt — 8 E2E-Tests + 1 Helper-Funktion in `genossi_bin/tests/e2e_tests.rs` (+554 LOC) gegen real-running Server mit In-Memory-SQLite hinzugefügt: (1) `test_export_repayment_pdf_open_happy_path` mit Umlaut-Member `Hans Müller` (REVISION-Fix W6 D-05-E2E-Beweis), (2) `test_export_repayment_pdf_closed_phase_returns_200` (EXPO-01 + D-10), (3) `test_export_repayment_unknown_format_returns_400` mit 4 Negative-Formaten csv/xlsx/json/html (D-12 + Pitfall #3), (4) `test_export_repayment_preparation_phase_returns_409` (D-10 Status-Gate), (5) `test_export_repayment_unknown_phase_id_returns_404`, (6) `test_export_repayment_does_not_break_audit_chain` (EXPO-05 + D-11 + REVISION-Fix W7), (7) `test_export_repayment_include_filter_smoke_all_three_variants` Smoke-Test für open/all/paid mit Filename-Assertion (REVISION-Fix W1/W4), (8) `test_export_repayment_empty_iban_renders_empty_column` (D-06 mit Helper). REVISION-Fix W4 (Filename-Schema-Assertion in 5 PDF-Tests), REVISION-Fix W6 (Umlaut-Hans-Müller), REVISION-Fix W7 (Audit-Chain auf valid:true reduziert), REVISION-Fix B2 (KEIN E2E-403-Test — mock_auth-Middleware injiziert immer admin; Pitfall #2 ist durch Plan 11.03 Service-Layer-Mock vollständig abgedeckt). Alle 8 Tests grün on first run (Regression-Lock-In-Pattern aus Plan 08.10); 292 E2E-Tests pass insgesamt (vorher 284, +8, 0 Regression). Plan-11.03-Grep-Gate (`no_audit_macros_used`) und Pitfall-#2-Mock-Test bleiben grün. Eine Deviation (Rule 3): rustfmt-Drift in Plan-Snippets via Nix-Store-rustfmt automatisch korrigiert (Memory-Lektion "Nix-Toolchain nicht sofort aufgeben"). 2 Task-Commits: `67f6957` (test Task 1: 6 Tests + Helper), `33f7e16` (test Task 2: 2 weitere Tests). Phase 11 komplett (6/6 plans). Nächster Schritt: `/gsd-verify-phase 11` oder direkt `/gsd-discuss-phase 12` für das Frontend.

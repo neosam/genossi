@@ -310,10 +310,19 @@ Plans:
   5. Der Senden-Button ist während eines laufenden Requests deaktiviert (kein Doppelversand), und die Dioxus-`form onsubmit`-Reload-Falle wird via `div`+`onclick`+`r#type:"button"` vermieden.
 
 **Plans:** 4 plans
+**Wave 1**
+
 - [ ] 32-01-PLAN.md — D-06 Backend-Kette + Wire-Typ (rendered_body/rendered_html_body in beide rest-types-Crates) [Wave 1]
 - [ ] 32-02-PLAN.md — Dedizierte api.rs-Funktionen + template_type-Filter + last-sent-Helfer + i18n-Keys [Wave 1]
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 32-03-PLAN.md — Compose-Vollseite (ApplicationCompose) + Route + TemplateSelector-Filter/Preselect [Wave 2]
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 32-04-PLAN.md — application_detail Button + last-sent + Timeline-Abschnitt + Body-Panel (on_entry_click) [Wave 3]
+
 **UI hint:** yes
 
 ## Progress
