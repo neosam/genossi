@@ -12,7 +12,7 @@
 ### Versand (APMAIL)
 
 - [x] **APMAIL-01**: Vorstand kann einer Beitrittserklärung (Application) mit Status `Offen` eine einzelne E-Mail senden — Empfänger = `application.email`, `RecipientInput` mit `member_id: None` + gesetztem `application_id`; via `POST /api/applications/{id}/mail`, nur für Vorstand (`admin`-Rolle).
-- [ ] **APMAIL-02**: Der Versand gibt echten Erfolg/Fehler zurück (`Result<_, ServiceError>`) — keine stille `200-OK-ohne-Versand`-Falle wie beim bestehenden `send_confirmation_mail`; Fehler (kein SMTP, fehlende Config) werden dem Vorstand sichtbar gemeldet.
+- [x] **APMAIL-02**: Der Versand gibt echten Erfolg/Fehler zurück (`Result<_, ServiceError>`) — keine stille `200-OK-ohne-Versand`-Falle wie beim bestehenden `send_confirmation_mail`; Fehler (kein SMTP, fehlende Config) werden dem Vorstand sichtbar gemeldet.
 - [ ] **APMAIL-03**: Fehlende E-Mail-Adresse wird sauber behandelt — der „E-Mail senden"-Button ist deaktiviert/annotiert, nie ein stiller Fehlversuch.
 - [ ] **APMAIL-04**: Vorstand sieht vor dem Absenden eine Vorschau mit aufgelösten Platzhaltern und bestätigt den Versand bewusst (confirm-before-send).
 
@@ -26,13 +26,13 @@
 ### Kommunikations-Historie (APHIST)
 
 - [x] **APHIST-01**: Alle an eine Application gesendeten Mails werden in einer Kommunikations-Historie pro Antragsteller erfasst — über `application_id`-Linkage an `mail_recipients`/Communication-Entry, kein `member_id`-Overload; Endpoint `GET /api/applications/{id}/communications`.
-- [ ] **APHIST-02**: Der Vorstand sieht auf der Application-Detailseite prominent „zuletzt gesendet am …" — der zentrale Anti-Doppelversand-/Spam-Guard.
+- [x] **APHIST-02**: Der Vorstand sieht auf der Application-Detailseite prominent „zuletzt gesendet am …" — der zentrale Anti-Doppelversand-/Spam-Guard.
 - [x] **APHIST-03**: Nach Bestätigung (`confirm` → Mitglied) erscheint die als Antragsteller gesendete Erinnerungs-Kommunikation **in der Mitglieds-Timeline** des neuen Mitglieds (Carry-over, Entscheid D2). *(Mechanismus — Back-fill `member_id` beim Bestätigen / Union-at-read / Link-Spalte — wird in Phase 1 Planung entschieden; verifiziert per e2e: Erinnerung → confirm → sichtbar in Member-Timeline.)*
 
 ### Compliance / Guardrails (APCMP)
 
-- [ ] **APCMP-01**: Versand ist nur bei Status `Offen` möglich (sonst HTTP 409, analog `confirm`/`reject`) — deckt zugleich die DSGVO-Rechtsgrundlage (transaktional, bezogen auf die eigene Beitrittserklärung) und verhindert Mails an abgelehnte oder bereits bestätigte (jetzt Mitglied) Antragsteller.
-- [ ] **APCMP-02**: Der Inhalt ist auf die eigene Beitrittserklärung/Zahlung bezogen — kein Massenversand, keine Newsletter/Marketing-Inhalte, kein Open-/Click-Tracking.
+- [x] **APCMP-01**: Versand ist nur bei Status `Offen` möglich (sonst HTTP 409, analog `confirm`/`reject`) — deckt zugleich die DSGVO-Rechtsgrundlage (transaktional, bezogen auf die eigene Beitrittserklärung) und verhindert Mails an abgelehnte oder bereits bestätigte (jetzt Mitglied) Antragsteller.
+- [x] **APCMP-02**: Der Inhalt ist auf die eigene Beitrittserklärung/Zahlung bezogen — kein Massenversand, keine Newsletter/Marketing-Inhalte, kein Open-/Click-Tracking.
 
 ### Frontend Dialog (APUI)
 
@@ -83,10 +83,10 @@ Phase-Mapping aus `.planning/ROADMAP.md` (v1.6 Phases 29-32, fortlaufende Nummer
 | APTPL-03 | Phase 30 | Application-Template-Kontext (Antragsteller-Vorlagen) | Complete |
 | APTPL-04 | Phase 30 | Application-Template-Kontext (Antragsteller-Vorlagen) | Complete |
 | APMAIL-01 | Phase 31 | Service + REST Versand (Versand + Guardrails) | Complete |
-| APMAIL-02 | Phase 31 | Service + REST Versand (Versand + Guardrails) | Pending |
-| APCMP-01 | Phase 31 | Service + REST Versand (Versand + Guardrails) | Pending |
-| APCMP-02 | Phase 31 | Service + REST Versand (Versand + Guardrails) | Pending |
-| APHIST-02 | Phase 31 | Service + REST Versand (Versand + Guardrails) | Pending |
+| APMAIL-02 | Phase 31 | Service + REST Versand (Versand + Guardrails) | Complete |
+| APCMP-01 | Phase 31 | Service + REST Versand (Versand + Guardrails) | Complete |
+| APCMP-02 | Phase 31 | Service + REST Versand (Versand + Guardrails) | Complete |
+| APHIST-02 | Phase 31 | Service + REST Versand (Versand + Guardrails) | Complete |
 | APMAIL-03 | Phase 32 | Frontend Compose-Dialog | Pending |
 | APMAIL-04 | Phase 32 | Frontend Compose-Dialog | Pending |
 | APUI-01 | Phase 32 | Frontend Compose-Dialog | Pending |

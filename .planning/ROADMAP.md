@@ -279,7 +279,7 @@ Plans:
   4. Der Service liefert pro Application die „zuletzt gesendet am …"-Information (aus der outbound-Historie), damit der Anti-Doppelversand-/Spam-Guard auf der Detailseite angezeigt werden kann.
   5. Es gibt keinen Massenversand- und keinen Freitext-Empfänger-Pfad; Empfänger ist immer die Application selbst (Content-Scoping), kein Open-/Click-Tracking — verifiziert per Service-/E2E-Tests.
 
-**Plans:** 1/3 plans executed
+**Plans:** 2/3 plans executed
 
 Plans:
 **Wave 1**
@@ -288,7 +288,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1)*
 
-- [ ] 31-02-PLAN.md — Service: `send_mail` (CR-02, echtes `Result`, single-recipient) + `preview_mail` (geteilter Kernel, D-06) + `last_sent_at` (MAX über `get_application_communications`) + Service-Unit-Tests (APMAIL-01/02, APCMP-01/02, APHIST-02)
+- [x] 31-02-PLAN.md — Service: `send_mail` (CR-02, echtes `Result`, single-recipient) + `preview_mail` (geteilter Kernel, D-06) + `last_sent_at` (MAX über `get_application_communications`) + Service-Unit-Tests (APMAIL-01/02, APCMP-01/02, APHIST-02)
 
 **Wave 3** *(blocked on Wave 2)*
 
@@ -346,7 +346,7 @@ Plans:
 | 28. Desktop/Mobile-Vorschau                        | v1.5      | 4/5 | In Progress|  |
 | 29. DAO/Schema-Foundation (Antragsteller-Historie) | v1.6      | 2/2 | Complete    | 2026-08-12 |
 | 30. Application-Template-Kontext                   | v1.6      | 3/3 | Complete    | 2026-08-20 |
-| 31. Service + REST Versand                         | v1.6      | 1/3 | In Progress|  |
+| 31. Service + REST Versand                         | v1.6      | 2/3 | In Progress|  |
 | 32. Frontend Compose-Dialog                        | v1.6      | 0/0 | Not started |  |
 
 ---
