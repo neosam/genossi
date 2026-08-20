@@ -1,7 +1,7 @@
 ---
 phase: 32
 slug: frontend-compose-dialog
-status: draft
+status: approved
 shadcn_initialized: false
 preset: none
 created: 2026-08-20
