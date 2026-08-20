@@ -46,6 +46,8 @@ Genossenschaften verwalten ihre Mitglieder ohne Excel — verbandskonform, nachv
 - Carry-forward: CR-02 Permission-Check-Ordering (`gen_auth_admin!`-Helper), Phase-18 UX-Polish, Mail-Subsystem-Triage, deferred Quick-Tasks
 - Housekeeping-Job für verwaiste Application-Files
 
+**Fortschritt v1.6:** Phasen 29–31 abgeschlossen — 29 (Schema/Linkage `application_id`), 30 (Application-Template-Kontext + `format_eur_de`), 31 (Service + REST Versand: `ApplicationService::send_mail`/`preview_mail`/`last_sent_at`, `POST /api/applications/{id}/mail` + `/mail/preview` + `GET /communications`, admin-only, `Offen`-only-409-Guard, fester Empfänger; Verifikation 9/9, E2E 326/326). **Offen:** Phase 32 (Frontend Compose-Dialog). Code-Review Phase 31: 1 Critical (CR-01 Preview-`body_html` nicht sanitisiert — byte-identical-Zusage vs. Send verletzt; relevant für Phase-32-Preview-Rendering) + 4 Warnings, advisory, siehe `31-REVIEW.md`.
+
 ## Requirements
 
 ### Validated
@@ -331,4 +333,4 @@ bestehende admin-only Listing-Route `GET /api/assembly/{id}/helper-tokens`).
 
 ---
 
-*Last updated: 2026-08-12 — Milestone v1.6 (Antragsteller-Kommunikation) gestartet via `/gsd-new-milestone`: E-Mail an Antragsteller mit abgegebener Beitrittserklärung (Zahlungserinnerungen), wiederverwendbare Vorlagen mit Application-Kontext, Kommunikations-Historie pro Antragsteller (auch ohne Mitglied), Compose-Dialog auf der Application-Detailseite. Research → Requirements → Roadmap folgen. Vorheriger Stand: v1.5 (Editor-Vervollständigung, Bild-Support & Vorschau) getestet und produktiv deployed.*
+*Last updated: 2026-08-20 — Phase 31 (Service + REST Versand + Guardrails) abgeschlossen: `ApplicationService::send_mail`/`preview_mail`/`last_sent_at` + drei admin-gegatete Routen, `Offen`-only-409-Guard, fester Empfänger; Verifikation 9/9, E2E 326/326 grün; Code-Review advisory (1 Critical CR-01 dokumentiert). v1.6 Phasen 29–31 fertig, Phase 32 (Frontend Compose-Dialog) offen. Vorheriger Stand: v1.5 (Editor-Vervollständigung, Bild-Support & Vorschau) getestet und produktiv deployed.*
