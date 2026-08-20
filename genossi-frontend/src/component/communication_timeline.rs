@@ -5,7 +5,15 @@ use crate::i18n::{use_i18n, Key};
 use crate::router::Route;
 
 #[component]
-pub fn CommunicationTimeline(entries: Vec<CommunicationEntryTO>) -> Element {
+pub fn CommunicationTimeline(
+    entries: Vec<CommunicationEntryTO>,
+    /// Optional, additiver Klick-Handler (D-06). Wenn gesetzt, wird die
+    /// Betreff-Zelle als klickbares `span` (statt hartem `Link`) gerendert und
+    /// ruft den Handler mit dem geklickten Eintrag auf. Ohne Handler bleibt der
+    /// bestehende `Link`-Pfad exakt erhalten (Member-Nutzung unveraendert).
+    #[props(default)]
+    on_entry_click: Option<EventHandler<CommunicationEntryTO>>,
+) -> Element {
     let i18n = use_i18n();
 
     if entries.is_empty() {
@@ -34,14 +42,18 @@ pub fn CommunicationTimeline(entries: Vec<CommunicationEntryTO>) -> Element {
             }
             tbody { class: "bg-white divide-y divide-gray-200",
                 for entry in entries.iter() {
-                    {render_entry(&i18n, entry)}
+                    {render_entry(&i18n, entry, on_entry_click.as_ref())}
                 }
             }
         }
     }
 }
 
-fn render_entry(i18n: &crate::i18n::I18n, entry: &CommunicationEntryTO) -> Element {
+fn render_entry(
+    i18n: &crate::i18n::I18n,
+    entry: &CommunicationEntryTO,
+    on_entry_click: Option<&EventHandler<CommunicationEntryTO>>,
+) -> Element {
     let is_inbound = entry.direction == CommunicationDirection::Inbound;
     let direction_label = if is_inbound {
         i18n.t(Key::CommunicationInbound)
@@ -90,10 +102,24 @@ fn render_entry(i18n: &crate::i18n::I18n, entry: &CommunicationEntryTO) -> Eleme
                 }
             }
             td { class: "px-4 py-3 text-sm",
-                Link {
-                    to: link_route,
-                    class: "text-blue-600 hover:underline",
-                    "{subject}"
+                if let Some(handler) = on_entry_click {
+                    {
+                        let handler = *handler;
+                        let entry_owned = entry.clone();
+                        rsx! {
+                            span {
+                                class: "text-blue-600 hover:underline cursor-pointer",
+                                onclick: move |_| handler.call(entry_owned.clone()),
+                                "{subject}"
+                            }
+                        }
+                    }
+                } else {
+                    Link {
+                        to: link_route,
+                        class: "text-blue-600 hover:underline",
+                        "{subject}"
+                    }
                 }
             }
             td { class: "px-4 py-3 text-sm",
