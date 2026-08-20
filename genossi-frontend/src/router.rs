@@ -2,6 +2,7 @@ use dioxus::prelude::*;
 
 pub use crate::page::inbox_page::InboxDetail;
 pub use crate::page::mail_page::MailJobDetail;
+pub use crate::page::ApplicationCompose;
 pub use crate::page::ApplicationsPage;
 pub use crate::page::Assemblies;
 pub use crate::page::AssemblyDetails;
@@ -55,6 +56,11 @@ pub enum Route {
     Validation {},
     #[route("/templates")]
     Templates {},
+    // ── Phase 32 (APUI-01, D-01) ── dedizierte Application-Mail-Compose-Seite.
+    // Spezifische `/applications/:id/compose`-Route VOR der generischen
+    // `/applications`-Variante, damit sie nicht verschluckt wird.
+    #[route("/applications/:id/compose")]
+    ApplicationCompose { id: String },
     #[route("/applications")]
     ApplicationsPage {},
     #[route("/config")]
