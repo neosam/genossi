@@ -13,6 +13,22 @@ pub trait MemberResolver: Send + Sync + 'static {
     async fn find_member_by_id(&self, id: Uuid) -> Result<Option<MemberEntity>, MailServiceError>;
 }
 
+/// Phase 31 (APMAIL-01, D-04): loads an [`Application`] by id inside the render
+/// path — exact mirror of [`MemberResolver`]. The Application-Zweig in
+/// `resolve_rendered_content` calls this to build the applicant template
+/// context via [`application_to_template_context`]. `genossi_bin` supplies a
+/// `PoolApplicationResolver` backed by `ApplicationDao`.
+///
+/// [`Application`]: genossi_service::application::Application
+#[automock]
+#[async_trait]
+pub trait ApplicationResolver: Send + Sync + 'static {
+    async fn find_application_by_id(
+        &self,
+        id: Uuid,
+    ) -> Result<Option<genossi_service::application::Application>, MailServiceError>;
+}
+
 pub fn member_to_template_context(entity: &MemberEntity) -> Value {
     let salutation_str = entity.salutation.as_ref().map(|s| s.as_str().to_string());
     // FMT-01 (Phase 23, D-11): dates render as DD.MM.YYYY in both text AND html

@@ -19,13 +19,15 @@
 //!         - aggregate Err(other) → `Err(RenderFailure)`.
 //!     - render subject + body with the (possibly merged) context.
 
+use genossi_config::service::ConfigService;
 use genossi_service::repayment_context::RepaymentContextResolver;
 use genossi_service::ServiceError;
 
 use crate::dao::{MailJob, MailRecipient};
+use crate::service::MailServiceError;
 use crate::template::{
-    member_to_template_context, merge_repayment_context, render_html_template, render_template,
-    MemberResolver,
+    application_to_template_context, member_to_template_context, merge_repayment_context,
+    render_html_template, render_template, ApplicationResolver, MemberResolver,
 };
 
 /// Failure cause from `resolve_rendered_content`. The caller (worker) maps the
@@ -57,6 +59,151 @@ pub struct RenderedContent {
     pub body_html: Option<String>,
 }
 
+/// Phase 31 (APMAIL-01, D-04): the five resolved config values the applicant
+/// render path needs. These are the genossenschaft's OWN payment data (same
+/// source as `send_confirmation_mail`, D-05) — never read from the Application.
+/// `open_amount` is derived inside [`application_to_template_context`] from
+/// `share_value_cents × app.shares`.
+pub struct ApplicationMailConfig {
+    pub share_value_cents: i64,
+    pub bank_iban: String,
+    pub bank_name: String,
+    pub bank_bic: Option<String>,
+    pub genossenschaft_name: String,
+}
+
+/// Phase 31 (APMAIL-01, D-04): resolve the five config keys the applicant
+/// render path needs. The config chain mirrors
+/// `genossi_service_impl/src/application.rs::send_confirmation_mail`, BUT every
+/// error is propagated as a real `MailServiceError` (no `tracing::error!+return`
+/// swallow) — a missing config must fail the render so the recipient is marked
+/// failed, never silently mis-rendered.
+///
+/// `bank_bic` is genuinely optional (`.get(...).await.ok()`); the other four
+/// keys are required. `share_value_cents` must parse as `i64`.
+pub async fn load_application_mail_config<CS: ConfigService>(
+    config: &CS,
+) -> Result<ApplicationMailConfig, MailServiceError> {
+    let share_value_cents = config
+        .get("share_value_cents")
+        .await
+        .map_err(|e| {
+            MailServiceError::ConfigMissing(std::sync::Arc::from(format!(
+                "share_value_cents: {:?}",
+                e
+            )))
+        })?
+        .value
+        .parse::<i64>()
+        .map_err(|e| {
+            MailServiceError::BadRequest(std::sync::Arc::from(format!(
+                "share_value_cents parse error: {}",
+                e
+            )))
+        })?;
+
+    let bank_iban = config
+        .get("bank_iban")
+        .await
+        .map_err(|e| {
+            MailServiceError::ConfigMissing(std::sync::Arc::from(format!("bank_iban: {:?}", e)))
+        })?
+        .value
+        .to_string();
+
+    let bank_name = config
+        .get("bank_name")
+        .await
+        .map_err(|e| {
+            MailServiceError::ConfigMissing(std::sync::Arc::from(format!("bank_name: {:?}", e)))
+        })?
+        .value
+        .to_string();
+
+    let bank_bic = config
+        .get("bank_bic")
+        .await
+        .ok()
+        .map(|e| e.value.to_string());
+
+    let genossenschaft_name = config
+        .get("genossenschaft_name")
+        .await
+        .map_err(|e| {
+            MailServiceError::ConfigMissing(std::sync::Arc::from(format!(
+                "genossenschaft_name: {:?}",
+                e
+            )))
+        })?
+        .value
+        .to_string();
+
+    Ok(ApplicationMailConfig {
+        share_value_cents,
+        bank_iban,
+        bank_name,
+        bank_bic,
+        genossenschaft_name,
+    })
+}
+
+/// Phase 31 (APMAIL-01, D-06): the ONE shared, pure applicant render kernel —
+/// consumed by BOTH the mail worker (via `resolve_rendered_content`) AND the
+/// service-layer preview (Plan 31-02). No async, no `config.get` — the caller
+/// resolves the config once and hands it in via [`ApplicationMailConfig`].
+///
+/// Builds the context via [`application_to_template_context`], renders
+/// `subject`/`body` through the strict text env and `body_html` (when `Some`)
+/// through the autoescaping HTML env. Consistent with the member path, a
+/// present `body_html` derives the plain `body` from the rendered HTML via
+/// [`plain_from_html`]. `body_html` is NOT re-sanitized (D-05) — ammonia
+/// already ran at the `create_job` store boundary.
+pub fn render_application_content(
+    app: &genossi_service::application::Application,
+    subject: &str,
+    body: &str,
+    body_html: Option<&str>,
+    cfg: &ApplicationMailConfig,
+) -> Result<RenderedContent, RenderFailure> {
+    let ctx = application_to_template_context(
+        app,
+        cfg.share_value_cents,
+        &cfg.bank_iban,
+        &cfg.bank_name,
+        cfg.bank_bic.as_deref(),
+        &cfg.genossenschaft_name,
+    );
+
+    let subject = render_template(subject, &ctx).map_err(|e| {
+        RenderFailure::new(format!("Template render error (subject): {}", e.message))
+    })?;
+    let body_rendered = render_template(body, &ctx)
+        .map_err(|e| RenderFailure::new(format!("Template render error (body): {}", e.message)))?;
+
+    let body_html = match body_html {
+        Some(html_src) => Some(
+            render_html_template(html_src, &ctx)
+                .map_err(|e| RenderFailure::new(format!("HTML render error: {}", e.message)))?,
+        ),
+        None => None,
+    };
+
+    // Consistent with the member path (Quick 260718): when we have an HTML body,
+    // derive the plain-text alternative from the rendered HTML so text-only
+    // recipients see structured content. body_html=None ⇒ frontend-supplied
+    // plain body unchanged.
+    let body = match body_html.as_deref() {
+        Some(html) => plain_from_html(html),
+        None => body_rendered,
+    };
+
+    Ok(RenderedContent {
+        subject,
+        body,
+        body_html,
+    })
+}
+
 /// Render the subject + body + optional HTML body a single recipient should
 /// receive.
 ///
@@ -66,7 +213,7 @@ pub struct RenderedContent {
 /// Returns `Err(RenderFailure)` on member-resolution / repayment-aggregation /
 /// template-render errors.
 #[allow(clippy::too_many_arguments)]
-pub async fn resolve_rendered_content<M, RE, RP, TX, RCR>(
+pub async fn resolve_rendered_content<M, RE, RP, TX, RCR, AR, CS>(
     recipient: &MailRecipient,
     job: &MailJob,
     member_resolver: &M,
@@ -74,6 +221,8 @@ pub async fn resolve_rendered_content<M, RE, RP, TX, RCR>(
     repayment_phase_dao: &RP,
     transaction_dao: &TX,
     repayment_context_resolver: &RCR,
+    application_resolver: &AR,
+    config_service: &CS,
 ) -> Result<RenderedContent, RenderFailure>
 where
     M: MemberResolver,
@@ -83,7 +232,46 @@ where
         + Sync,
     TX: genossi_dao::TransactionDao<Transaction = RE::Transaction> + Send + Sync,
     RCR: RepaymentContextResolver<Transaction = RE::Transaction> + Send + Sync,
+    AR: ApplicationResolver,
+    CS: ConfigService,
 {
+    // Phase 31 (APMAIL-01, D-04): Application-Zweig hat Vorrang — er liest
+    // AUSSCHLIESSLICH `recipient.application_id` (Pitfall 2: keine
+    // Namespace-Vermischung mit member_id). Wenn gesetzt, wird über die
+    // geteilte reine Kernfunktion `render_application_content` gerendert (D-06,
+    // shared mit der Preview in Plan 31-02).
+    if let Some(app_id) = recipient.application_id {
+        let app = match application_resolver.find_application_by_id(app_id).await {
+            Ok(Some(app)) => app,
+            Ok(None) => {
+                return Err(RenderFailure::new(format!(
+                    "Application {} not found for template rendering",
+                    app_id
+                )));
+            }
+            Err(e) => {
+                return Err(RenderFailure::new(format!(
+                    "Failed to load application for template rendering: {:?}",
+                    e
+                )));
+            }
+        };
+
+        let cfg = load_application_mail_config(config_service)
+            .await
+            .map_err(|e| {
+                RenderFailure::new(format!("Failed to load application mail config: {:?}", e))
+            })?;
+
+        return render_application_content(
+            &app,
+            &job.subject,
+            &job.body,
+            job.body_html.as_deref(),
+            &cfg,
+        );
+    }
+
     let Some(member_id) = recipient.member_id else {
         // No member_id — plain text passthrough (no template interpolation).
         // body_html stays None because we never render into an empty context
@@ -378,7 +566,9 @@ fn utf8_char_len(lead: u8) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::template::MockMemberResolver;
+    use crate::template::{MockApplicationResolver, MockMemberResolver};
+    use genossi_config::dao::ConfigEntry;
+    use genossi_config::service::{ConfigServiceError, MockConfigService};
     use genossi_dao::member::{MemberEntity, MemberStatus, Salutation};
     use genossi_dao::repayment_entry::{MockRepaymentEntryDao, RepaymentEntryEntity};
     use genossi_dao::repayment_phase::{MockRepaymentPhaseDao, RepaymentPhaseEntity};
@@ -501,7 +691,15 @@ mod tests {
         let rcr = MockRepaymentContextResolver::new();
 
         let rendered = resolve_rendered_content(
-            &recipient, &job, &resolver, &entry_dao, &phase_dao, &tx_dao, &rcr,
+            &recipient,
+            &job,
+            &resolver,
+            &entry_dao,
+            &phase_dao,
+            &tx_dao,
+            &rcr,
+            &MockApplicationResolver::new(),
+            &MockConfigService::new(),
         )
         .await
         .unwrap();
@@ -564,7 +762,15 @@ mod tests {
         });
 
         let rendered = resolve_rendered_content(
-            &recipient, &job, &resolver, &entry_dao, &phase_dao, &tx_dao, &rcr,
+            &recipient,
+            &job,
+            &resolver,
+            &entry_dao,
+            &phase_dao,
+            &tx_dao,
+            &rcr,
+            &MockApplicationResolver::new(),
+            &MockConfigService::new(),
         )
         .await
         .unwrap();
@@ -586,7 +792,15 @@ mod tests {
         let rcr = MockRepaymentContextResolver::new();
 
         let rendered = resolve_rendered_content(
-            &recipient, &job, &resolver, &entry_dao, &phase_dao, &tx_dao, &rcr,
+            &recipient,
+            &job,
+            &resolver,
+            &entry_dao,
+            &phase_dao,
+            &tx_dao,
+            &rcr,
+            &MockApplicationResolver::new(),
+            &MockConfigService::new(),
         )
         .await
         .unwrap();
@@ -613,7 +827,15 @@ mod tests {
         let rcr = MockRepaymentContextResolver::new();
 
         let result = resolve_rendered_content(
-            &recipient, &job, &resolver, &entry_dao, &phase_dao, &tx_dao, &rcr,
+            &recipient,
+            &job,
+            &resolver,
+            &entry_dao,
+            &phase_dao,
+            &tx_dao,
+            &rcr,
+            &MockApplicationResolver::new(),
+            &MockConfigService::new(),
         )
         .await;
 
@@ -645,7 +867,15 @@ mod tests {
         let rcr = MockRepaymentContextResolver::new();
 
         let rendered = resolve_rendered_content(
-            &recipient, &job, &resolver, &entry_dao, &phase_dao, &tx_dao, &rcr,
+            &recipient,
+            &job,
+            &resolver,
+            &entry_dao,
+            &phase_dao,
+            &tx_dao,
+            &rcr,
+            &MockApplicationResolver::new(),
+            &MockConfigService::new(),
         )
         .await
         .unwrap();
@@ -678,7 +908,15 @@ mod tests {
         let rcr = MockRepaymentContextResolver::new();
 
         let rendered = resolve_rendered_content(
-            &recipient, &job, &resolver, &entry_dao, &phase_dao, &tx_dao, &rcr,
+            &recipient,
+            &job,
+            &resolver,
+            &entry_dao,
+            &phase_dao,
+            &tx_dao,
+            &rcr,
+            &MockApplicationResolver::new(),
+            &MockConfigService::new(),
         )
         .await
         .unwrap();
@@ -869,5 +1107,226 @@ mod tests {
             plain.contains("Vorher") && plain.contains("Nachher"),
             "surrounding text must survive, got:\n{plain}"
         );
+    }
+
+    // ============================================================
+    // Phase 31 (APMAIL-01, D-04/D-06): Application-Zweig in
+    // resolve_rendered_content + render_application_content kernel.
+    // ============================================================
+
+    fn make_application(shares: i32) -> genossi_service::application::Application {
+        let date = time::Date::from_calendar_date(2026, time::Month::January, 15).unwrap();
+        let datetime = time::PrimitiveDateTime::new(date, time::Time::MIDNIGHT);
+        genossi_service::application::Application {
+            id: Uuid::new_v4(),
+            first_name: Arc::from("Max"),
+            last_name: Arc::from("Mustermann"),
+            salutation: Some(Salutation::Herr),
+            title: Some(Arc::from("Dr.")),
+            email: Some(Arc::from("max@example.com")),
+            street: Some(Arc::from("Musterstraße")),
+            house_number: Some(Arc::from("12")),
+            postal_code: Some(Arc::from("12345")),
+            city: Some(Arc::from("Berlin")),
+            shares,
+            status: genossi_dao::application::ApplicationStatus::Offen,
+            created: datetime,
+            deleted: None,
+            version: Uuid::new_v4(),
+        }
+    }
+
+    fn make_app_recipient(application_id: Uuid) -> MailRecipient {
+        let mut r = make_recipient(None);
+        r.application_id = Some(application_id);
+        r
+    }
+
+    /// Mock ConfigService that serves the five application-mail config keys with
+    /// the given share_value_cents. Missing keys → NotFound.
+    fn config_with_share_value(share_value_cents: i64) -> MockConfigService {
+        let mut config = MockConfigService::new();
+        config.expect_get().returning(move |key| {
+            let value: String = match key {
+                "share_value_cents" => share_value_cents.to_string(),
+                "bank_iban" => "DE89 3704 0044 0532 0130 00".to_string(),
+                "bank_name" => "Musterbank".to_string(),
+                "bank_bic" => "COBADEFFXXX".to_string(),
+                "genossenschaft_name" => "Muster eG".to_string(),
+                _ => return Err(ConfigServiceError::NotFound),
+            };
+            Ok(ConfigEntry {
+                key: Arc::from(key),
+                value: Arc::from(value.as_str()),
+                value_type: Arc::from("string"),
+            })
+        });
+        config
+    }
+
+    /// (a) application_id=Some, member_id=None, template "{{ open_amount }}" →
+    /// gerenderter Body enthält den format_eur_de-String für
+    /// shares × share_value_cents (Application-Kontext greift).
+    #[tokio::test]
+    async fn resolve_rendered_content_application_branch_renders_open_amount() {
+        let app = make_application(3);
+        let app_id = app.id;
+        let recipient = make_app_recipient(app_id);
+        let job = make_job(
+            "Zahlungserinnerung",
+            "Offener Betrag: {{ open_amount }}",
+            None,
+        );
+
+        let mut app_resolver = MockApplicationResolver::new();
+        app_resolver
+            .expect_find_application_by_id()
+            .returning(move |_| Ok(Some(app.clone())));
+
+        // member_resolver must NOT be consulted for an application recipient.
+        let member_resolver = MockMemberResolver::new();
+        let entry_dao = MockRepaymentEntryDao::new();
+        let phase_dao = MockRepaymentPhaseDao::new();
+        let tx_dao = MockTransactionDao::new();
+        let rcr = MockRepaymentContextResolver::new();
+        let config = config_with_share_value(10000);
+
+        let rendered = resolve_rendered_content(
+            &recipient,
+            &job,
+            &member_resolver,
+            &entry_dao,
+            &phase_dao,
+            &tx_dao,
+            &rcr,
+            &app_resolver,
+            &config,
+        )
+        .await
+        .unwrap();
+
+        // 3 × 10000 cents = 30000 cents → format_eur_de(30000).
+        let expected = genossi_service::euro::format_eur_de(30000);
+        assert_eq!(expected, "300,00 €");
+        assert_eq!(rendered.body, format!("Offener Betrag: {}", expected));
+        assert_eq!(rendered.subject, "Zahlungserinnerung");
+        assert!(rendered.body_html.is_none());
+    }
+
+    /// (b) fehlende Config (load_application_mail_config-Fehler) →
+    /// Err(RenderFailure). Die Application wird geladen, aber die Config fehlt.
+    #[tokio::test]
+    async fn resolve_rendered_content_application_branch_missing_config_errs() {
+        let app = make_application(2);
+        let app_id = app.id;
+        let recipient = make_app_recipient(app_id);
+        let job = make_job("Betreff", "{{ open_amount }}", None);
+
+        let mut app_resolver = MockApplicationResolver::new();
+        app_resolver
+            .expect_find_application_by_id()
+            .returning(move |_| Ok(Some(app.clone())));
+
+        let member_resolver = MockMemberResolver::new();
+        let entry_dao = MockRepaymentEntryDao::new();
+        let phase_dao = MockRepaymentPhaseDao::new();
+        let tx_dao = MockTransactionDao::new();
+        let rcr = MockRepaymentContextResolver::new();
+
+        // Config fully missing → load_application_mail_config returns Err.
+        let mut config = MockConfigService::new();
+        config
+            .expect_get()
+            .returning(|_| Err(ConfigServiceError::NotFound));
+
+        let result = resolve_rendered_content(
+            &recipient,
+            &job,
+            &member_resolver,
+            &entry_dao,
+            &phase_dao,
+            &tx_dao,
+            &rcr,
+            &app_resolver,
+            &config,
+        )
+        .await;
+
+        assert!(
+            result.is_err(),
+            "missing config must yield Err(RenderFailure)"
+        );
+    }
+
+    /// (c) Application-Zweig hat Vorrang, wenn nur application_id gesetzt ist —
+    /// member_resolver wird NICHT konsultiert (Pitfall 2: keine Namespace-
+    /// Vermischung). MockMemberResolver ohne Expectation panict bei Aufruf.
+    #[tokio::test]
+    async fn resolve_rendered_content_application_branch_takes_priority() {
+        let app = make_application(1);
+        let app_id = app.id;
+        // member_id explizit None — reiner Application-Recipient.
+        let recipient = make_app_recipient(app_id);
+        assert!(recipient.member_id.is_none());
+        let job = make_job("Hallo {{ first_name }}", "{{ open_amount }}", None);
+
+        let mut app_resolver = MockApplicationResolver::new();
+        app_resolver
+            .expect_find_application_by_id()
+            .times(1)
+            .returning(move |_| Ok(Some(app.clone())));
+
+        // Kein expect_find_member_by_id → wird der Member-Pfad fälschlich
+        // betreten, panict der Mock.
+        let member_resolver = MockMemberResolver::new();
+        let entry_dao = MockRepaymentEntryDao::new();
+        let phase_dao = MockRepaymentPhaseDao::new();
+        let tx_dao = MockTransactionDao::new();
+        let rcr = MockRepaymentContextResolver::new();
+        let config = config_with_share_value(5000);
+
+        let rendered = resolve_rendered_content(
+            &recipient,
+            &job,
+            &member_resolver,
+            &entry_dao,
+            &phase_dao,
+            &tx_dao,
+            &rcr,
+            &app_resolver,
+            &config,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(rendered.subject, "Hallo Max");
+        // 1 × 5000 cents → "50,00 €".
+        assert_eq!(rendered.body, genossi_service::euro::format_eur_de(5000));
+    }
+
+    /// render_application_content ist eine reine Funktion (kein async, kein
+    /// config.get) — deriviert bei body_html=Some den Plain-Body aus dem HTML.
+    #[test]
+    fn render_application_content_derives_plain_body_from_html() {
+        let app = make_application(2);
+        let cfg = ApplicationMailConfig {
+            share_value_cents: 10000,
+            bank_iban: "DE00".to_string(),
+            bank_name: "Bank".to_string(),
+            bank_bic: None,
+            genossenschaft_name: "EG".to_string(),
+        };
+        let rendered = render_application_content(
+            &app,
+            "Betreff {{ first_name }}",
+            "ignored plain",
+            Some("<p>Hallo {{ first_name }}</p>"),
+            &cfg,
+        )
+        .unwrap();
+        assert_eq!(rendered.subject, "Betreff Max");
+        assert_eq!(rendered.body_html.as_deref(), Some("<p>Hallo Max</p>"));
+        // body derived from rendered HTML, not the frontend-supplied "ignored plain".
+        assert_eq!(rendered.body, "Hallo Max");
     }
 }

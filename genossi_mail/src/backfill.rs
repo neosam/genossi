@@ -18,11 +18,12 @@ use uuid::Uuid;
 
 use crate::dao::{MailJobDao, MailRecipientDao};
 use crate::render::resolve_rendered_content;
-use crate::template::MemberResolver;
+use crate::template::{ApplicationResolver, MemberResolver};
+use genossi_config::service::ConfigService;
 use genossi_service::repayment_context::RepaymentContextResolver;
 
 #[allow(clippy::too_many_arguments)]
-pub async fn run_rendered_backfill<R, J, M, RE, RP, TX, RCR>(
+pub async fn run_rendered_backfill<R, J, M, RE, RP, TX, RCR, AR, CS>(
     recipient_dao: Arc<R>,
     job_dao: Arc<J>,
     member_resolver: Arc<M>,
@@ -30,6 +31,12 @@ pub async fn run_rendered_backfill<R, J, M, RE, RP, TX, RCR>(
     repayment_phase_dao: Arc<RP>,
     transaction_dao: Arc<TX>,
     repayment_context_resolver: Arc<RCR>,
+    // Phase 31 (APMAIL-01, D-04, Pitfall 4): the Application-Zweig is practically
+    // never active in the backfill (legacy rows are member-bound), but the two
+    // new resolve_rendered_content args must be threaded through so the shared
+    // render function keeps ONE signature at both call sites.
+    application_resolver: Arc<AR>,
+    config_service: Arc<CS>,
 ) where
     R: MailRecipientDao,
     J: MailJobDao,
@@ -40,6 +47,8 @@ pub async fn run_rendered_backfill<R, J, M, RE, RP, TX, RCR>(
         + Sync,
     TX: genossi_dao::TransactionDao<Transaction = RE::Transaction> + Send + Sync,
     RCR: RepaymentContextResolver<Transaction = RE::Transaction> + Send + Sync,
+    AR: ApplicationResolver,
+    CS: ConfigService,
 {
     let recipients = match recipient_dao.find_recipients_without_rendered().await {
         Ok(rs) => rs,
@@ -76,6 +85,8 @@ pub async fn run_rendered_backfill<R, J, M, RE, RP, TX, RCR>(
             repayment_phase_dao.as_ref(),
             transaction_dao.as_ref(),
             repayment_context_resolver.as_ref(),
+            application_resolver.as_ref(),
+            config_service.as_ref(),
         )
         .await
         {
@@ -124,7 +135,8 @@ pub async fn run_rendered_backfill<R, J, M, RE, RP, TX, RCR>(
 mod tests {
     use super::*;
     use crate::dao::{MailJob, MailRecipient, MockMailJobDao, MockMailRecipientDao};
-    use crate::template::MockMemberResolver;
+    use crate::template::{MockApplicationResolver, MockMemberResolver};
+    use genossi_config::service::MockConfigService;
     use genossi_dao::member::{MemberEntity, MemberStatus, Salutation};
     use genossi_dao::repayment_entry::MockRepaymentEntryDao;
     use genossi_dao::repayment_phase::MockRepaymentPhaseDao;
@@ -255,6 +267,8 @@ mod tests {
             Arc::new(MockRepaymentPhaseDao::new()),
             Arc::new(MockTransactionDao::new()),
             Arc::new(MockRepaymentContextResolver::new()),
+            Arc::new(MockApplicationResolver::new()),
+            Arc::new(MockConfigService::new()),
         )
         .await;
     }
@@ -287,6 +301,8 @@ mod tests {
             Arc::new(MockRepaymentPhaseDao::new()),
             Arc::new(MockTransactionDao::new()),
             Arc::new(MockRepaymentContextResolver::new()),
+            Arc::new(MockApplicationResolver::new()),
+            Arc::new(MockConfigService::new()),
         )
         .await;
     }
@@ -311,6 +327,8 @@ mod tests {
             Arc::new(MockRepaymentPhaseDao::new()),
             Arc::new(MockTransactionDao::new()),
             Arc::new(MockRepaymentContextResolver::new()),
+            Arc::new(MockApplicationResolver::new()),
+            Arc::new(MockConfigService::new()),
         )
         .await;
     }

@@ -197,7 +197,7 @@ async fn mark_recipient_failed<R: MailRecipientDao, J: MailJobDao>(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub async fn start_mail_worker<C, J, R, A, SA, D, M, IB, MD, AL, MT, RE, RP, TX, RCR, AS>(
+pub async fn start_mail_worker<C, J, R, A, SA, D, M, IB, MD, AL, MT, RE, RP, TX, RCR, AS, AR>(
     config_service: Arc<C>,
     job_dao: Arc<J>,
     recipient_dao: Arc<R>,
@@ -223,6 +223,11 @@ pub async fn start_mail_worker<C, J, R, A, SA, D, M, IB, MD, AL, MT, RE, RP, TX,
     // NOT a DAO added to MailServiceImpl (RESEARCH Anti-Pattern). Appended LAST
     // so all existing positional args keep their order.
     mail_asset_dao: Arc<AS>,
+    // --- Phase 31 (APMAIL-01, D-04): applicant resolver for the Application-Zweig
+    //     in resolve_rendered_content. Appended LAST (after mail_asset_dao) so all
+    //     existing positional args keep their order (Pitfall 4). config_service is
+    //     already the first arg and feeds the load_application_mail_config call. ---
+    application_resolver: Arc<AR>,
 ) where
     C: ConfigService,
     J: MailJobDao,
@@ -249,6 +254,7 @@ pub async fn start_mail_worker<C, J, R, A, SA, D, M, IB, MD, AL, MT, RE, RP, TX,
         + Send
         + Sync
         + 'static,
+    AR: crate::template::ApplicationResolver,
 {
     loop {
         let next = match recipient_dao.next_pending().await {
@@ -397,6 +403,11 @@ pub async fn start_mail_worker<C, J, R, A, SA, D, M, IB, MD, AL, MT, RE, RP, TX,
                 repayment_phase_dao.as_ref(),
                 transaction_dao.as_ref(),
                 repayment_context_resolver.as_ref(),
+                // Phase 31 (APMAIL-01, D-04): the Application-Zweig args. config_service
+                // is the worker's existing first dep; application_resolver is the new
+                // last dep.
+                application_resolver.as_ref(),
+                config_service.as_ref(),
             )
             .await
             {
