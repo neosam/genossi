@@ -1,4 +1,5 @@
 pub mod access_denied;
+pub mod application_compose;
 pub mod applications_page;
 pub mod assemblies;
 pub mod assembly_details;
@@ -24,6 +25,7 @@ pub mod templates;
 pub mod validation;
 
 pub use access_denied::AccessDeniedPage;
+pub use application_compose::ApplicationCompose;
 pub use applications_page::ApplicationsPage;
 pub use assemblies::Assemblies;
 pub use assembly_details::AssemblyDetails;
