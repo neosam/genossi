@@ -896,6 +896,8 @@ mod tests {
 
     use super::*;
     use async_trait::async_trait;
+    use genossi_config::dao::ConfigEntry;
+    use genossi_config::service::ConfigServiceError;
     use genossi_config::service::MockConfigService;
     use genossi_dao::application::{ApplicationDao, ApplicationEntity};
     use genossi_dao::application_document::{ApplicationDocumentDao, ApplicationDocumentEntity};
@@ -904,6 +906,9 @@ mod tests {
     use genossi_dao::member_action::{MemberActionDao, MemberActionEntity};
     use genossi_dao::member_document::{MemberDocumentDao, MemberDocumentEntity};
     use genossi_dao::{DaoError, Transaction};
+    use genossi_mail::dao::{CommunicationDirection, CommunicationEntry, MockCommunicationDao};
+    use genossi_mail::service::{MailServiceError, MockMailService};
+    use genossi_service::application::{ApplicationMailDraft, ApplicationMailInput};
     use genossi_service::permission::MockContext;
     use mockall::mock;
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -1094,6 +1099,7 @@ mod tests {
         type TransactionDao = MockTxDao;
         type ConfigService = MockConfigService;
         type MailService = genossi_mail::service::MockMailService;
+        type CommunicationDao = genossi_mail::dao::MockCommunicationDao;
     }
 
     // ---- Helpers ----
@@ -1186,6 +1192,9 @@ mod tests {
                     .returning(|_, _| Ok(()));
                 m
             }),
+            // Phase 31 (APHIST-02): confirm()-tests never touch last_sent_at, so a
+            // bare mock with no expectations is a permissive default (0 calls OK).
+            communication_dao: Arc::new(genossi_mail::dao::MockCommunicationDao::new()),
         }
     }
 
@@ -1542,5 +1551,451 @@ mod tests {
             }
             other => panic!("expected InternalError, got {:?}", other),
         }
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Phase 31 (Plan 31-02): send_mail / preview_mail / last_sent_at
+    // ────────────────────────────────────────────────────────────────────────
+
+    /// App entity with a given status + optional email (for the mail-send tests).
+    fn app_entity(id: Uuid, status: ApplicationStatus, email: Option<&str>) -> ApplicationEntity {
+        ApplicationEntity {
+            status,
+            email: email.map(Arc::from),
+            ..app_entity_offen(id)
+        }
+    }
+
+    /// A minimal valid `MailJob` for the create_job happy-path return.
+    fn dummy_mail_job() -> genossi_mail::dao::MailJob {
+        genossi_mail::dao::MailJob {
+            id: Uuid::new_v4(),
+            created: make_dt(),
+            deleted: None,
+            version: Uuid::new_v4(),
+            subject: Arc::from("s"),
+            body: Arc::from("b"),
+            body_html: None,
+            status: Arc::from("pending"),
+            total_count: 1,
+            sent_count: 0,
+            failed_count: 0,
+            reply_to_inbound_mail_id: None,
+            template_id: None,
+            repayment_phase_id: None,
+            attach_repayment_letter: false,
+        }
+    }
+
+    /// An outbound `CommunicationEntry` on a specific date (for last_sent_at).
+    fn comm_entry_on(date: time::PrimitiveDateTime) -> CommunicationEntry {
+        CommunicationEntry {
+            direction: CommunicationDirection::Outbound,
+            date,
+            subject: Arc::from("Zahlungserinnerung"),
+            inbox_id: None,
+            from_address: None,
+            inbound_done: None,
+            inbound_replied: None,
+            inbound_archived: None,
+            mail_job_id: Some(Uuid::new_v4()),
+            recipient_id: Some(Uuid::new_v4()),
+            to_address: Some(Arc::from("a@b.de")),
+            outbound_status: Some(Arc::from("sent")),
+        }
+    }
+
+    /// MockConfigService serving the five application-mail keys (preview_mail).
+    fn config_with_share_value(share_value_cents: i64) -> MockConfigService {
+        let mut config = MockConfigService::new();
+        config.expect_get().returning(move |key| {
+            let value: String = match key {
+                "share_value_cents" => share_value_cents.to_string(),
+                "bank_iban" => "DE89 3704 0044 0532 0130 00".to_string(),
+                "bank_name" => "Musterbank".to_string(),
+                "bank_bic" => "COBADEFFXXX".to_string(),
+                "genossenschaft_name" => "Muster eG".to_string(),
+                _ => return Err(ConfigServiceError::NotFound),
+            };
+            Ok(ConfigEntry {
+                key: Arc::from(key),
+                value: Arc::from(value.as_str()),
+                value_type: Arc::from("string"),
+            })
+        });
+        config
+    }
+
+    /// Build a service for the mail tests. All confirm-only DAOs are bare mocks;
+    /// only `app_dao`, `perm`, `tx_dao`, `mail`, `config`, `comm` are customisable.
+    #[allow(clippy::too_many_arguments)]
+    fn build_mail_service(
+        app_dao: MockAppDao,
+        perm: MockPermSvc,
+        tx_dao: MockTxDao,
+        mail: MockMailService,
+        config: MockConfigService,
+        comm: MockCommunicationDao,
+    ) -> ApplicationServiceImpl<TestDeps> {
+        ApplicationServiceImpl {
+            application_dao: Arc::new(app_dao),
+            application_document_dao: Arc::new(MockAppDocDao::new()),
+            member_document_dao: Arc::new(MockMemDocDao::new()),
+            document_storage: Arc::new(MockStorage::new()),
+            audit_log_dao: Arc::new(MockAudLogDao::new()),
+            member_dao: Arc::new(MockMemDao::new()),
+            member_action_dao: Arc::new(MockMemActionDao::new()),
+            permission_service: Arc::new(perm),
+            uuid_service: Arc::new(RngUuid),
+            transaction_dao: Arc::new(tx_dao),
+            config_service: Arc::new(config),
+            mail_service: Arc::new(mail),
+            communication_dao: Arc::new(comm),
+        }
+    }
+
+    fn tx_dao_ok() -> MockTxDao {
+        let mut tx_dao = MockTxDao::new();
+        tx_dao.expect_use_transaction().returning(|_| Ok(TestTx));
+        tx_dao.expect_commit().returning(|_| Ok(()));
+        tx_dao
+    }
+
+    fn perm_denied() -> MockPermSvc {
+        let mut p = MockPermSvc::new();
+        p.expect_check_permission()
+            .times(1)
+            .returning(|_, _| Err(ServiceError::PermissionDenied));
+        p
+    }
+
+    fn perm_granted() -> MockPermSvc {
+        let mut p = MockPermSvc::new();
+        p.expect_check_permission()
+            .times(1)
+            .returning(|_, _| Ok(()));
+        p
+    }
+
+    fn sample_input() -> ApplicationMailInput {
+        ApplicationMailInput {
+            subject: "Zahlungserinnerung".to_string(),
+            body: "Bitte zahlen".to_string(),
+            body_html: None,
+            template_id: None,
+        }
+    }
+
+    /// **403** — permission denied: send_mail returns PermissionDenied and
+    /// create_job is NEVER called (CR-02: no side effect before permission).
+    #[tokio::test]
+    async fn test_send_mail_permission_denied_no_side_effect() {
+        let id = Uuid::new_v4();
+
+        let mut app_dao = MockAppDao::new();
+        app_dao.expect_find_by_id().times(0);
+
+        let mut mail = MockMailService::new();
+        mail.expect_create_job().never();
+
+        let svc = build_mail_service(
+            app_dao,
+            perm_denied(),
+            tx_dao_ok(),
+            mail,
+            MockConfigService::new(),
+            MockCommunicationDao::new(),
+        );
+
+        let err = svc
+            .send_mail(id, &sample_input(), Authentication::Context(MockContext))
+            .await
+            .expect_err("unauthorised send must fail");
+        assert!(matches!(err, ServiceError::PermissionDenied));
+    }
+
+    /// **404** — application not found → EntityNotFound; create_job never called.
+    #[tokio::test]
+    async fn test_send_mail_not_found() {
+        let id = Uuid::new_v4();
+
+        let mut app_dao = MockAppDao::new();
+        app_dao.expect_find_by_id().returning(|_, _| Ok(None));
+
+        let mut mail = MockMailService::new();
+        mail.expect_create_job().never();
+
+        let svc = build_mail_service(
+            app_dao,
+            perm_granted(),
+            tx_dao_ok(),
+            mail,
+            MockConfigService::new(),
+            MockCommunicationDao::new(),
+        );
+
+        let err = svc
+            .send_mail(id, &sample_input(), Authentication::Context(MockContext))
+            .await
+            .expect_err("missing application must fail");
+        assert!(matches!(err, ServiceError::EntityNotFound(_)));
+    }
+
+    /// **409** — status ≠ Offen → Conflict; create_job never called.
+    #[tokio::test]
+    async fn test_send_mail_status_not_offen_conflicts() {
+        let id = Uuid::new_v4();
+
+        let mut app_dao = MockAppDao::new();
+        {
+            let app = app_entity(id, ApplicationStatus::Abgelehnt, Some("a@b.de"));
+            app_dao
+                .expect_find_by_id()
+                .returning(move |_, _| Ok(Some(app.clone())));
+        }
+
+        let mut mail = MockMailService::new();
+        mail.expect_create_job().never();
+
+        let svc = build_mail_service(
+            app_dao,
+            perm_granted(),
+            tx_dao_ok(),
+            mail,
+            MockConfigService::new(),
+            MockCommunicationDao::new(),
+        );
+
+        let err = svc
+            .send_mail(id, &sample_input(), Authentication::Context(MockContext))
+            .await
+            .expect_err("non-Offen application must conflict");
+        assert!(matches!(err, ServiceError::Conflict(_)));
+    }
+
+    /// **400** — Offen but no email address → ValidationError; no create_job.
+    #[tokio::test]
+    async fn test_send_mail_missing_address_validation_error() {
+        let id = Uuid::new_v4();
+
+        let mut app_dao = MockAppDao::new();
+        {
+            let app = app_entity(id, ApplicationStatus::Offen, None);
+            app_dao
+                .expect_find_by_id()
+                .returning(move |_, _| Ok(Some(app.clone())));
+        }
+
+        let mut mail = MockMailService::new();
+        mail.expect_create_job().never();
+
+        let svc = build_mail_service(
+            app_dao,
+            perm_granted(),
+            tx_dao_ok(),
+            mail,
+            MockConfigService::new(),
+            MockCommunicationDao::new(),
+        );
+
+        let err = svc
+            .send_mail(id, &sample_input(), Authentication::Context(MockContext))
+            .await
+            .expect_err("missing address must validate-fail");
+        match err {
+            ServiceError::ValidationError(items) => {
+                assert!(items.iter().any(|i| i.field.as_ref() == "email"));
+            }
+            other => panic!("expected ValidationError, got {:?}", other),
+        }
+    }
+
+    /// **Happy path + D-13/Pitfall 2** — Offen + email → exactly ONE recipient
+    /// with member_id None and application_id Some; returns Ok(()).
+    #[tokio::test]
+    async fn test_send_mail_happy_single_application_recipient() {
+        let id = Uuid::new_v4();
+
+        let mut app_dao = MockAppDao::new();
+        {
+            let app = app_entity(id, ApplicationStatus::Offen, Some("applicant@example.org"));
+            app_dao
+                .expect_find_by_id()
+                .returning(move |_, _| Ok(Some(app.clone())));
+        }
+
+        let mut mail = MockMailService::new();
+        mail.expect_create_job()
+            .times(1)
+            .withf(
+                |_subject, _body, _html, recipients, _att, _static, _tpl, _rp, _bulk| {
+                    recipients.len() == 1
+                        && recipients[0].member_id.is_none()
+                        && recipients[0].application_id.is_some()
+                        && recipients[0].address == "applicant@example.org"
+                },
+            )
+            .returning(|_, _, _, _, _, _, _, _, _| Ok(dummy_mail_job()));
+
+        let svc = build_mail_service(
+            app_dao,
+            perm_granted(),
+            tx_dao_ok(),
+            mail,
+            MockConfigService::new(),
+            MockCommunicationDao::new(),
+        );
+
+        svc.send_mail(id, &sample_input(), Authentication::Context(MockContext))
+            .await
+            .expect("happy-path send must succeed");
+    }
+
+    /// **500 (D-01)** — create_job returns Err → send_mail propagates
+    /// InternalError synchronously (never a silent Ok, never a panic).
+    #[tokio::test]
+    async fn test_send_mail_enqueue_error_propagates_500() {
+        let id = Uuid::new_v4();
+
+        let mut app_dao = MockAppDao::new();
+        {
+            let app = app_entity(id, ApplicationStatus::Offen, Some("applicant@example.org"));
+            app_dao
+                .expect_find_by_id()
+                .returning(move |_, _| Ok(Some(app.clone())));
+        }
+
+        let mut mail = MockMailService::new();
+        mail.expect_create_job()
+            .times(1)
+            .returning(|_, _, _, _, _, _, _, _, _| {
+                Err(MailServiceError::DataAccess(Arc::from("enqueue failed")))
+            });
+
+        let svc = build_mail_service(
+            app_dao,
+            perm_granted(),
+            tx_dao_ok(),
+            mail,
+            MockConfigService::new(),
+            MockCommunicationDao::new(),
+        );
+
+        let err = svc
+            .send_mail(id, &sample_input(), Authentication::Context(MockContext))
+            .await
+            .expect_err("enqueue failure must propagate");
+        assert!(matches!(err, ServiceError::InternalError(_)));
+    }
+
+    /// **last_sent_at** — MAX over the outbound history; empty → None.
+    #[tokio::test]
+    async fn test_last_sent_at_returns_max_and_none() {
+        let id = Uuid::new_v4();
+
+        let d_early = time::PrimitiveDateTime::new(
+            time::Date::from_calendar_date(2026, time::Month::June, 1).unwrap(),
+            time::Time::MIDNIGHT,
+        );
+        let d_late = time::PrimitiveDateTime::new(
+            time::Date::from_calendar_date(2026, time::Month::August, 15).unwrap(),
+            time::Time::MIDNIGHT,
+        );
+
+        // Non-empty history → MAX(date).
+        let mut app_dao = MockAppDao::new();
+        {
+            let app = app_entity(id, ApplicationStatus::Offen, Some("a@b.de"));
+            app_dao
+                .expect_find_by_id()
+                .returning(move |_, _| Ok(Some(app.clone())));
+        }
+        let mut comm = MockCommunicationDao::new();
+        comm.expect_get_application_communications()
+            .returning(move |_| Ok(vec![comm_entry_on(d_early), comm_entry_on(d_late)].into()));
+
+        let svc = build_mail_service(
+            app_dao,
+            perm_granted(),
+            tx_dao_ok(),
+            MockMailService::new(),
+            MockConfigService::new(),
+            comm,
+        );
+
+        let got = svc
+            .last_sent_at(id, Authentication::Context(MockContext))
+            .await
+            .expect("last_sent_at must succeed");
+        assert_eq!(got, Some(d_late), "must return the MAX outbound date");
+
+        // Empty history → None.
+        let mut app_dao2 = MockAppDao::new();
+        {
+            let app = app_entity(id, ApplicationStatus::Offen, Some("a@b.de"));
+            app_dao2
+                .expect_find_by_id()
+                .returning(move |_, _| Ok(Some(app.clone())));
+        }
+        let mut comm2 = MockCommunicationDao::new();
+        comm2
+            .expect_get_application_communications()
+            .returning(|_| Ok(Vec::new().into()));
+
+        let svc2 = build_mail_service(
+            app_dao2,
+            perm_granted(),
+            tx_dao_ok(),
+            MockMailService::new(),
+            MockConfigService::new(),
+            comm2,
+        );
+
+        let none = svc2
+            .last_sent_at(id, Authentication::Context(MockContext))
+            .await
+            .expect("empty history must succeed");
+        assert_eq!(none, None, "no history → None");
+    }
+
+    /// **preview_mail** — renders through the shared kernel; `{{ open_amount }}`
+    /// resolves to the `format_eur_de` amount (share_value_cents × shares).
+    #[tokio::test]
+    async fn test_preview_mail_renders_open_amount() {
+        let id = Uuid::new_v4();
+
+        // app_entity_offen has shares = 5; 5 × 10000 cents = 50000 → "500,00 €".
+        let mut app_dao = MockAppDao::new();
+        {
+            let app = app_entity(id, ApplicationStatus::Offen, Some("a@b.de"));
+            app_dao
+                .expect_find_by_id()
+                .returning(move |_, _| Ok(Some(app.clone())));
+        }
+
+        let draft = ApplicationMailDraft {
+            subject: "Betrag".to_string(),
+            body: "Offener Betrag: {{ open_amount }}".to_string(),
+            body_html: None,
+        };
+
+        let svc = build_mail_service(
+            app_dao,
+            perm_granted(),
+            tx_dao_ok(),
+            MockMailService::new(),
+            config_with_share_value(10000),
+            MockCommunicationDao::new(),
+        );
+
+        let rendered = svc
+            .preview_mail(id, &draft, Authentication::Context(MockContext))
+            .await
+            .expect("preview must render");
+        assert!(
+            rendered.body.contains("500,00"),
+            "rendered body must contain the format_eur_de amount, got: {}",
+            rendered.body
+        );
     }
 }
