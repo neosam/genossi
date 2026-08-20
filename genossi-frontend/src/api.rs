@@ -1502,6 +1502,13 @@ pub struct MailTemplateTO {
     /// legacy responses that lack the field.
     #[serde(default)]
     pub body_html: Option<String>,
+    /// Phase 32 (D-03, Landmine 2): kennzeichnet die Zielgruppe der Vorlage
+    /// ("member" vs. "application"). Backend liefert das Feld bereits
+    /// (`genossi_mail/src/rest_templates.rs`); `#[serde(default)]` haelt
+    /// Backward-Compat mit Legacy-Responses ohne das Feld. Wird clientseitig
+    /// via `filter_templates_by_type` gefiltert.
+    #[serde(default)]
+    pub template_type: String,
     pub version: String,
 }
 
@@ -1727,6 +1734,104 @@ pub async fn get_member_communications(
     let url = format!(
         "{}/api/members/{}/communications",
         config.backend, member_id
+    );
+    let response = check_response(reqwest::get(url).await?).await?;
+    Ok(response.json().await?)
+}
+
+// ── Application-Mail API (Phase 32, APUI-02 / APMAIL-04) ─────────────
+//
+// Dedizierte, NICHT umgeleitete Funktionen fuer die Antragsteller-Compose-
+// Seite (Plan 32-03) und die application_detail-Erweiterungen (Plan 32-04).
+// Requirement APUI-02 verlangt eigene Funktionen statt der member-scoped
+// `preview_mail`/`send_bulk_mail`. Landmine 1 (doppelte rest-types-Crate):
+// die Backend-Request-Typen (SendApplicationMailRequest,
+// PreviewApplicationMailRequest) sind im Frontend NICHT importierbar, daher
+// werden die Wire-Structs hier LOKAL gespiegelt — exakt wie `PreviewRequest`.
+
+/// Lokaler Send-Request fuer `POST /api/applications/{id}/mail`. Spiegelt die
+/// Backend-`SendApplicationMailRequest` (im Frontend nicht importierbar,
+/// Landmine 1). `skip_serializing_if` haelt den Wire backward-kompatibel:
+/// `body_html`/`template_id` erscheinen nur bei `Some`.
+#[derive(Clone, Debug, serde::Serialize)]
+struct SendApplicationMailRequest {
+    subject: String,
+    body: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    body_html: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    template_id: Option<String>,
+}
+
+/// Lokaler Preview-Request fuer `POST /api/applications/{id}/mail/preview`.
+/// Spiegelt die Backend-`PreviewApplicationMailRequest` (Landmine 1).
+#[derive(Clone, Debug, serde::Serialize)]
+struct PreviewApplicationMailRequest {
+    subject: String,
+    body: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    body_html: Option<String>,
+}
+
+/// Antwort des Preview-Render-Kernels (`PreviewApplicationMailResponse`).
+/// `body_html` nur gesetzt, wenn der Request ein HTML-Template trug;
+/// `#[serde(default)]` fuer Backward-Compat.
+#[derive(Clone, Debug, PartialEq, serde::Deserialize)]
+pub struct ApplicationPreviewResponse {
+    pub subject: String,
+    pub body: String,
+    #[serde(default)]
+    pub body_html: Option<String>,
+}
+
+pub async fn send_application_mail(
+    config: &Config,
+    id: Uuid,
+    subject: &str,
+    body: &str,
+    body_html: Option<&str>,
+    template_id: Option<&str>,
+) -> Result<(), AppError> {
+    info!("Sending application mail for {id}");
+    let url = format!("{}/api/applications/{}/mail", config.backend, id);
+    let req = SendApplicationMailRequest {
+        subject: subject.to_string(),
+        body: body.to_string(),
+        body_html: body_html.map(String::from),
+        template_id: template_id.map(String::from),
+    };
+    let response = reqwest::Client::new().post(url).json(&req).send().await?;
+    check_response(response).await?;
+    Ok(())
+}
+
+pub async fn preview_application_mail(
+    config: &Config,
+    id: Uuid,
+    subject: &str,
+    body: &str,
+    body_html: Option<&str>,
+) -> Result<ApplicationPreviewResponse, AppError> {
+    info!("Previewing application mail for {id}");
+    let url = format!("{}/api/applications/{}/mail/preview", config.backend, id);
+    let req = PreviewApplicationMailRequest {
+        subject: subject.to_string(),
+        body: body.to_string(),
+        body_html: body_html.map(String::from),
+    };
+    let response = reqwest::Client::new().post(url).json(&req).send().await?;
+    let response = check_response(response).await?;
+    Ok(response.json().await?)
+}
+
+pub async fn get_application_communications(
+    config: &Config,
+    id: Uuid,
+) -> Result<Vec<rest_types::CommunicationEntryTO>, AppError> {
+    info!("Fetching communications for application {id}");
+    let url = format!(
+        "{}/api/applications/{}/communications",
+        config.backend, id
     );
     let response = check_response(reqwest::get(url).await?).await?;
     Ok(response.json().await?)
@@ -2848,6 +2953,38 @@ mod tests {
         let err = AppError::new(None, "Verbindungsfehler", None);
         assert_eq!(err.status, None);
         assert!(err.detail.is_none());
+    }
+
+    // ─── Phase 32 ─── Application-Mail API foundation ─────────────────
+
+    #[test]
+    fn test_send_application_mail_request_skips_none_optionals() {
+        // Landmine 1 / Backward-Compat: bei body_html=None und template_id=None
+        // muessen diese Schluessel im Wire fehlen (skip_serializing_if greift).
+        let req = SendApplicationMailRequest {
+            subject: "Betreff".into(),
+            body: "Text".into(),
+            body_html: None,
+            template_id: None,
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(!json.contains("body_html"), "body_html darf bei None fehlen: {json}");
+        assert!(!json.contains("template_id"), "template_id darf bei None fehlen: {json}");
+        assert!(json.contains("\"subject\":\"Betreff\""));
+        assert!(json.contains("\"body\":\"Text\""));
+    }
+
+    #[test]
+    fn test_send_application_mail_request_includes_some_optionals() {
+        let req = SendApplicationMailRequest {
+            subject: "s".into(),
+            body: "b".into(),
+            body_html: Some("<p>b</p>".into()),
+            template_id: Some("tmpl-1".into()),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("body_html"));
+        assert!(json.contains("tmpl-1"));
     }
 
     // ─── Phase 12 ─── Foundation tests ────────────────────────────────
