@@ -291,6 +291,10 @@ pub struct CommunicationEntry {
     pub recipient_id: Option<Uuid>,
     pub to_address: Option<Arc<str>>,
     pub outbound_status: Option<Arc<str>>,
+    // Phase 32 D-06: der bereits in mail_recipients persistierte, per-Empfaenger
+    // gerenderte Body wird additiv durchgereicht (kein Re-Render). Inbound → None.
+    pub rendered_body: Option<Arc<str>>,
+    pub rendered_html_body: Option<Arc<str>>,
 }
 
 #[automock]

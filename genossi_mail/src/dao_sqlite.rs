@@ -1023,6 +1023,10 @@ struct CommunicationEntryDb {
     recipient_id: Option<Vec<u8>>,
     to_address: Option<String>,
     outbound_status: Option<String>,
+    // Phase 32 D-06: geteilt von beiden SELECTs (Member + Application). Inbound-Zweig
+    // liefert NULL, Outbound-Zweig r.rendered_body / r.rendered_html_body.
+    rendered_body: Option<String>,
+    rendered_html_body: Option<String>,
 }
 
 impl TryFrom<&CommunicationEntryDb> for CommunicationEntry {
@@ -1052,6 +1056,8 @@ impl TryFrom<&CommunicationEntryDb> for CommunicationEntry {
             recipient_id: parse_optional_uuid(&db.recipient_id)?,
             to_address: db.to_address.as_deref().map(Arc::from),
             outbound_status: db.outbound_status.as_deref().map(Arc::from),
+            rendered_body: db.rendered_body.as_deref().map(Arc::from),
+            rendered_html_body: db.rendered_html_body.as_deref().map(Arc::from),
         })
     }
 }
@@ -1087,7 +1093,9 @@ impl CommunicationDao for CommunicationDaoSqlite {
                 NULL AS mail_job_id,
                 NULL AS recipient_id,
                 NULL AS to_address,
-                NULL AS outbound_status
+                NULL AS outbound_status,
+                NULL AS rendered_body,
+                NULL AS rendered_html_body
             FROM inbound_mails i
             WHERE i.assigned_member_id = ?1
 
@@ -1105,7 +1113,9 @@ impl CommunicationDao for CommunicationDaoSqlite {
                 j.id AS mail_job_id,
                 r.id AS recipient_id,
                 r.to_address,
-                r.status AS outbound_status
+                r.status AS outbound_status,
+                r.rendered_body,
+                r.rendered_html_body
             FROM mail_recipients r
             JOIN mail_jobs j ON j.id = r.mail_job_id
             WHERE r.member_id = ?1
@@ -1132,8 +1142,8 @@ impl CommunicationDao for CommunicationDaoSqlite {
         // Phase 29 (APHIST-01): outbound-only Antragsteller-Timeline. Reduzierter Klon
         // von get_member_communications OHNE inbound-Zweig (Antragsteller haben keine
         // assigned_member_id). Filter auf r.application_id; Soft-Delete beibehalten.
-        // Alle 12 Spalten (inkl. NULL-Platzhalter) bleiben, damit CommunicationEntryDb
-        // per FromRow passt.
+        // Alle 14 Spalten (inkl. NULL-Platzhalter) bleiben, damit CommunicationEntryDb
+        // per FromRow passt (Phase 32 D-06: + rendered_body/rendered_html_body).
         let application_bytes = application_id.as_bytes().to_vec();
         let rows = sqlx::query_as::<_, CommunicationEntryDb>(
             r#"
@@ -1149,7 +1159,9 @@ impl CommunicationDao for CommunicationDaoSqlite {
                 j.id AS mail_job_id,
                 r.id AS recipient_id,
                 r.to_address,
-                r.status AS outbound_status
+                r.status AS outbound_status,
+                r.rendered_body,
+                r.rendered_html_body
             FROM mail_recipients r
             JOIN mail_jobs j ON j.id = r.mail_job_id
             WHERE r.application_id = ?1
@@ -2575,9 +2587,19 @@ mod tests {
         recipient.application_id = Some(application_id);
         recipient.member_id = None;
         recipient.status = Arc::from("sent");
-        recipient.rendered_body = Some(Arc::from("Hallo Antragsteller, willkommen."));
-        recipient.rendered_html_body = Some(Arc::from("<p>Hallo Antragsteller, willkommen.</p>"));
         recipient_dao.create(&recipient).await.unwrap();
+
+        // rendered_body / rendered_html_body werden erst beim Versand persistiert
+        // (create() schreibt NULL). Wir simulieren die gespeicherten Render-Werte.
+        sqlx::query(
+            "UPDATE mail_recipients SET rendered_body = ?, rendered_html_body = ? WHERE id = ?",
+        )
+        .bind("Hallo Antragsteller, willkommen.")
+        .bind("<p>Hallo Antragsteller, willkommen.</p>")
+        .bind(recipient.id.as_bytes().to_vec())
+        .execute(pool.as_ref())
+        .await
+        .unwrap();
 
         let dao = CommunicationDaoSqlite::new(pool);
         let result = dao

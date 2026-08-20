@@ -44,6 +44,12 @@ pub struct CommunicationEntryTO {
     pub to_address: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub outbound_status: Option<String>,
+    // Phase 32 D-06: der bereits gespeicherte, per-Empfaenger gerenderte Body wird
+    // durchgereicht (kein Re-Render). Nur bei Outbound gesetzt.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rendered_body: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rendered_html_body: Option<String>,
 }
 
 fn format_dt(dt: &time::PrimitiveDateTime) -> String {
@@ -77,6 +83,8 @@ impl From<&CommunicationEntry> for CommunicationEntryTO {
             recipient_id: e.recipient_id.map(|id| id.to_string()),
             to_address: e.to_address.as_ref().map(|a| a.to_string()),
             outbound_status: e.outbound_status.as_ref().map(|s| s.to_string()),
+            rendered_body: e.rendered_body.as_ref().map(|s| s.to_string()),
+            rendered_html_body: e.rendered_html_body.as_ref().map(|s| s.to_string()),
         }
     }
 }
