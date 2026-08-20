@@ -51,6 +51,76 @@ pub fn member_to_template_context(entity: &MemberEntity) -> Value {
     }
 }
 
+/// Phase 30 (APTPL-04, D-04..D-08): reiner, synchroner Kontext-Builder für den
+/// Antragsteller-Render-Pfad. Getrennt vom Member-Pool (D1): exponiert
+/// AUSSCHLIESSLICH Antragsteller-Felder plus die Zahlungsdaten der
+/// Genossenschaft selbst — KEINE mitgliederspezifischen Keys (member_number,
+/// current_shares, join_date …). Genau diese Auslassung lässt member-only-
+/// Platzhalter unter Strict-Render fehlschlagen (statt Mitgliederdaten zu
+/// leaken) und ist der Kern der DSGVO-Trennung (T-30-03-03).
+///
+/// Die Funktion ist bewusst pur/synchron (D-07): Config-Werte
+/// (`share_value_cents`, `bank_iban`, `bank_name`, `bank_bic`,
+/// `genossenschaft_name`) werden als Parameter hereingereicht — der
+/// Phase-31-Service löst die Config auf und ruft KEIN `config.get().await` in
+/// diesem Builder. Die vier Bank-/Genossenschafts-Keys sind die EIGENEN
+/// Zahlungsdaten der Genossenschaft (dieselbe Quelle wie
+/// `send_confirmation_mail`, D-05) — NIE aus der Application gelesen (die kein
+/// Bank-Feld hat).
+///
+/// `open_amount` ist der vorformatierte deutsche Euro-String aus
+/// `format_eur_de(share_value_cents × shares)` (D-06) — ein reiner
+/// Daten-String, unter Strict-Env nie als Template-Markup re-evaluiert
+/// (T-30-03-01). Die salutation-Zuordnung spiegelt
+/// `member_to_template_context` exakt (`s.as_str()` → "Herr"/"Frau"), damit die
+/// bestehende `{% if salutation == "Herr" %}`-Anrede unverändert greift (D-04);
+/// `None` wird als defined-as-none exponiert (guardbar via `{% if %}`), nicht
+/// als undefined.
+pub fn application_to_template_context(
+    app: &genossi_service::application::Application,
+    share_value_cents: i64,
+    bank_iban: &str,
+    bank_name: &str,
+    bank_bic: Option<&str>,
+    genossenschaft_name: &str,
+) -> Value {
+    let salutation_str = app.salutation.as_ref().map(|s| s.as_str().to_string());
+    let open_amount = genossi_service::euro::format_eur_de(share_value_cents * app.shares as i64);
+    context! {
+        first_name => app.first_name.as_ref(),
+        last_name => app.last_name.as_ref(),
+        salutation => salutation_str,
+        title => app.title.as_deref(),
+        shares => app.shares,
+        open_amount => open_amount,
+        bank_iban => bank_iban,
+        bank_name => bank_name,
+        bank_bic => bank_bic,
+        genossenschaft_name => genossenschaft_name,
+    }
+}
+
+/// Phase 30 (D-08): Sentinel-Dummy-Kontext für die Author-Zeit-Validierung
+/// (`validate_application_template`). Definiert EXAKT dieselbe Schlüsselmenge
+/// wie [`application_to_template_context`] (nicht mehr, nicht weniger) mit
+/// auffälligen deterministischen Sentinel-Werten — so probiert die Validierung
+/// jeden Antragsteller-Key durch, während member-only-Platzhalter (nie
+/// definiert) unter Strict-Env sauber fehlschlagen.
+fn dummy_application_context() -> Value {
+    context! {
+        first_name => "DUMMY-VORNAME",
+        last_name => "DUMMY-NACHNAME",
+        salutation => Some("Herr"),
+        title => Some("DUMMY-TITEL"),
+        shares => 99,
+        open_amount => "9.999,99 €",
+        bank_iban => "DE00 0000 0000 0000 0000 00",
+        bank_name => "DUMMY-BANK",
+        bank_bic => Some("DUMMYBIC"),
+        genossenschaft_name => "DUMMY-EG",
+    }
+}
+
 #[derive(Debug)]
 pub struct TemplateError {
     pub message: String,
@@ -168,6 +238,60 @@ pub fn validate_template(
     } else {
         Err(errors)
     }
+}
+
+/// Phase 30 (D-08/D-09): generischer Strict-Render-Validierungskern. Prüft
+/// zuerst die Syntax von `subject` + `body` einmalig über [`strict_env`]; bei
+/// Syntaxfehler früher Abbruch. Sonst probiert er JEDEN übergebenen Kontext
+/// durch und sammelt die Render-Fehler (neutrale, kontext-agnostische
+/// Fehlermeldungen). Die member-spezifische Fehlertext-Form (`member #{}`)
+/// bleibt bewusst in [`validate_template`] — dieser Kern bedient den
+/// Antragsteller-Pfad (`validate_application_template`), der genau einen
+/// Dummy-Kontext durchreicht.
+fn validate_rendered(subject: &str, body: &str, contexts: &[Value]) -> Result<(), Vec<String>> {
+    let mut errors = Vec::new();
+    let env = strict_env();
+
+    // Syntax zuerst prüfen (identisch zu validate_template).
+    if let Err(e) = env.template_from_str(subject) {
+        errors.push(format!("Subject syntax error: {}", e));
+    }
+    if let Err(e) = env.template_from_str(body) {
+        errors.push(format!("Body syntax error: {}", e));
+    }
+    if !errors.is_empty() {
+        return Err(errors);
+    }
+
+    let subject_tmpl = env.template_from_str(subject).unwrap();
+    let body_tmpl = env.template_from_str(body).unwrap();
+
+    for ctx in contexts {
+        if let Err(e) = subject_tmpl.render(ctx) {
+            errors.push(format!("Subject render error: {}", e));
+        }
+        if let Err(e) = body_tmpl.render(ctx) {
+            errors.push(format!("Body render error: {}", e));
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
+/// Phase 30 (APTPL-01, D-08): validiert ein Antragsteller-Template (subject +
+/// body) zur Author-Zeit gegen genau EINEN [`dummy_application_context`] über
+/// den generischen [`validate_rendered`]-Kern. Gibt `Err` zurück bei
+/// Syntaxfehler ODER bei Referenz auf einen member-only-Key (z. B.
+/// `{{ member_number }}`), der im Antragsteller-Kontext nie definiert ist und
+/// unter Strict-Env fehlschlägt — so persistiert ein kaputtes
+/// Antragsteller-Template nie und crasht nicht erst beim Send (T-30-03-02).
+pub fn validate_application_template(subject: &str, body: &str) -> Result<(), Vec<String>> {
+    let ctx = dummy_application_context();
+    validate_rendered(subject, body, std::slice::from_ref(&ctx))
 }
 
 /// Phase 10 D-04 (MAIL-02): merge per-recipient repayment-context into a base context.
@@ -1088,5 +1212,188 @@ mod tests {
         let ctx = member_to_template_context(&member);
         let result = render_template("{{ join_date }} / {{ exit_date }}", &ctx).unwrap();
         assert_eq!(result, "02.07.2026 / 31.12.2025");
+    }
+
+    // ============================================================
+    // Phase 30 (D-04..D-08): application_to_template_context +
+    // dummy_application_context
+    // ============================================================
+
+    fn make_application(shares: i32) -> genossi_service::application::Application {
+        let date = time::Date::from_calendar_date(2026, time::Month::January, 15).unwrap();
+        let datetime = time::PrimitiveDateTime::new(date, time::Time::MIDNIGHT);
+        genossi_service::application::Application {
+            id: Uuid::new_v4(),
+            first_name: Arc::from("Max"),
+            last_name: Arc::from("Mustermann"),
+            salutation: Some(Salutation::Herr),
+            title: Some(Arc::from("Dr.")),
+            email: Some(Arc::from("max@example.com")),
+            street: Some(Arc::from("Musterstraße")),
+            house_number: Some(Arc::from("12")),
+            postal_code: Some(Arc::from("12345")),
+            city: Some(Arc::from("Berlin")),
+            shares,
+            status: genossi_dao::application::ApplicationStatus::Offen,
+            created: datetime,
+            deleted: None,
+            version: Uuid::new_v4(),
+        }
+    }
+
+    #[test]
+    fn test_application_to_template_context_renders_all_keys() {
+        let app = make_application(3);
+        let ctx = application_to_template_context(
+            &app,
+            2000,
+            "DE89 3704 0044 0532 0130 00",
+            "Musterbank",
+            Some("COBADEFFXXX"),
+            "Muster eG",
+        );
+        let template = "{{ first_name }} {{ last_name }} / {{ salutation }} {{ title }} / \
+                        {{ shares }} / {{ open_amount }} / {{ bank_iban }} / {{ bank_name }} / \
+                        {{ bank_bic }} / {{ genossenschaft_name }}";
+        let result = render_template(template, &ctx).unwrap();
+        assert_eq!(
+            result,
+            "Max Mustermann / Herr Dr. / 3 / 60,00 € / DE89 3704 0044 0532 0130 00 / \
+             Musterbank / COBADEFFXXX / Muster eG"
+        );
+    }
+
+    #[test]
+    fn test_application_to_template_context_open_amount_matches_format_eur_de() {
+        // open_amount == format_eur_de(share_value_cents × shares) (D-06).
+        let app = make_application(7);
+        let ctx = application_to_template_context(&app, 2500, "DE00", "Bank", None, "EG");
+        let result = render_template("{{ open_amount }}", &ctx).unwrap();
+        assert_eq!(result, genossi_service::euro::format_eur_de(2500 * 7));
+        assert_eq!(result, "175,00 €");
+    }
+
+    #[test]
+    fn test_application_to_template_context_anrede_herr_frau_neutral() {
+        // salutation-Zuordnung spiegelt member_to_template_context: die bestehende
+        // Anrede-Bedingung greift für Some(Herr)/Some(Frau)/None (D-04).
+        let template = r#"Sehr geehrte{% if salutation == "Herr" %}r Herr{% elif salutation == "Frau" %} Frau{% else %}s Mitglied{% endif %} {{ last_name }},"#;
+
+        let mut app = make_application(1);
+        let ctx = application_to_template_context(&app, 2000, "DE00", "Bank", None, "EG");
+        assert_eq!(
+            render_template(template, &ctx).unwrap(),
+            "Sehr geehrter Herr Mustermann,"
+        );
+
+        app.salutation = Some(Salutation::Frau);
+        let ctx = application_to_template_context(&app, 2000, "DE00", "Bank", None, "EG");
+        assert_eq!(
+            render_template(template, &ctx).unwrap(),
+            "Sehr geehrte Frau Mustermann,"
+        );
+
+        app.salutation = None;
+        let ctx = application_to_template_context(&app, 2000, "DE00", "Bank", None, "EG");
+        assert_eq!(
+            render_template(template, &ctx).unwrap(),
+            "Sehr geehrtes Mitglied Mustermann,"
+        );
+    }
+
+    #[test]
+    fn test_application_to_template_context_bank_bic_none_is_guardable() {
+        // bank_bic == None ist defined-as-none, nicht undefined: `{% if bank_bic %}`
+        // greift sauber (kein Strict-Crash).
+        let app = make_application(1);
+        let ctx = application_to_template_context(&app, 2000, "DE00", "Bank", None, "EG");
+        let template = "{% if bank_bic %}BIC: {{ bank_bic }}{% else %}-{% endif %}";
+        assert_eq!(render_template(template, &ctx).unwrap(), "-");
+    }
+
+    #[test]
+    fn test_application_context_omits_member_only_keys() {
+        // Kern von D1/T-30-03-03: member-only-Keys sind NICHT definiert →
+        // Strict-Render schlägt fehl (statt zu leaken).
+        let app = make_application(1);
+        let ctx = application_to_template_context(&app, 2000, "DE00", "Bank", None, "EG");
+        assert!(render_template("{{ member_number }}", &ctx).is_err());
+        assert!(render_template("{{ current_shares }}", &ctx).is_err());
+        assert!(render_template("{{ join_date }}", &ctx).is_err());
+    }
+
+    #[test]
+    fn test_dummy_application_context_defines_same_keys() {
+        // dummy definiert dieselbe Schlüsselmenge wie der reale Builder — jeder
+        // Antragsteller-Key rendert, member-only-Keys nicht.
+        let dummy = dummy_application_context();
+        for key in [
+            "first_name",
+            "last_name",
+            "salutation",
+            "title",
+            "shares",
+            "open_amount",
+            "bank_iban",
+            "bank_name",
+            "bank_bic",
+            "genossenschaft_name",
+        ] {
+            let tmpl = format!("{{{{ {key} }}}}");
+            assert!(
+                render_template(&tmpl, &dummy).is_ok(),
+                "dummy_application_context muss Key '{key}' definieren"
+            );
+        }
+        // member-only-Key ist im Dummy ebenfalls nicht definiert.
+        assert!(render_template("{{ member_number }}", &dummy).is_err());
+    }
+
+    // ============================================================
+    // Phase 30 (D-08/D-09): validate_application_template +
+    // validate_rendered
+    // ============================================================
+
+    #[test]
+    fn test_validate_template_signature_and_member_behavior_unchanged() {
+        // D-09: member-Pfad bleibt unverändert — {{ member_number }} ist gültig.
+        let member = make_member("Max", "Mustermann");
+        let result = validate_template(
+            "{{ first_name }}",
+            "{{ member_number }}",
+            std::slice::from_ref(&member),
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_application_template_accepts_applicant_keys() {
+        let result = validate_application_template("{{ first_name }}", "{{ open_amount }}");
+        assert!(result.is_ok(), "unerwartet: {:?}", result);
+    }
+
+    #[test]
+    fn test_validate_application_template_rejects_member_only_key() {
+        let result = validate_application_template("{{ first_name }}", "{{ member_number }}");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_application_template_rejects_syntax_error() {
+        let result = validate_application_template("Ok", "{{ unclosed");
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .iter()
+            .any(|e| e.contains("syntax error")));
+    }
+
+    #[test]
+    fn test_validate_application_template_accepts_guarded_bank_bic() {
+        let result = validate_application_template(
+            "Zahlungserinnerung",
+            "{% if bank_bic %}BIC: {{ bank_bic }}{% endif %}Ende",
+        );
+        assert!(result.is_ok(), "unerwartet: {:?}", result);
     }
 }
