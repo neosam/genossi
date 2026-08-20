@@ -322,6 +322,9 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::CommunicationStatusDone => "Erledigt".into(),
         Key::CommunicationStatusReplied => "Beantwortet".into(),
         Key::CommunicationStatusArchived => "Archiviert".into(),
+        Key::LastSentSummary => "Zuletzt gesendet".into(),
+        Key::NeverSent => "Noch keine E-Mail gesendet".into(),
+        Key::SentMailBody => "Gesendete E-Mail".into(),
 
         Key::Backup => "Backup".into(),
         Key::BackupMemberList => "Mitgliederliste (CSV)".into(),

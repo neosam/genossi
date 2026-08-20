@@ -396,6 +396,10 @@ pub enum Key {
     CommunicationStatusDone,
     CommunicationStatusReplied,
     CommunicationStatusArchived,
+    // Phase 32 (D-06): Antragsteller-Compose / last-sent-Guard
+    LastSentSummary,
+    NeverSent,
+    SentMailBody,
 
     // Backup
     Backup,
