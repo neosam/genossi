@@ -1837,6 +1837,37 @@ pub async fn get_application_communications(
     Ok(response.json().await?)
 }
 
+/// Reine (WASM-unabhaengige) Filterung der Vorlagen nach Zielgruppe (D-03,
+/// Landmine 2). Case-sensitiver Gleichheitsvergleich auf `template_type`.
+/// Konsumiert vom TemplateSelector der Compose-Seite (Plan 32-03), damit nur
+/// Antragsteller-Vorlagen ("application") angeboten werden.
+pub fn filter_templates_by_type(
+    all: &[MailTemplateTO],
+    template_type: &str,
+) -> Vec<MailTemplateTO> {
+    all.iter()
+        .filter(|t| t.template_type == template_type)
+        .cloned()
+        .collect()
+}
+
+/// Reine (WASM-unabhaengige) Ableitung der "zuletzt gesendet"-Zeile (D-06,
+/// anti-double-send Guard). Der Aufrufer liefert die Outbound-Eintraege bereits
+/// nach Datum absteigend sortiert (Backend `ORDER BY date DESC`), daher ist das
+/// erste Element die zuletzt gesendete Mail. Rueckgabe (Betreff, Status, Datum);
+/// `None` bei leerer Liste (Aufrufer zeigt dann `Key::NeverSent`).
+pub fn last_outbound_summary(
+    entries: &[rest_types::CommunicationEntryTO],
+) -> Option<(String, Option<String>, String)> {
+    entries.first().map(|e| {
+        (
+            e.subject.clone(),
+            e.outbound_status.clone(),
+            e.date.clone(),
+        )
+    })
+}
+
 pub async fn get_audit_log(
     config: &Config,
     params: &std::collections::HashMap<String, String>,
