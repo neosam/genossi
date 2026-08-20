@@ -7,6 +7,7 @@ pub mod auth_types;
 pub mod claim_context;
 pub mod claim_utils;
 pub mod document_storage;
+pub mod euro;
 pub mod helper_token;
 pub mod iban;
 pub mod mail_asset;
