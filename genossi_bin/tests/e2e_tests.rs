@@ -14,8 +14,9 @@ use genossi_rest_types::{
     ApplicationTO, AssemblyDetailTO, AssemblyStatusTO, AssemblyTO, AttendanceMemberTO,
     AttendanceStatsTO, AuditLogEntryTO, BatchStatusRequest, CreateRepaymentEntryRequest,
     HelperSessionTO, MailAssetTO, MemberActionTO, MemberDocumentTO, MemberImportResultTO, MemberTO,
-    MigrationStatusTO, PublicJoinRequest, PublicJoinResponse, RepaymentEntryStatusTO,
-    RepaymentEntryTO, RepaymentPhaseStatusTO, RepaymentPhaseTO, SalutationTO,
+    MigrationStatusTO, PreviewApplicationMailRequest, PreviewApplicationMailResponse,
+    PublicJoinRequest, PublicJoinResponse, RepaymentEntryStatusTO, RepaymentEntryTO,
+    RepaymentPhaseStatusTO, RepaymentPhaseTO, SalutationTO, SendApplicationMailRequest,
     SessionRevokeResponse, UpdateApplicationRequest, UpdateRepaymentEntryRequest, UserPreferenceTO,
     ValidationResultTO, VerifyResponseTO,
 };
@@ -15674,4 +15675,366 @@ async fn test_mail_asset_upload_svg_rejected_415() {
         .await
         .expect("upload POST failed");
     assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+}
+
+// ============================================================================
+// Phase 31 Plan 03: Application-Mail REST slice (send / preview / communications
+// / last_sent_at). Real HTTP + in-memory SQLite; mock_auth grants admin, so the
+// 403 gate is proven in the 31-02 service unit test — here we prove the HTTP
+// guards and wire shapes over the real transport path.
+// ============================================================================
+
+/// Helper: submit an application via public join and return its id.
+async fn create_offen_application(
+    server: &genossi_rest::test_server::test_support::TestServer,
+    client: &reqwest::Client,
+    api_key: &str,
+) -> uuid::Uuid {
+    let resp = client
+        .post(server.url("/api/public/join"))
+        .header("X-Api-Key", api_key)
+        .json(&sample_join_request())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED);
+    let resp = client
+        .get(server.url("/api/applications"))
+        .send()
+        .await
+        .unwrap();
+    let apps: Vec<ApplicationTO> = resp.json().await.unwrap();
+    apps[0].id
+}
+
+/// Set the five application-mail config keys (preview render kernel + confirm mail).
+async fn seed_application_mail_config(
+    server: &genossi_rest::test_server::test_support::TestServer,
+    client: &reqwest::Client,
+) {
+    for (key, value, vtype) in [
+        ("share_value_cents", "10000", "int"),
+        ("bank_iban", "DE89 3704 0044 0532 0130 00", "string"),
+        ("bank_name", "Musterbank", "string"),
+        ("bank_bic", "COBADEFFXXX", "string"),
+        ("genossenschaft_name", "Muster eG", "string"),
+    ] {
+        client
+            .put(server.url(&format!("/api/config/{}", key)))
+            .json(&SetConfigRequest {
+                value: value.to_string(),
+                value_type: vtype.to_string(),
+            })
+            .send()
+            .await
+            .unwrap();
+    }
+}
+
+/// send happy path + single-recipient namespace (Pitfall 2, D-13): exactly ONE
+/// mail_recipients row, member_id IS NULL, application_id = app_id.
+#[tokio::test]
+async fn test_application_mail_send_happy_single_recipient() {
+    let (server, pool) = setup_with_pool().await;
+    let client = reqwest::Client::new();
+    let api_key = setup_api_key(&server, &client).await;
+
+    let app_id = create_offen_application(&server, &client, &api_key).await;
+
+    let resp = client
+        .post(server.url(&format!("/api/applications/{}/mail", app_id)))
+        .json(&SendApplicationMailRequest {
+            subject: "Willkommen".to_string(),
+            body: "Guten Tag".to_string(),
+            body_html: None,
+            template_id: None,
+        })
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // Exactly ONE recipient, application-bound (member_id NULL, application_id set).
+    let row: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM mail_recipients \
+         WHERE application_id = ? AND member_id IS NULL",
+    )
+    .bind(app_id.as_bytes().as_slice())
+    .fetch_one(&*pool)
+    .await
+    .unwrap();
+    assert_eq!(row.0, 1, "exactly one application-bound recipient (D-13)");
+
+    // No stray recipient landed in the member_id namespace with this UUID.
+    let stray: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM mail_recipients WHERE member_id = ?")
+        .bind(app_id.as_bytes().as_slice())
+        .fetch_one(&*pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        stray.0, 0,
+        "application UUID must never enter member_id (Pitfall 2)"
+    );
+
+    // The recipient address is the application email, not a free-text value.
+    let addr: (String,) =
+        sqlx::query_as("SELECT to_address FROM mail_recipients WHERE application_id = ?")
+            .bind(app_id.as_bytes().as_slice())
+            .fetch_one(&*pool)
+            .await
+            .unwrap();
+    assert_eq!(addr.0, "max@example.com");
+}
+
+/// 409 guard: sending to a non-Offen application over the real HTTP path.
+#[tokio::test]
+async fn test_application_mail_send_non_offen_returns_409() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let api_key = setup_api_key(&server, &client).await;
+
+    let app_id = create_offen_application(&server, &client, &api_key).await;
+
+    // Move out of Offen via reject.
+    let resp = client
+        .post(server.url(&format!("/api/applications/{}/reject", app_id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let resp = client
+        .post(server.url(&format!("/api/applications/{}/mail", app_id)))
+        .json(&SendApplicationMailRequest {
+            subject: "Willkommen".to_string(),
+            body: "Guten Tag".to_string(),
+            body_html: None,
+            template_id: None,
+        })
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::CONFLICT);
+}
+
+/// 400/422 guard: an application without an email address cannot be mailed. The
+/// service returns ValidationError → RestError::BadRequest (400).
+#[tokio::test]
+async fn test_application_mail_send_no_address_returns_400() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+
+    // Admin-create an application WITHOUT an email address.
+    let request = AdminCreateApplicationRequest {
+        first_name: "Hans".to_string(),
+        last_name: "Meier".to_string(),
+        salutation: None,
+        title: None,
+        email: None,
+        street: None,
+        house_number: None,
+        postal_code: None,
+        city: None,
+        shares: 1,
+        send_mail: None,
+    };
+    let resp = client
+        .post(server.url("/api/applications"))
+        .json(&request)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED);
+    let app: ApplicationTO = resp.json().await.unwrap();
+
+    let resp = client
+        .post(server.url(&format!("/api/applications/{}/mail", app.id)))
+        .json(&SendApplicationMailRequest {
+            subject: "Willkommen".to_string(),
+            body: "Guten Tag".to_string(),
+            body_html: None,
+            template_id: None,
+        })
+        .send()
+        .await
+        .unwrap();
+    // ValidationError(field=email) maps to 400 BadRequest in the REST layer.
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+/// communications timeline: a seeded outbound applicant reminder shows up as a
+/// single outbound CommunicationEntryTO via the admin-gated route.
+#[tokio::test]
+async fn test_application_mail_communications_timeline() {
+    let (server, pool) = setup_with_pool().await;
+    let client = reqwest::Client::new();
+    let api_key = setup_api_key(&server, &client).await;
+
+    let app_id = create_offen_application(&server, &client, &api_key).await;
+
+    // Seed one outbound reminder (application_id set, member_id NULL).
+    let job_id = uuid::Uuid::new_v4();
+    let recipient_id = uuid::Uuid::new_v4();
+    let version_id = uuid::Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO mail_jobs (id, created, version, subject, body, status, total_count, sent_count, failed_count) \
+         VALUES (?, '2026-03-15 14:30:00', ?, 'Zahlungserinnerung', 'Bitte Beitrag zahlen', 'completed', 1, 1, 0)",
+    )
+    .bind(job_id.as_bytes().as_slice())
+    .bind(version_id.as_bytes().as_slice())
+    .execute(&*pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO mail_recipients (id, created, version, mail_job_id, to_address, member_id, application_id, status, sent_at) \
+         VALUES (?, '2026-03-15 14:30:00', ?, ?, 'max@example.com', NULL, ?, 'sent', '2026-03-15 14:30:05')",
+    )
+    .bind(recipient_id.as_bytes().as_slice())
+    .bind(version_id.as_bytes().as_slice())
+    .bind(job_id.as_bytes().as_slice())
+    .bind(app_id.as_bytes().as_slice())
+    .execute(&*pool)
+    .await
+    .unwrap();
+
+    let resp = client
+        .get(server.url(&format!("/api/applications/{}/communications", app_id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let timeline: Vec<serde_json::Value> = resp.json().await.unwrap();
+    assert_eq!(timeline.len(), 1, "one outbound entry expected");
+    assert_eq!(timeline[0]["subject"], "Zahlungserinnerung");
+    assert_eq!(timeline[0]["direction"], "outbound");
+}
+
+/// last_sent_at aggregation: None before any send/seed, Some(...) afterward — the
+/// value is aggregated server-side on the get_application response (APHIST-02).
+#[tokio::test]
+async fn test_application_mail_last_sent_at_aggregation() {
+    let (server, pool) = setup_with_pool().await;
+    let client = reqwest::Client::new();
+    let api_key = setup_api_key(&server, &client).await;
+
+    let app_id = create_offen_application(&server, &client, &api_key).await;
+
+    // Before any outbound history: last_sent_at is None.
+    let resp = client
+        .get(server.url(&format!("/api/applications/{}", app_id)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let app: ApplicationTO = resp.json().await.unwrap();
+    assert!(app.last_sent_at.is_none(), "no outbound history yet");
+
+    // Seed one outbound reminder.
+    let job_id = uuid::Uuid::new_v4();
+    let recipient_id = uuid::Uuid::new_v4();
+    let version_id = uuid::Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO mail_jobs (id, created, version, subject, body, status, total_count, sent_count, failed_count) \
+         VALUES (?, '2026-03-15 14:30:00', ?, 'Zahlungserinnerung', 'Bitte', 'completed', 1, 1, 0)",
+    )
+    .bind(job_id.as_bytes().as_slice())
+    .bind(version_id.as_bytes().as_slice())
+    .execute(&*pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO mail_recipients (id, created, version, mail_job_id, to_address, member_id, application_id, status, sent_at) \
+         VALUES (?, '2026-03-15 14:30:00', ?, ?, 'max@example.com', NULL, ?, 'sent', '2026-03-15 14:30:05')",
+    )
+    .bind(recipient_id.as_bytes().as_slice())
+    .bind(version_id.as_bytes().as_slice())
+    .bind(job_id.as_bytes().as_slice())
+    .bind(app_id.as_bytes().as_slice())
+    .execute(&*pool)
+    .await
+    .unwrap();
+
+    // After seeding: last_sent_at is Some (server-side aggregate).
+    let resp = client
+        .get(server.url(&format!("/api/applications/{}", app_id)))
+        .send()
+        .await
+        .unwrap();
+    let app: ApplicationTO = resp.json().await.unwrap();
+    assert!(
+        app.last_sent_at.is_some(),
+        "last_sent_at must be aggregated server-side after an outbound send"
+    );
+}
+
+/// preview: `{{ open_amount }}` is resolved against the application context via
+/// the SAME render kernel the worker uses (D-06). shares=2 × 10000 cents.
+#[tokio::test]
+async fn test_application_mail_preview_renders_open_amount() {
+    let server = setup().await;
+    let client = reqwest::Client::new();
+    let api_key = setup_api_key(&server, &client).await;
+
+    seed_application_mail_config(&server, &client).await;
+    let app_id = create_offen_application(&server, &client, &api_key).await;
+
+    let resp = client
+        .post(server.url(&format!("/api/applications/{}/mail/preview", app_id)))
+        .json(&PreviewApplicationMailRequest {
+            subject: "Betreff".to_string(),
+            body: "Offener Betrag: {{ open_amount }}".to_string(),
+            body_html: None,
+        })
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let rendered: PreviewApplicationMailResponse = resp.json().await.unwrap();
+
+    // shares (2) × share_value_cents (10000) = 20000 cents → format_eur_de.
+    let expected = genossi_service::euro::format_eur_de(20000);
+    assert_eq!(expected, "200,00 €");
+    assert_eq!(rendered.body, format!("Offener Betrag: {}", expected));
+    assert_eq!(rendered.subject, "Betreff");
+}
+
+/// Guardrail (D-13, T-31-03): SendApplicationMailRequest has no recipient field.
+/// A JSON body carrying an extra `to`/`address` field is silently ignored — the
+/// recipient row still carries the application.email, not the injected address.
+#[tokio::test]
+async fn test_application_mail_send_ignores_freetext_recipient() {
+    let (server, pool) = setup_with_pool().await;
+    let client = reqwest::Client::new();
+    let api_key = setup_api_key(&server, &client).await;
+
+    let app_id = create_offen_application(&server, &client, &api_key).await;
+
+    // Raw JSON with rogue recipient fields the schema does not define.
+    let rogue = serde_json::json!({
+        "subject": "Willkommen",
+        "body": "Guten Tag",
+        "to": "attacker@evil.example",
+        "address": "attacker@evil.example",
+        "recipient": "attacker@evil.example",
+    });
+
+    let resp = client
+        .post(server.url(&format!("/api/applications/{}/mail", app_id)))
+        .json(&rogue)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // The recipient is the application email — the rogue fields were ignored.
+    let addr: (String,) =
+        sqlx::query_as("SELECT to_address FROM mail_recipients WHERE application_id = ?")
+            .bind(app_id.as_bytes().as_slice())
+            .fetch_one(&*pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        addr.0, "max@example.com",
+        "free-text recipient must be ignored (D-13)"
+    );
 }
