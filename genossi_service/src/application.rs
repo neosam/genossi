@@ -86,6 +86,40 @@ pub struct ApplicationSubmission {
     pub shares: i32,
 }
 
+/// Phase 31 (APMAIL-01/02, D-03): raw content for a manual applicant mail send.
+///
+/// The service stamps exactly ONE recipient (`application.email`) around this
+/// content — `subject`/`body`/`body_html` still carry unrendered placeholders;
+/// the worker resolves them per-recipient via the shared render kernel. These
+/// types are deliberately `genossi_service`-local (NOT `genossi_mail` types):
+/// `genossi_mail` depends on `genossi_service`, so re-importing a `genossi_mail`
+/// type here would create a dependency cycle.
+#[derive(Clone, Debug)]
+pub struct ApplicationMailInput {
+    pub subject: String,
+    pub body: String,
+    pub body_html: Option<String>,
+    pub template_id: Option<Uuid>,
+}
+
+/// Phase 31 (D-06): preview request — the draft an admin wants to see rendered
+/// before sending. No recipient, no template_id (preview never enqueues).
+#[derive(Clone, Debug)]
+pub struct ApplicationMailDraft {
+    pub subject: String,
+    pub body: String,
+    pub body_html: Option<String>,
+}
+
+/// Phase 31 (D-06): preview result — the rendered subject/body/body_html the
+/// admin sees. Cycle-free (no `genossi_mail::RenderedContent`).
+#[derive(Clone, Debug)]
+pub struct RenderedApplicationMail {
+    pub subject: String,
+    pub body: String,
+    pub body_html: Option<String>,
+}
+
 /// Input for updating an existing application.
 #[derive(Clone, Debug)]
 pub struct ApplicationUpdate {
@@ -151,4 +185,44 @@ pub trait ApplicationService {
         update: &ApplicationUpdate,
         context: crate::permission::Authentication<Self::Context>,
     ) -> Result<Application, ServiceError>;
+
+    /// Phase 31 (APMAIL-01/02, APCMP-01/02): enqueue a manual applicant mail.
+    ///
+    /// CR-02 ordering guarantee (identical to `confirm`): the permission check
+    /// runs FIRST, then NotFound, then the `Offen`-only status guard — no
+    /// user-attributable side effect precedes the permission check. Unlike the
+    /// `send_confirmation_mail` anti-pattern, this method NEVER returns a silent
+    /// `()`: every synchronous failure (403 PermissionDenied, 404 EntityNotFound,
+    /// 409 Conflict on status ≠ Offen, 400 ValidationError on missing address,
+    /// 500 InternalError on enqueue failure) is propagated as a real error.
+    /// Exactly ONE application-bound recipient (`application.email`) is stamped;
+    /// there is no mass-send path and no free-text recipient.
+    async fn send_mail(
+        &self,
+        id: Uuid,
+        input: &ApplicationMailInput,
+        context: crate::permission::Authentication<Self::Context>,
+    ) -> Result<(), ServiceError>;
+
+    /// Phase 31 (D-06): render a draft through the SAME pure render kernel the
+    /// worker uses (`render_application_content`), so preview output is
+    /// byte-identical to what the recipient receives. Permission check runs
+    /// FIRST, then NotFound. Status-independent (no `Offen` guard) and never
+    /// enqueues — pure preview.
+    async fn preview_mail(
+        &self,
+        id: Uuid,
+        draft: &ApplicationMailDraft,
+        context: crate::permission::Authentication<Self::Context>,
+    ) -> Result<RenderedApplicationMail, ServiceError>;
+
+    /// Phase 31 (APHIST-02, D-07 Option A): server-side anti-double-send guard.
+    /// Returns `MAX(entry.date)` over `get_application_communications(id)` —
+    /// where `date = COALESCE(sent_at, created)` — or `None` if the applicant
+    /// has no outbound history. Permission check runs FIRST.
+    async fn last_sent_at(
+        &self,
+        id: Uuid,
+        context: crate::permission::Authentication<Self::Context>,
+    ) -> Result<Option<time::PrimitiveDateTime>, ServiceError>;
 }
