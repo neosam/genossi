@@ -109,7 +109,7 @@ Archive: TBD (bei Milestone-Close)
 
 - [x] **Phase 29: DAO/Schema-Foundation (Kommunikations-Historie pro Antragsteller)** — Migration nullable `application_id BLOB` + Index auf `mail_recipients`; `MailRecipient`/`RecipientInput.application_id`; `create_job` threaded es durch; `CommunicationDao::get_application_communications` (outbound-only); Carry-over-Mechanik bei `confirm()` → Erinnerung erscheint in Mitglieds-Timeline (APHIST-01, APHIST-03) (completed 2026-08-12)
 - [x] **Phase 30: Application-Template-Kontext (Antragsteller-Vorlagen)** — eigener „Antragsteller"-Vorlagentyp via `application_to_template_context`; extrahierter generischer `validate_rendered`-Kern (Member-Tests bleiben grün); `format_eur_de`-Helper; `share_value_cents` aus derselben Config wie `send_confirmation_mail`; geseedete Standard-Vorlage „Zahlungserinnerung" (APTPL-01..04) (completed 2026-08-20)
-- [ ] **Phase 31: Service + REST Versand (Versand + Guardrails)** — `ApplicationService::send_mail` → `Result<_, ServiceError>` (nicht das stille `()`-Pattern); Status-Guard `Offen`-only (409); `POST /api/applications/{id}/mail` + `GET /api/applications/{id}/communications`, admin-only; „zuletzt gesendet"-Daten; Service-/E2E-Tests (APMAIL-01..02, APCMP-01..02, APHIST-02)
+- [x] **Phase 31: Service + REST Versand (Versand + Guardrails)** — `ApplicationService::send_mail` → `Result<_, ServiceError>` (nicht das stille `()`-Pattern); Status-Guard `Offen`-only (409); `POST /api/applications/{id}/mail` + `GET /api/applications/{id}/communications`, admin-only; „zuletzt gesendet"-Daten; Service-/E2E-Tests (APMAIL-01..02, APCMP-01..02, APHIST-02) (completed 2026-08-20)
 - [ ] **Phase 32: Frontend Compose-Dialog** — `api.rs`-Funktionen (dediziert, nicht member-umgeleitet); neuer Application-Mail-Compose-Dialog mit Wiederverwendung `mail_compose/*` + `communication_timeline.rs`; „E-Mail senden"-Button + Last-Sent-Anzeige auf `application_detail.rs`; Live-Preview + Confirm-before-send; deaktiviert-ohne-Adresse & deaktiviert-während-pending (APMAIL-03..04, APUI-01..03)
 
 **Build order:** 29 (Schema/Linkage) und 30 (Template-Kontext) können parallel laufen, müssen aber beide vor 31 landen. 31 (Service + REST) hängt an 29+30. 32 (Frontend) hängt an 31. Harte Dependency-Kette: das `application_id`-Feld muss existieren und persistiert werden, bevor der Service es stempeln kann; die Endpoints müssen existieren, bevor der Dialog etwas aufrufen kann.
@@ -279,7 +279,7 @@ Plans:
   4. Der Service liefert pro Application die „zuletzt gesendet am …"-Information (aus der outbound-Historie), damit der Anti-Doppelversand-/Spam-Guard auf der Detailseite angezeigt werden kann.
   5. Es gibt keinen Massenversand- und keinen Freitext-Empfänger-Pfad; Empfänger ist immer die Application selbst (Content-Scoping), kein Open-/Click-Tracking — verifiziert per Service-/E2E-Tests.
 
-**Plans:** 3/3 plans executed
+**Plans:** 3/3 plans complete
 
 Plans:
 **Wave 1**
@@ -346,7 +346,7 @@ Plans:
 | 28. Desktop/Mobile-Vorschau                        | v1.5      | 4/5 | In Progress|  |
 | 29. DAO/Schema-Foundation (Antragsteller-Historie) | v1.6      | 2/2 | Complete    | 2026-08-12 |
 | 30. Application-Template-Kontext                   | v1.6      | 3/3 | Complete    | 2026-08-20 |
-| 31. Service + REST Versand                         | v1.6      | 3/3 | In Progress|  |
+| 31. Service + REST Versand                         | v1.6      | 3/3 | Complete    | 2026-08-20 |
 | 32. Frontend Compose-Dialog                        | v1.6      | 0/0 | Not started |  |
 
 ---
