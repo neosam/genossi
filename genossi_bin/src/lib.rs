@@ -194,6 +194,9 @@ impl ApplicationServiceDeps for ApplicationServiceDependencies {
     type TransactionDao = TransactionDao;
     type ConfigService = ConfigService;
     type MailService = MailServiceType;
+    // Phase 31 (APHIST-02): last_sent_at aggregation over the applicant
+    // outbound-communication timeline.
+    type CommunicationDao = genossi_mail::dao_sqlite::CommunicationDaoSqlite;
 }
 
 type ApplicationService =
@@ -1045,6 +1048,11 @@ impl RestStateImpl {
                 transaction_dao: transaction_dao.clone(),
                 config_service: config_service_for_app,
                 mail_service: mail_service.clone(),
+                // Phase 31 (APHIST-02): last_sent_at aggregates over the
+                // existing outbound applicant-communication timeline (Phase 29).
+                communication_dao: Arc::new(genossi_mail::dao_sqlite::CommunicationDaoSqlite::new(
+                    pool.clone(),
+                )),
             });
 
         // Phase 25 Wave 3 (Plan 25-04): ApplicationDocumentServiceImpl for

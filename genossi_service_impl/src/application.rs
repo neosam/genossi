@@ -7,9 +7,11 @@ use genossi_dao::member::MemberDao;
 use genossi_dao::member_action::MemberActionDao;
 use genossi_dao::member_document::MemberDocumentDao;
 use genossi_dao::TransactionDao;
+use genossi_mail::dao::CommunicationDao as CommunicationDaoTrait;
 use genossi_mail::service::MailService as MailServiceTrait;
 use genossi_service::application::{
-    Application, ApplicationService, ApplicationSubmission, ApplicationUpdate,
+    Application, ApplicationMailDraft, ApplicationMailInput, ApplicationService,
+    ApplicationSubmission, ApplicationUpdate, RenderedApplicationMail,
 };
 use genossi_service::document_storage::{DocumentStorage, StorageError};
 use genossi_service::permission::{Authentication, PermissionService};
@@ -37,6 +39,7 @@ gen_service_impl! {
         TransactionDao: TransactionDao<Transaction = Self::Transaction> = transaction_dao,
         ConfigService: genossi_config::service::ConfigService = config_service,
         MailService: genossi_mail::service::MailService = mail_service,
+        CommunicationDao: genossi_mail::dao::CommunicationDao = communication_dao,
     }
 }
 
@@ -703,6 +706,171 @@ impl<Deps: ApplicationServiceDeps> ApplicationService for ApplicationServiceImpl
 
         self.transaction_dao.commit(tx).await?;
         Ok(Application::from(&entity))
+    }
+
+    async fn send_mail(
+        &self,
+        id: Uuid,
+        input: &ApplicationMailInput,
+        context: Authentication<Self::Context>,
+    ) -> Result<(), ServiceError> {
+        // CR-02 (D-11): permission FIRST — no user-attributable side effect
+        // (DAO lookup, enqueue) may precede this check.
+        self.permission_service
+            .check_permission(MANAGE_MEMBERS_PRIVILEGE, context)
+            .await?;
+
+        let tx = self.transaction_dao.use_transaction(None).await?;
+        let entity = self
+            .application_dao
+            .find_by_id(id, tx.clone())
+            .await?
+            .ok_or(ServiceError::EntityNotFound(id))?;
+        self.transaction_dao.commit(tx).await?;
+
+        let app = Application::from(&entity);
+
+        // APCMP-01 (409): a send is only lawful while the application is Offen —
+        // the DSGVO transactional legal basis boundary.
+        if app.status != ApplicationStatus::Offen {
+            return Err(ServiceError::Conflict(Arc::from(format!(
+                "Application status is '{}', expected 'Offen'",
+                app.status.as_str()
+            ))));
+        }
+
+        // D-12 (400): a fixed recipient requires an address on the application.
+        let address = match &app.email {
+            Some(email) => email.to_string(),
+            None => {
+                return Err(ServiceError::ValidationError(vec![ValidationFailureItem {
+                    field: Arc::from("email"),
+                    message: Arc::from("Application has no email address"),
+                }]));
+            }
+        };
+
+        // D-13 / Pitfall 2: exactly ONE application-bound recipient. The address
+        // is always `application.email` (never free-text from the request);
+        // application_id is set, member_id stays None (namespace separation).
+        let recipient = genossi_mail::service::RecipientInput {
+            address,
+            member_id: None,
+            application_id: Some(app.id),
+        };
+
+        // D-01 / APMAIL-02: enqueue failure propagates synchronously as 500 —
+        // never a silent Ok(()). body_html is passed RAW (create_job sanitises
+        // via ammonia at the store boundary, D-05).
+        self.mail_service
+            .create_job(
+                &input.subject,
+                &input.body,
+                input.body_html.clone(),
+                vec![recipient],
+                vec![],
+                vec![],
+                input.template_id,
+                None,
+                false,
+            )
+            .await
+            .map_err(|e| {
+                ServiceError::InternalError(Arc::from(format!(
+                    "Failed to enqueue applicant mail: {:?}",
+                    e
+                )))
+            })?;
+
+        Ok(())
+    }
+
+    async fn preview_mail(
+        &self,
+        id: Uuid,
+        draft: &ApplicationMailDraft,
+        context: Authentication<Self::Context>,
+    ) -> Result<RenderedApplicationMail, ServiceError> {
+        // CR-02: permission FIRST.
+        self.permission_service
+            .check_permission(MANAGE_MEMBERS_PRIVILEGE, context)
+            .await?;
+
+        let tx = self.transaction_dao.use_transaction(None).await?;
+        let entity = self
+            .application_dao
+            .find_by_id(id, tx.clone())
+            .await?
+            .ok_or(ServiceError::EntityNotFound(id))?;
+        self.transaction_dao.commit(tx).await?;
+
+        let app = Application::from(&entity);
+
+        // D-06: render through the SAME pure kernel the worker uses. The service
+        // resolves the config once and hands it in — one renderer seam.
+        let cfg = genossi_mail::render::load_application_mail_config(self.config_service.as_ref())
+            .await
+            .map_err(|e| {
+                ServiceError::InternalError(Arc::from(format!(
+                    "Failed to load application mail config: {:?}",
+                    e
+                )))
+            })?;
+
+        let rendered = genossi_mail::render::render_application_content(
+            &app,
+            &draft.subject,
+            &draft.body,
+            draft.body_html.as_deref(),
+            &cfg,
+        )
+        .map_err(|f| {
+            ServiceError::ValidationError(vec![ValidationFailureItem {
+                field: Arc::from("template"),
+                message: Arc::from(f.message.as_str()),
+            }])
+        })?;
+
+        Ok(RenderedApplicationMail {
+            subject: rendered.subject,
+            body: rendered.body,
+            body_html: rendered.body_html,
+        })
+    }
+
+    async fn last_sent_at(
+        &self,
+        id: Uuid,
+        context: Authentication<Self::Context>,
+    ) -> Result<Option<time::PrimitiveDateTime>, ServiceError> {
+        // CR-02: permission FIRST.
+        self.permission_service
+            .check_permission(MANAGE_MEMBERS_PRIVILEGE, context)
+            .await?;
+
+        // 404-consistency: an unknown application yields EntityNotFound rather
+        // than a misleading None.
+        let tx = self.transaction_dao.use_transaction(None).await?;
+        self.application_dao
+            .find_by_id(id, tx.clone())
+            .await?
+            .ok_or(ServiceError::EntityNotFound(id))?;
+        self.transaction_dao.commit(tx).await?;
+
+        // OQ1 Option A (D-07): MAX over the existing `date` field
+        // (COALESCE(sent_at, created)) — server-side aggregate, no client math.
+        let entries = self
+            .communication_dao
+            .get_application_communications(id)
+            .await
+            .map_err(|e| {
+                ServiceError::DataAccess(Arc::from(format!(
+                    "Failed to load applicant communications: {:?}",
+                    e
+                )))
+            })?;
+
+        Ok(entries.iter().map(|e| e.date).max())
     }
 }
 
