@@ -2559,6 +2559,70 @@ mod tests {
         assert_eq!(result[0].recipient_id, Some(recipient.id));
     }
 
+    // Phase 32 D-06: Application-Timeline liefert den persistierten, per-Empfaenger
+    // gerenderten Body (rendered_body/rendered_html_body) durch — kein Re-Render.
+    #[tokio::test]
+    async fn test_application_communications_exposes_rendered_body() {
+        let pool = setup_db().await;
+        let application_id = Uuid::new_v4();
+
+        let job_dao = MailJobDaoSqlite::new(pool.clone());
+        let recipient_dao = MailRecipientDaoSqlite::new(pool.clone());
+        let job = sample_job();
+        job_dao.create(&job).await.unwrap();
+
+        let mut recipient = sample_recipient(job.id);
+        recipient.application_id = Some(application_id);
+        recipient.member_id = None;
+        recipient.status = Arc::from("sent");
+        recipient.rendered_body = Some(Arc::from("Hallo Antragsteller, willkommen."));
+        recipient.rendered_html_body = Some(Arc::from("<p>Hallo Antragsteller, willkommen.</p>"));
+        recipient_dao.create(&recipient).await.unwrap();
+
+        let dao = CommunicationDaoSqlite::new(pool);
+        let result = dao
+            .get_application_communications(application_id)
+            .await
+            .unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(
+            result[0].rendered_body.as_deref(),
+            Some("Hallo Antragsteller, willkommen.")
+        );
+        assert_eq!(
+            result[0].rendered_html_body.as_deref(),
+            Some("<p>Hallo Antragsteller, willkommen.</p>")
+        );
+    }
+
+    // Phase 32 D-06: Legacy-/Backfill-Zeile ohne rendered_* → None in beiden Feldern.
+    #[tokio::test]
+    async fn test_application_communications_rendered_body_none_for_legacy_row() {
+        let pool = setup_db().await;
+        let application_id = Uuid::new_v4();
+
+        let job_dao = MailJobDaoSqlite::new(pool.clone());
+        let recipient_dao = MailRecipientDaoSqlite::new(pool.clone());
+        let job = sample_job();
+        job_dao.create(&job).await.unwrap();
+
+        let mut recipient = sample_recipient(job.id);
+        recipient.application_id = Some(application_id);
+        recipient.member_id = None;
+        recipient.status = Arc::from("sent");
+        // rendered_body / rendered_html_body bleiben None (Legacy-Zeile).
+        recipient_dao.create(&recipient).await.unwrap();
+
+        let dao = CommunicationDaoSqlite::new(pool);
+        let result = dao
+            .get_application_communications(application_id)
+            .await
+            .unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].rendered_body, None);
+        assert_eq!(result[0].rendered_html_body, None);
+    }
+
     // Behavior 2: fremde application_id → leeres Arr.
     #[tokio::test]
     async fn test_application_communications_empty_for_foreign_application() {
