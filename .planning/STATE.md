@@ -4,9 +4,9 @@ milestone: v1.6
 milestone_name: Antragsteller-Kommunikation
 current_phase: 30
 current_phase_name: Antragsteller-Vorlagen
-status: planning
-stopped_at: Phase 30 context gathered
-last_updated: "2026-08-12T19:30:26.336Z"
+status: executing
+stopped_at: Phase 30 geplant — 3 Pläne, bereit für Execute
+last_updated: "2026-08-20T08:07:08.313Z"
 last_activity: 2026-08-12
 last_activity_desc: Phase 29 complete, transitioned to Phase 30
 progress:
@@ -17,7 +17,7 @@ progress:
   percent: 50
 ---
 
-# State: Genossi — v1.6 Antragsteller-Kommunikation (Phase 29 geplant — 2 Pläne, bereit für Execute)
+# State: Genossi — v1.6 Antragsteller-Kommunikation (Phase 30 geplant — 3 Pläne, bereit für Execute)
 
 **Initialized:** 2026-05-02
 **Last Updated:** 2026-08-12 (Milestone v1.6 gestartet — E-Mail an Antragsteller, Vorlagen, Kommunikations-Historie; v1.5 getestet & deployed)
@@ -34,7 +34,7 @@ See: `.planning/PROJECT.md` (updated 2026-08-12 mit v1.6 Current Milestone)
 
 Phase: 30 — Application-Template-Kontext (Antragsteller-Vorlagen)
 Plan: Not started
-Status: Ready to plan
+Status: Ready to execute
 Last activity: 2026-08-12 — Phase 29 complete, transitioned to Phase 30
 
 ### v1.6 Phase Structure (Phases 29-32, granularity: coarse)
