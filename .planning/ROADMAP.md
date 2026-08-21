@@ -423,6 +423,19 @@ Plans:
 
 **Routing:** `/gsd-discuss-phase` (Designentscheidungen offen), dann `/gsd-plan-phase`.
 
+### Phase 999.6: Vorlagen-Typ im UI pflegbar + Member-Filter + Selector-Anzeige (BACKLOG)
+
+**Priorität:** mittel (Feature-Lücke aus Phase 32) · **Quelle:** Phase-32-UAT 2026-08-21
+**Goal:** Den `template_type`-Diskriminator (Phase 30) im UI vollständig nutzbar machen — Antragsteller-Vorlagen sind heute nur per API anlegbar, Member-Seiten filtern nicht.
+**Drei zusammengehörige Teilaufgaben:**
+
+- **Vorlagen-Verwaltung:** `template_type`-Auswahl (Mitglied/Antragsteller) beim Anlegen/Bearbeiten in `page/mail_templates.rs` — heute fällt jede UI-angelegte Vorlage stumm auf den Default `'member'`; die einzige Application-Vorlage ist der Seed „Zahlungserinnerung".
+- **Member-Filter (Spiegelrichtung von Phase 32 D-03):** Member-Mailseiten (`mail_page.rs`, `inbox/reply_form.rs`) den `TemplateSelector` mit `filter_type: "member"` aufrufen lassen — sonst taucht die „Zahlungserinnerung" im Member-Pool auf und der strikte Render scheitert kontrolliert an `open_amount`/`shares` (heute nur Fehleranzeige, kein Datenschaden).
+- **Kosmetik:** `TemplateSelector` zeigt die per `initial_template_id` gesetzte initiale Auswahl nicht als selektierten Dropdown-Eintrag an (beobachtet auf der Application-Compose-Seite; Vorlage ist geladen, Dropdown wirkt leer).
+
+**Befund-Referenzen:** `component/mail_compose/template_selector.rs` (`filter_type`/`initial_template_id`-Props aus Phase 32), `api.rs::filter_templates_by_type`, `genossi_mail/src/rest_templates.rs` (`default_template_type()` → 'member').
+**Routing:** `/gsd-quick --discuss` (klein, aber Selector-Anzeige braucht kurze Ursachenanalyse).
+
 ---
 
 _Last updated: 2026-08-12 — v1.6 Antragsteller-Kommunikation gestartet (Phases 29-32, fortlaufende Nummerierung nach v1.5 Phase 28). 16 REQs (APMAIL-01..04, APTPL-01..04, APHIST-01..03, APCMP-01..02, APUI-01..03) auf 4 Phasen gemappt, 100% Coverage, keine Orphans/Duplikate. Build-Order: 29 (Schema) ∥ 30 (Template-Kontext) → 31 (Service+REST) → 32 (Frontend); harte Dependency-Kette Schema→Service→Frontend. „Add nothing"-Stack (pure Wiederverwendung `genossi_mail`), kein neues Audit-Feld auf `ApplicationEntity`, Versand-Guardrails DSGVO-transaktional (`Offen`-only, kein Bulk/Tracking). v1.0-v1.5 Historie + Backlog 999.x unverändert erhalten._
