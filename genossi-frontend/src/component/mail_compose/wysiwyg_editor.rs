@@ -546,8 +546,10 @@ pub fn plain_to_html(text: &str) -> String {
             '&' => out.push_str("&amp;"),
             '<' => out.push_str("&lt;"),
             '>' => out.push_str("&gt;"),
-            '"' => out.push_str("&quot;"),
-            '\'' => out.push_str("&#39;"),
+            // KEIN Escaping von '"' / '\'' — das Ergebnis landet ausschliesslich
+            // in Textknoten (innerHTML-Seeding), nie in Attributen. Escaping zu
+            // &quot;/&#39; zerbricht Jinja-String-Literale in Vorlagen
+            // ({% if salutation == "Herr" %}) beim Server-Render (Phase 32 UAT).
             '\r' => {}
             '\n' => out.push_str("<br>"),
             other => out.push(other),
@@ -623,9 +625,18 @@ mod tests {
 
     #[test]
     fn escapes_html_entities() {
+        // Nur &, <, > — Quotes bleiben unangetastet (Textknoten-Kontext).
+        assert_eq!(plain_to_html("<b>&\"'</b>"), "&lt;b&gt;&amp;\"'&lt;/b&gt;");
+    }
+
+    /// Regression Phase 32 UAT: Jinja-String-Literale in Vorlagen-Bedingungen
+    /// muessen das Plain→HTML-Seeding unversehrt ueberleben — &quot; im
+    /// body_html liess den Server-Render mit einem Syntaxfehler abbrechen.
+    #[test]
+    fn jinja_string_literals_survive() {
         assert_eq!(
-            plain_to_html("<b>&\"'</b>"),
-            "&lt;b&gt;&amp;&quot;&#39;&lt;/b&gt;"
+            plain_to_html("{% if salutation == \"Herr\" %}r Herr{% endif %}"),
+            "{% if salutation == \"Herr\" %}r Herr{% endif %}"
         );
     }
 
