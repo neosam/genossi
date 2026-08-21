@@ -3,17 +3,24 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    # Pinned pre-25.11 nixpkgs NUR fuer dioxus-cli: das Projekt nutzt dioxus 0.6.3,
+    # neuere nixpkgs liefern dx 0.7.x, das inkompatibel ist (u.a. serviert es
+    # /assets/config.json als SPA-Fallback statt als Datei → Config-Load bricht).
+    # Rev = nixpkgs-Stand des flake.lock vor dem Input-Bump 17d0d4d.
+    nixpkgs-dioxus.url = "github:NixOS/nixpkgs/0b4defa2584313f3b781240b29d61f6f9f7e0df3";
     rust-overlay.url = "github:oxalica/rust-overlay";
     flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { self, nixpkgs, rust-overlay, flake-utils }:
+  outputs = { self, nixpkgs, nixpkgs-dioxus, rust-overlay, flake-utils }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         overlays = [ (import rust-overlay) ];
         pkgs = import nixpkgs {
           inherit system overlays;
         };
+        # dioxus-cli 0.6.x aus dem alten Pin (siehe inputs.nixpkgs-dioxus).
+        pkgsDioxus = import nixpkgs-dioxus { inherit system; };
         
         rustToolchain = pkgs.rust-bin.stable.latest.default.override {
           extensions = [ "rust-src" "rust-analyzer" ];
@@ -49,7 +56,7 @@
             nodejs
             tailwindcss
             pkg-config
-            dioxus-cli
+            pkgsDioxus.dioxus-cli
             binaryen
             hexdump
             removeReferencesTo
@@ -200,7 +207,7 @@ EOF
             wasm-pack
             wasm-bindgen-cli_0_2_104
             wasmtime
-            dioxus-cli
+            pkgsDioxus.dioxus-cli
             nodejs
             tailwindcss
             pkg-config
