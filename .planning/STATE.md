@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v1.6
 milestone_name: Antragsteller-Kommunikation
 current_phase: 32
-current_phase_name: Frontend Compose-Dialog
-status: verifying
-stopped_at: Phase 32 ausgeführt (4/4); Verifikation human_needed — UAT-Smoke-Test ausstehend
-last_updated: "2026-08-20T23:16:33.072Z"
+status: completed
+stopped_at: Phase 32 abgeschlossen (UAT abgenommen) — Milestone v1.6 komplett
+last_updated: "2026-08-21T07:11:22.465Z"
 last_activity: 2026-08-21
-last_activity_desc: Phase 32 execution started
+last_activity_desc: Phase 32 complete
 progress:
   total_phases: 4
   completed_phases: 4
   total_plans: 12
   completed_plans: 12
+current_phase_name: Frontend Compose-Dialog
 ---
 
 # State: Genossi — v1.6 Antragsteller-Kommunikation (Phase 30 abgeschlossen — 4/4 verifiziert; Phase 31 geplant — 3 Pläne, plan-checker passed)
@@ -31,10 +31,10 @@ See: `.planning/PROJECT.md` (updated 2026-08-12 mit v1.6 Current Milestone)
 
 ## Current Position
 
-Phase: 32 (Frontend Compose-Dialog) — EXECUTING
-Plan: 4 of 4 ausgeführt
-Status: Verifikation human_needed — UAT-Smoke-Test ausstehend (/gsd-verify-work 32)
-Last activity: 2026-08-21 — Phase 32 execution started
+Phase: 32
+Plan: Not started
+Status: All phases complete
+Last activity: 2026-08-21 — Phase 32 complete
 
 ### v1.6 Phase Structure (Phases 29-32, granularity: coarse)
 

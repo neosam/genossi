@@ -1,7 +1,9 @@
 ---
 phase: 32-frontend-compose-dialog
 verified: 2026-08-21T00:00:00Z
-status: human_needed
+status: passed
+human_verified: 2026-08-21
+human_verified_by: user (Browser-Smoke-Test auf dev + Abnahme; Rest-Checks bewusst auf Integrationsumgebung verschoben, siehe 32-UAT.md)
 score: 5/7 must-haves verified
 behavior_unverified: 2
 overrides_applied: 0
