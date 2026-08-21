@@ -349,10 +349,14 @@ pub fn ApplicationCompose(id: String) -> Element {
                                 div { class: "text-sm text-gray-600",
                                     if let Some((subj, status, date)) = last_sent {
                                         {
-                                            let status_part = status.unwrap_or_default();
+                                            let status_label = crate::util::format::outbound_status_label(
+                                                &i18n,
+                                                status.as_deref(),
+                                            );
+                                            let date_str = i18n.format_datetime(&date);
                                             rsx! {
                                                 span { class: "font-medium", {i18n.t(Key::LastSentSummary)} ": " }
-                                                span { "{subj} — {status_part} ({date})" }
+                                                span { "{subj} — {status_label} am {date_str}" }
                                             }
                                         }
                                     } else {

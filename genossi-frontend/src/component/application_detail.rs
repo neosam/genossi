@@ -6,16 +6,7 @@ use crate::i18n::{use_i18n, Key};
 use crate::router::Route;
 use crate::service::config::CONFIG;
 use crate::util::email::is_email_empty;
-
-/// Uebersetztes Status-Label fuer die "zuletzt gesendet"-Zeile. Spiegelt das
-/// Mapping der CommunicationTimeline-Badges (sent/failed/pending).
-fn outbound_status_label(i18n: &crate::i18n::I18n, status: Option<&str>) -> String {
-    match status {
-        Some("sent") => i18n.t(Key::CommunicationStatusSent).to_string(),
-        Some("failed") => i18n.t(Key::CommunicationStatusFailed).to_string(),
-        _ => i18n.t(Key::CommunicationStatusPending).to_string(),
-    }
-}
+use crate::util::format::outbound_status_label;
 
 fn salutation_label(s: &rest_types::SalutationTO) -> &'static str {
     match s {

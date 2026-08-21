@@ -1,3 +1,16 @@
+use crate::i18n::{Key, I18n};
+
+/// Uebersetztes Status-Label fuer die "zuletzt gesendet"-Zeile. Spiegelt das
+/// Mapping der CommunicationTimeline-Badges (sent/failed/pending). Von
+/// application_detail.rs und application_compose.rs gemeinsam genutzt (D-06).
+pub fn outbound_status_label(i18n: &I18n, status: Option<&str>) -> String {
+    match status {
+        Some("sent") => i18n.t(Key::CommunicationStatusSent).to_string(),
+        Some("failed") => i18n.t(Key::CommunicationStatusFailed).to_string(),
+        _ => i18n.t(Key::CommunicationStatusPending).to_string(),
+    }
+}
+
 /// Format a byte count into a human-readable string.
 /// Integer-math to avoid floating rounding surprises.
 pub fn format_size(bytes: u64) -> String {
