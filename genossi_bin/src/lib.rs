@@ -388,6 +388,20 @@ type RepaymentContextResolver =
         RepaymentContextResolverDependencies,
     >;
 
+/// Quick 260908-cjo: HISTORISCHER Resolver — status-agnostische Aggregation
+/// (auch `PaidOut`-Eintraege), damit der Startup-Backfill Mails aus inzwischen
+/// ABGESCHLOSSENEN Repayment-Phasen rekonstruieren kann.
+///
+/// Wird ausschliesslich in `start_rendered_backfill_worker` lokal konstruiert
+/// und bekommt bewusst KEIN `RestStateImpl`-Feld: der Live-Versandpfad
+/// (`start_mail_worker`) und der `RepaymentLetterService` haengen am strikten
+/// Alias oben und muessen dort bleiben. Derselbe `Deps`-Typ wie der strikte
+/// Alias — kein zweiter `...Dependencies`-Marker noetig.
+type HistoricRepaymentContextResolver =
+    genossi_service_impl::repayment_context::HistoricRepaymentContextResolverImpl<
+        RepaymentContextResolverDependencies,
+    >;
+
 // Phase 13 D-13-01..11: RepaymentLetterServiceImpl wiring.
 // Ten DAO/Service-deps (5 like RepaymentExport PLUS MemberDocumentDao,
 // AuditLogDao, UuidService, DocumentStorage, RepaymentContextResolver — see
@@ -1682,6 +1696,10 @@ impl RestStateImpl {
         let repayment_phase_dao = self.repayment_phase_dao.clone();
         let transaction_dao = self.transaction_dao.clone();
         // Quick 260603-h0r: Shared aggregation resolver — same Arc as Letter-Service.
+        // Quick 260908-cjo: MUSS der STRIKTE Resolver bleiben. Hier NIE den
+        // HistoricRepaymentContextResolver einsetzen — sein fehlender
+        // Open/Contacted-Filter wuerde Auszahlungsmails an bereits ausgezahlte
+        // Mitglieder ermoeglichen.
         let repayment_context_resolver = self.repayment_context_resolver.clone();
         // Phase 27 (IMG-06/IMG-07): mail-asset DAO for inline-image byte loading.
         let mail_asset_dao = self.worker_mail_asset_dao.clone();
@@ -1728,7 +1746,30 @@ impl RestStateImpl {
         let repayment_entry_dao = self.repayment_entry_dao.clone();
         let repayment_phase_dao = self.repayment_phase_dao.clone();
         let transaction_dao = self.transaction_dao.clone();
-        let repayment_context_resolver = self.repayment_context_resolver.clone();
+        // Quick 260908-cjo: HARTE GRENZE zwischen Live-Versand und Backfill.
+        //
+        // Der Open/Contacted-Filter der strikten Impl ist beim LIVE-Versand
+        // fachlich richtig und bleibt dort (start_mail_worker oben,
+        // RepaymentLetterService): er verhindert die Auszahlungsmail an bereits
+        // ausgezahlte Mitglieder.
+        //
+        // Der Backfill rekonstruiert dagegen den Text BEREITS VERSENDETER Mails.
+        // Ist die Phase inzwischen abgeschlossen, stehen alle Eintraege auf
+        // PaidOut; die strikte Aggregation liefert dann None, der
+        // Repayment-Kontext bleibt unmerged und der strict-Render bricht an
+        // `fiscal_year` ab (das Produktionssymptom aus Quick 260908-9ud).
+        //
+        // Die Trennung laeuft ueber den TRAIT (D-01/F-2), nicht ueber ein Flag:
+        // genossi_mail::render::resolve_rendered_content ist generisch ueber
+        // `RCR: RepaymentContextResolver` und bekommt keine Zeile Diff (D-04).
+        //
+        // Exakt dieselben zwei DAO-Arcs, aus denen RestStateImpl::new() den
+        // strikten Resolver baut — kein neuer DAO-Konstruktor
+        // (Single-Arc-per-Process). Lokale Variable, KEIN Struct-Feld.
+        let historic_repayment_context_resolver = Arc::new(HistoricRepaymentContextResolver {
+            repayment_phase_dao: self.repayment_phase_dao.clone(),
+            repayment_entry_dao: self.repayment_entry_dao.clone(),
+        });
         // Phase 31 (APMAIL-01, D-04, Pitfall 4): the backfill threads the two new
         // resolve_rendered_content args. A fresh ConfigService is built ad-hoc from
         // the pool (Pattern start_digest_worker); the Application-Zweig is
@@ -1745,7 +1786,9 @@ impl RestStateImpl {
                 repayment_entry_dao,
                 repayment_phase_dao,
                 transaction_dao,
-                repayment_context_resolver,
+                // Quick 260908-cjo: 7. Positionsargument — HISTORISCHER
+                // Resolver, nur hier. Alle uebrigen acht Argumente unveraendert.
+                historic_repayment_context_resolver,
                 application_resolver,
                 config_service,
             )

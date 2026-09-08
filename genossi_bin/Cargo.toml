@@ -47,6 +47,9 @@ rustls = { version = "0.23", default-features = false, features = ["ring"] }
 
 [dev-dependencies]
 serde_json = { workspace = true }
+# Quick 260908-cjo: Mock-DAOs/-Resolver fuer tests/backfill_historic_repayment.rs.
+# Bereits Workspace-Dependency und in Cargo.lock — kein neues Crate.
+mockall = { workspace = true }
 time = { workspace = true }
 reqwest = { version = "0.11", default-features = false, features = [
     "cookies",
