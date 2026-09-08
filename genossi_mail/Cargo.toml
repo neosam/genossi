@@ -43,5 +43,12 @@ webpki-roots = "0.26"
 mail-parser = "0.9"
 futures = "0.3"
 
+[dev-dependencies]
+# Quick 260908-9ud: die Backfill-Tests sammeln die tracing-Ausgabe ein und
+# pruefen, dass die Skip-Warnung die Ids + den Variablennamen nennt (und keine
+# Mitglieds-Werte). tracing-subscriber ist bereits Workspace-Dependency und
+# steht in Cargo.lock — kein neues Crate, keine neue Supply-Chain-Flaeche.
+tracing-subscriber = { workspace = true }
+
 [lints]
 workspace = true

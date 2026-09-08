@@ -66,11 +66,13 @@ pub async fn run_rendered_backfill<R, J, M, RE, RP, TX, RCR, AR, CS>(
         let job = match job_dao.find_by_id(recipient.mail_job_id).await {
             Ok(j) => j,
             Err(e) => {
+                // Quick 260908-9ud: structured fields instead of one opaque
+                // formatted string — the ids are what a diagnosis starts from.
                 tracing::warn!(
-                    "rendered backfill: skip recipient {} — job {} lookup failed: {:?}",
-                    recipient.id,
-                    recipient.mail_job_id,
-                    e
+                    recipient_id = %recipient.id,
+                    mail_job_id = %recipient.mail_job_id,
+                    error = ?e,
+                    "rendered backfill: skip recipient — job lookup failed"
                 );
                 skipped += 1;
                 continue;
@@ -101,9 +103,10 @@ pub async fn run_rendered_backfill<R, J, M, RE, RP, TX, RCR, AR, CS>(
                 updated.rendered_reconstructed = true;
                 if let Err(e) = recipient_dao.update(&updated).await {
                     tracing::warn!(
-                        "rendered backfill: skip recipient {} — update failed: {:?}",
-                        recipient.id,
-                        e
+                        recipient_id = %recipient.id,
+                        mail_job_id = %recipient.mail_job_id,
+                        error = ?e,
+                        "rendered backfill: skip recipient — update failed"
                     );
                     skipped += 1;
                 } else {
@@ -113,9 +116,20 @@ pub async fn run_rendered_backfill<R, J, M, RE, RP, TX, RCR, AR, CS>(
             Err(failure) => {
                 // Missing member or render error — leave the row NULL so the next
                 // start can retry once the underlying data is fixed.
+                //
+                // Quick 260908-9ud: this was THE informationless line — it named
+                // only the recipient id and the short message. Optional uuids go
+                // through the `?` (Debug) sigil so a `None` stays visible instead
+                // of silently disappearing from the log.
                 tracing::warn!(
-                    "rendered backfill: skip recipient {} — {}",
-                    recipient.id,
+                    recipient_id = %recipient.id,
+                    mail_job_id = %recipient.mail_job_id,
+                    member_id = ?recipient.member_id,
+                    application_id = ?recipient.application_id,
+                    template_id = ?job.template_id,
+                    repayment_phase_id = ?job.repayment_phase_id,
+                    diagnosis = ?failure.diagnosis,
+                    "rendered backfill: skip recipient — {}",
                     failure.message
                 );
                 skipped += 1;
@@ -124,6 +138,9 @@ pub async fn run_rendered_backfill<R, J, M, RE, RP, TX, RCR, AR, CS>(
     }
 
     tracing::info!(
+        filled,
+        total,
+        skipped,
         "rendered backfill: {} von {} befüllt, {} übersprungen",
         filled,
         total,
@@ -331,5 +348,167 @@ mod tests {
             Arc::new(MockConfigService::new()),
         )
         .await;
+    }
+
+    // ---------------------------------------------------------------------
+    // Quick 260908-9ud: die Skip-Warnung muss allein zur Ursachenbenennung
+    // genuegen — und darf dabei keine Mitglieds-Werte enthalten (D-02).
+    // ---------------------------------------------------------------------
+
+    /// Sammelt die `tracing`-Ausgabe eines Laufs in einem gemeinsamen Puffer.
+    #[derive(Clone, Default)]
+    struct CapturedLog(Arc<std::sync::Mutex<Vec<u8>>>);
+
+    impl CapturedLog {
+        fn contents(&self) -> String {
+            String::from_utf8_lossy(&self.0.lock().unwrap()).into_owned()
+        }
+    }
+
+    impl std::io::Write for CapturedLog {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for CapturedLog {
+        type Writer = CapturedLog;
+
+        fn make_writer(&'a self) -> Self::Writer {
+            self.clone()
+        }
+    }
+
+    /// Fuehrt `fut` unter einem WARN-Subscriber aus, dessen Ausgabe eingesammelt
+    /// wird, und liefert den Log-Text zurueck.
+    ///
+    /// `with_default` ist thread-lokal (parallel-test-sicher); der
+    /// current_thread-Runtime haelt alle await-Punkte auf demselben Thread,
+    /// sodass der Dispatcher ueber die gesamte Ausfuehrung greift.
+    fn capture_warn_logs<F: std::future::Future<Output = ()>>(fut: F) -> String {
+        let logs = CapturedLog::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(logs.clone())
+            .with_max_level(tracing::Level::WARN)
+            .with_ansi(false)
+            .finish();
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        tracing::subscriber::with_default(subscriber, || rt.block_on(fut));
+        logs.contents()
+    }
+
+    fn make_job_with_body(body: &str) -> MailJob {
+        MailJob {
+            body: Arc::from(body),
+            ..make_job()
+        }
+    }
+
+    /// Baut die Backfill-Lage, in der ein Recipient am Strict-Render scheitert:
+    /// Member existiert, `repayment_phase_id: None` (also kein Merge), aber der
+    /// Job-Body referenziert `{{ payout_amount }}`.
+    fn run_backfill_with_failing_render(member: MemberEntity) -> String {
+        let member_id = member.id;
+        let recipient = make_recipient(Some(member_id));
+
+        let mut recipient_dao = MockMailRecipientDao::new();
+        let row = recipient.clone();
+        recipient_dao
+            .expect_find_recipients_without_rendered()
+            .returning(move || Ok(vec![row.clone()].into()));
+        recipient_dao.expect_update().never();
+
+        let mut job_dao = MockMailJobDao::new();
+        job_dao
+            .expect_find_by_id()
+            .returning(move |_| Ok(make_job_with_body("Auszahlung: {{ payout_amount }} EUR")));
+
+        let mut resolver = MockMemberResolver::new();
+        resolver
+            .expect_find_member_by_id()
+            .returning(move |_| Ok(Some(member.clone())));
+
+        capture_warn_logs(async move {
+            run_rendered_backfill(
+                Arc::new(recipient_dao),
+                Arc::new(job_dao),
+                Arc::new(resolver),
+                Arc::new(MockRepaymentEntryDao::new()),
+                Arc::new(MockRepaymentPhaseDao::new()),
+                Arc::new(MockTransactionDao::new()),
+                Arc::new(MockRepaymentContextResolver::new()),
+                Arc::new(MockApplicationResolver::new()),
+                Arc::new(MockConfigService::new()),
+            )
+            .await;
+        })
+    }
+
+    /// Die Kernaussage des Quicks, automatisiert belegt: das Log allein genuegt
+    /// zur Ursachenbenennung.
+    #[test]
+    fn backfill_skip_log_carries_ids_and_variable_name() {
+        let member = make_member();
+        let member_id = member.id;
+
+        let logs = run_backfill_with_failing_render(member);
+
+        for field in [
+            "recipient_id",
+            "mail_job_id",
+            "member_id",
+            "application_id",
+            "template_id",
+            "repayment_phase_id",
+            "diagnosis",
+        ] {
+            assert!(
+                logs.contains(field),
+                "Skip-Warnung nennt das Feld `{}` nicht:\n{}",
+                field,
+                logs
+            );
+        }
+        assert!(
+            logs.contains(&member_id.to_string()),
+            "Skip-Warnung nennt die member_id nicht:\n{}",
+            logs
+        );
+        assert!(
+            logs.contains("payout_amount"),
+            "Skip-Warnung nennt die fehlende Template-Variable nicht:\n{}",
+            logs
+        );
+    }
+
+    /// D-02-Gate: derselbe Lauf mit einem Member, dessen IBAN und Nachname
+    /// unverwechselbar sind — keiner der beiden Werte darf im Log landen.
+    #[test]
+    fn backfill_skip_log_omits_member_values() {
+        let iban = "DE89370400440532013000";
+        let mut member = make_member();
+        member.bank_account = Some(Arc::from(iban));
+        member.last_name = Arc::from("Unverwechselbarname");
+
+        let logs = run_backfill_with_failing_render(member);
+
+        assert!(
+            !logs.contains(iban),
+            "Log enthaelt die unmaskierte IBAN:\n{}",
+            logs
+        );
+        assert!(
+            !logs.contains("Unverwechselbarname"),
+            "Log enthaelt den Nachnamen:\n{}",
+            logs
+        );
     }
 }
