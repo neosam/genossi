@@ -245,6 +245,10 @@ pub enum Key {
     MailRenderedContent,
     // Quick 260614-b1t: badge shown when rendered content was reconstructed by the backfill.
     MailRenderedReconstructed,
+    // Quick 260908-cjo (D-05): Tooltip zum Rekonstruktions-Badge. Das kurze
+    // Label liest sich wie "aus einem Archiv wiederhergestellt"; der Hint sagt,
+    // dass Betraege/Anteilszahlen aus dem HEUTIGEN Datenstand stammen.
+    MailRenderedReconstructedHint,
     MailSend,
     MailSending,
     MailSent,
@@ -1183,5 +1187,34 @@ mod tests {
                 key, de_str
             );
         }
+    }
+
+    /// Quick 260908-cjo (D-05): der Tooltip am Rekonstruktions-Badge muss in
+    /// beiden Locales gepflegt sein UND sich vom kurzen Badge-Label
+    /// unterscheiden — sonst wiederholt der Tooltip nur das Label und der
+    /// Ehrlichkeits-Hinweis geht verloren (klassischer Copy-Paste-Fehler).
+    #[test]
+    fn mail_rendered_reconstructed_hint_has_distinct_de_en_translations() {
+        let de = I18n::new(Locale::De);
+        let en = I18n::new(Locale::En);
+
+        let de_hint = de.t(Key::MailRenderedReconstructedHint).to_string();
+        let en_hint = en.t(Key::MailRenderedReconstructedHint).to_string();
+
+        assert!(!de_hint.is_empty(), "DE-Hint ist leer.");
+        assert!(!en_hint.is_empty(), "EN-Hint ist leer.");
+        assert_ne!(de_hint, en_hint, "DE- und EN-Hint sind identisch.");
+
+        let de_label = de.t(Key::MailRenderedReconstructed).to_string();
+        let en_label = en.t(Key::MailRenderedReconstructed).to_string();
+
+        assert_ne!(
+            de_hint, de_label,
+            "DE-Hint wiederholt nur das Badge-Label statt zu erklaeren."
+        );
+        assert_ne!(
+            en_hint, en_label,
+            "EN-Hint wiederholt nur das Badge-Label statt zu erklaeren."
+        );
     }
 }

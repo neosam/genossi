@@ -186,6 +186,9 @@ pub fn translate(key: Key) -> Rc<str> {
         Key::MailBody => "Message".into(),
         Key::MailRenderedContent => "Sent content".into(),
         Key::MailRenderedReconstructed => "Reconstructed afterwards".into(),
+        Key::MailRenderedReconstructedHint => "Reconstructed afterwards from today's data \
+— amounts and share counts may differ from the text originally sent."
+            .into(),
         Key::MailSend => "Send".into(),
         Key::MailSending => "Sending...".into(),
         Key::MailSent => "Sent".into(),

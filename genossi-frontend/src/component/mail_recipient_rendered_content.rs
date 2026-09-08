@@ -28,6 +28,9 @@ pub fn MailRecipientRenderedContent(
     let i18n = use_i18n();
     let heading = i18n.t(Key::MailRenderedContent);
     let reconstructed_label = i18n.t(Key::MailRenderedReconstructed);
+    // Quick 260908-cjo (D-05): Ehrlichkeits-Hinweis am Badge. Gilt fuer JEDE
+    // rekonstruierte Zeile — kein neuer Prop, keine Layout-Aenderung.
+    let reconstructed_hint = i18n.t(Key::MailRenderedReconstructedHint);
     let subject_label = i18n.t(Key::MailSubject);
     let body_label = i18n.t(Key::MailBody);
 
@@ -38,6 +41,7 @@ pub fn MailRecipientRenderedContent(
                 if rendered_reconstructed {
                     span {
                         class: "ml-2 inline-flex items-center rounded bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800",
+                        title: "{reconstructed_hint}",
                         "{reconstructed_label}"
                     }
                 }
