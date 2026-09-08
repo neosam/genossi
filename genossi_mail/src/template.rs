@@ -2,6 +2,9 @@ use async_trait::async_trait;
 use genossi_dao::member::MemberEntity;
 use minijinja::{context, Value};
 use mockall::automock;
+// Quick 260908-9ud: `describe_minijinja_error` walks the `source()` chain of a
+// `minijinja::Error`; method-call syntax needs the trait in scope.
+use std::error::Error as _;
 use time::macros::format_description;
 use uuid::Uuid;
 
@@ -140,6 +143,13 @@ fn dummy_application_context() -> Value {
 #[derive(Debug)]
 pub struct TemplateError {
     pub message: String,
+    /// Quick 260908-9ud (D-03): log-only diagnosis. Deliberately NOT part of
+    /// [`Display`] and never persisted — `message` ends up in
+    /// `mail_recipients.error` (via `worker::mark_recipient_failed`) and is
+    /// rendered in the frontend, so it must stay byte-identical to the
+    /// pre-Quick short form. The diagnosis names the failing template
+    /// expression (i.e. the undefined variable) and goes to `tracing` only.
+    pub diagnosis: Option<String>,
 }
 
 impl std::fmt::Display for TemplateError {
@@ -148,9 +158,130 @@ impl std::fmt::Display for TemplateError {
     }
 }
 
+impl TemplateError {
+    /// Quick 260908-9ud: the single construction point for template errors that
+    /// originate in minijinja.
+    ///
+    /// `message` keeps the historical `"{prefix}: {e}"` shape. `{}` (non-
+    /// alternate) is the *short* form — `impl Display for minijinja::Error`
+    /// only appends debug info under `{:#}` (F-5) — so the persisted string is
+    /// byte-identical to what this code produced before the Quick.
+    fn from_minijinja(prefix: &str, e: &minijinja::Error, template_str: &str) -> Self {
+        Self {
+            message: format!("{}: {}", prefix, e),
+            diagnosis: Some(describe_minijinja_error(e, template_str)),
+        }
+    }
+}
+
+/// Max length of the two free-form fragments (`expr`, `detail`) in a diagnosis.
+const DIAGNOSIS_FRAGMENT_MAX_CHARS: usize = 120;
+
+/// Collapse whitespace to single spaces and cap at
+/// [`DIAGNOSIS_FRAGMENT_MAX_CHARS`] *characters* (not bytes — the templates
+/// contain umlauts).
+fn shorten_for_diagnosis(s: &str) -> String {
+    let one_line = s.split_whitespace().collect::<Vec<_>>().join(" ");
+    if one_line.chars().count() <= DIAGNOSIS_FRAGMENT_MAX_CHARS {
+        one_line
+    } else {
+        let head: String = one_line
+            .chars()
+            .take(DIAGNOSIS_FRAGMENT_MAX_CHARS)
+            .collect();
+        format!("{}…", head)
+    }
+}
+
+/// Quick 260908-9ud (F-2, D-05): the source fragment that failed to render.
+///
+/// Primary source is `Error::range()`, a byte range into the compiled template
+/// source — under `UndefinedBehavior::Strict` that slice IS the missing
+/// variable name, which is precisely what the short `Display` form drops.
+///
+/// The slice is taken with `str::get`, **never** `&template_str[range]`
+/// (D-05): (a) templates contain umlauts, so a span can theoretically land off
+/// a UTF-8 char boundary, and (b) for syntax errors the span is
+/// `stream.last_span()` and may be degenerate. `get` returns `None` where the
+/// index operator would panic — and a panic inside the error path of the
+/// startup backfill would be a worse bug than the one this Quick fixes.
+///
+/// Falls back to the whole line named by `Error::line()`; if that is missing
+/// too, the caller omits the field.
+fn failing_expression(e: &minijinja::Error, template_str: &str) -> Option<String> {
+    let from_span = e
+        .range()
+        .and_then(|range| template_str.get(range))
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+
+    let fragment = match from_span {
+        Some(s) => s,
+        None => e
+            .line()
+            .and_then(|line| line.checked_sub(1))
+            .and_then(|idx| template_str.lines().nth(idx))
+            .map(str::trim)
+            .filter(|s| !s.is_empty())?,
+    };
+
+    Some(shorten_for_diagnosis(fragment))
+}
+
+/// Quick 260908-9ud (D-02): build a one-line, PII-free diagnosis of a
+/// [`minijinja::Error`].
+///
+/// Sources are error metadata (`kind`, `line`, `detail`, the `source()` chain)
+/// plus a slice of the *template source*. The template source is board-authored
+/// content from `mail_templates` — not member data — and carries exactly the
+/// missing piece of information (the variable name), nothing else.
+///
+/// Deliberately does NOT call `template_source()` or `display_debug_info()`:
+/// both read `debug_info`, which materializes the *values* of the referenced
+/// locals — the member context holds an unmasked `bank_account`, `email` and
+/// `current_balance` (F-3). Under [`strict_env`] / [`html_env`] the runtime
+/// debug flag is off (D-01), so those two accessors return `None` anyway; the
+/// span path used here is independent of that flag (F-1).
+fn describe_minijinja_error(e: &minijinja::Error, template_str: &str) -> String {
+    let mut parts = vec![format!("kind={}", e.kind())];
+
+    if let Some(line) = e.line() {
+        parts.push(format!("line={}", line));
+    }
+    if let Some(expr) = failing_expression(e, template_str) {
+        parts.push(format!("expr={}", expr));
+    }
+    if let Some(detail) = e.detail() {
+        parts.push(format!("detail={}", shorten_for_diagnosis(detail)));
+    }
+
+    let mut causes: Vec<String> = Vec::new();
+    let mut current = e.source();
+    while let Some(cause) = current {
+        if causes.len() >= 3 {
+            break;
+        }
+        causes.push(shorten_for_diagnosis(&cause.to_string()));
+        current = cause.source();
+    }
+    if !causes.is_empty() {
+        parts.push(format!("caused_by={}", causes.join(" <- ")));
+    }
+
+    parts.join("; ")
+}
+
 fn strict_env() -> minijinja::Environment<'static> {
     let mut env = minijinja::Environment::new();
     env.set_undefined_behavior(minijinja::UndefinedBehavior::Strict);
+    // Quick 260908-9ud (D-01): the runtime debug flag pulls the *values* of the
+    // referenced locals into the error object (`make_debug_info` → `lookup`,
+    // F-3) — that would mean unmasked IBANs, e-mail addresses and balances
+    // inside a `minijinja::Error`. Its default is profile-dependent
+    // (`cfg!(debug_assertions)`, F-4), so leaving it untouched would enable
+    // exactly that in dev/test builds. The diagnosis does not need it: the
+    // `span`/`range()`/`line()` path is flag-independent (F-1).
+    env.set_debug(false);
     env
 }
 
@@ -158,12 +289,9 @@ pub fn render_template(template_str: &str, context: &Value) -> Result<String, Te
     let env = strict_env();
     let tmpl = env
         .template_from_str(template_str)
-        .map_err(|e| TemplateError {
-            message: format!("Template syntax error: {}", e),
-        })?;
-    tmpl.render(context).map_err(|e| TemplateError {
-        message: format!("Template render error: {}", e),
-    })
+        .map_err(|e| TemplateError::from_minijinja("Template syntax error", &e, template_str))?;
+    tmpl.render(context)
+        .map_err(|e| TemplateError::from_minijinja("Template render error", &e, template_str))
 }
 
 /// Phase 23 D-04 (HTML-04): separate autoescaping minijinja env for the HTML
@@ -175,6 +303,11 @@ pub fn render_template(template_str: &str, context: &Value) -> Result<String, Te
 pub fn html_env() -> minijinja::Environment<'static> {
     let mut env = minijinja::Environment::new();
     env.set_undefined_behavior(minijinja::UndefinedBehavior::Strict);
+    // Quick 260908-9ud (D-01): same reasoning as in [`strict_env`] — the runtime
+    // debug flag would materialize member values inside the error object (F-3)
+    // and its default is profile-dependent (F-4). The diagnosis works without
+    // it (F-1).
+    env.set_debug(false);
     env.set_auto_escape_callback(|_name| minijinja::AutoEscape::Html);
     env
 }
@@ -186,14 +319,11 @@ pub fn html_env() -> minijinja::Environment<'static> {
 /// paths.
 pub fn render_html_template(template_str: &str, context: &Value) -> Result<String, TemplateError> {
     let env = html_env();
-    let tmpl = env
-        .template_from_str(template_str)
-        .map_err(|e| TemplateError {
-            message: format!("HTML template syntax error: {}", e),
-        })?;
-    tmpl.render(context).map_err(|e| TemplateError {
-        message: format!("HTML template render error: {}", e),
-    })
+    let tmpl = env.template_from_str(template_str).map_err(|e| {
+        TemplateError::from_minijinja("HTML template syntax error", &e, template_str)
+    })?;
+    tmpl.render(context)
+        .map_err(|e| TemplateError::from_minijinja("HTML template render error", &e, template_str))
 }
 
 /// FMT-01 (Phase 23, D-11): render a [`time::Date`] as `DD.MM.YYYY`. Applied
@@ -496,13 +626,11 @@ pub fn render_footer(template_str: &str, sender_name: &str) -> Result<String, Te
         sender_name => sender_name,
     };
     let env = strict_env();
-    let tmpl = env
-        .template_from_str(template_str)
-        .map_err(|e| TemplateError {
-            message: format!("Footer template syntax error: {}", e),
-        })?;
-    tmpl.render(&ctx).map_err(|e| TemplateError {
-        message: format!("Footer template render error: {}", e),
+    let tmpl = env.template_from_str(template_str).map_err(|e| {
+        TemplateError::from_minijinja("Footer template syntax error", &e, template_str)
+    })?;
+    tmpl.render(&ctx).map_err(|e| {
+        TemplateError::from_minijinja("Footer template render error", &e, template_str)
     })
 }
 
@@ -1411,5 +1539,199 @@ mod tests {
             "{% if bank_bic %}BIC: {{ bank_bic }}{% endif %}Ende",
         );
         assert!(result.is_ok(), "unerwartet: {:?}", result);
+    }
+
+    // ---------------------------------------------------------------------
+    // Quick 260908-9ud: Diagnose fuer Strict-Undefined-/Syntax-Render-Fehler
+    // ---------------------------------------------------------------------
+
+    /// Der Wertbeweis dieses Quicks: die Fehlermeldung nennt jetzt den Namen
+    /// der fehlenden Template-Variable.
+    #[test]
+    fn render_error_diagnosis_names_the_undefined_variable() {
+        let member = make_member("Max", "Mustermann");
+        let ctx = member_to_template_context(&member);
+        let err = render_template("Auszahlung: {{ payout_amount }} EUR", &ctx).unwrap_err();
+
+        let diagnosis = err
+            .diagnosis
+            .as_deref()
+            .expect("Strict-Undefined-Fehler muss eine Diagnose tragen");
+        assert!(
+            diagnosis.contains("payout_amount"),
+            "Diagnose nennt die undefinierte Variable nicht: {}",
+            diagnosis
+        );
+    }
+
+    /// F-1 im Testbaum belegt statt nur behauptet: der span-Pfad ist unabhaengig
+    /// vom Laufzeit-Debug-Flag. Gebaut wird exakt der Produktions-Zustand nach
+    /// D-01 (`Strict` + `set_debug(false)`) — der einzige Unterschied zwischen
+    /// Debug- und Release-Profil auf diesem Pfad ist genau dieses Flag.
+    #[test]
+    fn diagnosis_works_without_runtime_debug_flag() {
+        let template_str = "Auszahlung: {{ payout_amount }} EUR";
+        let member = make_member("Max", "Mustermann");
+        let ctx = member_to_template_context(&member);
+
+        let mut env = minijinja::Environment::new();
+        env.set_undefined_behavior(minijinja::UndefinedBehavior::Strict);
+        env.set_debug(false);
+        let tmpl = env.template_from_str(template_str).unwrap();
+        let err = tmpl.render(&ctx).unwrap_err();
+
+        // (a) Das Laufzeit-Flag ist nachweislich aus.
+        assert!(
+            err.template_source().is_none(),
+            "template_source() muss bei set_debug(false) None sein"
+        );
+        // (b) Der span-Pfad liefert den Variablennamen trotzdem.
+        let range = err.range().expect("range() ist flag-unabhaengig (F-1)");
+        assert_eq!(
+            template_str.get(range).map(str::trim),
+            Some("payout_amount")
+        );
+    }
+
+    /// Pinnt D-01 gegen versehentliches Entfernen und gegen eine Aenderung des
+    /// profilabhaengigen Crate-Defaults (F-4).
+    #[test]
+    fn strict_env_and_html_env_disable_runtime_debug() {
+        assert!(!strict_env().debug(), "strict_env muss set_debug(false)");
+        assert!(!html_env().debug(), "html_env muss set_debug(false)");
+    }
+
+    /// DSGVO-Gate auf der strukturellen Ebene: selbst die alternate-Formatierung
+    /// des rohen `minijinja::Error` aus dem Produktions-Env kann keine
+    /// Mitglieds-Werte ausgeben, weil unter D-01 gar kein `debug_info` entsteht.
+    #[test]
+    fn error_carries_no_member_values_even_under_alternate_format() {
+        let member = make_member("Max", "Unverwechselbarname");
+        let iban = member
+            .bank_account
+            .as_deref()
+            .expect("Fixture traegt ein bank_account")
+            .to_string();
+        let ctx = member_to_template_context(&member);
+
+        let env = strict_env();
+        let tmpl = env
+            .template_from_str("Auszahlung: {{ payout_amount }} EUR")
+            .unwrap();
+        let err = tmpl.render(&ctx).unwrap_err();
+
+        let alternate = format!("{:#}", err);
+        assert!(
+            !alternate.contains(&iban),
+            "alternate-Format enthaelt die IBAN: {}",
+            alternate
+        );
+        assert!(
+            !alternate.contains("Unverwechselbarname"),
+            "alternate-Format enthaelt den Nachnamen: {}",
+            alternate
+        );
+    }
+
+    /// D-02-Gate auf der `diagnosis`-Ebene.
+    #[test]
+    fn render_error_diagnosis_omits_member_values() {
+        let member = make_member("Max", "Unverwechselbarname");
+        let iban = member
+            .bank_account
+            .as_deref()
+            .expect("Fixture traegt ein bank_account")
+            .to_string();
+        let ctx = member_to_template_context(&member);
+
+        let err = render_template("Auszahlung: {{ payout_amount }} EUR", &ctx).unwrap_err();
+        let diagnosis = err.diagnosis.as_deref().unwrap();
+
+        assert!(
+            !diagnosis.contains(&iban),
+            "Diagnose enthaelt die IBAN: {}",
+            diagnosis
+        );
+        assert!(
+            !diagnosis.contains("Unverwechselbarname"),
+            "Diagnose enthaelt den Nachnamen: {}",
+            diagnosis
+        );
+    }
+
+    /// D-03-Gate gegen DB-Leak: `message` wird ueber `mark_recipient_failed` in
+    /// `mail_recipients.error` persistiert und im Frontend angezeigt — sie muss
+    /// die alte Kurzform bleiben.
+    #[test]
+    fn render_error_message_stays_short_form() {
+        let member = make_member("Max", "Mustermann");
+        let ctx = member_to_template_context(&member);
+        let err = render_template("Auszahlung: {{ payout_amount }} EUR", &ctx).unwrap_err();
+
+        assert!(
+            err.message.starts_with("Template render error: "),
+            "unerwartetes Prefix: {}",
+            err.message
+        );
+        assert!(
+            !err.message.contains('\n'),
+            "message muss einzeilig bleiben (kein Template-Quellblock): {}",
+            err.message
+        );
+        assert_eq!(
+            err.message,
+            format!("{}", err),
+            "Display darf weiterhin nur message schreiben (D-03)"
+        );
+    }
+
+    /// Damit der zweite Env-Pfad nicht vom Text-Pfad wegdriftet.
+    #[test]
+    fn html_render_error_carries_diagnosis() {
+        let member = make_member("Max", "Mustermann");
+        let ctx = member_to_template_context(&member);
+        let err = render_html_template("<p>Auszahlung: {{ payout_amount }}</p>", &ctx).unwrap_err();
+
+        assert!(
+            err.message.starts_with("HTML template render error: "),
+            "unerwartetes Prefix: {}",
+            err.message
+        );
+        let diagnosis = err.diagnosis.as_deref().expect("Diagnose fehlt");
+        assert!(
+            diagnosis.contains("payout_amount"),
+            "Diagnose nennt die undefinierte Variable nicht: {}",
+            diagnosis
+        );
+    }
+
+    /// Deckt den degenerierten `last_span()`-Fall aus D-05 ab: kein Panic beim
+    /// Slicen, Verhalten der `message` unveraendert.
+    #[test]
+    fn syntax_error_diagnosis_does_not_panic() {
+        let member = make_member("Max", "Mustermann");
+        let ctx = member_to_template_context(&member);
+        let err = render_template("{{ unclosed", &ctx).unwrap_err();
+
+        assert!(
+            err.message.contains("syntax error"),
+            "unerwartete message: {}",
+            err.message
+        );
+    }
+
+    /// Deckt die UTF-8-Grenzen-Haelfte von D-05 ab.
+    #[test]
+    fn diagnosis_survives_umlaut_template() {
+        let member = make_member("Max", "Mustermann");
+        let ctx = member_to_template_context(&member);
+        let err = render_template("Grüße aus Köln: {{ payout_amount }}", &ctx).unwrap_err();
+
+        let diagnosis = err.diagnosis.as_deref().expect("Diagnose fehlt");
+        assert!(
+            diagnosis.contains("payout_amount"),
+            "Diagnose nennt die undefinierte Variable nicht: {}",
+            diagnosis
+        );
     }
 }
