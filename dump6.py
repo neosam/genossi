@@ -1,0 +1,11 @@
+def show(f, start=1, end=None):
+    lines=open(f).read().splitlines()
+    end = end or len(lines)
+    for i,l in enumerate(lines[start-1:end], start): print(f"{f}:{i:4d}  {l}")
+show("genossi_rest/src/lib.rs", 1, 30)
+print("="*70)
+show("genossi_rest/src/lib.rs", 495, 530)
+print("="*70)
+show("genossi_rest/src/lib.rs", 800, 870)
+print("="*70)
+show("genossi_rest/src/session.rs", 137, 215)
