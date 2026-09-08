@@ -35,12 +35,30 @@ use crate::template::{
 #[derive(Debug, Clone)]
 pub struct RenderFailure {
     pub message: String,
+    /// Quick 260908-9ud (D-03): log-only diagnosis, carried over from
+    /// [`crate::template::TemplateError::diagnosis`]. `Some(..)` only for
+    /// template-render/-syntax failures; every other failure cause (member not
+    /// found, DAO error, config error) leaves it `None`.
+    ///
+    /// Never persisted: `worker::mark_recipient_failed` writes `message` into
+    /// `mail_recipients.error`, this field goes to `tracing` only.
+    pub diagnosis: Option<String>,
 }
 
 impl RenderFailure {
     fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
+            diagnosis: None,
+        }
+    }
+
+    /// Quick 260908-9ud: same as [`RenderFailure::new`] but carries the
+    /// minijinja diagnosis through to the caller's log.
+    fn with_diagnosis(message: impl Into<String>, diagnosis: Option<String>) -> Self {
+        Self {
+            message: message.into(),
+            diagnosis,
         }
     }
 }
@@ -175,16 +193,22 @@ pub fn render_application_content(
     );
 
     let subject = render_template(subject, &ctx).map_err(|e| {
-        RenderFailure::new(format!("Template render error (subject): {}", e.message))
+        RenderFailure::with_diagnosis(
+            format!("Template render error (subject): {}", e.message),
+            e.diagnosis,
+        )
     })?;
-    let body_rendered = render_template(body, &ctx)
-        .map_err(|e| RenderFailure::new(format!("Template render error (body): {}", e.message)))?;
+    let body_rendered = render_template(body, &ctx).map_err(|e| {
+        RenderFailure::with_diagnosis(
+            format!("Template render error (body): {}", e.message),
+            e.diagnosis,
+        )
+    })?;
 
     let body_html = match body_html {
-        Some(html_src) => Some(
-            render_html_template(html_src, &ctx)
-                .map_err(|e| RenderFailure::new(format!("HTML render error: {}", e.message)))?,
-        ),
+        Some(html_src) => Some(render_html_template(html_src, &ctx).map_err(|e| {
+            RenderFailure::with_diagnosis(format!("HTML render error: {}", e.message), e.diagnosis)
+        })?),
         None => None,
     };
 
@@ -343,6 +367,16 @@ where
 
             match repayment_context_resolver.aggregate(&phase, &entries, member.id) {
                 Ok(rc) => {
+                    // Quick 260908-9ud: deliberately WITHOUT payout_amount /
+                    // share_count — those are member-specific amounts (D-02).
+                    // Level `debug` because this runs once per recipient in a
+                    // bulk send.
+                    tracing::debug!(
+                        phase_id = %phase_id,
+                        member_id = %member.id,
+                        fiscal_year = rc.fiscal_year,
+                        "render: merging repayment context into member context"
+                    );
                     ctx = merge_repayment_context(
                         ctx,
                         &rc.payout_amount,
@@ -355,6 +389,20 @@ where
                     // D-05 edge-case: no Open/Contacted entries — leave context
                     // unmerged. Strict-env render fails on referenced repayment
                     // vars (intended), preserving pre-refactor behavior.
+                    //
+                    // Quick 260908-9ud: until now this branch was completely
+                    // silent, which made it the least diagnosable cause of a
+                    // "undefined value" render failure. Behavior is unchanged
+                    // (D-04) — only the log line is new.
+                    tracing::warn!(
+                        phase_id = %phase_id,
+                        member_id = %member.id,
+                        entry_count = entries.len(),
+                        "render: member has no Open/Contacted repayment entries in this phase — \
+                         repayment context stays UNMERGED; a template referencing payout_amount / \
+                         share_count / share_value / fiscal_year without an `is defined` guard \
+                         will fail the strict render"
+                    );
                 }
                 Err(e) => {
                     return Err(RenderFailure::new(format!(
@@ -363,6 +411,18 @@ where
                     )));
                 }
             }
+        } else {
+            // Quick 260908-9ud: the phase referenced by the job does not exist
+            // (deleted / stale id). Same shape as the EntityNotFound arm — the
+            // context stays unmerged and the strict render fails downstream.
+            // Previously silent; behavior unchanged (D-04).
+            tracing::warn!(
+                phase_id = %phase_id,
+                member_id = %member.id,
+                "render: repayment_phase not found — repayment context stays UNMERGED; a template \
+                 referencing the repayment variables without an `is defined` guard will fail the \
+                 strict render"
+            );
         }
 
         // Release the read tx — best-effort, errors ignored (read-only).
@@ -370,18 +430,24 @@ where
     }
 
     let subject = render_template(&job.subject, &ctx).map_err(|e| {
-        RenderFailure::new(format!("Template render error (subject): {}", e.message))
+        RenderFailure::with_diagnosis(
+            format!("Template render error (subject): {}", e.message),
+            e.diagnosis,
+        )
     })?;
-    let body = render_template(&job.body, &ctx)
-        .map_err(|e| RenderFailure::new(format!("Template render error (body): {}", e.message)))?;
+    let body = render_template(&job.body, &ctx).map_err(|e| {
+        RenderFailure::with_diagnosis(
+            format!("Template render error (body): {}", e.message),
+            e.diagnosis,
+        )
+    })?;
 
     // D-09 / Pitfall 4: only render HTML when the job actually carries a
     // body_html source — otherwise leave body_html as None (never Some("")).
     let body_html = match job.body_html.as_deref() {
-        Some(html_src) => Some(
-            render_html_template(html_src, &ctx)
-                .map_err(|e| RenderFailure::new(format!("HTML render error: {}", e.message)))?,
-        ),
+        Some(html_src) => Some(render_html_template(html_src, &ctx).map_err(|e| {
+            RenderFailure::with_diagnosis(format!("HTML render error: {}", e.message), e.diagnosis)
+        })?),
         None => None,
     };
 
@@ -1328,5 +1394,171 @@ mod tests {
         assert_eq!(rendered.body_html.as_deref(), Some("<p>Hallo Max</p>"));
         // body derived from rendered HTML, not the frontend-supplied "ignored plain".
         assert_eq!(rendered.body, "Hallo Max");
+    }
+
+    // ---------------------------------------------------------------------
+    // Quick 260908-9ud: Diagnose-Durchreichung + Verhaltensgleichheit (D-04)
+    // ---------------------------------------------------------------------
+
+    /// Baut die Mock-Lage des wahrscheinlichsten Produktions-Ausloesers:
+    /// Phase existiert, aber `aggregate` liefert `EntityNotFound` — der
+    /// Repayment-Kontext bleibt unmerged.
+    fn entity_not_found_mocks() -> (
+        MockTransactionDao,
+        MockRepaymentPhaseDao,
+        MockRepaymentEntryDao,
+        MockRepaymentContextResolver,
+    ) {
+        let mut tx_dao = MockTransactionDao::new();
+        tx_dao.expect_transaction().returning(|| {
+            fn clonable_tx() -> MockTransaction {
+                let mut tx = MockTransaction::new();
+                tx.expect_clone().returning(clonable_tx);
+                tx
+            }
+            Ok(clonable_tx())
+        });
+        tx_dao.expect_commit().returning(|_| Ok(()));
+
+        let mut phase_dao = MockRepaymentPhaseDao::new();
+        phase_dao
+            .expect_find_by_id()
+            .returning(move |_, _| Ok(Some(make_phase(2026, 2000))));
+
+        let mut entry_dao = MockRepaymentEntryDao::new();
+        entry_dao
+            .expect_find_by_phase_id()
+            .returning(|_, _| Ok(Vec::<RepaymentEntryEntity>::new().into()));
+
+        let mut rcr = MockRepaymentContextResolver::new();
+        rcr.expect_aggregate()
+            .returning(|_, _, _| Err(ServiceError::EntityNotFound(Uuid::new_v4())));
+
+        (tx_dao, phase_dao, entry_dao, rcr)
+    }
+
+    /// End-to-End-Beweis fuer die produktive Fehlermeldung: der unmerged
+    /// Repayment-Kontext scheitert weiterhin am Strict-Render (D-04) — aber
+    /// die Failure benennt jetzt die fehlende Variable.
+    #[tokio::test]
+    async fn repayment_entity_not_found_leaves_context_unmerged_and_names_the_variable() {
+        let member = make_member();
+        let recipient = make_recipient(Some(member.id));
+        let phase_id = Uuid::new_v4();
+        let job = make_job(
+            "Betreff",
+            "Auszahlung: {{ payout_amount }} EUR",
+            Some(phase_id),
+        );
+
+        let mut resolver = MockMemberResolver::new();
+        resolver
+            .expect_find_member_by_id()
+            .returning(move |_| Ok(Some(member.clone())));
+
+        let (tx_dao, phase_dao, entry_dao, rcr) = entity_not_found_mocks();
+
+        let failure = resolve_rendered_content(
+            &recipient,
+            &job,
+            &resolver,
+            &entry_dao,
+            &phase_dao,
+            &tx_dao,
+            &rcr,
+            &MockApplicationResolver::new(),
+            &MockConfigService::new(),
+        )
+        .await
+        .expect_err("unmerged repayment context must still fail the strict render (D-04)");
+
+        assert!(
+            failure
+                .message
+                .starts_with("Template render error (body): "),
+            "message-Format hat sich geaendert: {}",
+            failure.message
+        );
+        let diagnosis = failure
+            .diagnosis
+            .as_deref()
+            .expect("Template-Render-Failure muss die Diagnose durchreichen");
+        assert!(
+            diagnosis.contains("payout_amount"),
+            "Diagnose nennt die fehlende Variable nicht: {}",
+            diagnosis
+        );
+    }
+
+    /// Pinnt D-04: identische Mock-Lage, geguardetes Template ⇒ weiterhin `Ok`,
+    /// Body ohne Repayment-Teil.
+    #[tokio::test]
+    async fn repayment_entity_not_found_with_guarded_template_still_renders() {
+        let member = make_member();
+        let recipient = make_recipient(Some(member.id));
+        let phase_id = Uuid::new_v4();
+        let job = make_job(
+            "Betreff",
+            "Hallo{% if payout_amount is defined %} — Auszahlung: {{ payout_amount }}{% endif %}",
+            Some(phase_id),
+        );
+
+        let mut resolver = MockMemberResolver::new();
+        resolver
+            .expect_find_member_by_id()
+            .returning(move |_| Ok(Some(member.clone())));
+
+        let (tx_dao, phase_dao, entry_dao, rcr) = entity_not_found_mocks();
+
+        let rendered = resolve_rendered_content(
+            &recipient,
+            &job,
+            &resolver,
+            &entry_dao,
+            &phase_dao,
+            &tx_dao,
+            &rcr,
+            &MockApplicationResolver::new(),
+            &MockConfigService::new(),
+        )
+        .await
+        .expect("guarded template must still render (D-04)");
+
+        assert_eq!(rendered.body, "Hallo");
+    }
+
+    /// Nicht-Template-Fehler bleiben unveraendert und tragen keine Diagnose.
+    #[tokio::test]
+    async fn render_failure_without_template_error_has_no_diagnosis() {
+        let missing_id = Uuid::new_v4();
+        let recipient = make_recipient(Some(missing_id));
+        let job = make_job("Betreff", "Body", None);
+
+        let mut resolver = MockMemberResolver::new();
+        resolver.expect_find_member_by_id().returning(|_| Ok(None));
+
+        let failure = resolve_rendered_content(
+            &recipient,
+            &job,
+            &resolver,
+            &MockRepaymentEntryDao::new(),
+            &MockRepaymentPhaseDao::new(),
+            &MockTransactionDao::new(),
+            &MockRepaymentContextResolver::new(),
+            &MockApplicationResolver::new(),
+            &MockConfigService::new(),
+        )
+        .await
+        .expect_err("missing member must fail");
+
+        assert_eq!(
+            failure.message,
+            format!("Member {} not found for template rendering", missing_id)
+        );
+        assert!(
+            failure.diagnosis.is_none(),
+            "nicht-Template-Fehler duerfen keine Diagnose tragen: {:?}",
+            failure.diagnosis
+        );
     }
 }
