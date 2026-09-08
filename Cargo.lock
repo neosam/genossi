@@ -1706,6 +1706,7 @@ dependencies = [
  "genossi_service",
  "genossi_service_impl",
  "lopdf",
+ "mockall",
  "reqwest 0.11.27",
  "rust_xlsxwriter",
  "rustls 0.23.37",
