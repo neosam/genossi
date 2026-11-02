@@ -15,7 +15,11 @@ pub use attachment_picker::MailAttachmentPicker;
 pub use mail_preview_frame::MailPreviewFrame;
 pub use subject_input::MailSubjectInput;
 pub use template_preview::TemplatePreview;
-pub use template_selector::TemplateSelector;
+// Quick 261102-di4: ComposeSource (Textquelle des Compose-Bodys, loest die
+// Doppelrolle des alten selected_template_id-Signals auf) und die Nutzlast des
+// neuen on_select_sent_job-Callbacks. Die reinen Helper-Funktionen bleiben
+// ueber den Modulpfad erreichbar.
+pub use template_selector::{ComposeSource, SentMailSelection, TemplateSelector};
 pub use template_tester::TemplateTester;
 pub use template_var_buttons::TemplateVarButtons;
 pub use wysiwyg_editor::{plain_to_html, WysiwygEditor};
