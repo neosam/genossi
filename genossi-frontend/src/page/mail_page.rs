@@ -5,8 +5,8 @@ use uuid::Uuid;
 use crate::api::{self, BulkRecipient, MailJobDetailTO};
 use crate::auth::RequirePrivilege;
 use crate::component::mail_compose::{
-    plain_to_html, MailAttachmentPicker, MailSubjectInput, TemplatePreview, TemplateSelector,
-    TemplateVarButtons, WysiwygEditor,
+    plain_to_html, ComposeSource, MailAttachmentPicker, MailSubjectInput, SentMailSelection,
+    TemplatePreview, TemplateSelector, TemplateVarButtons, WysiwygEditor,
 };
 // Quick 260614-ckn: status-Helper leben jetzt in der MailJobsList-Komponente
 // (DRY) und werden von MailJobDetail weiterhin genutzt.
@@ -74,7 +74,12 @@ pub fn MailPage() -> Element {
     let mut repayment_phase_id = use_signal(|| url_params.phase_id);
     // Phase 12 D-18 + Issue #2 BLOCKER-Fix: Template-Auswahl wird ueber on_select_id
     // gesetzt und als template_id an send_bulk_mail durchgereicht; KEIN hardcoded None mehr.
-    let mut selected_template_id = use_signal(|| Option::<String>::None);
+    // Quick 261102-di4 (D-02): aus dem alten Option<String>-Signal ist eine
+    // ComposeSource geworden. Es trug zwei Rollen gleichzeitig — Versand-Parameter
+    // `template_id` UND Remount-Key des WysiwygEditor. Mit der zweiten Textquelle
+    // („versendete Mail") faellt das auseinander: ein Job hat keine Vorlagen-ID,
+    // braucht aber trotzdem einen bei jeder Auswahl wechselnden Editor-Key.
+    let mut compose_source = use_signal(|| ComposeSource::None);
     // Quick 260603-e6p: opt-in flag for the backend to auto-attach
     // the per-recipient DocumentType::RepaymentLetter PDF. Defaults to
     // false on every page load — Vorstand decides per send. Backend rejects
@@ -413,7 +418,28 @@ pub fn MailPage() -> Element {
                                 // Phase 12 D-18 / Issue #2 BLOCKER-Fix:
                                 // store selected template id so send_bulk_mail can use it.
                                 on_select_id: move |id: Option<String>| {
-                                    selected_template_id.set(id);
+                                    compose_source
+                                        .set(match id {
+                                            Some(id) => ComposeSource::Template(id),
+                                            None => ComposeSource::None,
+                                        });
+                                },
+                                // Quick 261102-di4: zweite Textquelle NUR hier
+                                // (nicht in reply_form.rs / application_compose.rs).
+                                allow_sent_mails: true,
+                                on_select_sent_job: move |sel: SentMailSelection| {
+                                    subject.set(sel.subject.clone());
+                                    body.set(sel.body.clone());
+                                    // D-04: das serverseitig sanitisierte HTML der
+                                    // Originalmail direkt uebernehmen, NICHT per
+                                    // plain_to_html rekonstruieren — sonst gehen
+                                    // Listen und Ueberschriften verloren.
+                                    body_html.set(sel.body_html.clone());
+                                    // D-08: KEIN Footer anhaengen. Der Body einer
+                                    // versendeten Mail enthaelt den Footer schon
+                                    // aus dem damaligen Versand; ein zweites
+                                    // Anhaengen verdoppelt die Grussformel.
+                                    compose_source.set(ComposeSource::SentJob(sel.job_id));
                                 },
                             }
                             // Phase 24 (EDIT-01, D-01): WysiwygEditor is the
@@ -424,11 +450,13 @@ pub fn MailPage() -> Element {
                             // gewählt wird — der Editor seedet innerHTML nur
                             // beim Mount, ohne Remount würde der neue Inhalt
                             // nie ins DOM übernommen.
+                            // Quick 261102-di4 (D-02): der Key bildet jetzt
+                            // Vorlagen- UND Job-Quelle ab, weil zwei
+                            // aufeinanderfolgende Job-Auswahlen sonst denselben
+                            // Key ergaeben und der Editor weiter den Text der
+                            // ersten Mail zeigen wuerde.
                             {
-                                let editor_key = selected_template_id
-                                    .read()
-                                    .clone()
-                                    .unwrap_or_else(|| "__no_template__".to_string());
+                                let editor_key = compose_source.read().editor_key();
                                 rsx! {
                                     // Phase 28 (PREV-02, D-03): Device-Vorschau
                                     // im Editor — sie liest dieselbe, einzige
@@ -567,8 +595,14 @@ pub fn MailPage() -> Element {
                                     // repayment_phase_id from query-param-parsed signal.
                                     // If no template selected, template_id stays None — that's
                                     // legitimate for a plain bulk-mail without template-resolution.
-                                    let template_id_owned: Option<String> =
-                                        selected_template_id.read().clone();
+                                    // Quick 261102-di4 (D-02): dasselbe gilt fuer die Job-Quelle —
+                                    // eine versendete Mail ist keine Vorlage, ihre Job-Id wird NIE
+                                    // als template_id durchgereicht (strukturell erzwungen durch
+                                    // ComposeSource::template_id()).
+                                    let template_id_owned: Option<String> = compose_source
+                                        .read()
+                                        .template_id()
+                                        .map(|s| s.to_string());
                                     let phase_id = *repayment_phase_id.read();
                                     // Quick 260603-e6p: capture the opt-in flag BEFORE the spawn
                                     // so the move-closure doesn't need to capture the Signal itself.
@@ -616,6 +650,12 @@ pub fn MailPage() -> Element {
                                                 // reset the WysiwygEditor's
                                                 // companion body_html signal.
                                                 body_html.set(String::new());
+                                                // Quick 261102-di4: Quelle
+                                                // zuruecksetzen — sonst behaelt
+                                                // der Editor den Key der letzten
+                                                // Quelle und seedet den geleerten
+                                                // Body nicht.
+                                                compose_source.set(ComposeSource::None);
                                                 attach_repayment_letter.set(false);
                                             }
                                             Err(e) => {

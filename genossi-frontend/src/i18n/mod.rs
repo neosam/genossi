@@ -362,6 +362,12 @@ pub enum Key {
     MailTemplateFormal,
     MailTemplateInformal,
     MailTemplateSelect,
+    // Quick 261102-di4: Umschaltung der Textquelle im TemplateSelector
+    // (Vorlage <-> frueher versendete Mail).
+    MailSourceLabel,
+    MailSourceTemplate,
+    MailSourceSentMail,
+    MailSourceSentMailSelect,
     MailTemplates,
     MailTemplateCreate,
     MailTemplateSave,

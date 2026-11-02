@@ -139,9 +139,26 @@ pub fn TemplateSelector(
     // Compose-Seite mit der „Zahlungserinnerung" vorbefuellt oeffnet. `None` =
     // Platzhalter „Vorlage waehlen…" wie bisher.
     #[props(default)] initial_template_id: Option<String>,
+    // Quick 261102-di4 (D-03): opt-in zweite Textquelle „versendete Mail".
+    // `false` (Default) haelt Rendering UND Netzwerkverhalten identisch zum
+    // Stand vor diesem Quick — insbesondere wird `get_mail_jobs` dann nie
+    // aufgerufen. `reply_form.rs` (Antwort auf eine EINGEGANGENE Mail) und
+    // `application_compose.rs` brauchen diese Quelle fachlich nicht.
+    #[props(default)] allow_sent_mails: bool,
+    // Quick 261102-di4 (D-08): eigener Callback fuer die Job-Quelle. Bewusst
+    // NICHT `on_select`: der Vorlagen-Pfad in `mail_page.rs` haengt dort den
+    // Footer an, der im Body einer versendeten Mail schon enthalten ist — ein
+    // zweites Anhaengen wuerde die Grussformel verdoppeln.
+    #[props(default)] on_select_sent_job: EventHandler<SentMailSelection>,
 ) -> Element {
     let i18n = use_i18n();
     let mut templates = use_signal(Vec::<MailTemplateTO>::new);
+    // Quick 261102-di4: geladene Mail-Jobs als zweite Textquelle; bleibt leer,
+    // solange `allow_sent_mails` false ist (der Request passiert dann nicht).
+    let mut jobs = use_signal(Vec::<MailJobTO>::new);
+    // Quick 261102-di4: aktive Betriebsart des `<select>` — false = Vorlagen
+    // (unveraendertes Verhalten), true = versendete Mails.
+    let mut sent_mode = use_signal(|| false);
     // Phase 32 (D-03): gespiegelter Auswahl-Zustand, damit das `<select>` die
     // vorbefuellte bzw. zuletzt gewaehlte Vorlage anzeigt (controlled input).
     let mut selected = use_signal(|| initial_template_id.clone().unwrap_or_default());
@@ -155,6 +172,23 @@ pub fn TemplateSelector(
         });
     });
 
+    // Quick 261102-di4 (D-03): Mail-Jobs NUR laden, wenn die zweite Textquelle
+    // ueberhaupt angeboten wird. Dass dieser Request bei `allow_sent_mails ==
+    // false` nicht passiert, ist die messbare Rueckwaerts-Kompatibilitaets-
+    // Garantie fuer die beiden anderen Aufrufstellen. Fehler werden still
+    // verworfen — identisch zur Template-Ladelogik oberhalb.
+    use_effect(move || {
+        if !allow_sent_mails {
+            return;
+        }
+        spawn(async move {
+            let config = CONFIG.read().clone();
+            if let Ok(data) = api::get_mail_jobs(&config).await {
+                jobs.set(data);
+            }
+        });
+    });
+
     // Phase 32 (D-03): optionale Filterung auf eine Zielgruppe. Bei `None`
     // unveraendert alle geladenen Vorlagen (Backward-Compat MailPage).
     let visible: Vec<MailTemplateTO> = match filter_type.as_ref() {
@@ -162,16 +196,98 @@ pub fn TemplateSelector(
         None => templates.read().clone(),
     };
 
+    // Quick 261102-di4: der Job-Modus ist nur erreichbar, wenn die Quelle
+    // ueberhaupt erlaubt ist.
+    let in_sent_mode = allow_sent_mails && *sent_mode.read();
+    let sent_jobs: Vec<MailJobTO> = if allow_sent_mails {
+        sent_mail_sources(&jobs.read(), SENT_MAIL_SOURCE_LIMIT)
+    } else {
+        Vec::new()
+    };
+    const SOURCE_BTN_BASE: &str = "px-3 py-1.5 text-sm rounded";
+    const SOURCE_BTN_ACTIVE: &str = "bg-blue-600 text-white";
+    const SOURCE_BTN_INACTIVE: &str = "bg-white text-gray-700 border";
+    let (tpl_btn_class, sent_btn_class) = if in_sent_mode {
+        (SOURCE_BTN_INACTIVE, SOURCE_BTN_ACTIVE)
+    } else {
+        (SOURCE_BTN_ACTIVE, SOURCE_BTN_INACTIVE)
+    };
+
     rsx! {
         div {
-            label { class: "block text-sm font-medium text-gray-700 mb-1", "Vorlage" }
+            if allow_sent_mails {
+                // Quick 261102-di4: Umschaltung der Textquelle IM Selector
+                // (Nutzer-Vorgabe: kein zweiter Knopf daneben). `r#type:
+                // "button"` + `onclick` — nie `form`/`onsubmit`, das loest in
+                // diesem Frontend einen Page-Reload aus.
+                div { class: "mb-2",
+                    label { class: "block text-sm font-medium text-gray-700 mb-1",
+                        {i18n.t(Key::MailSourceLabel)}
+                    }
+                    div { class: "flex gap-2",
+                        button {
+                            r#type: "button",
+                            class: "{SOURCE_BTN_BASE} {tpl_btn_class}",
+                            onclick: move |_| {
+                                sent_mode.set(false);
+                                // Controlled `<select>`: ohne Reset zeigte es
+                                // eine ID aus der anderen Liste.
+                                selected.set(String::new());
+                                // D-02: beim Quellen-Wechsel darf kein altes
+                                // `template_id` als Versand-Parameter stehen
+                                // bleiben.
+                                on_select_id.call(None);
+                            },
+                            {i18n.t(Key::MailSourceTemplate)}
+                        }
+                        button {
+                            r#type: "button",
+                            class: "{SOURCE_BTN_BASE} {sent_btn_class}",
+                            onclick: move |_| {
+                                sent_mode.set(true);
+                                selected.set(String::new());
+                                on_select_id.call(None);
+                            },
+                            {i18n.t(Key::MailSourceSentMail)}
+                        }
+                    }
+                }
+            } else {
+                label { class: "block text-sm font-medium text-gray-700 mb-1", "Vorlage" }
+            }
             select {
                 class: "w-full border rounded px-3 py-2 text-sm",
                 value: "{selected}",
                 onchange: move |e| {
                     let val = e.value();
                     selected.set(val.clone());
-                    if val.is_empty() {
+                    if allow_sent_mails && *sent_mode.read() {
+                        // Quick 261102-di4: Job-Quelle. Die Auswahl wird VOR dem
+                        // Callback aus dem Signal geklont, damit kein Read-Guard
+                        // auf `jobs` offen ist, waehrend der Aufrufer Signale
+                        // schreibt.
+                        let sel = jobs
+                            .read()
+                            .iter()
+                            .find(|j| j.id == val)
+                            .map(|job| SentMailSelection {
+                                job_id: job.id.clone(),
+                                subject: job.subject.clone(),
+                                body: job.body.clone(),
+                                body_html: job_body_html(job),
+                            });
+                        match sel {
+                            Some(sel) => {
+                                on_select_sent_job.call(sel);
+                                // D-02: `template_id` muss auch dann leer sein,
+                                // wenn vorher eine Vorlage gewaehlt war — eine
+                                // versendete Mail ist keine Vorlage.
+                                on_select_id.call(None);
+                            }
+                            // Platzhalter-Option (leerer Wert) oder unbekannte Id.
+                            None => on_select_id.call(None),
+                        }
+                    } else if val.is_empty() {
                         // "Vorlage waehlen..."-Option (empty value): Reset selection
                         on_select_id.call(None);
                     } else if let Some(tpl) = templates.read().iter().find(|t| t.id == val) {
@@ -181,11 +297,21 @@ pub fn TemplateSelector(
                         on_select_id.call(Some(tpl.id.clone()));
                     }
                 },
-                option { value: "", {i18n.t(Key::MailTemplateSelect)} }
-                for tpl in visible.iter() {
-                    option {
-                        value: "{tpl.id}",
-                        "{tpl.name}"
+                if in_sent_mode {
+                    option { value: "", {i18n.t(Key::MailSourceSentMailSelect)} }
+                    for job in sent_jobs.iter() {
+                        option {
+                            value: "{job.id}",
+                            {sent_mail_option_label(&job.subject, &i18n.format_datetime(&job.created))}
+                        }
+                    }
+                } else {
+                    option { value: "", {i18n.t(Key::MailTemplateSelect)} }
+                    for tpl in visible.iter() {
+                        option {
+                            value: "{tpl.id}",
+                            "{tpl.name}"
+                        }
                     }
                 }
             }
