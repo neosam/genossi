@@ -5,9 +5,9 @@ milestone_name: Antragsteller-Kommunikation
 current_phase: 32
 status: completed
 stopped_at: Phase 32 abgeschlossen (UAT abgenommen) — Milestone v1.6 komplett
-last_updated: "2026-09-08T00:00:00.000Z"
-last_activity: 2026-08-21
-last_activity_desc: Quick 260908-cjo complete
+last_updated: "2026-11-02T00:00:00.000Z"
+last_activity: 2026-11-02
+last_activity_desc: Quick 261102-di4 complete
 progress:
   total_phases: 4
   completed_phases: 4
@@ -34,7 +34,7 @@ See: `.planning/PROJECT.md` (updated 2026-08-12 mit v1.6 Current Milestone)
 Phase: 32
 Plan: Not started
 Status: All phases complete
-Last activity: 2026-09-08 — Completed quick task 260908-cjo: Backfill rekonstruiert abgeschlossene Repayment-Phasen (historischer, status-agnostischer Resolver nur im Backfill; Live-Versandpfad unveraendert; `genossi_mail` ohne Diff)
+Last activity: 2026-11-02 — Completed quick task 261102-di4: Compose-Quelle umschaltbar (Vorlage | versendete Mail) — ComposeSource loest die Doppelrolle von selected_template_id auf (Remount-Key vs. Versand-Parameter); allow_sent_mails ist opt-in, reply_form/application_compose unveraendert; kein Backend-Crate beruehrt
 
 ### v1.6 Phase Structure (Phases 29-32, granularity: coarse)
 
