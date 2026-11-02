@@ -405,7 +405,10 @@ pub async fn upload_member_document(
 /// PNG/JPEG/GIF + 5 MB validation is server-side (magic-byte sniff + body
 /// limit, T-27-16). `map_web_response_error` surfaces the 415/401 branches
 /// consistently with `upload_member_document`.
-pub async fn upload_mail_asset(config: &Config, file: web_sys::File) -> Result<MailAssetTO, AppError> {
+pub async fn upload_mail_asset(
+    config: &Config,
+    file: web_sys::File,
+) -> Result<MailAssetTO, AppError> {
     use wasm_bindgen::JsCast;
     use wasm_bindgen_futures::JsFuture;
 
@@ -996,6 +999,15 @@ pub struct MailJobTO {
     /// identical for non-repayment jobs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repayment_phase_id: Option<String>,
+    /// Quick 261102-di4 (D-04): mirror of the backend `MailJobTO.body_html`
+    /// (server-side ammonia-sanitised HTML of the sent mail). Used by the
+    /// "versendete Mail" text source so that taking over an earlier mail keeps
+    /// its formatting (lists, headings) instead of degrading to plain text.
+    /// `#[serde(default)]` keeps backward-compat with backend versions that do
+    /// not emit the field; `skip_serializing_if` keeps the wire shape identical
+    /// for text-only jobs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body_html: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -1829,10 +1841,7 @@ pub async fn get_application_communications(
     id: Uuid,
 ) -> Result<Vec<rest_types::CommunicationEntryTO>, AppError> {
     info!("Fetching communications for application {id}");
-    let url = format!(
-        "{}/api/applications/{}/communications",
-        config.backend, id
-    );
+    let url = format!("{}/api/applications/{}/communications", config.backend, id);
     let response = check_response(reqwest::get(url).await?).await?;
     Ok(response.json().await?)
 }
@@ -1859,13 +1868,9 @@ pub fn filter_templates_by_type(
 pub fn last_outbound_summary(
     entries: &[rest_types::CommunicationEntryTO],
 ) -> Option<(String, Option<String>, String)> {
-    entries.first().map(|e| {
-        (
-            e.subject.clone(),
-            e.outbound_status.clone(),
-            e.date.clone(),
-        )
-    })
+    entries
+        .first()
+        .map(|e| (e.subject.clone(), e.outbound_status.clone(), e.date.clone()))
 }
 
 pub async fn get_audit_log(
@@ -2899,6 +2904,43 @@ mod tests {
         assert_eq!(r.rendered_body.as_deref(), Some("Text für Max"));
     }
 
+    // Quick 261102-di4: `body_html` is the formatting-preserving source for the
+    // "versendete Mail" text source. Older backends do not emit the field, so
+    // the mirror must deserialize both with and without it.
+    #[test]
+    fn test_mail_job_to_deserializes_without_body_html() {
+        let json = r#"{
+            "id": "j1",
+            "created": "2026-11-01T10:00:00Z",
+            "subject": "Einladung",
+            "body": "Hallo {{ first_name }}",
+            "status": "done",
+            "total_count": 3,
+            "sent_count": 3,
+            "failed_count": 0
+        }"#;
+        let j: MailJobTO = serde_json::from_str(json).unwrap();
+        assert_eq!(j.subject, "Einladung");
+        assert!(j.body_html.is_none());
+    }
+
+    #[test]
+    fn test_mail_job_to_deserializes_with_body_html() {
+        let json = r#"{
+            "id": "j2",
+            "created": "2026-11-02T10:00:00Z",
+            "subject": "Einladung",
+            "body": "Hallo",
+            "status": "done",
+            "total_count": 1,
+            "sent_count": 1,
+            "failed_count": 0,
+            "body_html": "<p>Hallo</p>"
+        }"#;
+        let j: MailJobTO = serde_json::from_str(json).unwrap();
+        assert_eq!(j.body_html.as_deref(), Some("<p>Hallo</p>"));
+    }
+
     #[test]
     fn test_status_to_message_known_codes() {
         assert_eq!(status_to_message(400), "Ungültige Anfrage");
@@ -2999,8 +3041,14 @@ mod tests {
             template_id: None,
         };
         let json = serde_json::to_string(&req).unwrap();
-        assert!(!json.contains("body_html"), "body_html darf bei None fehlen: {json}");
-        assert!(!json.contains("template_id"), "template_id darf bei None fehlen: {json}");
+        assert!(
+            !json.contains("body_html"),
+            "body_html darf bei None fehlen: {json}"
+        );
+        assert!(
+            !json.contains("template_id"),
+            "template_id darf bei None fehlen: {json}"
+        );
         assert!(json.contains("\"subject\":\"Betreff\""));
         assert!(json.contains("\"body\":\"Text\""));
     }
@@ -3032,7 +3080,11 @@ mod tests {
         }
     }
 
-    fn outbound_entry(subject: &str, date: &str, status: Option<&str>) -> rest_types::CommunicationEntryTO {
+    fn outbound_entry(
+        subject: &str,
+        date: &str,
+        status: Option<&str>,
+    ) -> rest_types::CommunicationEntryTO {
         rest_types::CommunicationEntryTO {
             direction: rest_types::CommunicationDirection::Outbound,
             date: date.into(),
