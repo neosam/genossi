@@ -19,7 +19,10 @@ pub use template_preview::TemplatePreview;
 // Doppelrolle des alten selected_template_id-Signals auf) und die Nutzlast des
 // neuen on_select_sent_job-Callbacks. Die reinen Helper-Funktionen bleiben
 // ueber den Modulpfad erreichbar.
-pub use template_selector::{ComposeSource, SentMailSelection, TemplateSelector};
+// Quick 261102-elc: SelectorCallback zusaetzlich, weil `mail_page.rs` seine
+// Quellen-Transitionen ueber `ComposeSource::apply` fuehrt — dieselbe Funktion,
+// die der Test der Callback-Folge nachspielt.
+pub use template_selector::{ComposeSource, SelectorCallback, SentMailSelection, TemplateSelector};
 pub use template_tester::TemplateTester;
 pub use template_var_buttons::TemplateVarButtons;
 pub use wysiwyg_editor::{plain_to_html, WysiwygEditor};

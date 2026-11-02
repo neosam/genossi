@@ -54,6 +54,26 @@ impl ComposeSource {
             ComposeSource::None | ComposeSource::SentJob(_) => None,
         }
     }
+
+    /// Quick 261102-elc: die Quelle, die nach einem Callback-Aufruf gilt.
+    ///
+    /// Das ist die EINE Stelle, an der ein Selector-Callback auf eine
+    /// `ComposeSource` abgebildet wird — `mail_page.rs` ruft sie in seinen
+    /// Handlern auf, und der Test faltet sie mit `compose_source_after` ueber
+    /// eine ganze Callback-Folge. Dadurch kann die Verdrahtung nicht mehr still
+    /// von dem abweichen, was der Test prueft.
+    ///
+    /// `Body` laesst die Quelle absichtlich unveraendert: dieser Callback
+    /// befuellt nur Body/Body-HTML und laeuft im Vorlagen-Pfad VOR dem
+    /// `Id`, das die Quelle setzt.
+    pub fn apply(&self, call: &SelectorCallback) -> ComposeSource {
+        match call {
+            SelectorCallback::Body(_) => self.clone(),
+            SelectorCallback::Id(None) => ComposeSource::None,
+            SelectorCallback::Id(Some(id)) => ComposeSource::Template(id.clone()),
+            SelectorCallback::SentJob(sel) => ComposeSource::SentJob(sel.job_id.clone()),
+        }
+    }
 }
 
 /// Quick 261102-di4: Nutzlast des `on_select_sent_job`-Callbacks — Betreff und
@@ -65,6 +85,74 @@ pub struct SentMailSelection {
     pub subject: String,
     pub body: String,
     pub body_html: String,
+}
+
+/// Quick 261102-elc: ein Callback-Aufruf, den die `<select>`-Auswahl ausloest.
+///
+/// Macht die Reihenfolge der Callbacks zu Daten statt zu Kontrollfluss im
+/// `onchange`-Handler. Grund: der Handler rief fuer eine Job-Auswahl erst
+/// `on_select_sent_job` und danach `on_select_id(None)` — der zweite Aufruf
+/// ueberschrieb das `compose_source`, das der erste gerade gesetzt hatte, der
+/// Remount-Key blieb `__no_source__`, und der `WysiwygEditor` zeigte weiter
+/// leeren Text. Als Daten ist diese Folge testbar.
+#[derive(Clone, Debug, PartialEq)]
+pub enum SelectorCallback {
+    /// Prop `on_select` — Plain-Text-Body einer Vorlage.
+    Body(String),
+    /// Prop `on_select_id` — Versand-Parameter `template_id`, `None` setzt
+    /// die Auswahl zurueck.
+    Id(Option<String>),
+    /// Prop `on_select_sent_job` — Betreff/Text einer versendeten Mail.
+    SentJob(SentMailSelection),
+}
+
+/// Quick 261102-elc: die REINE Entscheidungslogik des `onchange`-Handlers.
+///
+/// Liefert fuer eine Auswahl die vollstaendige, geordnete Folge der zu
+/// feuernden Callbacks. Der Handler ist danach nur noch ein Adapter, der diese
+/// Folge abspielt — die Entscheidung selbst ist ohne Dioxus-Runtime testbar.
+///
+/// Wichtig fuer den Job-Pfad: die Folge enthaelt **ausschliesslich**
+/// `SentJob`. Ein nachgelagertes `Id(None)` waere genau der Bug,
+/// den dieser Quick behebt — `ComposeSource::SentJob` liefert per Konstruktion
+/// `template_id() == None`, ein Reset ist also nicht nur schaedlich, sondern
+/// ueberfluessig.
+///
+/// `on_select` laeuft auf dem Job-Pfad bewusst nicht: er haengt in
+/// `mail_page.rs` den Footer an, der im Body einer versendeten Mail schon
+/// enthalten ist (261102-di4 D-08).
+pub fn selector_callbacks(
+    sent_mode: bool,
+    value: &str,
+    jobs: &[MailJobTO],
+    templates: &[MailTemplateTO],
+) -> Vec<SelectorCallback> {
+    if sent_mode {
+        return match jobs.iter().find(|j| j.id == value) {
+            Some(job) => vec![SelectorCallback::SentJob(SentMailSelection {
+                job_id: job.id.clone(),
+                subject: job.subject.clone(),
+                body: job.body.clone(),
+                body_html: job_body_html(job),
+            })],
+            // Platzhalter-Option (leerer Wert) oder unbekannte Id.
+            None => vec![SelectorCallback::Id(None)],
+        };
+    }
+    if value.is_empty() {
+        // "Vorlage waehlen..."-Option: Auswahl zuruecksetzen.
+        return vec![SelectorCallback::Id(None)];
+    }
+    match templates.iter().find(|t| t.id == value) {
+        // Phase 12 D-18: erst der Body, dann die Id — `Id` ist der
+        // Aufruf, der die Quelle setzt, und muss deshalb zuletzt kommen.
+        Some(tpl) => vec![
+            SelectorCallback::Body(tpl.body.clone()),
+            SelectorCallback::Id(Some(tpl.id.clone())),
+        ],
+        // Unbekannte Vorlagen-Id: wie bisher passiert nichts.
+        None => Vec::new(),
+    }
 }
 
 /// Quick 261102-di4 (D-06): die als Textquelle anbietbaren Mail-Jobs.
@@ -261,40 +349,28 @@ pub fn TemplateSelector(
                 onchange: move |e| {
                     let val = e.value();
                     selected.set(val.clone());
-                    if allow_sent_mails && *sent_mode.read() {
-                        // Quick 261102-di4: Job-Quelle. Die Auswahl wird VOR dem
-                        // Callback aus dem Signal geklont, damit kein Read-Guard
-                        // auf `jobs` offen ist, waehrend der Aufrufer Signale
-                        // schreibt.
-                        let sel = jobs
-                            .read()
-                            .iter()
-                            .find(|j| j.id == val)
-                            .map(|job| SentMailSelection {
-                                job_id: job.id.clone(),
-                                subject: job.subject.clone(),
-                                body: job.body.clone(),
-                                body_html: job_body_html(job),
-                            });
-                        match sel {
-                            Some(sel) => {
-                                on_select_sent_job.call(sel);
-                                // D-02: `template_id` muss auch dann leer sein,
-                                // wenn vorher eine Vorlage gewaehlt war — eine
-                                // versendete Mail ist keine Vorlage.
-                                on_select_id.call(None);
-                            }
-                            // Platzhalter-Option (leerer Wert) oder unbekannte Id.
-                            None => on_select_id.call(None),
+                    // Quick 261102-elc: die Entscheidung trifft die reine
+                    // `selector_callbacks`; dieser Handler ist nur noch ihr
+                    // Adapter. Die Folge wird VOR dem ersten Callback
+                    // vollstaendig berechnet, damit kein Read-Guard auf
+                    // `jobs`/`templates` offen ist, waehrend der Aufrufer
+                    // Signale schreibt.
+                    let calls = {
+                        let jobs_ref = jobs.read();
+                        let templates_ref = templates.read();
+                        selector_callbacks(
+                            allow_sent_mails && *sent_mode.read(),
+                            &val,
+                            &jobs_ref,
+                            &templates_ref,
+                        )
+                    };
+                    for call in calls {
+                        match call {
+                            SelectorCallback::Body(body) => on_select.call(body),
+                            SelectorCallback::Id(id) => on_select_id.call(id),
+                            SelectorCallback::SentJob(sel) => on_select_sent_job.call(sel),
                         }
-                    } else if val.is_empty() {
-                        // "Vorlage waehlen..."-Option (empty value): Reset selection
-                        on_select_id.call(None);
-                    } else if let Some(tpl) = templates.read().iter().find(|t| t.id == val) {
-                        on_select.call(tpl.body.clone());
-                        // Phase 12 D-18 / Issue #2 BLOCKER-Fix: deliver template ID
-                        // to caller so send_bulk_mail can populate `template_id`.
-                        on_select_id.call(Some(tpl.id.clone()));
                     }
                 },
                 if in_sent_mode {
@@ -350,6 +426,208 @@ mod tests {
             repayment_phase_id: None,
             body_html: body_html.map(|h| h.to_string()),
         }
+    }
+
+    /// Quick 261102-elc: die Quelle nach einer ganzen Callback-Folge.
+    ///
+    /// Faltet die produktive `ComposeSource::apply` ueber die Folge aus
+    /// `selector_callbacks` und beantwortet damit die Frage, die der Fehler
+    /// aufwarf: welche Quelle — und damit welcher Remount-Key des
+    /// `WysiwygEditor` — gilt am Ende einer Auswahl? Bewusst nur eine Faltung
+    /// ohne eigene Logik, damit hier nichts simuliert wird, was produktiv
+    /// anders laeuft.
+    fn compose_source_after(previous: &ComposeSource, calls: &[SelectorCallback]) -> ComposeSource {
+        calls.iter().fold(previous.clone(), |acc, c| acc.apply(c))
+    }
+
+    fn tpl(id: &str, name: &str, body: &str) -> MailTemplateTO {
+        MailTemplateTO {
+            id: id.to_string(),
+            name: name.to_string(),
+            subject: "Betreff".to_string(),
+            body: body.to_string(),
+            body_html: None,
+            template_type: "member".to_string(),
+            version: "v1".to_string(),
+        }
+    }
+
+    // --- Quick 261102-elc: Handler-Ebene ---------------------------------
+    //
+    // Die Tests oberhalb/unterhalb pruefen `ComposeSource` und die Helper
+    // ISOLIERT. Genau das liess den Fehler durch: der Handler rief fuer eine
+    // Job-Auswahl `on_select_sent_job` UND danach `on_select_id(None)`, was
+    // das gerade gesetzte `compose_source` sofort auf `None` zuruecksetzte —
+    // ein korrektes Enum, von der Verdrahtung aufgehoben. Die folgenden Tests
+    // pruefen deshalb die Callback-FOLGE und die daraus resultierende Quelle.
+
+    /// Der Regressionstest fuer 261102-elc: eine Job-Auswahl feuert GENAU
+    /// einen Callback. Ein nachgelagertes `SelectId(None)` laesst diesen Test
+    /// scheitern — sowohl an der Folge selbst als auch an der resultierenden
+    /// Quelle.
+    #[test]
+    fn selecting_sent_mail_fires_only_the_job_callback() {
+        let jobs = vec![job(
+            "job-a",
+            "2026-11-01T10:00:00Z",
+            "Einladung",
+            "Hallo {{ first_name }}",
+            Some("<p>Hallo {{ first_name }}</p>"),
+            3,
+        )];
+        let calls = selector_callbacks(true, "job-a", &jobs, &[]);
+
+        assert_eq!(
+            calls,
+            vec![SelectorCallback::SentJob(SentMailSelection {
+                job_id: "job-a".to_string(),
+                subject: "Einladung".to_string(),
+                body: "Hallo {{ first_name }}".to_string(),
+                body_html: "<p>Hallo {{ first_name }}</p>".to_string(),
+            })],
+            "eine Job-Auswahl darf kein nachgelagertes on_select_id(None) feuern — \
+             das ueberschreibt die gerade gesetzte Quelle"
+        );
+    }
+
+    /// Dieselbe Eigenschaft als Wirkung formuliert: die Quelle nach der
+    /// Auswahl ist die Job-Quelle, nicht `None`. Mit dem alten
+    /// `on_select_id.call(None)` waere das Ergebnis `ComposeSource::None` und
+    /// der Editor-Key der unveraenderte `__no_source__` — kein Remount, leeres
+    /// Textfeld.
+    #[test]
+    fn selecting_sent_mail_results_in_sent_job_source() {
+        let jobs = vec![job(
+            "job-a",
+            "2026-11-01T10:00:00Z",
+            "Einladung",
+            "Text",
+            None,
+            1,
+        )];
+        let calls = selector_callbacks(true, "job-a", &jobs, &[]);
+        let source = compose_source_after(&ComposeSource::None, &calls);
+
+        assert_eq!(source, ComposeSource::SentJob("job-a".to_string()));
+        assert_ne!(
+            source.editor_key(),
+            COMPOSE_SOURCE_NONE_KEY,
+            "ohne Key-Wechsel gegenueber dem Ausgangszustand remountet der \
+             WysiwygEditor nicht und bleibt leer"
+        );
+        assert!(
+            source.template_id().is_none(),
+            "eine versendete Mail ist keine Vorlage"
+        );
+    }
+
+    /// Dieselbe Aussage wie `editor_key_differs_between_two_sent_jobs`, aber
+    /// eine Ebene hoeher: ueber die Callback-Folge des Handlers statt ueber das
+    /// Enum allein. Die zweite Auswahl startet von der Quelle, die die erste
+    /// hinterlassen hat.
+    #[test]
+    fn two_sent_mails_in_a_row_yield_different_editor_keys() {
+        let jobs = vec![
+            job("job-a", "2026-11-02T10:00:00Z", "A", "Text A", None, 1),
+            job("job-b", "2026-11-01T10:00:00Z", "B", "Text B", None, 1),
+        ];
+
+        let first = compose_source_after(
+            &ComposeSource::None,
+            &selector_callbacks(true, "job-a", &jobs, &[]),
+        );
+        let second = compose_source_after(&first, &selector_callbacks(true, "job-b", &jobs, &[]));
+
+        assert_eq!(first, ComposeSource::SentJob("job-a".to_string()));
+        assert_eq!(second, ComposeSource::SentJob("job-b".to_string()));
+        assert_ne!(first.editor_key(), second.editor_key());
+    }
+
+    /// Der Vorlagen-Pfad bleibt unveraendert: Body-Callback zuerst, dann die
+    /// Id, und die Quelle ist die Vorlage samt Versand-Parameter.
+    #[test]
+    fn selecting_template_still_sets_template_source_and_id() {
+        let templates = vec![tpl("tpl-1", "Zahlungserinnerung", "Hallo")];
+        let calls = selector_callbacks(false, "tpl-1", &[], &templates);
+
+        assert_eq!(
+            calls,
+            vec![
+                SelectorCallback::Body("Hallo".to_string()),
+                SelectorCallback::Id(Some("tpl-1".to_string())),
+            ]
+        );
+
+        let source = compose_source_after(&ComposeSource::None, &calls);
+        assert_eq!(source, ComposeSource::Template("tpl-1".to_string()));
+        assert_eq!(source.template_id(), Some("tpl-1"));
+    }
+
+    /// Nach einer Job-Auswahl muss eine Vorlagen-Auswahl die Quelle wieder auf
+    /// die Vorlage drehen — die Gegenrichtung des behobenen Fehlers.
+    #[test]
+    fn template_after_sent_mail_overwrites_the_job_source() {
+        let jobs = vec![job("job-a", "2026-11-01T10:00:00Z", "A", "Text", None, 1)];
+        let templates = vec![tpl("tpl-1", "Vorlage", "Hallo")];
+
+        let after_job = compose_source_after(
+            &ComposeSource::None,
+            &selector_callbacks(true, "job-a", &jobs, &[]),
+        );
+        let after_tpl = compose_source_after(
+            &after_job,
+            &selector_callbacks(false, "tpl-1", &jobs, &templates),
+        );
+
+        assert_eq!(after_tpl, ComposeSource::Template("tpl-1".to_string()));
+        assert_eq!(after_tpl.template_id(), Some("tpl-1"));
+    }
+
+    /// Die Platzhalter-Option setzt in BEIDEN Modi zurueck — dort ist
+    /// `on_select_id(None)` korrekt und bleibt erhalten.
+    #[test]
+    fn placeholder_option_resets_the_source_in_both_modes() {
+        let jobs = vec![job("job-a", "2026-11-01T10:00:00Z", "A", "Text", None, 1)];
+        let templates = vec![tpl("tpl-1", "Vorlage", "Hallo")];
+
+        for (sent_mode, previous) in [
+            (true, ComposeSource::SentJob("job-a".to_string())),
+            (false, ComposeSource::Template("tpl-1".to_string())),
+        ] {
+            let calls = selector_callbacks(sent_mode, "", &jobs, &templates);
+            assert_eq!(calls, vec![SelectorCallback::Id(None)]);
+            assert_eq!(
+                compose_source_after(&previous, &calls),
+                ComposeSource::None,
+                "Platzhalter-Option muss die Quelle zuruecksetzen (sent_mode={sent_mode})"
+            );
+        }
+    }
+
+    /// Eine unbekannte Job-Id (Liste inzwischen neu geladen) verhaelt sich wie
+    /// die Platzhalter-Option; eine unbekannte Vorlagen-Id aendert wie bisher
+    /// nichts.
+    #[test]
+    fn unknown_ids_keep_the_previous_behaviour() {
+        assert_eq!(
+            selector_callbacks(true, "ghost", &[], &[]),
+            vec![SelectorCallback::Id(None)]
+        );
+        assert_eq!(
+            selector_callbacks(false, "ghost", &[], &[]),
+            Vec::<SelectorCallback>::new()
+        );
+    }
+
+    /// `SelectBody` darf die Quelle nicht anfassen — genau diese Eigenschaft
+    /// macht die Reihenfolge im Vorlagen-Pfad unkritisch.
+    #[test]
+    fn select_body_leaves_the_source_untouched() {
+        let previous = ComposeSource::SentJob("job-a".to_string());
+        assert_eq!(
+            previous.apply(&SelectorCallback::Body("Hallo".to_string())),
+            previous
+        );
     }
 
     /// Zentraler Regressions-Pin fuer D-02: ohne diese Eigenschaft bleibt der

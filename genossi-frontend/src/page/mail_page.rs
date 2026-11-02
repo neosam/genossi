@@ -5,8 +5,8 @@ use uuid::Uuid;
 use crate::api::{self, BulkRecipient, MailJobDetailTO};
 use crate::auth::RequirePrivilege;
 use crate::component::mail_compose::{
-    plain_to_html, ComposeSource, MailAttachmentPicker, MailSubjectInput, SentMailSelection,
-    TemplatePreview, TemplateSelector, TemplateVarButtons, WysiwygEditor,
+    plain_to_html, ComposeSource, MailAttachmentPicker, MailSubjectInput, SelectorCallback,
+    SentMailSelection, TemplatePreview, TemplateSelector, TemplateVarButtons, WysiwygEditor,
 };
 // Quick 260614-ckn: status-Helper leben jetzt in der MailJobsList-Komponente
 // (DRY) und werden von MailJobDetail weiterhin genutzt.
@@ -418,11 +418,16 @@ pub fn MailPage() -> Element {
                                 // Phase 12 D-18 / Issue #2 BLOCKER-Fix:
                                 // store selected template id so send_bulk_mail can use it.
                                 on_select_id: move |id: Option<String>| {
-                                    compose_source
-                                        .set(match id {
-                                            Some(id) => ComposeSource::Template(id),
-                                            None => ComposeSource::None,
-                                        });
+                                    // Quick 261102-elc: die Transition liegt in
+                                    // `ComposeSource::apply`, nicht in einem
+                                    // `match` hier — so prueft der Test der
+                                    // Callback-Folge genau die Funktion, die
+                                    // produktiv laeuft, und beide koennen nicht
+                                    // auseinanderlaufen.
+                                    let next = compose_source
+                                        .read()
+                                        .apply(&SelectorCallback::Id(id));
+                                    compose_source.set(next);
                                 },
                                 // Quick 261102-di4: zweite Textquelle NUR hier
                                 // (nicht in reply_form.rs / application_compose.rs).
@@ -439,7 +444,15 @@ pub fn MailPage() -> Element {
                                     // versendeten Mail enthaelt den Footer schon
                                     // aus dem damaligen Versand; ein zweites
                                     // Anhaengen verdoppelt die Grussformel.
-                                    compose_source.set(ComposeSource::SentJob(sel.job_id));
+                                    // Quick 261102-elc: wie oben ueber `apply`.
+                                    // Dieser Handler setzte die Quelle schon
+                                    // vorher korrekt — kaputt war, dass der
+                                    // Selector danach `on_select_id(None)`
+                                    // feuerte und sie sofort wieder loeschte.
+                                    let next = compose_source
+                                        .read()
+                                        .apply(&SelectorCallback::SentJob(sel));
+                                    compose_source.set(next);
                                 },
                             }
                             // Phase 24 (EDIT-01, D-01): WysiwygEditor is the
